@@ -26,7 +26,6 @@ $container = new ContainerBuilder();
 $loader = new PhpFileLoader($container, new FileLocator(__DIR__ . '/../../config'));
 $loader->load('services.php');
 
-// i can make my own stribute and make it auto discover. for that i need my own compiler pass and register it like below
 $container->registerAttributeForAutoconfiguration(
     AsMessageHandler::class,
     static function (ChildDefinition $definition, AsMessageHandler $attribute) {
@@ -41,21 +40,6 @@ $container->registerAttributeForAutoconfiguration(
     }
 );
 
-// if i have a custom bus too, i need another locator just like this with my owns id with empty arguments
-// $container->register('messenger.bus.default.messenger.handlers_locator', HandlersLocator::class)
-//     ->setArguments([[]]);
-
-// this shit is called when a Message is dipatched right? i can create my own for my own bus right? can i also use this one for my own too?
-// $container->register('messenger.middleware.handle_message', HandleMessageMiddleware::class)
-//     ->setArguments([new Reference('messenger.bus.default.messenger.handlers_locator')]);
-
-
-// $container->register('messenger.bus.default', MessageBus::class)
-//     ->setArguments([
-//         [new Reference('messenger.middleware.handle_message')] # so is message bus is the one who calls middleware thing above??
-//     ])->addTag('messenger.bus'); #this tag says this is a message bus, if i create my own it also needs this same tag
-
-// this will take all the handlers with AsMessageHandler attribute and read eachs meta data and put it in to it relevent locator depending on its message bus, right?
 $container->addCompilerPass(new MessengerPass());
 
 

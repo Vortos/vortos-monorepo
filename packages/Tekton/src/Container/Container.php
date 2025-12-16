@@ -15,6 +15,7 @@ $container = new ContainerBuilder();
 //  setting up global parameters
 $container->setParameter('kernel.project_dir', __DIR__ . '/../../../../src');
 $container->setParameter('charset', 'UTF-8');
+$container->setParameter('kernel.log_path', __DIR__ . '/../../../../var/log');
 
 // loading framework specific services and configurations
 $extension = new TektonExtension();

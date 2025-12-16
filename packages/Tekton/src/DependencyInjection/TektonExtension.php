@@ -5,16 +5,18 @@ namespace Fortizan\Tekton\DependencyInjection;
 use Fortizan\Tekton\Attribute\ApiController;
 use Fortizan\Tekton\Bus\Command\Attribute\CommandHandler;
 use Fortizan\Tekton\Bus\Query\Attribute\QueryHandler;
+use Monolog\Level;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
+use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 
 class TektonExtension extends Extension
 {
-    public function load(array $configs, ContainerBuilder $container):void
+    public function load(array $configs, ContainerBuilder $container): void
     {
         $loader = new PhpFileLoader($container, new FileLocator(__DIR__ . '/../../config'));
         $loader->load('services.php');
@@ -22,10 +24,31 @@ class TektonExtension extends Extension
         $this->registerCqrsAttributes($container);
         $this->registerMessengerAttributes($container);
         $this->registerHttpAttributes($container);
-        
+        $this->configureMonolog($container);
     }
 
-    private function registerCqrsAttributes(ContainerBuilder $container):void
+    private function configureMonolog(ContainerBuilder $container): void
+    {
+        if (!$container->has('monolog.handler.main')) {
+            return;
+        }
+
+        $streamHandler = $container->findDefinition('monolog.handler.main');
+
+        if ($container->getParameter('kernel.env') === 'dev') {
+
+            $streamHandler->addMethodCall('setFormatter', [new Reference('monolog.formatter.line')]);
+            $streamHandler->addArgument('%kernel.log_path%/%kernel.env%.log');
+            $streamHandler->addArgument(Level::Debug);
+        } else {
+
+            $streamHandler->addMethodCall('setFormatter', [new Reference('monolog.formatter.json')]);
+            $streamHandler->addArgument('php://stderr');
+            $streamHandler->addArgument(Level::Error);
+        }
+    }
+
+    private function registerCqrsAttributes(ContainerBuilder $container): void
     {
         $container->registerAttributeForAutoconfiguration(
             CommandHandler::class,
@@ -47,7 +70,7 @@ class TektonExtension extends Extension
         );
     }
 
-    private function registerMessengerAttributes(ContainerBuilder $container): void 
+    private function registerMessengerAttributes(ContainerBuilder $container): void
     {
         $container->registerAttributeForAutoconfiguration(
             AsMessageHandler::class,
@@ -64,7 +87,7 @@ class TektonExtension extends Extension
         );
     }
 
-    private function registerHttpAttributes(ContainerBuilder $container): void 
+    private function registerHttpAttributes(ContainerBuilder $container): void
     {
         $container->registerAttributeForAutoconfiguration(
             ApiController::class,

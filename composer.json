@@ -13,8 +13,7 @@
     }
   ],
   "require": {
-    "fortizan/tekton": "@dev",
-    "symfony/dotenv": "^8.0"
+    "fortizan/tekton": "@dev"
   },
   "require-dev": {
     "phpunit/phpunit": "^11.0"

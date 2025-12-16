@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Fortizan\Tekton\Controller\ErrorController;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Dumper\PhpDumper;
 use Symfony\Component\Dotenv\Dotenv;    
 use Symfony\Component\ErrorHandler\Debug;
@@ -65,18 +66,21 @@ try{
 
 }catch(\Throwable $e){
 
-    error_log(sprintf(
-        "[CRITICAL STARTUP ERROR] %s in %s:%d Trace: %s",
-        $e->getMessage(),
-        $e->getFile(),
-        $e->getLine(),
-        $e->getTraceAsString()
-    ));
+    $logger = null;
+    if(isset($container)){
+        try {
+            if($container->get(LoggerInterface::class)){
+                $logger = $container->get(LoggerInterface::class);
+            }
+        } catch (\Throwable $th) {
+            
+        }
+    }
 
     if(!$request){
         $request = Request::createFromGlobals();
     }
 
-    $errorController = new ErrorController($debug);
+    $errorController = new ErrorController($debug, $logger);
     $errorController->__invoke($e, $request)->send();
 }

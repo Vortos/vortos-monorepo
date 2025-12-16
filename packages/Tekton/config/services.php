@@ -16,6 +16,7 @@ return static function (ContainerConfigurator $configurator) {
     $configurator->import('./packages/messenger.php');
     $configurator->import('./packages/route.php');
     $configurator->import('./packages/event.php');
+    $configurator->import('./packages/monolog.php');
 
     $services->load('Fortizan\\Tekton\\', '../src')
         ->exclude([

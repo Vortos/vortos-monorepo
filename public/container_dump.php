@@ -72,6 +72,7 @@ class CachedContainer extends Container
             'Fortizan\\Tekton\\Http\\Event\\TestEvent' => true,
             'Fortizan\\Tekton\\Http\\Kernel' => true,
             'Fortizan\\Tekton\\Routing\\RouteAttributeClassLoader' => true,
+            'Psr\\Log\\LoggerInterface' => true,
             'Symfony\\Component\\EventDispatcher\\EventDispatcher' => true,
             'Symfony\\Component\\HttpFoundation\\RequestStack' => true,
             'Symfony\\Component\\HttpKernel\\Controller\\ArgumentResolver' => true,
@@ -87,6 +88,11 @@ class CachedContainer extends Container
             'messenger.bus.default' => true,
             'messenger.bus.default.messenger.handlers_locator' => true,
             'messenger.middleware.handle_message' => true,
+            'monolog.formatter.json' => true,
+            'monolog.formatter.line' => true,
+            'monolog.handler.main' => true,
+            'monolog.logger' => true,
+            'monolog.processor.introspection' => true,
             'tekton.bus.command' => true,
             'tekton.bus.command.locator' => true,
             'tekton.bus.command.messenger.handlers_locator' => true,
@@ -135,7 +141,7 @@ class CachedContainer extends Container
      */
     protected static function getErrorControllerService($container)
     {
-        return $container->services['Fortizan\\Tekton\\Controller\\ErrorController'] = new \Fortizan\Tekton\Controller\ErrorController(true);
+        return $container->services['Fortizan\\Tekton\\Controller\\ErrorController'] = new \Fortizan\Tekton\Controller\ErrorController(true, ($container->privates['monolog.logger'] ?? self::getMonolog_LoggerService($container)));
     }
 
     /**
@@ -175,7 +181,7 @@ class CachedContainer extends Container
      */
     protected static function getTektonService($container)
     {
-        return $container->services['tekton'] = new \Fortizan\Tekton\Http\Kernel(($container->privates['Symfony\\Component\\EventDispatcher\\EventDispatcher'] ?? self::getEventDispatcherService($container)), new \Symfony\Component\HttpKernel\Controller\ContainerControllerResolver($container), ($container->privates['Symfony\\Component\\HttpFoundation\\RequestStack'] ??= new \Symfony\Component\HttpFoundation\RequestStack()), new \Symfony\Component\HttpKernel\Controller\ArgumentResolver());
+        return $container->services['tekton'] = new \Fortizan\Tekton\Http\Kernel(($container->privates['Symfony\\Component\\EventDispatcher\\EventDispatcher'] ?? self::getEventDispatcherService($container)), new \Symfony\Component\HttpKernel\Controller\ContainerControllerResolver($container, ($container->privates['monolog.logger'] ?? self::getMonolog_LoggerService($container))), ($container->privates['Symfony\\Component\\HttpFoundation\\RequestStack'] ??= new \Symfony\Component\HttpFoundation\RequestStack()), new \Symfony\Component\HttpKernel\Controller\ArgumentResolver());
     }
 
     /**
@@ -188,13 +194,32 @@ class CachedContainer extends Container
         $container->privates['Symfony\\Component\\EventDispatcher\\EventDispatcher'] = $instance = new \Symfony\Component\EventDispatcher\EventDispatcher();
 
         $a = new \Symfony\Component\Routing\RequestContext();
+        $b = ($container->privates['monolog.logger'] ?? self::getMonolog_LoggerService($container));
 
-        $instance->addSubscriber(new \Symfony\Component\HttpKernel\EventListener\RouterListener(new \Symfony\Component\Routing\Matcher\UrlMatcher(($container->services['Symfony\\Component\\Routing\\RouteCollection'] ?? $container->get('Symfony\\Component\\Routing\\RouteCollection', 1)), $a), ($container->privates['Symfony\\Component\\HttpFoundation\\RequestStack'] ??= new \Symfony\Component\HttpFoundation\RequestStack()), $a));
+        $instance->addSubscriber(new \Symfony\Component\HttpKernel\EventListener\RouterListener(new \Symfony\Component\Routing\Matcher\UrlMatcher(($container->services['Symfony\\Component\\Routing\\RouteCollection'] ?? $container->get('Symfony\\Component\\Routing\\RouteCollection', 1)), $a), ($container->privates['Symfony\\Component\\HttpFoundation\\RequestStack'] ??= new \Symfony\Component\HttpFoundation\RequestStack()), $a, $b));
         $instance->addSubscriber(new \Symfony\Component\HttpKernel\EventListener\ResponseListener('UTF-8'));
-        $instance->addSubscriber(new \Symfony\Component\HttpKernel\EventListener\ErrorListener('Fortizan\\Tekton\\Controller\\ErrorController'));
+        $instance->addSubscriber(new \Symfony\Component\HttpKernel\EventListener\ErrorListener('Fortizan\\Tekton\\Controller\\ErrorController', $b));
         $instance->addSubscriber(($container->services['Fortizan\\Tekton\\EventListener\\ContentLengthListener'] ??= new \Fortizan\Tekton\EventListener\ContentLengthListener()));
         $instance->addSubscriber(($container->services['Fortizan\\Tekton\\EventListener\\GoogleListener'] ??= new \Fortizan\Tekton\EventListener\GoogleListener()));
         $instance->addSubscriber(($container->services['Fortizan\\Tekton\\EventListener\\StringResponseListener'] ??= new \Fortizan\Tekton\EventListener\StringResponseListener()));
+
+        return $instance;
+    }
+
+    /**
+     * Gets the private 'monolog.logger' shared service.
+     *
+     * @return \Monolog\Logger
+     */
+    protected static function getMonolog_LoggerService($container)
+    {
+        $container->privates['monolog.logger'] = $instance = new \Monolog\Logger('app');
+
+        $a = new \Monolog\Handler\StreamHandler('/home/celestis/Documents/learning/tekton/packages/Tekton/src/Container/../../../../var/log/dev.log', \Monolog\Level::Debug);
+        $a->setFormatter(new \Monolog\Formatter\LineFormatter());
+
+        $instance->pushHandler($a);
+        $instance->pushProcessor(new \Monolog\Processor\IntrospectionProcessor());
 
         return $instance;
     }
@@ -250,6 +275,7 @@ class CachedContainer extends Container
         return [
             'kernel.project_dir' => '/home/celestis/Documents/learning/tekton/packages/Tekton/src/Container/../../../../src',
             'charset' => 'UTF-8',
+            'kernel.log_path' => '/home/celestis/Documents/learning/tekton/packages/Tekton/src/Container/../../../../var/log',
             'kernel.env' => 'dev',
             'kernel.debug' => true,
         ];

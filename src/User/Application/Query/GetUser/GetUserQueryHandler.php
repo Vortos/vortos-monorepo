@@ -3,7 +3,10 @@
 namespace App\User\Application\Query\GetUser;
 
 use Fortizan\Tekton\Bus\Query\Attribute\QueryHandler;
+use MongoDB\Driver\Command;
+use MongoDB\Driver\Manager;
 use PDO;
+use Redis;
 
 #[QueryHandler] 
 class GetUserQueryHandler
@@ -12,9 +15,9 @@ class GetUserQueryHandler
     public function __invoke(GetUserQuery $query): GetUserResponse
     {
 
-        $redis = new \Redis();
+        $redis = new Redis();
         $redis->connect($_ENV['REDIS_HOST'], 6379);
-        $redis->set('key', "value");
+        $redis->set('key', "values");
         $cacheRedis = $redis->get('key');
 
 
@@ -24,8 +27,8 @@ class GetUserQueryHandler
             $_ENV['MONGO_HOST']
         );
 
-        $manager = new \MongoDB\Driver\Manager($mongoUrl);
-        $command = new \MongoDB\Driver\Command(['ping'=> 1]);
+        $manager = new Manager($mongoUrl);
+        $command = new Command(['ping'=> 1]);
         $cursor = $manager->executeCommand('admin', $command);
         $mongoStatus = $cursor->toArray()[0]->ok;
 

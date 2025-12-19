@@ -27,6 +27,7 @@ class CachedContainer extends Container
         $this->methodMap = [
             'App\\User\\Representation\\Controller\\CreateAnEventController' => 'getCreateAnEventControllerService',
             'App\\User\\Representation\\Controller\\GetUserController' => 'getGetUserControllerService',
+            'App\\User\\Representation\\Controller\\TestDoctrineController' => 'getTestDoctrineControllerService',
             'App\\User\\Representation\\Controller\\UserRegisterController' => 'getUserRegisterControllerService',
             'Fortizan\\Tekton\\Controller\\ErrorController' => 'getErrorControllerService',
             'Fortizan\\Tekton\\EventListener\\ContentLengthListener' => 'getContentLengthListenerService',
@@ -56,6 +57,9 @@ class CachedContainer extends Container
             'App\\User\\Application\\Query\\GetUser\\GetUserQuery' => true,
             'App\\User\\Application\\Query\\GetUser\\GetUserQueryHandler' => true,
             'App\\User\\Application\\Query\\GetUser\\GetUserResponse' => true,
+            'App\\User\\Domain\\Entity\\User' => true,
+            'App\\User\\Infrustructure\\Query\\DbalUserFinder' => true,
+            'App\\User\\Infrustructure\\Repository\\DoctrineUserRepository' => true,
             'App\\User\\Representation\\View' => true,
             'Fortizan\\Tekton\\Attribute\\ApiController' => true,
             'Fortizan\\Tekton\\Bus\\Command\\Attribute\\CommandHandler' => true,
@@ -63,6 +67,7 @@ class CachedContainer extends Container
             'Fortizan\\Tekton\\Bus\\Query\\Attribute\\QueryHandler' => true,
             'Fortizan\\Tekton\\Bus\\Query\\QueryBus' => true,
             'Fortizan\\Tekton\\Container\\Container' => true,
+            'Fortizan\\Tekton\\Database\\DoctrineFactory' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Cqrs\\CommandHandlerPass' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Cqrs\\QueryHandlerPass' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Http\\RegisterEventSubscribersPass' => true,
@@ -122,6 +127,16 @@ class CachedContainer extends Container
     protected static function getGetUserControllerService($container)
     {
         return $container->services['App\\User\\Representation\\Controller\\GetUserController'] = new \App\User\Representation\Controller\GetUserController(new \Fortizan\Tekton\Bus\Query\QueryBus(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Application\\Query\\GetUser\\GetUserQuery' => [new \App\User\Application\Query\GetUser\GetUserQueryHandler()]]))])));
+    }
+
+    /**
+     * Gets the public 'App\User\Representation\Controller\TestDoctrineController' shared autowired service.
+     *
+     * @return \App\User\Representation\Controller\TestDoctrineController
+     */
+    protected static function getTestDoctrineControllerService($container)
+    {
+        return $container->services['App\\User\\Representation\\Controller\\TestDoctrineController'] = new \App\User\Representation\Controller\TestDoctrineController();
     }
 
     /**

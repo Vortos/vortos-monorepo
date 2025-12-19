@@ -4,7 +4,7 @@
 
 namespace Composer\Autoload;
 
-class ComposerStaticInitb9ba53d64f345556087436a2b856849f
+class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
 {
     public static $files = array (
         '6e3fae29631ef280660b3cdad06f25a8' => __DIR__ . '/..' . '/symfony/deprecation-contracts/function.php',
@@ -14,9 +14,9 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
         '667aeda72477189d0494fecd327c3641' => __DIR__ . '/..' . '/symfony/var-dumper/Resources/functions/dump.php',
         '8825ede83f2f289127722d4e842cf7e8' => __DIR__ . '/..' . '/symfony/polyfill-intl-grapheme/bootstrap.php',
         'e69f7f6ee287b969198c3c9d6777bd38' => __DIR__ . '/..' . '/symfony/polyfill-intl-normalizer/bootstrap.php',
-        '2203a247e6fda86070a5e4e07aed533a' => __DIR__ . '/..' . '/symfony/clock/Resources/now.php',
         '9d2b9fc6db0f153a0a149fefb182415e' => __DIR__ . '/..' . '/symfony/polyfill-php84/bootstrap.php',
         'b6b991a57620e2fb6b2f66f03fe9ddc2' => __DIR__ . '/..' . '/symfony/string/Resources/functions.php',
+        '2203a247e6fda86070a5e4e07aed533a' => __DIR__ . '/..' . '/symfony/clock/Resources/now.php',
         '6124b4c8570aa390c21fafd04a26c69f' => __DIR__ . '/..' . '/myclabs/deep-copy/src/DeepCopy/deep_copy.php',
         'ec07570ca5a812141189b1fa81503674' => __DIR__ . '/..' . '/phpunit/phpunit/src/Framework/Assert/Functions.php',
     );
@@ -32,10 +32,12 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
             'Symfony\\Polyfill\\Ctype\\' => 23,
             'Symfony\\Contracts\\Service\\' => 26,
             'Symfony\\Contracts\\EventDispatcher\\' => 34,
+            'Symfony\\Contracts\\Cache\\' => 24,
             'Symfony\\Component\\Yaml\\' => 23,
             'Symfony\\Component\\VarExporter\\' => 30,
             'Symfony\\Component\\VarDumper\\' => 28,
             'Symfony\\Component\\String\\' => 25,
+            'Symfony\\Component\\Stopwatch\\' => 28,
             'Symfony\\Component\\Routing\\' => 26,
             'Symfony\\Component\\Messenger\\' => 28,
             'Symfony\\Component\\HttpKernel\\' => 29,
@@ -48,6 +50,7 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
             'Symfony\\Component\\Console\\' => 26,
             'Symfony\\Component\\Config\\' => 25,
             'Symfony\\Component\\Clock\\' => 24,
+            'Symfony\\Component\\Cache\\' => 24,
             'Symfony\\Bundle\\MonologBundle\\' => 29,
             'Symfony\\Bridge\\Monolog\\' => 23,
         ),
@@ -57,6 +60,7 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
             'Psr\\EventDispatcher\\' => 20,
             'Psr\\Container\\' => 14,
             'Psr\\Clock\\' => 10,
+            'Psr\\Cache\\' => 10,
             'PhpParser\\' => 10,
         ),
         'M' =>
@@ -69,6 +73,16 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
         ),
         'D' =>
         array (
+            'Doctrine\\Persistence\\' => 21,
+            'Doctrine\\ORM\\' => 13,
+            'Doctrine\\Migrations\\' => 20,
+            'Doctrine\\Instantiator\\' => 22,
+            'Doctrine\\Inflector\\' => 19,
+            'Doctrine\\Deprecations\\' => 22,
+            'Doctrine\\DBAL\\' => 14,
+            'Doctrine\\Common\\Lexer\\' => 22,
+            'Doctrine\\Common\\Collections\\' => 28,
+            'Doctrine\\Common\\' => 16,
             'DeepCopy\\' => 9,
         ),
         'A' =>
@@ -110,6 +124,10 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
         array (
             0 => __DIR__ . '/..' . '/symfony/event-dispatcher-contracts',
         ),
+        'Symfony\\Contracts\\Cache\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/symfony/cache-contracts',
+        ),
         'Symfony\\Component\\Yaml\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/yaml',
@@ -125,6 +143,10 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
         'Symfony\\Component\\String\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/string',
+        ),
+        'Symfony\\Component\\Stopwatch\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/symfony/stopwatch',
         ),
         'Symfony\\Component\\Routing\\' =>
         array (
@@ -174,6 +196,10 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
         array (
             0 => __DIR__ . '/..' . '/symfony/clock',
         ),
+        'Symfony\\Component\\Cache\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/symfony/cache',
+        ),
         'Symfony\\Bundle\\MonologBundle\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/monolog-bundle/src',
@@ -198,6 +224,10 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
         array (
             0 => __DIR__ . '/..' . '/psr/clock/src',
         ),
+        'Psr\\Cache\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/psr/cache/src',
+        ),
         'PhpParser\\' =>
         array (
             0 => __DIR__ . '/..' . '/nikic/php-parser/lib/PhpParser',
@@ -209,6 +239,46 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
         'Fortizan\\Tekton\\' =>
         array (
             0 => __DIR__ . '/..' . '/fortizan/tekton/src',
+        ),
+        'Doctrine\\Persistence\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/persistence/src/Persistence',
+        ),
+        'Doctrine\\ORM\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/orm/src',
+        ),
+        'Doctrine\\Migrations\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/migrations/src',
+        ),
+        'Doctrine\\Instantiator\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/instantiator/src/Doctrine/Instantiator',
+        ),
+        'Doctrine\\Inflector\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/inflector/src',
+        ),
+        'Doctrine\\Deprecations\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/deprecations/src',
+        ),
+        'Doctrine\\DBAL\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/dbal/src',
+        ),
+        'Doctrine\\Common\\Lexer\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/lexer/src',
+        ),
+        'Doctrine\\Common\\Collections\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/collections/src',
+        ),
+        'Doctrine\\Common\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/event-manager/src',
         ),
         'DeepCopy\\' =>
         array (
@@ -1452,14 +1522,15 @@ class ComposerStaticInitb9ba53d64f345556087436a2b856849f
         'TheSeer\\Tokenizer\\XMLSerializer' => __DIR__ . '/..' . '/theseer/tokenizer/src/XMLSerializer.php',
         'staabm\\SideEffectsDetector\\SideEffect' => __DIR__ . '/..' . '/staabm/side-effects-detector/lib/SideEffect.php',
         'staabm\\SideEffectsDetector\\SideEffectsDetector' => __DIR__ . '/..' . '/staabm/side-effects-detector/lib/SideEffectsDetector.php',
+        '©' => __DIR__ . '/..' . '/symfony/cache/Traits/ValueWrapper.php',
     );
 
     public static function getInitializer(ClassLoader $loader)
     {
         return \Closure::bind(function () use ($loader) {
-            $loader->prefixLengthsPsr4 = ComposerStaticInitb9ba53d64f345556087436a2b856849f::$prefixLengthsPsr4;
-            $loader->prefixDirsPsr4 = ComposerStaticInitb9ba53d64f345556087436a2b856849f::$prefixDirsPsr4;
-            $loader->classMap = ComposerStaticInitb9ba53d64f345556087436a2b856849f::$classMap;
+            $loader->prefixLengthsPsr4 = ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d::$prefixLengthsPsr4;
+            $loader->prefixDirsPsr4 = ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d::$prefixDirsPsr4;
+            $loader->classMap = ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d::$classMap;
 
         }, null, ClassLoader::class);
     }

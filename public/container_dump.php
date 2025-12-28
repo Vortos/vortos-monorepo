@@ -53,13 +53,17 @@ class CachedContainer extends Container
     public function getRemovedIds(): array
     {
         return [
-            'App\\Shared\\Infrastructure\\Database\\Migrations\\Version20251219165258' => true,
+            'App\\Shared\\Infrastructure\\Database\\Migrations\\Version20251228051847' => true,
             'App\\User\\Application\\Command\\RegisterUser\\RegisterUserCommand' => true,
             'App\\User\\Application\\Command\\RegisterUser\\RegisterUserCommandHandler' => true,
+            'App\\User\\Application\\Projection\\UserProjector' => true,
             'App\\User\\Application\\Query\\GetUser\\GetUserQuery' => true,
             'App\\User\\Application\\Query\\GetUser\\GetUserQueryHandler' => true,
             'App\\User\\Application\\Query\\GetUser\\GetUserResponse' => true,
             'App\\User\\Domain\\Entity\\User' => true,
+            'App\\User\\Domain\\Event\\UserCreatedEvent' => true,
+            'App\\User\\Domain\\Exception\\UserNotFoundException' => true,
+            'App\\User\\Domain\\Repository\\UserRepositoryInterface' => true,
             'App\\User\\Infrastructure\\Query\\DbalUserFinder' => true,
             'App\\User\\Infrastructure\\Query\\MongoUserFinder' => true,
             'App\\User\\Infrastructure\\Repository\\DoctrineUserRepository' => true,
@@ -71,13 +75,6 @@ class CachedContainer extends Container
             'Fortizan\\Tekton\\Bus\\Query\\Attribute\\QueryHandler' => true,
             'Fortizan\\Tekton\\Bus\\Query\\QueryBus' => true,
             'Fortizan\\Tekton\\Container\\Container' => true,
-            'Fortizan\\Tekton\\Database\\Adapter\\DoctrineTransactionManager' => true,
-            'Fortizan\\Tekton\\Database\\Adapter\\MongoDocumentStore' => true,
-            'Fortizan\\Tekton\\Database\\Contract\\DatabaseManagerInterface' => true,
-            'Fortizan\\Tekton\\Database\\Contract\\DocumentStoreInterface' => true,
-            'Fortizan\\Tekton\\Database\\Contract\\TransactionManagerInterface' => true,
-            'Fortizan\\Tekton\\Database\\DatabaseFactory' => true,
-            'Fortizan\\Tekton\\Database\\DatabaseManager' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Cqrs\\CommandHandlerPass' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Cqrs\\QueryHandlerPass' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Http\\RegisterEventSubscribersPass' => true,
@@ -86,6 +83,20 @@ class CachedContainer extends Container
             'Fortizan\\Tekton\\Http\\Event\\ResponseEvent' => true,
             'Fortizan\\Tekton\\Http\\Event\\TestEvent' => true,
             'Fortizan\\Tekton\\Http\\Kernel' => true,
+            'Fortizan\\Tekton\\Infrastructure\\Doctrine\\DomainEventDispatcher' => true,
+            'Fortizan\\Tekton\\Persistence\\Adapter\\DoctrineSourceReader' => true,
+            'Fortizan\\Tekton\\Persistence\\Adapter\\DoctrineSourceWriter' => true,
+            'Fortizan\\Tekton\\Persistence\\Adapter\\MongoProjectionReader' => true,
+            'Fortizan\\Tekton\\Persistence\\Adapter\\MongoProjectionWriter' => true,
+            'Fortizan\\Tekton\\Persistence\\Contract\\PersistenceFactoryInterface' => true,
+            'Fortizan\\Tekton\\Persistence\\Contract\\PersistenceManagerInterface' => true,
+            'Fortizan\\Tekton\\Persistence\\Contract\\ProjectionReaderInterface' => true,
+            'Fortizan\\Tekton\\Persistence\\Contract\\ProjectionWriterInterface' => true,
+            'Fortizan\\Tekton\\Persistence\\Contract\\SourceReaderInterface' => true,
+            'Fortizan\\Tekton\\Persistence\\Contract\\SourceWriterInterface' => true,
+            'Fortizan\\Tekton\\Persistence\\CustomType\\Uuid' => true,
+            'Fortizan\\Tekton\\Persistence\\PersistenceFactory' => true,
+            'Fortizan\\Tekton\\Persistence\\PersistenceManager' => true,
             'Fortizan\\Tekton\\Routing\\RouteAttributeClassLoader' => true,
             'Psr\\Log\\LoggerInterface' => true,
             'Symfony\\Component\\EventDispatcher\\EventDispatcher' => true,
@@ -95,6 +106,7 @@ class CachedContainer extends Container
             'Symfony\\Component\\HttpKernel\\EventListener\\ErrorListener' => true,
             'Symfony\\Component\\HttpKernel\\EventListener\\ResponseListener' => true,
             'Symfony\\Component\\HttpKernel\\EventListener\\RouterListener' => true,
+            'Symfony\\Component\\Messenger\\MessageBusInterface' => true,
             'Symfony\\Component\\Messenger\\MessageBusInterface $commandBus' => true,
             'Symfony\\Component\\Messenger\\MessageBusInterface $messageBus' => true,
             'Symfony\\Component\\Messenger\\MessageBusInterface $queryBus' => true,
@@ -146,7 +158,9 @@ class CachedContainer extends Container
      */
     protected static function getTestDoctrineControllerService($container)
     {
-        return $container->services['App\\User\\Representation\\Controller\\TestDoctrineController'] = new \App\User\Representation\Controller\TestDoctrineController();
+        $a = ($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceManager'] ?? self::getPersistenceManagerService($container));
+
+        return $container->services['App\\User\\Representation\\Controller\\TestDoctrineController'] = new \App\User\Representation\Controller\TestDoctrineController(new \App\User\Infrastructure\Repository\DoctrineUserRepository($a), new \App\User\Infrastructure\Query\DbalUserFinder($a));
     }
 
     /**
@@ -156,7 +170,7 @@ class CachedContainer extends Container
      */
     protected static function getTestMongoControllerService($container)
     {
-        return $container->services['App\\User\\Representation\\Controller\\TestMongoController'] = new \App\User\Representation\Controller\TestMongoController();
+        return $container->services['App\\User\\Representation\\Controller\\TestMongoController'] = new \App\User\Representation\Controller\TestMongoController(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceManager'] ?? self::getPersistenceManagerService($container)));
     }
 
     /**
@@ -217,6 +231,30 @@ class CachedContainer extends Container
     protected static function getTektonService($container)
     {
         return $container->services['tekton'] = new \Fortizan\Tekton\Http\Kernel(($container->privates['Symfony\\Component\\EventDispatcher\\EventDispatcher'] ?? self::getEventDispatcherService($container)), new \Symfony\Component\HttpKernel\Controller\ContainerControllerResolver($container, ($container->privates['monolog.logger'] ?? self::getMonolog_LoggerService($container))), ($container->privates['Symfony\\Component\\HttpFoundation\\RequestStack'] ??= new \Symfony\Component\HttpFoundation\RequestStack()), new \Symfony\Component\HttpKernel\Controller\ArgumentResolver());
+    }
+
+    /**
+     * Gets the private '.messenger.handler_descriptor.xbJUMGL' shared service.
+     *
+     * @return \Symfony\Component\Messenger\Handler\HandlerDescriptor
+     */
+    protected static function get_Messenger_HandlerDescriptor_XbJUMGLService($container)
+    {
+        return $container->privates['.messenger.handler_descriptor.xbJUMGL'] = new \Symfony\Component\Messenger\Handler\HandlerDescriptor((new \App\User\Application\Projection\UserProjector(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'))->createProjectionWriter([])))->handle(...), ['method' => 'handle']);
+    }
+
+    /**
+     * Gets the private 'Fortizan\Tekton\Persistence\PersistenceManager' shared autowired service.
+     *
+     * @return \Fortizan\Tekton\Persistence\PersistenceManager
+     */
+    protected static function getPersistenceManagerService($container)
+    {
+        $a = ($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'));
+
+        return $container->privates['Fortizan\\Tekton\\Persistence\\PersistenceManager'] = new \Fortizan\Tekton\Persistence\PersistenceManager($a->createSourceWriter(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Domain\\Event\\UserCreatedEvent' => new RewindableGenerator(function () use ($container) {
+            yield 0 => ($container->privates['.messenger.handler_descriptor.xbJUMGL'] ?? self::get_Messenger_HandlerDescriptor_XbJUMGLService($container));
+        }, 1)]))]), [], [], true), $a->createSourceReader([], true), $a->createProjectionReader([]));
     }
 
     /**
@@ -308,7 +346,7 @@ class CachedContainer extends Container
     protected function getDefaultParameters(): array
     {
         return [
-            'kernel.project_dir' => '/var/www/html/packages/Tekton/src/Container/../../../../src',
+            'kernel.project_dir' => '/var/www/html/packages/Tekton/src/Container/../../../..',
             'charset' => 'UTF-8',
             'kernel.log_path' => '/var/www/html/packages/Tekton/src/Container/../../../../var/log',
             'kernel.env' => 'dev',

@@ -11,6 +11,7 @@ return static function (ContainerConfigurator $configurator) {
 
         $services = $configurator->services();
 
+        $services->alias(MessageBusInterface::class, 'messenger.bus.default');
         $services->alias(MessageBusInterface::class . ' $messageBus', 'messenger.bus.default');
         $services->set('messenger.bus.default', MessageBus::class)
                 ->args([[new Reference('messenger.middleware.handle_message')]])

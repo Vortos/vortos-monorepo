@@ -2,36 +2,25 @@
 
 namespace App\User\Representation\Controller;
 
-use App\User\Infrastructure\Query\MongoUserFinder;
 use Fortizan\Tekton\Attribute\ApiController;
-use Fortizan\Tekton\Database\DatabaseManager;
+use Fortizan\Tekton\Persistence\PersistenceManager;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
 #[ApiController]
-#[Route(name:'user.mongo', path:'/user/mongo')]
+#[Route(name:'user.mongo', path:'/user/read')]
 class TestMongoController
 {
     public function __construct(
-        private DatabaseManager $db
+        private PersistenceManager $persistenceManager
     ){
     }
 
     public function __invoke():Response
-    {
-        $this->db->read()->delete('user', 1);    
-
-        $this->db->read()->save('user', [
-            '_id' => 1,
-            'name' => 'sachintha',
-            'email' => 'abc@gmail.com',
-            'roles' => ['Admin', 'User']
-        ]);    
-
-        $user = $this->db->read()->find('user', 1);
+    {  
+        $user = $this->persistenceManager->projectionReader()->get('user', '019b63cd-fc8b-7c75-9bec-1cf85370739d');
 
         return new JsonResponse($user);
-
     }
 }

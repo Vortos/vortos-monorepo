@@ -6,6 +6,8 @@ use Fortizan\Tekton\Attribute\ApiController;
 use Fortizan\Tekton\Bus\Command\Attribute\CommandHandler;
 use Fortizan\Tekton\Bus\Query\Attribute\QueryHandler;
 use Monolog\Level;
+use ReflectionMethod;
+use Reflector;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -74,15 +76,22 @@ class TektonExtension extends Extension
     {
         $container->registerAttributeForAutoconfiguration(
             AsMessageHandler::class,
-            static function (ChildDefinition $definition, AsMessageHandler $attribute) {
-                $definition->addTag('messenger.message_handler', [
+            static function (ChildDefinition $definition, AsMessageHandler $attribute, Reflector $reflector) {
+
+                $tagAttributes = [
                     'bus' => $attribute->bus,
                     'from_transport' => $attribute->fromTransport,
                     'handles' => $attribute->handles,
                     'method' => $attribute->method,
                     'priority' => $attribute->priority,
                     'sign' => $attribute->sign
-                ]);
+                ];
+
+                if($reflector instanceof ReflectionMethod){
+                    $tagAttributes['method'] = $reflector->getName();    
+                }
+                
+                $definition->addTag('messenger.message_handler', $tagAttributes);
             }
         );
     }

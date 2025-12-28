@@ -1,6 +1,6 @@
 <?php
 
-namespace Fortizan\Tekton\Database;
+namespace Fortizan\Tekton\Persistence;
 
 use Fortizan\Tekton\Persistence\Contract\PersistenceManagerInterface;
 use Fortizan\Tekton\Persistence\Contract\ProjectionReaderInterface;

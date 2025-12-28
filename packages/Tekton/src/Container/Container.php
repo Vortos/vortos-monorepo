@@ -13,7 +13,7 @@ use Symfony\Component\Messenger\DependencyInjection\MessengerPass;
 $container = new ContainerBuilder();
 
 //  setting up global parameters
-$container->setParameter('kernel.project_dir', __DIR__ . '/../../../../src');
+$container->setParameter('kernel.project_dir', __DIR__ . '/../../../..');
 $container->setParameter('charset', 'UTF-8');
 $container->setParameter('kernel.log_path', __DIR__ . '/../../../../var/log');
 

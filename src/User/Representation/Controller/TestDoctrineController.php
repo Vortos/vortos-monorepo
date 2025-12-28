@@ -6,49 +6,32 @@ use App\User\Domain\Entity\User;
 use App\User\Infrastructure\Query\DbalUserFinder;
 use App\User\Infrastructure\Repository\DoctrineUserRepository;
 use Fortizan\Tekton\Attribute\ApiController;
-use Fortizan\Tekton\Database\DatabaseManager;
+use Fortizan\Tekton\Persistence\PersistenceManager;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
-#[Route(name:'user.db', path:'user/db')]
+#[Route(name: 'user.db', path: 'user/write')]
 #[ApiController]
-class TestDoctrineController 
+class TestDoctrineController
 {
-
     public function __construct(
-        private DatabaseManager $db
-    ){
-    }
+        private DoctrineUserRepository $userRepo,
+        private DbalUserFinder $userFinder
+    ) {}
 
-    public function __invoke() : Response
+    public function __invoke(): Response
     {
-        
-        $this->db->write()->persist()
-        $connectionParams = [
-            'host' => $_ENV['POSTGRES_HOST'],
-            'user' => $_ENV['POSTGRES_USER'],
-            'password' => $_ENV['POSTGRES_PASSWORD'],
-            'dbname' => $_ENV['POSTGRES_DB_NAME'],
-            'driver' => 'pdo_pgsql'
-        ];
-        $entityPaths = [__DIR__ . "/../../Domain/Entity"];
+        $user = User::registerUser(
+            "sachintha",
+            "abc@gmail.com",
+            true
+        );
 
-        $entityManager = $entityFactory->createEntityManager($connectionParams, $entityPaths, true);
+        $this->userRepo->save($user);
 
-        $connection = $entityFactory->createConnection($connectionParams, $entityPaths, true);
+        $userResult = $this->userFinder->findByEmail("abc@gmail.com");
 
-        $user = new User();
-        $user->setName("sachintha");
-        $user->setEmail('abc@gmail.com');
-
-        $userRepo = new DoctrineUserRepository($entityManager);
-        $userRepo->save($user);
-
-        $userFinder = new DbalUserFinder($connection);
-        $userResult = $userFinder->findByEmail("abc@gmail.com");
-
-
-        dd($userResult);
-        return new Response();
+        return new JsonResponse($userResult);
     }
 }

@@ -11,28 +11,19 @@ use Doctrine\Migrations\Tools\Console\Command\ExecuteCommand;
 use Doctrine\Migrations\Tools\Console\Command\MigrateCommand;
 use Doctrine\ORM\Tools\Console\Command\SchemaTool\DropCommand;
 use Doctrine\ORM\Tools\Console\EntityManagerProvider\SingleManagerProvider;
-use Fortizan\Tekton\Database\DoctrineFactory;
+use Fortizan\Tekton\Persistence\PersistenceFactory;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Dotenv\Dotenv;
+use Symfony\Component\Messenger\MessageBus;
 
 $dotEnv = new Dotenv();
 $dotEnv->load(__DIR__. "/../.env");
 
 $configurationFile = new PhpFile('migrations.php');
 
-$entityFactory = new DoctrineFactory();
+$persistenceFactory = new PersistenceFactory(__DIR__. "/..");
 
-$connectionParams = [
-    'host' => $_ENV['POSTGRES_HOST'],
-    'user' => $_ENV['POSTGRES_USER'],
-    'password' => $_ENV['POSTGRES_PASSWORD'],
-    'dbname' => $_ENV['POSTGRES_DB'],
-    'driver' => 'pdo_pgsql'
-];
-
-$entityPaths = [__DIR__ ."/../src/User/Domain/Entity"];
-
-$entityManager = $entityFactory->createEntityManager($connectionParams, $entityPaths, true);
+$entityManager = $persistenceFactory->createSourceWriter(isDevMode:true, bus: new MessageBus())->native();
 
 $loader = new ExistingEntityManager($entityManager);
 

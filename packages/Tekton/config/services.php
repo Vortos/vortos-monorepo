@@ -10,13 +10,15 @@ return static function (ContainerConfigurator $configurator) {
     $services = $configurator->services()
         ->defaults()
         ->autowire()
-        ->autoconfigure();
+        ->autoconfigure()
+        ->bind('$projectRoot', '%kernel.project_dir%');
 
     $configurator->import('./packages/tekton.php');
     $configurator->import('./packages/messenger.php');
     $configurator->import('./packages/route.php');
     $configurator->import('./packages/event.php');
     $configurator->import('./packages/monolog.php');
+    $configurator->import('./packages/doctrine.php');
 
     $services->load('Fortizan\\Tekton\\', '../src')
         ->exclude([

@@ -26,10 +26,8 @@ class CachedContainer extends Container
         ];
         $this->methodMap = [
             'App\\User\\Representation\\Controller\\CreateAnEventController' => 'getCreateAnEventControllerService',
-            'App\\User\\Representation\\Controller\\GetUserController' => 'getGetUserControllerService',
             'App\\User\\Representation\\Controller\\TestDoctrineController' => 'getTestDoctrineControllerService',
             'App\\User\\Representation\\Controller\\TestMongoController' => 'getTestMongoControllerService',
-            'App\\User\\Representation\\Controller\\UserRegisterController' => 'getUserRegisterControllerService',
             'Fortizan\\Tekton\\Controller\\ErrorController' => 'getErrorControllerService',
             'Fortizan\\Tekton\\EventListener\\ContentLengthListener' => 'getContentLengthListenerService',
             'Fortizan\\Tekton\\EventListener\\GoogleListener' => 'getGoogleListenerService',
@@ -144,23 +142,17 @@ class CachedContainer extends Container
     }
 
     /**
-     * Gets the public 'App\User\Representation\Controller\GetUserController' shared autowired service.
-     *
-     * @return \App\User\Representation\Controller\GetUserController
-     */
-    protected static function getGetUserControllerService($container)
-    {
-        return $container->services['App\\User\\Representation\\Controller\\GetUserController'] = new \App\User\Representation\Controller\GetUserController(($container->privates['Fortizan\\Tekton\\Bus\\Query\\QueryBus'] ?? self::getQueryBusService($container)));
-    }
-
-    /**
      * Gets the public 'App\User\Representation\Controller\TestDoctrineController' shared autowired service.
      *
      * @return \App\User\Representation\Controller\TestDoctrineController
      */
     protected static function getTestDoctrineControllerService($container)
     {
-        return $container->services['App\\User\\Representation\\Controller\\TestDoctrineController'] = new \App\User\Representation\Controller\TestDoctrineController(($container->privates['Fortizan\\Tekton\\Bus\\Command\\CommandBus'] ?? self::getCommandBusService($container)));
+        $a = ($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'));
+
+        return $container->services['App\\User\\Representation\\Controller\\TestDoctrineController'] = new \App\User\Representation\Controller\TestDoctrineController(new \Fortizan\Tekton\Bus\Command\CommandBus(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Application\\Command\\RegisterUser\\RegisterUserCommand' => [new \App\User\Application\Command\RegisterUser\RegisterUserCommandHandler(new \App\User\Infrastructure\Repository\DoctrineUserRepository($a->createSourceWriter(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Domain\\Event\\UserCreatedEvent' => new RewindableGenerator(function () use ($container) {
+            yield 0 => ($container->privates['.messenger.handler_descriptor.gGdI4vA'] ?? self::get_Messenger_HandlerDescriptor_GGdI4vAService($container));
+        }, 1)]))]), [], [], true)), new \App\User\Infrastructure\Service\DbalUserUniquenessChecker($a->createSourceReader([], true)))]]))])));
     }
 
     /**
@@ -170,17 +162,7 @@ class CachedContainer extends Container
      */
     protected static function getTestMongoControllerService($container)
     {
-        return $container->services['App\\User\\Representation\\Controller\\TestMongoController'] = new \App\User\Representation\Controller\TestMongoController(($container->privates['Fortizan\\Tekton\\Bus\\Query\\QueryBus'] ?? self::getQueryBusService($container)));
-    }
-
-    /**
-     * Gets the public 'App\User\Representation\Controller\UserRegisterController' shared autowired service.
-     *
-     * @return \App\User\Representation\Controller\UserRegisterController
-     */
-    protected static function getUserRegisterControllerService($container)
-    {
-        return $container->services['App\\User\\Representation\\Controller\\UserRegisterController'] = new \App\User\Representation\Controller\UserRegisterController(($container->privates['Fortizan\\Tekton\\Bus\\Command\\CommandBus'] ?? self::getCommandBusService($container)));
+        return $container->services['App\\User\\Representation\\Controller\\TestMongoController'] = new \App\User\Representation\Controller\TestMongoController(new \Fortizan\Tekton\Bus\Query\QueryBus(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Application\\Query\\GetUser\\GetUserQuery' => [new \App\User\Application\Query\GetUser\GetUserQueryHandler(new \App\User\Infrastructure\Query\MongoUserFinder(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'))->createProjectionReader([])))]]))])));
     }
 
     /**
@@ -241,30 +223,6 @@ class CachedContainer extends Container
     protected static function get_Messenger_HandlerDescriptor_GGdI4vAService($container)
     {
         return $container->privates['.messenger.handler_descriptor.gGdI4vA'] = new \Symfony\Component\Messenger\Handler\HandlerDescriptor((new \App\User\Application\Projection\UserProjector(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'))->createProjectionWriter([])))->onUserCreated(...), ['method' => 'onUserCreated']);
-    }
-
-    /**
-     * Gets the private 'Fortizan\Tekton\Bus\Command\CommandBus' shared autowired service.
-     *
-     * @return \Fortizan\Tekton\Bus\Command\CommandBus
-     */
-    protected static function getCommandBusService($container)
-    {
-        $a = ($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'));
-
-        return $container->privates['Fortizan\\Tekton\\Bus\\Command\\CommandBus'] = new \Fortizan\Tekton\Bus\Command\CommandBus(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Application\\Command\\RegisterUser\\RegisterUserCommand' => [new \App\User\Application\Command\RegisterUser\RegisterUserCommandHandler(new \App\User\Infrastructure\Repository\DoctrineUserRepository($a->createSourceWriter(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Domain\\Event\\UserCreatedEvent' => new RewindableGenerator(function () use ($container) {
-            yield 0 => ($container->privates['.messenger.handler_descriptor.gGdI4vA'] ?? self::get_Messenger_HandlerDescriptor_GGdI4vAService($container));
-        }, 1)]))]), [], [], true)), new \App\User\Infrastructure\Service\DbalUserUniquenessChecker($a->createSourceReader([], true)))]]))]));
-    }
-
-    /**
-     * Gets the private 'Fortizan\Tekton\Bus\Query\QueryBus' shared autowired service.
-     *
-     * @return \Fortizan\Tekton\Bus\Query\QueryBus
-     */
-    protected static function getQueryBusService($container)
-    {
-        return $container->privates['Fortizan\\Tekton\\Bus\\Query\\QueryBus'] = new \Fortizan\Tekton\Bus\Query\QueryBus(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Application\\Query\\GetUser\\GetUserQuery' => [new \App\User\Application\Query\GetUser\GetUserQueryHandler(new \App\User\Infrastructure\Query\MongoUserFinder(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'))->createProjectionReader([])))]]))]));
     }
 
     /**

@@ -4,12 +4,12 @@ namespace Fortizan\Tekton\Foundation;
 
 use CachedContainer;
 use Fortizan\Tekton\Controller\ErrorController;
+use Fortizan\Tekton\DependencyInjection\Compiler\Route\RouteCompilerPass;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Container;
 use Symfony\Component\DependencyInjection\Dumper\PhpDumper;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\Routing\RouteCollection;
 
 class Runner
 {
@@ -17,14 +17,18 @@ class Runner
     private ?Response $response = null;
     private readonly string $dumpFilePath;
     private readonly string $containerPath;
+    private array $parameters = [];
+    private bool $withRoutes = true;
 
     public function __construct(
-        private string $environment,
-        private bool $debug,
-        private string $projectRoot
+        private readonly string $environment,
+        private readonly bool $debug,
+        private readonly string $projectRoot,
+        private readonly string $context = 'http',
     ) {
         $this->dumpFilePath = $projectRoot . "/public/container_dump.php";
         $this->containerPath = $projectRoot . "/packages/Tekton/src/Container/Container.php";
+        $this->withRoutes = $this->context === 'http';
     }
 
     public function run(): Response
@@ -52,6 +56,33 @@ class Runner
         return $this->response;
     }
 
+    public function getContainer(): Container
+    {
+        if ($this->container === null) {
+            $this->container = $this->configureContainer();
+        }
+
+        return $this->container;
+    }
+
+    public function setParameter(string $name, mixed $value): static
+    {
+        $this->parameters[$name] = $value;
+        return $this;
+    }
+
+    public function setParameters(array $parameters): self
+    {
+        $this->parameters = array_merge($this->parameters, $parameters);
+        return $this;
+    }
+
+    public function withRoutes(bool $enable = true): self
+    {
+        $this->withRoutes = $enable;
+        return $this;
+    }
+
     public function cleanUp(): void
     {
         $this->container = null;
@@ -65,7 +96,7 @@ class Runner
 
     private function configureContainer(): Container
     {
-        if ($this->environment === 'prod') {
+        if ($this->environment === 'prod' && $this->context === 'http' && file_exists($this->dumpFilePath)) {
             require_once $this->dumpFilePath;
             $container = new CachedContainer();
         } else {
@@ -73,18 +104,30 @@ class Runner
 
             $container->setParameter('kernel.env', $this->environment);
             $container->setParameter('kernel.debug', $this->debug);
+            $container->setParameter('kernel.project_dir', $this->projectRoot);
+            $container->setParameter('kernel.context', $this->context);
+
+            foreach ($this->parameters as $key => $value) {
+                $container->setParameter($key, $value);
+            }
+
+            if ($this->withRoutes) {
+                $container->addCompilerPass(new RouteCompilerPass());
+            }
 
             $container->compile();
 
-
             $dumper = new PhpDumper($container);
 
-            file_put_contents(
-                $this->dumpFilePath,
-                $dumper->dump(
-                    ['class' => 'CachedContainer']
-                )
-            );
+            if ($this->context === 'http') {
+
+                file_put_contents(
+                    $this->dumpFilePath,
+                    $dumper->dump(
+                        ['class' => 'CachedContainer']
+                    )
+                );
+            }
         }
 
         return $container;

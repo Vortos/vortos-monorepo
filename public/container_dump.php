@@ -29,6 +29,7 @@ class CachedContainer extends Container
             'App\\User\\Representation\\Controller\\TestMongoController' => 'getTestMongoControllerService',
             'Fortizan\\Tekton\\Controller\\ErrorController' => 'getErrorControllerService',
             'Symfony\\Component\\Messenger\\Transport\\TransportInterface' => 'getTransportInterfaceService',
+            'Symfony\\Component\\Routing\\RouteCollection' => 'getRouteCollectionService',
             'tekton' => 'getTektonService',
             'tekton.consumer' => 'getTekton_ConsumerService',
         ];
@@ -79,6 +80,7 @@ class CachedContainer extends Container
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Cqrs\\QueryHandlerPass' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Http\\RegisterEventSubscribersPass' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Projection\\ProjectionHandlerPass' => true,
+            'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Route\\RouteCompilerPass' => true,
             'Fortizan\\Tekton\\DependencyInjection\\TektonExtension' => true,
             'Fortizan\\Tekton\\EventListener' => true,
             'Fortizan\\Tekton\\EventListener\\ContentLengthListener' => true,
@@ -103,7 +105,6 @@ class CachedContainer extends Container
             'Fortizan\\Tekton\\Persistence\\PersistenceFactory' => true,
             'Fortizan\\Tekton\\Persistence\\Registry\\DoctrineConnectionRegistry' => true,
             'Fortizan\\Tekton\\Routing\\RouteAttributeClassLoader' => true,
-            'Fortizan\\Tekton\\Routing\\RouteLoader' => true,
             'Koco\\Kafka\\RdKafka\\RdKafkaFactory' => true,
             'Psr\\Log\\LoggerInterface' => true,
             'Symfony\\Component\\EventDispatcher\\EventDispatcher' => true,
@@ -119,7 +120,6 @@ class CachedContainer extends Container
             'Symfony\\Component\\Messenger\\MessageBusInterface $queryBus' => true,
             'Symfony\\Component\\Routing\\Matcher\\UrlMatcher' => true,
             'Symfony\\Component\\Routing\\RequestContext' => true,
-            'Symfony\\Component\\Routing\\RouteCollection' => true,
             'Symfony\\Component\\Serializer\\Encoder\\JsonEncoder' => true,
             'Symfony\\Component\\Serializer\\Normalizer\\ArrayDenormalizer' => true,
             'Symfony\\Component\\Serializer\\Normalizer\\DateTimeNormalizer' => true,
@@ -133,7 +133,6 @@ class CachedContainer extends Container
             'monolog.logger' => true,
             'monolog.processor.introspection' => true,
             'property_info.extractor' => true,
-            'route_loader' => true,
             'tekton.bus.command' => true,
             'tekton.bus.command.locator' => true,
             'tekton.bus.command.messenger.handlers_locator' => true,
@@ -165,7 +164,7 @@ class CachedContainer extends Container
      */
     protected static function getUserProjectorService($container)
     {
-        return $container->services['App\\User\\Application\\Projection\\UserProjector'] = new \App\User\Application\Projection\UserProjector(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'))->createProjectionWriter([]));
+        return $container->services['App\\User\\Application\\Projection\\UserProjector'] = new \App\User\Application\Projection\UserProjector(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html'))->createProjectionWriter([]));
     }
 
     /**
@@ -185,7 +184,7 @@ class CachedContainer extends Container
      */
     protected static function getTestDoctrineControllerService($container)
     {
-        $a = ($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'));
+        $a = ($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html'));
 
         return $container->services['App\\User\\Representation\\Controller\\TestDoctrineController'] = new \App\User\Representation\Controller\TestDoctrineController(new \Fortizan\Tekton\Bus\Command\CommandBus(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Application\\Command\\RegisterUser\\RegisterUserCommand' => [new \App\User\Application\Command\RegisterUser\RegisterUserCommandHandler(new \App\User\Infrastructure\Repository\DoctrineUserRepository($a->createSourceWriter(($container->privates['tekton.bus.event'] ?? self::getTekton_Bus_EventService($container)), [], [], true)), new \App\User\Infrastructure\Service\DbalUserUniquenessChecker($a->createSourceReader([], true)))]]))])));
     }
@@ -197,7 +196,7 @@ class CachedContainer extends Container
      */
     protected static function getTestMongoControllerService($container)
     {
-        return $container->services['App\\User\\Representation\\Controller\\TestMongoController'] = new \App\User\Representation\Controller\TestMongoController(new \Fortizan\Tekton\Bus\Query\QueryBus(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Application\\Query\\GetUser\\GetUserQuery' => [new \App\User\Application\Query\GetUser\GetUserQueryHandler(new \App\User\Infrastructure\Query\MongoUserFinder(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'))->createProjectionReader([])))]]))])));
+        return $container->services['App\\User\\Representation\\Controller\\TestMongoController'] = new \App\User\Representation\Controller\TestMongoController(new \Fortizan\Tekton\Bus\Query\QueryBus(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Application\\Query\\GetUser\\GetUserQuery' => [new \App\User\Application\Query\GetUser\GetUserQueryHandler(new \App\User\Infrastructure\Query\MongoUserFinder(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html'))->createProjectionReader([])))]]))])));
     }
 
     /**
@@ -217,7 +216,17 @@ class CachedContainer extends Container
      */
     protected static function getTransportInterfaceService($container)
     {
-        return $container->services['Symfony\\Component\\Messenger\\Transport\\TransportInterface'] = ($container->privates['messenger.transport_factory'] ?? self::getMessenger_TransportFactoryService($container))->createTransport('kafka://kafka:9092?topic=events', ['topic' => ['name' => 'events'], 'kafka_conf' => ['group.id' => 'nothing', 'auto.offset.reset' => 'earliest']], ($container->privates['tekton.messenger.serializer'] ?? self::getTekton_Messenger_SerializerService($container)));
+        return $container->services['Symfony\\Component\\Messenger\\Transport\\TransportInterface'] = ($container->privates['messenger.transport_factory'] ?? self::getMessenger_TransportFactoryService($container))->createTransport('kafka://kafka:9092/events', ['topic' => ['name' => 'events'], 'kafka_conf' => ['group.id' => 'nothing', 'auto.offset.reset' => 'earliest']], ($container->privates['tekton.messenger.serializer'] ?? self::getTekton_Messenger_SerializerService($container)));
+    }
+
+    /**
+     * Gets the public 'Symfony\Component\Routing\RouteCollection' shared service.
+     *
+     * @return \Symfony\Component\Routing\RouteCollection
+     */
+    protected static function getRouteCollectionService($container)
+    {
+        return $container->services['Symfony\\Component\\Routing\\RouteCollection'] = \Fortizan\Tekton\DependencyInjection\Compiler\Route\RouteCompilerPass::createRouteCollection('O:41:"Symfony\\Component\\Routing\\RouteCollection":4:{s:49:"' . "\0" . 'Symfony\\Component\\Routing\\RouteCollection' . "\0" . 'routes";a:3:{s:10:"user.event";O:31:"Symfony\\Component\\Routing\\Route":9:{s:4:"path";s:11:"/user/event";s:4:"host";s:0:"";s:8:"defaults";a:1:{s:11:"_controller";s:68:"App\\User\\Representation\\Controller\\CreateAnEventController::__invoke";}s:12:"requirements";a:0:{}s:7:"options";a:1:{s:14:"compiler_class";s:39:"Symfony\\Component\\Routing\\RouteCompiler";}s:7:"schemes";a:0:{}s:7:"methods";a:0:{}s:9:"condition";s:0:"";s:8:"compiled";N;}s:7:"user.db";O:31:"Symfony\\Component\\Routing\\Route":9:{s:4:"path";s:11:"/user/write";s:4:"host";s:0:"";s:8:"defaults";a:1:{s:11:"_controller";s:67:"App\\User\\Representation\\Controller\\TestDoctrineController::__invoke";}s:12:"requirements";a:0:{}s:7:"options";a:1:{s:14:"compiler_class";s:39:"Symfony\\Component\\Routing\\RouteCompiler";}s:7:"schemes";a:0:{}s:7:"methods";a:0:{}s:9:"condition";s:0:"";s:8:"compiled";N;}s:10:"user.mongo";O:31:"Symfony\\Component\\Routing\\Route":9:{s:4:"path";s:10:"/user/read";s:4:"host";s:0:"";s:8:"defaults";a:1:{s:11:"_controller";s:64:"App\\User\\Representation\\Controller\\TestMongoController::__invoke";}s:12:"requirements";a:0:{}s:7:"options";a:1:{s:14:"compiler_class";s:39:"Symfony\\Component\\Routing\\RouteCompiler";}s:7:"schemes";a:0:{}s:7:"methods";a:0:{}s:9:"condition";s:0:"";s:8:"compiled";N;}}s:50:"' . "\0" . 'Symfony\\Component\\Routing\\RouteCollection' . "\0" . 'aliases";a:6:{s:58:"App\\User\\Representation\\Controller\\CreateAnEventController";O:31:"Symfony\\Component\\Routing\\Alias":2:{s:44:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'deprecation";a:0:{}s:35:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'id";s:10:"user.event";}s:68:"App\\User\\Representation\\Controller\\CreateAnEventController::__invoke";O:31:"Symfony\\Component\\Routing\\Alias":2:{s:44:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'deprecation";a:0:{}s:35:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'id";s:10:"user.event";}s:57:"App\\User\\Representation\\Controller\\TestDoctrineController";O:31:"Symfony\\Component\\Routing\\Alias":2:{s:44:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'deprecation";a:0:{}s:35:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'id";s:7:"user.db";}s:67:"App\\User\\Representation\\Controller\\TestDoctrineController::__invoke";O:31:"Symfony\\Component\\Routing\\Alias":2:{s:44:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'deprecation";a:0:{}s:35:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'id";s:7:"user.db";}s:54:"App\\User\\Representation\\Controller\\TestMongoController";O:31:"Symfony\\Component\\Routing\\Alias":2:{s:44:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'deprecation";a:0:{}s:35:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'id";s:10:"user.mongo";}s:64:"App\\User\\Representation\\Controller\\TestMongoController::__invoke";O:31:"Symfony\\Component\\Routing\\Alias":2:{s:44:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'deprecation";a:0:{}s:35:"' . "\0" . 'Symfony\\Component\\Routing\\Alias' . "\0" . 'id";s:10:"user.mongo";}}s:52:"' . "\0" . 'Symfony\\Component\\Routing\\RouteCollection' . "\0" . 'resources";a:3:{s:69:"reflection.App\\User\\Representation\\Controller\\CreateAnEventController";O:57:"Symfony\\Component\\Config\\Resource\\ReflectionClassResource":4:{s:5:"files";a:1:{s:76:"/var/www/html/src/User/Representation/Controller/CreateAnEventController.php";N;}s:9:"className";s:58:"App\\User\\Representation\\Controller\\CreateAnEventController";s:15:"excludedVendors";a:0:{}s:4:"hash";s:32:"e1a5dc49f665a1f4f251e606fa8b592d";}s:68:"reflection.App\\User\\Representation\\Controller\\TestDoctrineController";O:57:"Symfony\\Component\\Config\\Resource\\ReflectionClassResource":4:{s:5:"files";a:1:{s:75:"/var/www/html/src/User/Representation/Controller/TestDoctrineController.php";N;}s:9:"className";s:57:"App\\User\\Representation\\Controller\\TestDoctrineController";s:15:"excludedVendors";a:0:{}s:4:"hash";s:32:"f001ded5df435f4011f7524c1b842248";}s:65:"reflection.App\\User\\Representation\\Controller\\TestMongoController";O:57:"Symfony\\Component\\Config\\Resource\\ReflectionClassResource":4:{s:5:"files";a:1:{s:72:"/var/www/html/src/User/Representation/Controller/TestMongoController.php";N;}s:9:"className";s:54:"App\\User\\Representation\\Controller\\TestMongoController";s:15:"excludedVendors";a:0:{}s:4:"hash";s:32:"3679d50307bbe3ea284ab84062f0b2af";}}s:53:"' . "\0" . 'Symfony\\Component\\Routing\\RouteCollection' . "\0" . 'priorities";a:0:{}}');
     }
 
     /**
@@ -252,7 +261,7 @@ class CachedContainer extends Container
         $a = new \Symfony\Component\Routing\RequestContext();
         $b = ($container->privates['monolog.logger'] ?? self::getMonolog_LoggerService($container));
 
-        $instance->addSubscriber(new \Symfony\Component\HttpKernel\EventListener\RouterListener(new \Symfony\Component\Routing\Matcher\UrlMatcher((new \Fortizan\Tekton\Routing\RouteLoader('/var/www/html/packages/Tekton/src/Container/../../../../packages/Tekton/config/routes.php', $container))->load(), $a), ($container->privates['Symfony\\Component\\HttpFoundation\\RequestStack'] ??= new \Symfony\Component\HttpFoundation\RequestStack()), $a, $b));
+        $instance->addSubscriber(new \Symfony\Component\HttpKernel\EventListener\RouterListener(new \Symfony\Component\Routing\Matcher\UrlMatcher(($container->services['Symfony\\Component\\Routing\\RouteCollection'] ?? self::getRouteCollectionService($container)), $a), ($container->privates['Symfony\\Component\\HttpFoundation\\RequestStack'] ??= new \Symfony\Component\HttpFoundation\RequestStack()), $a, $b));
         $instance->addSubscriber(new \Symfony\Component\HttpKernel\EventListener\ResponseListener('UTF-8'));
         $instance->addSubscriber(new \Symfony\Component\HttpKernel\EventListener\ErrorListener('Fortizan\\Tekton\\Controller\\ErrorController', $b));
         $instance->addSubscriber(new \Fortizan\Tekton\EventListener\ContentLengthListener());
@@ -328,7 +337,7 @@ class CachedContainer extends Container
      */
     protected static function getTekton_Transport_AsyncService($container)
     {
-        return $container->privates['tekton.transport.async'] = ($container->privates['messenger.transport_factory'] ?? self::getMessenger_TransportFactoryService($container))->createTransport('kafka://kafka:9092?topic=events', ['topic' => ['name' => 'events']], ($container->privates['tekton.messenger.serializer'] ?? self::getTekton_Messenger_SerializerService($container)));
+        return $container->privates['tekton.transport.async'] = ($container->privates['messenger.transport_factory'] ?? self::getMessenger_TransportFactoryService($container))->createTransport('kafka://kafka:9092/events', ['topic' => ['name' => 'events']], ($container->privates['tekton.messenger.serializer'] ?? self::getTekton_Messenger_SerializerService($container)));
     }
 
     /**
@@ -338,7 +347,7 @@ class CachedContainer extends Container
      */
     protected static function getTekton_Transport_Factory_DoctrineService($container)
     {
-        return $container->privates['tekton.transport.factory.doctrine'] = new \Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineTransportFactory(new \Fortizan\Tekton\Persistence\Registry\DoctrineConnectionRegistry(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html/packages/Tekton/src/Container/../../../..'))));
+        return $container->privates['tekton.transport.factory.doctrine'] = new \Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineTransportFactory(new \Fortizan\Tekton\Persistence\Registry\DoctrineConnectionRegistry(($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html'))));
     }
 
     /**
@@ -400,13 +409,14 @@ class CachedContainer extends Container
     protected function getDefaultParameters(): array
     {
         return [
-            'kernel.project_dir' => '/var/www/html/packages/Tekton/src/Container/../../../..',
+            'kernel.project_dir' => '/var/www/html',
             'charset' => 'UTF-8',
             'kernel.log_path' => '/var/www/html/packages/Tekton/src/Container/../../../../var/log',
-            'MESSENGER_TRANSPORT_DSN' => 'kafka://kafka:9092?topic=events',
+            'MESSENGER_TRANSPORT_DSN' => 'kafka://kafka:9092/events',
             'messenger.consumer.async.group_id' => 'nothing',
             'kernel.env' => 'dev',
             'kernel.debug' => true,
+            'kernel.context' => 'http',
         ];
     }
 }

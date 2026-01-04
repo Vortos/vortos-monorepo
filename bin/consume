@@ -1,40 +1,18 @@
 # !/usr/bin/env php
 <?php
 
-require_once __DIR__ . '/../vendor/autoload.php';
+$config = require __DIR__ . '/../bootstrap/app.php';
 
-use Fortizan\Tekton\Messenger\Consumer;
-use Symfony\Component\Dotenv\Dotenv;
-use Symfony\Component\ErrorHandler\Debug;
-use Symfony\Component\Routing\RouteCollection;
+use Fortizan\Tekton\Foundation\Runner;
 
-$dotEnv = new Dotenv();
-$dotEnv->load(__DIR__. "/../.env");
+$groupId = $argv[1] ?? throw new InvalidArgumentException("Missing group_id");
 
-$env = $_ENV['APP_ENV'] ?? 'prod';
-$debug = false;
+$runner = new Runner(...$config, context: 'console');
 
-$debugBool = filter_var($_ENV['APP_DEBUG'], FILTER_VALIDATE_BOOL);
+$container = $runner->setParameter('messenger.consumer.async.group_id', $groupId)
+    ->withRoutes(true)
+    ->getContainer();
 
-if ($env === 'dev' && $debugBool) {
-    Debug::enable();
-    $debug = true;
-}
+$container->get('tekton.consumer')->run();
 
-$groupId = $argv[1] ?? null;
-if(!$groupId){
-    throw new InvalidArgumentException("Invalid kafka consumer group id");
-}
-
-$container = include __DIR__ . "/../packages/Tekton/src/Container/Container.php";
-$container->setParameter('messenger.consumer.async.group_id', $groupId);
-$container->setParameter('kernel.env', $env);
-$container->setParameter('kernel.debug', $debug);
-$routes = new \Symfony\Component\Routing\RouteCollection();
-$container->set(\Symfony\Component\Routing\RouteCollection::class, $routes);
-$container->compile();
-
-$consumer = $container->get('tekton.consumer');
-$consumer->run();
-
-
+$runner->cleanUp();

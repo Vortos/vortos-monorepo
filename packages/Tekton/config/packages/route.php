@@ -1,6 +1,5 @@
 <?php
 
-use Fortizan\Tekton\Routing\RouteLoader;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -10,8 +9,6 @@ use Symfony\Component\HttpKernel\EventListener\RouterListener;
 use Symfony\Component\Routing\Matcher\UrlMatcher;
 use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\RouteCollection;
-
-use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
 return static function (ContainerConfigurator $configurator) {
 
@@ -29,14 +26,7 @@ return static function (ContainerConfigurator $configurator) {
     $services->set(ContainerControllerResolver::class, ContainerControllerResolver::class)
         ->args([new Reference('service_container')]);
 
-    $services->set(RouteCollection::class, RouteCollection::class)
-        ->factory([service('route_loader'), 'load']);
-
-    $services->set('route_loader', RouteLoader::class)
-        ->args([
-            '%kernel.project_dir%/packages/Tekton/config/routes.php',
-            new Reference('service_container')
-        ]);
+    $services->set(RouteCollection::class, RouteCollection::class)->synthetic(true);
     
     $services->set(UrlMatcher::class, UrlMatcher::class)
         ->args([new Reference(RouteCollection::class), new Reference(RequestContext::class)]);

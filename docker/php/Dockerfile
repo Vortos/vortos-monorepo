@@ -8,4 +8,4 @@ RUN apk add --no-cache git unzip linux-headers $PHPIZE_DEPS postgresql-dev librd
 
 RUN pecl install redis mongodb rdkafka amqp && docker-php-ext-enable redis mongodb rdkafka amqp
 
-RUN docker-php-ext-install pdo pdo_pgsql
+RUN docker-php-ext-install pdo pdo_pgsql pcntl

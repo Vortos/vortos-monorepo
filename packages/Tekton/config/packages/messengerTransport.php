@@ -32,10 +32,10 @@ return static function (ContainerConfigurator $configurator) {
         ->autoconfigure()
         ->autowire();
 
-    $services->set(UidNormalizer::class);
-    $services->set(DateTimeNormalizer::class);
-    $services->set(ArrayDenormalizer::class);
-    $services->set(JsonEncoder::class);
+    $services->set(UidNormalizer::class)->tag('serializer.normalizer');
+    $services->set(DateTimeNormalizer::class)->tag('serializer.normalizer');
+    $services->set(ArrayDenormalizer::class)->tag('serializer.normalizer');
+    $services->set(JsonEncoder::class)->tag('serializer.encoder');
     $services->set('property_info.extractor', ReflectionExtractor::class);
 
     $services->set(ObjectNormalizer::class)
@@ -44,21 +44,9 @@ return static function (ContainerConfigurator $configurator) {
             null,
             null,
             service('property_info.extractor')
-        ]);
+        ])->tag('serializer.normalizer');
 
-    $services->set('tekton.serializer.standard', StandardSerializer::class)
-        ->args([
-            [ 
-                service(UidNormalizer::class),
-                service(DateTimeNormalizer::class),
-                service(ArrayDenormalizer::class),
-                service(ObjectNormalizer::class)
-            ],
-            [ 
-                service(JsonEncoder::class)
-            ]
-        ]);
-
+    $services->set('tekton.serializer.standard', StandardSerializer::class);
 
     $services->set('tekton.messenger.serializer', MessengerSerializer::class)
         ->args([
@@ -112,19 +100,7 @@ return static function (ContainerConfigurator $configurator) {
         ]);
 
 
-    $services->set('tekton.transport.consumer', TransportInterface::class)
-        ->factory([service('messenger.transport_factory'), 'createTransport'])
-        ->args([
-            '%MESSENGER_TRANSPORT_DSN%',
-            [
-                'topic' => ['name' => 'events'],
-                'kafka_conf' => [
-                    'group.id' => '%messenger.consumer.async.group_id%',  // ← Use parameter!
-                    'auto.offset.reset' => 'earliest'
-                ]
-            ],
-            service('tekton.messenger.serializer')
-        ]);
+    $services->set('tekton.transport.consumer', TransportInterface::class);
 
     $services->alias('tekton.consumer', Consumer::class)
         ->public();

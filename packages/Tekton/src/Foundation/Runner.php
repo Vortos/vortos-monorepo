@@ -4,11 +4,9 @@ namespace Fortizan\Tekton\Foundation;
 
 use CachedContainer;
 use Fortizan\Tekton\Controller\ErrorController;
-use Fortizan\Tekton\DependencyInjection\Compiler\Http\HttpListenerCompilerPass;
-use Fortizan\Tekton\DependencyInjection\Compiler\Http\RegisterEventSubscribersPass;
-use Fortizan\Tekton\DependencyInjection\Compiler\Route\RouteCompilerPass;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Container;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Dumper\PhpDumper;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -39,7 +37,7 @@ class Runner
 
         try {
 
-            $this->container = $this->configureContainer();
+            $this->getContainer();
 
             $kernel = $this->container->get('tekton');
 
@@ -61,7 +59,7 @@ class Runner
     public function getContainer(): Container
     {
         if ($this->container === null) {
-            $this->container = $this->configureContainer();
+            $this->container = $this->getCompiledContainer();
         }
 
         return $this->container;
@@ -96,7 +94,7 @@ class Runner
         return Request::createFromGlobals();
     }
 
-    private function configureContainer(): Container
+    private function getCompiledContainer(): Container
     {
         if ($this->environment === 'prod' && $this->context === 'http' && file_exists($this->dumpFilePath)) {
             require_once $this->dumpFilePath;
@@ -104,37 +102,42 @@ class Runner
         } else {
             $container = include $this->containerPath;
 
-            $container->setParameter('kernel.env', $this->environment);
-            $container->setParameter('kernel.debug', $this->debug);
-            $container->setParameter('kernel.project_dir', $this->projectRoot);
-            $container->setParameter('kernel.context', $this->context);
-
-            foreach ($this->parameters as $key => $value) {
-                $container->setParameter($key, $value);
-            }
-
-            if ($this->withRoutes) {
-                $container->addCompilerPass(new HttpListenerCompilerPass());
-                $container->addCompilerPass(new RegisterEventSubscribersPass());
-                $container->addCompilerPass(new RouteCompilerPass());
-            }
+            $this->configureContainer($container);
 
             $container->compile();
 
-            $dumper = new PhpDumper($container);
-
-            if ($this->context === 'http') {
-
-                file_put_contents(
-                    $this->dumpFilePath,
-                    $dumper->dump(
-                        ['class' => 'CachedContainer']
-                    )
-                );
-            }
+            $this->handleCachingContainer($container);
         }
 
         return $container;
+    }
+
+    private function configureContainer(ContainerBuilder $container):void
+    {
+        $container->setParameter('kernel.env', $this->environment);
+        $container->setParameter('kernel.debug', $this->debug);
+        $container->setParameter('kernel.project_dir', $this->projectRoot);
+        $container->setParameter('kernel.context', $this->context);
+        $container->setParameter('kernel.enable_routes', $this->withRoutes);
+
+        foreach ($this->parameters as $key => $value) {
+            $container->setParameter($key, $value);
+        }
+    }
+
+    private function handleCachingContainer(Container $container):void
+    {
+        $dumper = new PhpDumper($container);
+
+        if ($this->context === 'http') {
+
+            file_put_contents(
+                $this->dumpFilePath,
+                $dumper->dump(
+                    ['class' => 'CachedContainer']
+                )
+            );
+        }
     }
 
     private function handleBoostrapErrors(\Throwable $exception, Request $request, ?Container $container = null): Response

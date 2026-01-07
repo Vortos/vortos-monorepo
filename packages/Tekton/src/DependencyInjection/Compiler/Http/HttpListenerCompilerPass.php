@@ -10,6 +10,10 @@ class HttpListenerCompilerPass implements CompilerPassInterface
 {
     public function process(ContainerBuilder $container):void
     {
+        if (!$container->getParameter('kernel.enable_routes')) {
+            return;
+        }
+        
         if(!$container->hasDefinition(RouterListener::class)){
             return;
         }

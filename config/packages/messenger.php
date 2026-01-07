@@ -9,13 +9,4 @@ return static function (ContainerConfigurator $configurator) {
         ->autowire()
         ->autoconfigure();
 
-    $configurator->import('./packages/*.php');
-    $configurator->import('./services/*.php');
-
-    $services->load('App\\', '../src/')
-        ->exclude([
-            '../src/*/Representation/View/',
-            '../src/Entity/',
-            '../src/test.php'
-        ]);
 };

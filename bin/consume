@@ -1,6 +1,8 @@
 # !/usr/bin/env php
 <?php
 
+set_time_limit(0);
+
 $config = require __DIR__ . '/../bootstrap/app.php';
 
 use Fortizan\Tekton\Foundation\Runner;
@@ -9,9 +11,15 @@ $groupId = $argv[1] ?? throw new InvalidArgumentException("Missing group_id");
 
 $runner = new Runner(...$config, context: 'console');
 
-$container = $runner->setParameter('messenger.consumer.async.group_id', $groupId)
-    ->getContainer();
+try {
+    $container = $runner->setParameter('messenger.consumer.async.group_id', $groupId)
+        ->getContainer();
 
-$container->get('tekton.consumer')->run();
-
-$runner->cleanUp();
+    echo " [*] Messenger consumer worker started. Group: {$groupId}. Press Ctrl+C to stop.\n";
+    $container->get('tekton.consumer')->run();
+} catch (\Throwable $e) {
+    fwrite(STDERR, "Worker Error: " . $e->getMessage() . "\n");
+    exit(1);
+} finally {
+    $runner->cleanUp();
+}

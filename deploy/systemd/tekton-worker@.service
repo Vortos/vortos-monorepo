@@ -1,0 +1,37 @@
+# Systemd service for Tekton workers
+# Save to: /etc/systemd/system/tekton-worker@.service
+#
+# Usage:
+#   sudo systemctl start tekton-worker@events-consumer
+#   sudo systemctl enable tekton-worker@events-consumer
+#   sudo systemctl status tekton-worker@events-consumer
+#
+# The @ allows multiple instances with different group IDs
+
+[Unit]
+Description=Tekton Worker (%i)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html
+
+# The %i is replaced with the instance name (group_id)
+ExecStart=/usr/bin/php /var/www/html/bin/consume %i
+
+# Restart on failure
+Restart=always
+RestartSec=5
+
+# Resource limits
+MemoryLimit=256M
+TimeoutStopSec=60
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

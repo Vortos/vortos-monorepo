@@ -16,7 +16,7 @@ try {
         ->getContainer();
 
     echo " [*] Messenger consumer worker started. Group: {$groupId}. Press Ctrl+C to stop.\n";
-    $container->get('tekton.consumer')->run();
+    $container->get('tekton.consumer')->run($groupId);
 } catch (\Throwable $e) {
     fwrite(STDERR, "Worker Error: " . $e->getMessage() . "\n");
     exit(1);

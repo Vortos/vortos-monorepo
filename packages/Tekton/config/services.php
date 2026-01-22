@@ -3,6 +3,7 @@
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
 use Fortizan\Tekton\Controller\ErrorController;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 
 return static function (ContainerConfigurator $configurator) {
@@ -31,4 +32,6 @@ return static function (ContainerConfigurator $configurator) {
     $services->get(ErrorController::class)
         ->arg('$debug', '%kernel.debug%')
         ->public();
+    
+    $services->alias(ContainerInterface::class,'service_container');
 };

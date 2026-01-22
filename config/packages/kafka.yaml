@@ -1,0 +1,24 @@
+# config/packages/tekton.yaml
+tekton:
+    kafka:
+        # Global Cluster Config (Connection)
+        brokers: '%env(KAFKA_BROKERS)%'
+        
+        # Topic Provisioning (Used by your setup command)
+        topics:
+            # 1. Explicit Configuration
+            orders:
+                partitions: 6
+                replicas: 3
+                retention_ms: 604800000 # 7 days
+                
+            user_signups:
+                partitions: 3
+                replicas: 2
+                cleanup_policy: 'compact' # Advanced Kafka setting
+
+            # 2. Defaults (Applied if a topic in #[AsEvent] isn't listed above)
+            defaults:
+                partitions: 1
+                replicas: 1
+                retention_ms: 86400000 # 1 day

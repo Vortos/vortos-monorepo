@@ -2,29 +2,54 @@
 
 namespace Fortizan\Tekton\Messenger;
 
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+use Symfony\Component\Messenger\Handler\HandlersLocator;
+use Symfony\Component\Messenger\MessageBus;
 use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;
 use Symfony\Component\Messenger\Transport\TransportInterface;
 use Symfony\Component\Messenger\Worker;
 
 class Consumer
 {
-    private Worker $worker;
-
     public function __construct(
-        TransportInterface $transport,
-        MessageBusInterface $eventBus,
-        ?EventDispatcherInterface $eventDispatcher = null
-    ) {
-        $this->worker = new Worker(
-            receivers: [$transport],
-            bus: $eventBus,
-            eventDispatcher: $eventDispatcher
+        private TransportInterface $transport,
+        private ContainerInterface $container,
+        private array $globalHandlerMap = [],
+        private ?EventDispatcherInterface $eventDispatcher = null
+    ) {}
+
+    public function run(string $groupId): void
+    {
+        $bus = $this->createBusForGroup($groupId);
+
+        $worker = new Worker(
+            receivers: [$this->transport],
+            bus: $bus,
+            eventDispatcher: $this->eventDispatcher
         );
+
+        $worker->run();
     }
 
-    public function run(): void
+    private function createBusForGroup(string $groupId): ?MessageBusInterface
     {
-        $this->worker->run();
+        if (!isset($this->globalHandlerMap[$groupId])) {
+            throw new \RuntimeException("No handlers registered for group: $groupId");
+        }
+
+        $handlers = [];
+        foreach ($this->globalHandlerMap[$groupId] as $eventClass => $serviceIds) {
+            foreach ($serviceIds as $id => $metadata) {
+                $handlers[$eventClass][] = $this->container->get($id);
+            }
+        }
+
+        $middleware = [
+            new HandleMessageMiddleware(new HandlersLocator($handlers))
+        ];
+
+        return new MessageBus($middleware);
     }
 }

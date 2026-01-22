@@ -23,6 +23,7 @@ class CachedContainer extends Container
 
         $this->services = $this->privates = [];
         $this->methodMap = [
+            'App\\User\\Application\\EventHandler\\SendEmailHandler' => 'getSendEmailHandlerService',
             'App\\User\\Application\\Projection\\UserProjector' => 'getUserProjectorService',
             'App\\User\\Representation\\Controller\\CreateAnEventController' => 'getCreateAnEventControllerService',
             'App\\User\\Representation\\Controller\\TestDoctrineController' => 'getTestDoctrineControllerService',
@@ -74,12 +75,14 @@ class CachedContainer extends Container
             'Fortizan\\Tekton\\Bus\\Command\\Attribute\\CommandHandler' => true,
             'Fortizan\\Tekton\\Bus\\Command\\CommandBus' => true,
             'Fortizan\\Tekton\\Bus\\Event\\Attribute\\AsEvent' => true,
+            'Fortizan\\Tekton\\Bus\\Event\\Attribute\\EventHandler' => true,
             'Fortizan\\Tekton\\Bus\\Projection\\Attribute\\ProjectionHandler' => true,
             'Fortizan\\Tekton\\Bus\\Query\\Attribute\\AsQuery' => true,
             'Fortizan\\Tekton\\Bus\\Query\\Attribute\\QueryHandler' => true,
             'Fortizan\\Tekton\\Bus\\Query\\QueryBus' => true,
             'Fortizan\\Tekton\\Container\\Container' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Bus\\EventAttributeCompilerPass' => true,
+            'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Consumer\\ConsumerHandlersMapCompilerPass' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Cqrs\\CommandHandlerPass' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Cqrs\\QueryHandlerPass' => true,
             'Fortizan\\Tekton\\DependencyInjection\\Compiler\\Http\\HttpListenerCompilerPass' => true,
@@ -116,6 +119,7 @@ class CachedContainer extends Container
             'Fortizan\\Tekton\\Routing\\RouteAttributeClassLoader' => true,
             'Koco\\Kafka\\RdKafka\\RdKafkaFactory' => true,
             'Psr\\Log\\LoggerInterface' => true,
+            'Symfony\\Component\\DependencyInjection\\ContainerInterface' => true,
             'Symfony\\Component\\EventDispatcher\\EventDispatcher' => true,
             'Symfony\\Component\\HttpFoundation\\RequestStack' => true,
             'Symfony\\Component\\HttpKernel\\Controller\\ArgumentResolver' => true,
@@ -168,6 +172,16 @@ class CachedContainer extends Container
     }
 
     /**
+     * Gets the public 'App\User\Application\EventHandler\SendEmailHandler' shared autowired service.
+     *
+     * @return \App\User\Application\EventHandler\SendEmailHandler
+     */
+    protected static function getSendEmailHandlerService($container)
+    {
+        return $container->services['App\\User\\Application\\EventHandler\\SendEmailHandler'] = new \App\User\Application\EventHandler\SendEmailHandler(($container->privates['monolog.logger'] ?? self::getMonolog_LoggerService($container)));
+    }
+
+    /**
      * Gets the public 'App\User\Application\Projection\UserProjector' shared autowired service.
      *
      * @return \App\User\Application\Projection\UserProjector
@@ -194,9 +208,14 @@ class CachedContainer extends Container
      */
     protected static function getTestDoctrineControllerService($container)
     {
-        $a = ($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html'));
+        $a = ($container->services['App\\User\\Application\\Projection\\UserProjector'] ?? self::getUserProjectorService($container));
+        $b = ($container->privates['Fortizan\\Tekton\\Persistence\\PersistenceFactory'] ??= new \Fortizan\Tekton\Persistence\PersistenceFactory('/var/www/html'));
 
-        return $container->services['App\\User\\Representation\\Controller\\TestDoctrineController'] = new \App\User\Representation\Controller\TestDoctrineController(new \Fortizan\Tekton\Bus\Command\CommandBus(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Application\\Command\\RegisterUser\\RegisterUserCommand' => [new \App\User\Application\Command\RegisterUser\RegisterUserCommandHandler(new \App\User\Infrastructure\Repository\DoctrineUserRepository($a->createSourceWriter(($container->privates['tekton.bus.event'] ?? self::getTekton_Bus_EventService($container)), [], [], true)), new \App\User\Infrastructure\Service\DbalUserUniquenessChecker($a->createSourceReader([], true)))]]))])));
+        return $container->services['App\\User\\Representation\\Controller\\TestDoctrineController'] = new \App\User\Representation\Controller\TestDoctrineController(new \Fortizan\Tekton\Bus\Command\CommandBus(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Application\\Command\\RegisterUser\\RegisterUserCommand' => [new \App\User\Application\Command\RegisterUser\RegisterUserCommandHandler(new \App\User\Infrastructure\Repository\DoctrineUserRepository($b->createSourceWriter(new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\SendMessageMiddleware(new \Symfony\Component\Messenger\Transport\Sender\SendersLocator(['App\\User\\Domain\\Event\\UserCreatedEvent' => ['tekton.transport.async.user.created']], new \Symfony\Component\DependencyInjection\Argument\ServiceLocator($container->getService ??= $container->getService(...), [
+            'tekton.transport.async.user.created' => ['privates', 'tekton.transport.async.user.created', 'getTekton_Transport_Async_User_CreatedService', false],
+        ], [
+            'tekton.transport.async.user.created' => '?',
+        ])), ($container->privates['Symfony\\Component\\EventDispatcher\\EventDispatcher'] ?? self::getEventDispatcherService($container))), new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Domain\\Event\\UserCreatedEvent' => [[$a, '__invoke'], [$a, 'onUserDeleted']]]))]), [], [], true)), new \App\User\Infrastructure\Service\DbalUserUniquenessChecker($b->createSourceReader([], true)))]]))])));
     }
 
     /**
@@ -256,7 +275,7 @@ class CachedContainer extends Container
      */
     protected static function getTekton_ConsumerService($container)
     {
-        return $container->services['tekton.consumer'] = new \Fortizan\Tekton\Messenger\Consumer(($container->services['Symfony\\Component\\Messenger\\Transport\\TransportInterface'] ??= new \Symfony\Component\Messenger\Transport\TransportInterface()), ($container->privates['tekton.bus.event'] ?? self::getTekton_Bus_EventService($container)));
+        return $container->services['tekton.consumer'] = new \Fortizan\Tekton\Messenger\Consumer(($container->services['Symfony\\Component\\Messenger\\Transport\\TransportInterface'] ??= new \Symfony\Component\Messenger\Transport\TransportInterface()), $container, ['async' => ['App\\User\\Domain\\Event\\UserCreatedEvent' => ['App\\User\\Application\\EventHandler\\SendEmailHandler' => ['retries' => 2, 'delay' => 2000, 'backoff' => 'fixed', 'dlq' => NULL], 'App\\User\\Application\\Projection\\UserProjector' => ['retries' => 2, 'delay' => 2000, 'backoff' => 'fixed', 'dlq' => NULL]]]]);
     }
 
     /**
@@ -310,22 +329,6 @@ class CachedContainer extends Container
         $instance->pushProcessor(new \Monolog\Processor\IntrospectionProcessor());
 
         return $instance;
-    }
-
-    /**
-     * Gets the private 'tekton.bus.event' shared service.
-     *
-     * @return \Symfony\Component\Messenger\MessageBus
-     */
-    protected static function getTekton_Bus_EventService($container)
-    {
-        $a = ($container->services['App\\User\\Application\\Projection\\UserProjector'] ?? self::getUserProjectorService($container));
-
-        return $container->privates['tekton.bus.event'] = new \Symfony\Component\Messenger\MessageBus([new \Symfony\Component\Messenger\Middleware\SendMessageMiddleware(new \Symfony\Component\Messenger\Transport\Sender\SendersLocator(['App\\User\\Domain\\Event\\UserCreatedEvent' => ['tekton.transport.async.user.created']], new \Symfony\Component\DependencyInjection\Argument\ServiceLocator($container->getService ??= $container->getService(...), [
-            'tekton.transport.async.user.created' => ['privates', 'tekton.transport.async.user.created', 'getTekton_Transport_Async_User_CreatedService', false],
-        ], [
-            'tekton.transport.async.user.created' => '?',
-        ])), ($container->privates['Symfony\\Component\\EventDispatcher\\EventDispatcher'] ?? self::getEventDispatcherService($container))), new \Symfony\Component\Messenger\Middleware\HandleMessageMiddleware(new \Symfony\Component\Messenger\Handler\HandlersLocator(['App\\User\\Domain\\Event\\UserCreatedEvent' => [[$a, 'onUserCreated'], [$a, 'onUserDeleted']]]))]);
     }
 
     /**

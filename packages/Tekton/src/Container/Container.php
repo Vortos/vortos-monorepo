@@ -1,6 +1,7 @@
 <?php
 
 use Fortizan\Tekton\DependencyInjection\Compiler\Bus\EventAttributeCompilerPass;
+use Fortizan\Tekton\DependencyInjection\Compiler\Consumer\ConsumerHandlersMapCompilerPass;
 use Fortizan\Tekton\DependencyInjection\Compiler\Cqrs\CommandHandlerPass;
 use Fortizan\Tekton\DependencyInjection\Compiler\Cqrs\QueryHandlerPass;
 use Fortizan\Tekton\DependencyInjection\Compiler\Http\HttpListenerCompilerPass;
@@ -43,5 +44,6 @@ $container->addCompilerPass(new HttpListenerCompilerPass());
 $container->addCompilerPass(new RegisterEventSubscribersPass());
 $container->addCompilerPass(new RouteCompilerPass());
 $container->addCompilerPass(new SerializerCompilerPass());
+$container->addCompilerPass(new ConsumerHandlersMapCompilerPass());
 
 return $container;

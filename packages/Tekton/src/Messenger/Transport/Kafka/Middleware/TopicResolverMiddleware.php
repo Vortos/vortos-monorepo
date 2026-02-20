@@ -20,8 +20,8 @@ class TopicResolverMiddleware implements MiddlewareInterface
         $eventClass = get_class($message);
 
         if (isset($this->eventToTopicMap[$eventClass])) {
-            $topic = $this->eventToTopicMap[$eventClass];
-            $envelope = $envelope->with(new KafkaTopicStamp($topic));
+            [$topic, $version] = $this->eventToTopicMap[$eventClass];
+            $envelope = $envelope->with(new KafkaTopicStamp($topic, $version));
         }
 
         return $stack->next()->handle($envelope, $stack);

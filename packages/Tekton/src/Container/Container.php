@@ -1,6 +1,7 @@
 <?php
 
 use Fortizan\Tekton\DependencyInjection\Compiler\Bus\EventAttributeCompilerPass;
+use Fortizan\Tekton\DependencyInjection\Compiler\Bus\EventRegistryCompilerPass;
 use Fortizan\Tekton\DependencyInjection\Compiler\Cqrs\CommandHandlerPass;
 use Fortizan\Tekton\DependencyInjection\Compiler\Cqrs\QueryHandlerPass;
 use Fortizan\Tekton\DependencyInjection\Compiler\Http\HttpListenerCompilerPass;
@@ -35,6 +36,7 @@ $container->loadFromExtension($extension->getAlias());
 $loader = new PhpFileLoader($container, new FileLocator(__DIR__ . '/../../../../config'));
 $loader->load('services.php');
 
+$container->addCompilerPass(new EventRegistryCompilerPass());
 $container->addCompilerPass(new QueryHandlerPass());
 $container->addCompilerPass(new CommandHandlerPass());
 $container->addCompilerPass(new MessengerPass());

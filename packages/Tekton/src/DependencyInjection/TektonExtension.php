@@ -5,11 +5,11 @@ namespace Fortizan\Tekton\DependencyInjection;
 use Fortizan\Tekton\Attribute\ApiController;
 use Fortizan\Tekton\Bus\Command\Attribute\CommandHandler;
 use Fortizan\Tekton\Bus\Command\Attribute\AsCommand;
-use Fortizan\Tekton\Bus\Event\Attribute\AsEvent;
-use Fortizan\Tekton\Bus\Event\Attribute\EventHandler;
+use Fortizan\Tekton\Bus\Event\Attribute\AsEventHandler;
 use Fortizan\Tekton\Bus\Projection\Attribute\ProjectionHandler;
 use Fortizan\Tekton\Bus\Query\Attribute\AsQuery;
 use Fortizan\Tekton\Bus\Query\Attribute\QueryHandler;
+use Fortizan\Tekton\Messaging\Attribute\RegisterTransport;
 use Monolog\Level;
 use ReflectionMethod;
 use Reflector;
@@ -35,7 +35,7 @@ class TektonExtension extends Extension
         $this->configureMonolog($container);
         $this->registerEventSubscribers($container);
         $this->registerProjectionAttributes($container);
-        $this->registerEventAttributes($container);
+        $this->registerMessagingAttributes($container);
     }
 
     private function configureMonolog(ContainerBuilder $container): void
@@ -166,29 +166,33 @@ class TektonExtension extends Extension
         );
     }
 
-    private function registerEventAttributes(ContainerBuilder $container): void
+    public function registerMessagingAttributes(ContainerBuilder $container):void
     {
         $container->registerAttributeForAutoconfiguration(
-            AsEvent::class,
-            static function (ChildDefinition $definition, AsEvent $attribute) {
-                $definition->addTag('tekton.event', [
-                    'transport' => $attribute->transport,
-                    'topic' => $attribute->topic
-                ]);
+            AsEventHandler::class,
+            static function (ChildDefinition $definition, AsEventHandler $attribute, Reflector $reflector) {
+
+                $tagAttributes = [
+                    'consumer' => $attribute->consumer,
+                    'priority' => $attribute->priority,
+                    'idempotent' => $attribute->idempotent,
+                    'version' => $attribute->version,
+                    'method' => null
+                ];
+
+                if ($reflector instanceof ReflectionMethod) {
+                    $tagAttributes['method'] = $reflector->getName();
+                }
+
+                $definition->addTag('tekton.event.handler', $tagAttributes);
+                $definition->setPublic(true);
             }
         );
 
         $container->registerAttributeForAutoconfiguration(
-            EventHandler::class,
-            static function (ChildDefinition $definition, EventHandler $attribute) {
-                $definition->addTag('tekton.event.handler', [
-                    'group' => $attribute->group,
-                    'retries' => $attribute->retries,
-                    'delay' => $attribute->delay,
-                    'backoff' => $attribute->backoff,
-                    'dlq' => $attribute->dlq,
-                    'priority' => $attribute->priority
-                ]);
+            RegisterTransport::class, 
+            static function (ChildDefinition $definition, RegisterTransport $attribute){
+                $definition->addTag('tekton.messenger.transport.definition');
                 $definition->setPublic(true);
             }
         );

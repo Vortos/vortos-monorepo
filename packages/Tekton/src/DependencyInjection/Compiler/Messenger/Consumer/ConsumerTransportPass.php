@@ -2,6 +2,7 @@
 
 namespace Fortizan\Tekton\DependencyInjection\Compiler\Messenger\Consumer;
 
+use BackedEnum;
 use Fortizan\Tekton\Bus\Event\Attribute\AsEvent;
 use Fortizan\Tekton\Messenger\Consumer;
 use ReflectionClass;
@@ -46,6 +47,18 @@ class ConsumerTransportPass implements CompilerPassInterface
                 }
 
                 $topic = $attributeArgs['topic'];
+                $version = $attributeArgs['version'];
+
+                if($topic instanceof BackedEnum){
+                    $topic = $topic->value;
+                }
+
+                if (preg_match('/v\d+$/', $topic) !== 1) {
+                    $topic = $topic . '.' . $version;
+                } else {
+                    $topic = preg_replace('/v\d+$/', $version, $topic);
+                }
+
                 $currentGroupTopics[] = $topic;
             }
 

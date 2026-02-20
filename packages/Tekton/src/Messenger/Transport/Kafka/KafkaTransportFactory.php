@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Fortizan\Tekton\Messenger\Transport\Kafka;
 
-use Koco\Kafka\Messenger\KafkaSenderProperties;
 use Fortizan\Tekton\Messenger\Transport\Kafka\KafkaTransport;
 use Fortizan\Tekton\Messenger\Transport\Kafka\Receive\KafkaReceiverProperties;
+use Fortizan\Tekton\Messenger\Transport\Kafka\Send\KafkaSenderProperties;
+use Fortizan\Tekton\Messenger\Transport\Kafka\Serialization\KafkaSerializerDecorator;
 use Koco\Kafka\RdKafka\RdKafkaFactory;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -48,6 +49,8 @@ class KafkaTransportFactory implements TransportFactoryInterface
 
     public function createTransport(string $dsn, array $options, SerializerInterface $serializer): TransportInterface
     {
+        $serializerDecorator = new KafkaSerializerDecorator($serializer);
+
         $conf = new KafkaConf();
 
         // Set rebalance callback
@@ -69,19 +72,19 @@ class KafkaTransportFactory implements TransportFactoryInterface
 
         return new KafkaTransport(
             $this->logger,
-            $serializer,
+            $serializerDecorator,
             $this->kafkaFactory,
             new KafkaSenderProperties(
                 $conf,
-                is_array($topicName) ? $topicName[0] : $topicName,
-                $options['flushTimeout'] ?? 10000,
-                $options['flushRetries'] ?? 0
+                $topicName,
+                (int) $options['flushTimeout'] ?? 10000,
+                (int) $options['flushRetries'] ?? 0
             ),
             new KafkaReceiverProperties(
                 $conf,
                 $topicName,
-                $options['receiveTimeout'] ?? 10000,
-                $options['commitAsync'] ?? false,
+                (int) $options['receiveTimeout'] ?? 10000,
+                (bool) $options['commitAsync'] ?? false,
                 (int) ($options['batch_size'] ?? 1)
             )
         );

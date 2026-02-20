@@ -27,8 +27,9 @@ class ProducerTopicMapCompilerPass implements CompilerPassInterface
             }
 
             $topic = $metaData[0]['topic'];
+            $version = $metaData[0]['version'];
 
-            $eventToTopicMap[$eventClass] = $topic;
+            $eventToTopicMap[$eventClass] = [$topic, $version];
         }
 
         $topicResolverMiddleware->setArgument('$eventToTopicMap', $eventToTopicMap);

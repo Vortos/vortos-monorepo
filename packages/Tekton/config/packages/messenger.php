@@ -1,5 +1,6 @@
 <?php
 
+use Fortizan\Tekton\Messenger\Transport\Kafka\Middleware\TopicResolverMiddleware;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\EventDispatcher\EventDispatcher;
@@ -21,10 +22,16 @@ return static function (ContainerConfigurator $configurator) {
         $services->set('tekton.bus.event', MessageBus::class)
                 ->args([
                         [
+                                service(TopicResolverMiddleware::class),
                                 new Reference('tekton.bus.event.send_middleware'),
                                 new Reference('tekton.bus.event.handle_middleware')
                         ]
                 ])->tag('messenger.bus');
+
+        $services->set(TopicResolverMiddleware::class)
+                ->args([
+                        []
+                ]);
 
         $services->set('tekton.bus.event.send_middleware', SendMessageMiddleware::class)
                 ->args([

@@ -11,7 +11,7 @@ final class KafkaSenderProperties
 
     public function __construct(
         private KafkaConf $kafkaConf,
-        private string|array $topicName,
+        private array $topicName,
         private int $flushTimeout,
         private int $flushRetries,
     ) {}
@@ -21,7 +21,7 @@ final class KafkaSenderProperties
         return $this->kafkaConf;
     }
 
-    public function getTopicName(): string|array
+    public function getTopicName(): array
     {
         return $this->topicName;
     }

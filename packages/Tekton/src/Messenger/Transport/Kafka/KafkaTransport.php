@@ -6,8 +6,8 @@ namespace Fortizan\Tekton\Messenger\Transport\Kafka;
 
 use Fortizan\Tekton\Messenger\Transport\Kafka\Receive\KafkaReceiver;
 use Fortizan\Tekton\Messenger\Transport\Kafka\Receive\KafkaReceiverProperties;
-use Koco\Kafka\Messenger\KafkaSender;
-use Koco\Kafka\Messenger\KafkaSenderProperties;
+use Fortizan\Tekton\Messenger\Transport\Kafka\Send\KafkaSender;
+use Fortizan\Tekton\Messenger\Transport\Kafka\Send\KafkaSenderProperties;
 use Koco\Kafka\RdKafka\RdKafkaFactory;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Messenger\Envelope;
@@ -16,37 +16,54 @@ use Symfony\Component\Messenger\Transport\TransportInterface;
 
 class KafkaTransport implements TransportInterface
 {
-    private KafkaSender $sender;
-    private KafkaReceiver $receiver;
+    private ?KafkaSender $sender = null;
+    private ?KafkaReceiver $receiver = null;
 
     public function __construct(
-        LoggerInterface $logger,
-        SerializerInterface $serializer,
-        RdKafkaFactory $rdKafkaFactory,
-        KafkaSenderProperties $senderProperties,
-        KafkaReceiverProperties $receiverProperties
-    ) {
-        $this->sender = new KafkaSender($logger, $serializer, $rdKafkaFactory, $senderProperties);
-        $this->receiver = new KafkaReceiver($receiverProperties, $serializer, $rdKafkaFactory, $logger);
-    }
+        private LoggerInterface $logger,
+        private SerializerInterface $serializer,
+        private RdKafkaFactory $rdKafkaFactory,
+        private KafkaSenderProperties $senderProperties,
+        private KafkaReceiverProperties $receiverProperties
+    ) {}
 
     public function get(): iterable
     {
-        return $this->receiver->get();
+        return $this->getReceiver()->get();
     }
 
     public function ack(Envelope $envelope): void
     {
-        $this->receiver->ack($envelope);
+        $this->getReceiver()->ack($envelope);
     }
 
     public function reject(Envelope $envelope): void
     {
-        $this->receiver->reject($envelope);
+        $this->getReceiver()->reject($envelope);
     }
 
     public function send(Envelope $envelope): Envelope
     {
-        return $this->sender->send($envelope);
+        return $this->getSender()->send($envelope);
+    }
+
+    private function getSender(): KafkaSender
+    {
+        return $this->sender ?? $this->sender = new KafkaSender(
+            $this->senderProperties,
+            $this->serializer,
+            $this->rdKafkaFactory,
+            $this->logger
+        );
+    }
+
+    private function getReceiver(): KafkaReceiver
+    {
+        return $this->receiver ?? $this->receiver = new KafkaReceiver(
+            $this->receiverProperties,
+            $this->serializer,
+            $this->rdKafkaFactory,
+            $this->logger
+        );
     }
 }

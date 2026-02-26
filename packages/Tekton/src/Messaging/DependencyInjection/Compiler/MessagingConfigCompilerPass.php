@@ -7,6 +7,7 @@ namespace Fortizan\Tekton\Messaging\DependencyInjection\Compiler;
 use Fortizan\Tekton\Messaging\Attribute\RegisterConsumer;
 use Fortizan\Tekton\Messaging\Attribute\RegisterProducer;
 use Fortizan\Tekton\Messaging\Attribute\RegisterTransport;
+use Fortizan\Tekton\Messaging\Contract\DomainEventInterface;
 use Fortizan\Tekton\Messaging\Definition\Consumer\AbstractConsumerDefinition;
 use Fortizan\Tekton\Messaging\Definition\Producer\AbstractProducerDefinition;
 use Fortizan\Tekton\Messaging\Definition\Transport\AbstractTransportDefinition;
@@ -57,9 +58,22 @@ final class MessagingConfigCompilerPass implements CompilerPassInterface
 
         $this->validateReferences($transportDefinitions, $producerDefinitions, $consumerDefinitions);
 
+        $eventProducerMap = [];
+        foreach ($producerDefinitions as $producerName => $producer) {
+            foreach ($producer->getPublishedEvents() as $eventClass) {
+                if (isset($eventProducerMap[$eventClass])) {
+                    throw new \LogicException(
+                        "Event '{$eventClass}' is mapped to multiple producers: '{$eventProducerMap[$eventClass]}' and '{$producerName}'. Each event class can only be produced by one producer."
+                    );
+                }
+                $eventProducerMap[$eventClass] = $producerName;
+            }
+        }
+        
         $container->setParameter('tekton.transports', $transportDefinitions);
         $container->setParameter('tekton.producers', $producerDefinitions);
         $container->setParameter('tekton.consumers', $consumerDefinitions);
+        $container->setParameter('tekton.event_producer_map', $eventProducerMap);
     }
 
     private function processMethod(ReflectionMethod $method, object $configInstance, array &$transportDefinitions, array &$producerDefinitions, array &$consumerDefinitions): void
@@ -153,6 +167,21 @@ final class MessagingConfigCompilerPass implements CompilerPassInterface
                 throw new LogicException(
                     "Consumer '{$consumerName}' references transport '{$consumerName}' which is not registered"
                 );
+            }
+        }
+
+        foreach ($producerDefinitions as $producerName => $producer) {
+            foreach ($producer->getPublishedEvents() as $eventClass) {
+                if (!class_exists($eventClass)) {
+                    throw new \LogicException(
+                        "Producer '{$producerName}' declares event '{$eventClass}' in publishes() but the class does not exist."
+                    );
+                }
+                if (!is_a($eventClass, DomainEventInterface::class, true)) {
+                    throw new \LogicException(
+                        "Producer '{$producerName}' declares '{$eventClass}' in publishes() but it does not implement DomainEventInterface."
+                    );
+                }
             }
         }
     }

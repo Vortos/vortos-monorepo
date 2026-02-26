@@ -19,6 +19,7 @@ abstract class AbstractProducerDefinition
     protected string $transportName;
     protected bool $outboxEnabled = true;
     protected string $outboxTable = 'outbox';
+    protected array $publishedEvents = [];
     protected array $headers = [];
 
     protected function __construct(string $transportName)
@@ -52,6 +53,18 @@ abstract class AbstractProducerDefinition
     }
 
     /**
+     * Declares which domain event classes this producer routes to its transport.
+     * Used by EventBus to resolve the correct producer at dispatch time.
+     * Event classes must implement DomainEventInterface.
+     * Validated by the compiler pass at container compile time.
+     */
+    public function publishes(string ...$eventClasses): static
+    {
+        $this->publishedEvents = $eventClasses;
+        return $this;
+    }
+
+    /**
      * Default headers attached to every message produced by this producer.
      * Merged with headers passed at call time. Call-time headers take precedence.
      */
@@ -59,6 +72,12 @@ abstract class AbstractProducerDefinition
     {
         $this->headers = $headers;
         return $this;
+    }
+
+    /** Returns the list of event classes this producer is responsible for routing. */
+    public function getPublishedEvents(): array
+    {
+        return $this->publishedEvents;
     }
 
     /** Returns normalized configuration array consumed by the runtime producer factory. */

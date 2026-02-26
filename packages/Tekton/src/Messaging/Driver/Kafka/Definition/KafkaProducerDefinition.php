@@ -62,6 +62,7 @@ final class KafkaProducerDefinition extends AbstractProducerDefinition
     {
         return [
             'transport' => $this->transportName,
+            'publishes' => $this->publishedEvents,
             'compression' => [
                 'enabled' => $this->compressionEnabled,
                 'type' => $this->compressionType,

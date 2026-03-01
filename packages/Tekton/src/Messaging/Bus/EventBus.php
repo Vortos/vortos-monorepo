@@ -14,6 +14,7 @@ use Fortizan\Tekton\Messaging\Contract\OutboxInterface;
 use Fortizan\Tekton\Messaging\Contract\ProducerInterface;
 use Fortizan\Tekton\Messaging\Registry\HandlerRegistry;
 use Fortizan\Tekton\Messaging\Registry\ProducerRegistry;
+use Fortizan\Tekton\Tracing\Contract\TracingInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\MessageBusInterface;
@@ -41,7 +42,8 @@ final class EventBus implements EventBusInterface
         private HandlerRegistry $handlerRegistry,
         private ProducerRegistry $producerRegistry,
         private array $eventProducerMap,
-        private LoggerInterface $logger
+        private LoggerInterface $logger,
+        private TracingInterface $tracer
     ){
     }
 
@@ -49,8 +51,7 @@ final class EventBus implements EventBusInterface
     {
         $eventId = bin2hex(random_bytes(16));
 
-        // TODO Phase 14: pull correlationId from TracingInterface context if available
-        $correlationId = bin2hex(random_bytes(16));
+        $correlationId = $this->tracer->currentCorrelationId() ?? bin2hex(random_bytes(16));
 
         $eventIdStamp = new EventIdStamp($eventId);
         $timestampStamp = new TimestampStamp(new DateTimeImmutable());

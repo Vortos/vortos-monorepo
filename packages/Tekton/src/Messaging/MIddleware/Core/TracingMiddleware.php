@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Fortizan\Tekton\Messaging\Middleware\Core;
 
 use Fortizan\Tekton\Messaging\Bus\Stamp\CorrelationIdStamp;
-use Fortizan\Tekton\Messaging\Contract\Tracing\TracingInterface;
 use Fortizan\Tekton\Messaging\Middleware\MiddlewareInterface;
+use Fortizan\Tekton\Tracing\Contract\TracingInterface;
 use Symfony\Component\Messenger\Envelope;
 use Throwable;
 

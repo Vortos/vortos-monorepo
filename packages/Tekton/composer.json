@@ -10,6 +10,8 @@
   },
   "require": {
     "php": ">=8.2",
+    "psr/log": "^3.0",
+    "psr/simple-cache": "^3.0",
     "symfony/http-foundation": "^7.3",
     "symfony/routing": "^7.3",
     "symfony/http-kernel": "^7.3",
@@ -20,12 +22,17 @@
     "symfony/console": "^7.3",
     "symfony/yaml": "^7.4",
     "symfony/dotenv": "^8.0",
-    "symfony/monolog-bundle": "^4.0",
     "doctrine/orm": "^3.5",
     "doctrine/dbal": "^4.4",
     "symfony/cache": "^8.0"
   },
   "require-dev": {
-    "kwn/php-rdkafka-stubs": "*"
+    "kwn/php-rdkafka-stubs": "*",
+    "open-telemetry/api": "^1.0"
+  },
+  "suggest": {
+    "ext-rdkafka": "Required for Kafka transport support",
+    "open-telemetry/api": "Required for OpenTelemetryTracer distributed tracing",
+    "open-telemetry/sdk": "Required for OpenTelemetry SDK instrumentation"
   }
 }

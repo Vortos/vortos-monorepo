@@ -18,6 +18,7 @@ use Fortizan\Tekton\Messaging\Contract\OutboxPollerInterface;
 use Fortizan\Tekton\Messaging\Contract\ProducerInterface;
 use Fortizan\Tekton\Messaging\DeadLetter\DeadLetterWriter;
 use Fortizan\Tekton\Messaging\DependencyInjection\Compiler\HandlerDiscoveryCompilerPass;
+use Fortizan\Tekton\Messaging\DependencyInjection\Compiler\HookDiscoveryCompilerPass;
 use Fortizan\Tekton\Messaging\DependencyInjection\Compiler\MessagingConfigCompilerPass;
 use Fortizan\Tekton\Messaging\DependencyInjection\Compiler\MiddlewareCompilerPass;
 use Fortizan\Tekton\Messaging\DependencyInjection\Compiler\TransportRegistryCompilerPass;
@@ -26,7 +27,16 @@ use Fortizan\Tekton\Messaging\Driver\InMemory\Runtime\InMemoryConsumer;
 use Fortizan\Tekton\Messaging\Driver\InMemory\Runtime\InMemoryProducer;
 use Fortizan\Tekton\Messaging\Driver\Kafka\Runtime\KafkaConsumer;
 use Fortizan\Tekton\Messaging\Driver\Kafka\Runtime\KafkaProducer;
+use Fortizan\Tekton\Messaging\Hook\Attribute\AfterConsume;
+use Fortizan\Tekton\Messaging\Hook\Attribute\AfterDispatch;
+use Fortizan\Tekton\Messaging\Hook\Attribute\BeforeConsume;
+use Fortizan\Tekton\Messaging\Hook\Attribute\BeforeDispatch;
+use Fortizan\Tekton\Messaging\Hook\Attribute\PreSend;
+use Fortizan\Tekton\Messaging\Hook\HookDescriptor;
+use Fortizan\Tekton\Messaging\Hook\HookRegistry;
+use Fortizan\Tekton\Messaging\Hook\HookRunner;
 use Fortizan\Tekton\Messaging\Middleware\Consumer\TransactionalMiddleware;
+use Fortizan\Tekton\Messaging\Middleware\Core\HookMiddleware;
 use Fortizan\Tekton\Messaging\Middleware\Core\LoggingMiddleware;
 use Fortizan\Tekton\Messaging\Middleware\Core\TracingMiddleware;
 use Fortizan\Tekton\Messaging\Middleware\MiddlewareStack;
@@ -59,6 +69,9 @@ final class MessagingExtension extends Extension
         if (!$container->hasParameter('tekton.handlers')) {
             $container->setParameter('tekton.handlers', []);
         }
+        if (!$container->hasParameter('tekton.hooks')) {
+            $container->setParameter('tekton.hooks', []);
+        }
 
         $this->registerMessagingAttributes($container);
         $this->registerMessagingConfigAttributes($container);
@@ -74,14 +87,60 @@ final class MessagingExtension extends Extension
         $this->registerConsumerRunner($container);
         $this->registerCLICommands($container);
         $this->registerDefaultDriverInterfaces($container);
+        $this->registerHooks($container);
 
         $container->addCompilerPass(new MessagingConfigCompilerPass());
         $container->addCompilerPass(new HandlerDiscoveryCompilerPass());
         $container->addCompilerPass(new TransportRegistryCompilerPass());
         $container->addCompilerPass(new MiddlewareCompilerPass());
+        $container->addCompilerPass(new HookDiscoveryCompilerPass());
     }
 
-    private function registerDefaultDriverInterfaces(ContainerBuilder $container):void
+    private function registerHooks(ContainerBuilder $container): void
+    {
+        $container->register('tekton.hook_locator', ServiceLocator::class)
+            ->setArguments([[]])
+            ->setPublic(false);
+
+        $container->register(HookRegistry::class, HookRegistry::class)
+            ->setArgument('$hooks', '%tekton.hooks%')
+            ->setPublic(false);
+
+        $container->register(HookRunner::class, HookRunner::class)
+            ->setAutowired(true)
+            ->setArgument('$hookLocator', new Reference('tekton.hook_locator'))
+            ->setPublic(false);
+
+        $container->register(HookMiddleware::class, HookMiddleware::class)
+            ->setAutowired(true)
+            ->setPublic(false);
+
+        foreach ($this->hookAttributeMap() as $attributeClass => $hookType) {
+            $container->registerAttributeForAutoconfiguration(
+                $attributeClass,
+                static function (ChildDefinition $definition) use ($hookType): void {
+                    $definition->addTag('tekton.hook', ['type' => $hookType]);
+                    $definition->setPublic(true);
+                }
+            );
+        }
+    }
+
+    /**
+     * @return array<class-string, string>
+     */
+    private function hookAttributeMap(): array
+    {
+        return [
+            BeforeDispatch::class => HookDescriptor::BEFORE_DISPATCH,
+            AfterDispatch::class  => HookDescriptor::AFTER_DISPATCH,
+            PreSend::class        => HookDescriptor::PRE_SEND,
+            BeforeConsume::class  => HookDescriptor::BEFORE_CONSUME,
+            AfterConsume::class   => HookDescriptor::AFTER_CONSUME,
+        ];
+    }
+
+    private function registerDefaultDriverInterfaces(ContainerBuilder $container): void
     {
         $container->setAlias(ProducerInterface::class, KafkaProducer::class)
             ->setPublic(false);
@@ -90,7 +149,7 @@ final class MessagingExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerCLICommands(ContainerBuilder $container):void
+    private function registerCLICommands(ContainerBuilder $container): void
     {
         $container->register(ConsumeCommand::class, ConsumeCommand::class)
             ->setAutowired(true)
@@ -111,7 +170,7 @@ final class MessagingExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerConsumerRunner(ContainerBuilder $container):void
+    private function registerConsumerRunner(ContainerBuilder $container): void
     {
         $container->register('tekton.handler_locator', ServiceLocator::class)
             ->setArguments([[]])  // HandlerDiscoveryCompilerPass fills this
@@ -124,7 +183,7 @@ final class MessagingExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerEventBus(ContainerBuilder $container):void
+    private function registerEventBus(ContainerBuilder $container): void
     {
         $container->register(EventBus::class, EventBus::class)
             ->setAutowired(true)
@@ -136,7 +195,7 @@ final class MessagingExtension extends Extension
             ->setPublic(true);
     }
 
-    private function registerKafkaDrivers(ContainerBuilder $container):void
+    private function registerKafkaDrivers(ContainerBuilder $container): void
     {
         $container->register(KafkaProducer::class, KafkaProducer::class)
             ->setAutowired(true)
@@ -151,7 +210,7 @@ final class MessagingExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerInMemoryDriver(ContainerBuilder $container):void
+    private function registerInMemoryDriver(ContainerBuilder $container): void
     {
         $container->register(InMemoryBroker::class, InMemoryBroker::class)
             ->setShared(true)
@@ -168,7 +227,7 @@ final class MessagingExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerDeadLetterWriter(ContainerBuilder $container):void
+    private function registerDeadLetterWriter(ContainerBuilder $container): void
     {
         $container->register(DeadLetterWriter::class, DeadLetterWriter::class)
             ->setAutowired(true)
@@ -176,7 +235,7 @@ final class MessagingExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerOutbox(ContainerBuilder $container):void
+    private function registerOutbox(ContainerBuilder $container): void
     {
         $container->register(OutboxWriter::class, OutboxWriter::class)
             ->setAutowired(true)
@@ -205,7 +264,7 @@ final class MessagingExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerMiddlewares(ContainerBuilder $container):void
+    private function registerMiddlewares(ContainerBuilder $container): void
     {
         $container->register(TracingMiddleware::class, TracingMiddleware::class)
             ->setAutowired(true)
@@ -226,12 +285,13 @@ final class MessagingExtension extends Extension
             ->setArgument('$middlewares', [
                 new Reference(TracingMiddleware::class),
                 new Reference(LoggingMiddleware::class),
+                new Reference(HookMiddleware::class),
                 new Reference(TransactionalMiddleware::class),
             ])
             ->setPublic(false);
     }
 
-    private function registerSerializers(ContainerBuilder $container):void
+    private function registerSerializers(ContainerBuilder $container): void
     {
         $container->register(JsonSerializer::class, JsonSerializer::class)
             ->setAutowired(true)
@@ -242,7 +302,7 @@ final class MessagingExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerRegistries(ContainerBuilder $container):void
+    private function registerRegistries(ContainerBuilder $container): void
     {
         $container->register(TransportRegistry::class, TransportRegistry::class)
             ->setAutowired(true)
@@ -265,7 +325,7 @@ final class MessagingExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerMessagingConfigAttributes(ContainerBuilder $container):void
+    private function registerMessagingConfigAttributes(ContainerBuilder $container): void
     {
         $container->registerAttributeForAutoconfiguration(
             MessagingConfig::class,

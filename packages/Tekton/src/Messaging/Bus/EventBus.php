@@ -13,6 +13,7 @@ use Fortizan\Tekton\Messaging\Contract\DomainEventInterface;
 use Fortizan\Tekton\Messaging\Contract\EventBusInterface;
 use Fortizan\Tekton\Messaging\Contract\OutboxInterface;
 use Fortizan\Tekton\Messaging\Contract\ProducerInterface;
+use Fortizan\Tekton\Messaging\Hook\HookRunner;
 use Fortizan\Tekton\Messaging\Registry\HandlerRegistry;
 use Fortizan\Tekton\Messaging\Registry\ProducerRegistry;
 use Fortizan\Tekton\Tracing\Contract\TracingInterface;
@@ -43,6 +44,7 @@ final class EventBus implements EventBusInterface
         private HandlerRegistry $handlerRegistry,
         private ProducerRegistry $producerRegistry,
         private array $eventProducerMap,
+        private HookRunner $hookRunner,
         private LoggerInterface $logger,
         private TracingInterface $tracer
     ){
@@ -50,65 +52,78 @@ final class EventBus implements EventBusInterface
 
     public function dispatch(DomainEventInterface $event): void
     {
-        $eventId = bin2hex(random_bytes(16));
+        $throwable = null;
+        try {
 
-        $correlationId = $this->tracer->currentCorrelationId() ?? bin2hex(random_bytes(16));
+            $eventId = bin2hex(random_bytes(16));
 
-        $eventIdStamp = new EventIdStamp($eventId);
-        $timestampStamp = new TimestampStamp(new DateTimeImmutable());
-        $correlationIdStamp = new CorrelationIdStamp($correlationId);
+            $correlationId = $this->tracer->currentCorrelationId() ?? bin2hex(random_bytes(16));
 
-        $headers = [
-            'event_id'       => $eventId,
-            'correlation_id' => $correlationId,
-            'event_class'    => get_class($event),
-            'timestamp'      => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
-        ];
+            $eventIdStamp = new EventIdStamp($eventId);
+            $timestampStamp = new TimestampStamp(new DateTimeImmutable());
+            $correlationIdStamp = new CorrelationIdStamp($correlationId);
 
-        $envelope = new Envelope($event, [
-            $eventIdStamp,
-            $timestampStamp,
-            $correlationIdStamp
-        ]);
+            $headers = [
+                'event_id'       => $eventId,
+                'correlation_id' => $correlationId,
+                'event_class'    => get_class($event),
+                'timestamp'      => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
+            ];
 
-        $eventClass = get_class($event);
+            $envelope = new Envelope($event, [
+                $eventIdStamp,
+                $timestampStamp,
+                $correlationIdStamp
+            ]);
 
-        $hasHandlers = $this->hasInternalHandlers($eventClass);
+            $this->hookRunner->runBeforeDispatch($event);
 
-        if($hasHandlers){
-            $this->bus->dispatch($envelope);
-        }
+            $eventClass = get_class($event);
 
-        $producerName = $this->eventProducerMap[$eventClass] ?? null;
+            $hasHandlers = $this->hasInternalHandlers($eventClass);
 
-        if($producerName !== null){
+            if ($hasHandlers) {
+                $this->bus->dispatch($envelope);
+            }
 
-            $producerDefinition = $this->producerRegistry->get($producerName);
+            $producerName = $this->eventProducerMap[$eventClass] ?? null;
 
-            $producerConfig = $producerDefinition->toArray();
+            if ($producerName !== null) {
 
-            $outboxEnabled = $producerConfig['outbox']['enabled'] ?? true;
+                $producerDefinition = $this->producerRegistry->get($producerName);
 
-            if($outboxEnabled){
-                $this->outbox->store(
-                    $event,
-                    $producerConfig['transport'] ?? '',
-                    $headers
-                );
-            }else{
-                $this->producer->produce(
-                    $producerConfig['transport'] ?? '',
-                    $event,
-                    $headers
+                $producerConfig = $producerDefinition->toArray();
+
+                $this->hookRunner->runPreSend($event, $headers);
+
+                $outboxEnabled = $producerConfig['outbox']['enabled'] ?? true;
+
+                if ($outboxEnabled) {
+                    $this->outbox->store(
+                        $event,
+                        $producerConfig['transport'] ?? '',
+                        $headers
+                    );
+                } else {
+                    $this->producer->produce(
+                        $producerConfig['transport'] ?? '',
+                        $event,
+                        $headers
+                    );
+                }
+            }
+
+            if (!$hasHandlers && $producerName === null) {
+                $this->logger->warning(
+                    'Event dispatched but no handlers or producer registered',
+                    ['event' => $eventClass]
                 );
             }
-        }
-
-        if(!$hasHandlers && $producerName === null){
-            $this->logger->warning(
-                'Event dispatched but no handlers or producer registered', 
-                ['event' => $eventClass]
-            );
+        } catch (\Throwable $e) {
+            $throwable = $e;
+            throw $e;
+        } finally {
+            $this->hookRunner->runAfterDispatch($event, $throwable);
         }
     }
 

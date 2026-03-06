@@ -7,6 +7,7 @@ namespace Fortizan\Tekton\Messaging\Driver\Kafka\Factory;
 use Fortizan\Tekton\Messaging\Driver\Kafka\Runtime\KafkaConsumer;
 use Fortizan\Tekton\Messaging\Registry\ConsumerRegistry;
 use Fortizan\Tekton\Messaging\Registry\TransportRegistry;
+use Fortizan\Tekton\Tracing\Contract\TracingInterface;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -23,7 +24,8 @@ final class KafkaConsumerFactory
     public function __construct(
         private ConsumerRegistry $consumerRegistry,
         private TransportRegistry $transportRegistry,
-        private LoggerInterface $logger
+        private LoggerInterface $logger,
+        private TracingInterface $tracer
     ) {}
 
     public function create(string $consumerName): KafkaConsumer
@@ -99,7 +101,13 @@ final class KafkaConsumerFactory
 
         $topics = [$transportConfig['subscription']['topic']];
 
-        return new KafkaConsumer($rdKafkaConsumer, $topics, $asyncCommit, $this->logger);
+        return new KafkaConsumer(
+            $rdKafkaConsumer, 
+            $topics, 
+            $asyncCommit, 
+            $this->logger,
+            $this->tracer
+        );
 
     }
 }

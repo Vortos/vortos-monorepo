@@ -7,6 +7,7 @@ namespace Fortizan\Tekton\Messaging\Outbox;
 use Fortizan\Tekton\Messaging\Contract\OutboxPollerInterface;
 use Fortizan\Tekton\Messaging\Contract\ProducerInterface;
 use Fortizan\Tekton\Messaging\Serializer\SerializerLocator;
+use Fortizan\Tekton\Tracing\Contract\TracingInterface;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -25,7 +26,8 @@ final class OutboxRelayWorker
         private OutboxPollerInterface $poller,
         private ProducerInterface $producer,
         private SerializerLocator $serializerLocator,
-        private LoggerInterface $logger
+        private LoggerInterface $logger,
+        private TracingInterface $tracer
     ){
     }
 
@@ -35,6 +37,13 @@ final class OutboxRelayWorker
         $relayed = 0;
 
         foreach($messages as $outboxMessage){
+
+            $span = $this->tracer->startSpan('outbox.relay', [
+                'outbox_id'   => $outboxMessage->id,
+                'event_class' => $outboxMessage->eventClass,
+                'transport'   => $outboxMessage->transportName,
+            ]);
+
             try {
 
                 $serializer = $this->serializerLocator->locate('json');
@@ -58,6 +67,8 @@ final class OutboxRelayWorker
                 ]);
 
                 $this->poller->markFailed($outboxMessage->id, $e->getMessage());
+            } finally {
+                $span->end();
             }
         }
 

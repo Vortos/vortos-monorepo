@@ -9,6 +9,7 @@ use Fortizan\Tekton\Messaging\Contract\ProducerInterface;
 use Fortizan\Tekton\Messaging\Driver\Kafka\Exception\ProducerException;
 use Fortizan\Tekton\Messaging\Registry\TransportRegistry;
 use Fortizan\Tekton\Messaging\Serializer\SerializerLocator;
+use Fortizan\Tekton\Tracing\Contract\TracingInterface;
 use RdKafka\Producer;
 use Throwable;
 
@@ -30,6 +31,7 @@ final class KafkaProducer implements ProducerInterface
         private Producer $rdProducer,
         private SerializerLocator $serializerLocator,
         private TransportRegistry $transportRegistry,
+        private TracingInterface $tracer,
         private string $defaultSerializer = 'json'
     ) {}
 
@@ -76,6 +78,8 @@ final class KafkaProducer implements ProducerInterface
                 ['event_class' => $eventClass],
                 $headers
             );
+
+            $this->tracer->injectHeaders($finalHeaders);
 
             $topic->producev(RD_KAFKA_PARTITION_UA, 0, $payload, null, $finalHeaders);
         } catch (\RdKafka\Exception | Throwable $e) {

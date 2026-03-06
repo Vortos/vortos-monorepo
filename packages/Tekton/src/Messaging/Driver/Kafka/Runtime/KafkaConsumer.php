@@ -6,6 +6,7 @@ namespace Fortizan\Tekton\Messaging\Driver\Kafka\Runtime;
 
 use Fortizan\Tekton\Messaging\Contract\ConsumerInterface;
 use Fortizan\Tekton\Messaging\ValueObject\ReceivedMessage;
+use Fortizan\Tekton\Tracing\Contract\TracingInterface;
 use Psr\Log\LoggerInterface;
 use RdKafka\KafkaConsumer as RdKafkaConsumer;
 
@@ -31,6 +32,7 @@ final class KafkaConsumer implements ConsumerInterface
         private array $topics,
         private bool $asyncCommit,
         private LoggerInterface $logger,
+        private TracingInterface $tracer
     ) {}
     
     public function consume(string $consumerName, callable $handler): void
@@ -43,6 +45,8 @@ final class KafkaConsumer implements ConsumerInterface
             $rdMessage = $this->rdConsumer->consume(500);
 
             if ($rdMessage->err === RD_KAFKA_RESP_ERR_NO_ERROR) {
+                $this->tracer->extractContext($rdMessage->headers ?? []);
+                
                 $handler(
                     KafkaMessage::fromRdKafkaMessage($rdMessage)
                         ->toReceivedMessage($consumerName)

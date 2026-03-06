@@ -7,6 +7,7 @@ namespace Fortizan\Tekton\Messaging\Driver\Kafka\Factory;
 use Fortizan\Tekton\Messaging\Driver\Kafka\Runtime\KafkaProducer;
 use Fortizan\Tekton\Messaging\Registry\TransportRegistry;
 use Fortizan\Tekton\Messaging\Serializer\SerializerLocator;
+use Fortizan\Tekton\Tracing\Contract\TracingInterface;
 
 /**
  * Builds a KafkaProducer instance configured from a transportDefinition.
@@ -20,7 +21,8 @@ final class KafkaProducerFactory
 {
     public function __construct(
         private SerializerLocator $serializerLocator,
-        private TransportRegistry $transportRegistry
+        private TransportRegistry $transportRegistry,
+        private TracingInterface $tracer
     ) {}
 
     public function create(string $transportName): KafkaProducer
@@ -76,6 +78,7 @@ final class KafkaProducerFactory
             $rdProducer, 
             $this->serializerLocator, 
             $this->transportRegistry,
+            $this->tracer,
             'json'
         );
     }

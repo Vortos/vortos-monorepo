@@ -14,6 +14,7 @@ use Fortizan\Tekton\Messaging\Command\ListConsumersCommand;
 use Fortizan\Tekton\Messaging\Command\ListTransportsCommand;
 use Fortizan\Tekton\Messaging\Command\OutboxRelayCommand;
 use Fortizan\Tekton\Messaging\Command\ReplayDeadLetterCommand;
+use Fortizan\Tekton\Messaging\Contract\ConsumerInterface;
 use Fortizan\Tekton\Messaging\Contract\ConsumerLocatorInterface;
 use Fortizan\Tekton\Messaging\Contract\EventBusInterface;
 use Fortizan\Tekton\Messaging\Contract\OutboxInterface;
@@ -67,6 +68,11 @@ use Symfony\Component\DependencyInjection\ServiceLocator;
 
 final class MessagingExtension extends Extension
 {
+    public function getAlias(): string
+    {
+        return 'tekton_messaging';
+    }
+
     public function load(array $configs, ContainerBuilder $container)
     {
         if (!$container->hasParameter('tekton.event_producer_map')) {
@@ -78,6 +84,17 @@ final class MessagingExtension extends Extension
         if (!$container->hasParameter('tekton.hooks')) {
             $container->setParameter('tekton.hooks', []);
         }
+
+        $tektonConfig = new TektonMessagingConfig();
+        foreach ($configs as $config) {
+            if ($config instanceof \Closure) {
+                $config($tektonConfig);
+            }
+        }
+        $resolvedConfig = $this->processConfiguration(
+            new Configuration(),
+            [$tektonConfig->toArray()]
+        );
 
         $this->registerMessagingAttributes($container);
         $this->registerMessagingConfigAttributes($container);
@@ -92,7 +109,7 @@ final class MessagingExtension extends Extension
         $this->registerEventBus($container);
         $this->registerConsumerRunner($container);
         $this->registerCLICommands($container);
-        $this->registerDefaultDriverInterfaces($container);
+        $this->registerDefaultDriverInterfaces($container, $resolvedConfig['driver']);
         $this->registerHooks($container);
         $this->registerIdempotency($container);
 
@@ -155,10 +172,15 @@ final class MessagingExtension extends Extension
         ];
     }
 
-    private function registerDefaultDriverInterfaces(ContainerBuilder $container): void
+    private function registerDefaultDriverInterfaces(ContainerBuilder $container, array $driver): void
     {
-        $container->setAlias(ProducerInterface::class, KafkaProducer::class)
+        $container->setAlias(ProducerInterface::class, $driver['producer'])
             ->setPublic(false);
+
+        if (!empty($driver['consumer'])) {
+            $container->setAlias(ConsumerInterface::class, $driver['consumer'])
+                ->setPublic(false);
+        }
     }
 
     private function registerCLICommands(ContainerBuilder $container): void

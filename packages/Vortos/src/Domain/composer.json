@@ -1,0 +1,14 @@
+{
+  "name": "vortos/vortos-domain",
+  "description": "Pure domain primitives for the Vortos framework",
+  "type": "library",
+  "require": {
+    "php": ">=8.4",
+    "symfony/uid": "^7.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Vortos\\Domain\\": "src/"
+    }
+  }
+}

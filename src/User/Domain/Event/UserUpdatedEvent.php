@@ -2,13 +2,10 @@
 
 namespace App\User\Domain\Event;
 
-use App\User\Infrastructure\Topics\UserTopics;
-use Vortos\Bus\Event\Attribute\AsEvent;
+use DateTimeImmutable;
 use Vortos\Domain\Event\DomainEventInterface;
 use Symfony\Component\Uid\UuidV7;
 
-#[AsEvent(channel: 'async', topic: UserTopics::UserCreated, version: 'v5')]
-#[AsEvent(channel: 'rt', topic: UserTopics::UserCreated, version: 'v2')]
 final readonly class UserUpdatedEvent implements DomainEventInterface
 {
     public function __construct(
@@ -16,5 +13,20 @@ final readonly class UserUpdatedEvent implements DomainEventInterface
         public string $name ,
         public string $email 
     ){
+    }
+
+    public function aggregateId(): string
+    {
+        return $this->id->toRfc4122();
+    }
+
+    public function occurredAt(): DateTimeImmutable
+    {
+        return new DateTimeImmutable();
+    }
+
+    public function eventVersion(): int
+    {
+        return 1;
     }
 }

@@ -34,8 +34,15 @@ interface ReadRepositoryInterface
         array $criteria,
         array $sort = [],
         int $limit = 50,
-        int $offset = 0,
+        ?string $cursor = null,
     ): array;
+
+    public function findPage(
+        array $criteria,
+        int $limit,
+        ?string $cursor = null,
+        array $sort = [],
+    ): PageResult;
 
     /**
      * Count records matching criteria.

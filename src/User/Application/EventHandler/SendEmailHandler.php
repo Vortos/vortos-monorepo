@@ -10,7 +10,7 @@ use Exception;
 use Vortos\Messaging\Attribute\AsEventHandler;
 use Psr\Log\LoggerInterface;
 
-#[AsEventHandler(handlerId: 'user.created.handler', consumer: 'user.events', idempotent: true)]
+#[AsEventHandler(handlerId: 'user.created.handler', consumer: 'user.events', idempotent: false)]
 final class SendEmailHandler
 {
     public function __construct(
@@ -29,6 +29,6 @@ final class SendEmailHandler
             'user_id' => (string) $event->id,
             'email'   => $event->email,
         ]);
-        throw new Exception("test test test test test test tset");
+        // throw new Exception("test test test test test test tset");
     }
 }

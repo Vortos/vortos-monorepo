@@ -20,7 +20,9 @@ use Symfony\Component\Console\Application;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
 use Symfony\Component\Messenger\DependencyInjection\MessengerPass;
-
+use Vortos\Persistence\DependencyInjection\PersistencePackage;
+use Vortos\PersistenceDbal\DependencyInjection\DbalPersistencePackage;
+use Vortos\PersistenceMongo\DependencyInjection\MongoPersistencePackage;
 
 $container = new ContainerBuilder();
 
@@ -45,7 +47,10 @@ $container->register(Application::class, Application::class)
 
 $packages = [
     new MessagingPackage(),
-    new TracingPackage()
+    new TracingPackage(),
+    new PersistencePackage(),       
+    new DbalPersistencePackage(),   
+    new MongoPersistencePackage(),
 ];
 
 foreach ($packages as $package) {

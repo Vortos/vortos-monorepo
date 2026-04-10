@@ -3,11 +3,6 @@
 namespace Vortos\DependencyInjection;
 
 use Vortos\Attribute\ApiController;
-use Vortos\Bus\Command\Attribute\CommandHandler;
-use Vortos\Bus\Command\Attribute\AsCommand;
-use Vortos\Bus\Projection\Attribute\ProjectionHandler;
-use Vortos\Bus\Query\Attribute\AsQuery;
-use Vortos\Bus\Query\Attribute\QueryHandler;
 use Monolog\Level;
 use ReflectionMethod;
 use Reflector;
@@ -19,6 +14,11 @@ use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
+use Vortos\Bus\Command\Attribute\AsCommand;
+use Vortos\Bus\Command\Attribute\CommandHandler;
+use Vortos\Bus\Projection\Attribute\ProjectionHandler;
+use Vortos\Bus\Query\Attribute\AsQuery;
+use Vortos\Bus\Query\Attribute\QueryHandler;
 
 class VortosExtension extends Extension
 {
@@ -28,11 +28,11 @@ class VortosExtension extends Extension
         $loader->load('services.php');
 
         $this->registerCqrsAttributes($container);
-        $this->registerMessengerAttributes($container);
+        // $this->registerMessengerAttributes($container);
         $this->registerHttpAttributes($container);
         $this->configureMonolog($container);
         $this->registerEventSubscribers($container);
-        $this->registerProjectionAttributes($container);
+        // $this->registerProjectionAttributes($container);
 
     }
 

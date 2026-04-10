@@ -1,33 +1,28 @@
 services:
   backend:
     build:
-      context: './'
-      dockerfile: './docker/php/Dockerfile'
+      context: ./
+      dockerfile: ./docker/php/Dockerfile
+      target: backend
     volumes:
       - ./:/var/www/html
-    networks: 
+      - ./docker/frankenphp/Caddyfile:/etc/frankenphp/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      SERVER_NAME: "${SERVER_NAME:-:80}"
+      WORKER_NUM: "${WORKER_NUM:-4}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks:
       - vortos-net
     env_file:
       - ./.env
-
-  nginx:
-    build:
-      context: .
-      dockerfile: ./docker/nginx/Dockerfile
-    ports:
-      - 80:80
-    volumes:
-    - ./public:/var/www/html/public #remove this in production 
-    - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
-    networks:
-      - vortos-net
-    depends_on:
-      - backend
   
   write_db:
-    build:
-      context: .
-      dockerfile: ./docker/postgres/Dockerfile
+    image: postgres:18-alpine
     ports:
       - 5432:5432
     volumes:
@@ -79,19 +74,19 @@ services:
       - vortos-net
   
   worker:
-    build: 
-      context: .
-      dockerfile: ./docker/worker/Dockerfile
-    restart: always
-    volumes:
-      - ./:/var/www/html
-    depends_on:
-      - kafka
-      - write_db
-      - redis
-    networks:
-      - vortos-net
-
+      build:
+        context: .
+        dockerfile: ./docker/php/Dockerfile
+        target: worker
+      restart: always
+      volumes:
+        - ./:/var/www/html
+      depends_on:
+        - kafka
+        - write_db
+        - redis
+      networks:
+        - vortos-net
 
 networks:
   vortos-net:
@@ -101,3 +96,5 @@ volumes:
   write_db_data:
   read_db_data:
   redis_data:
+  caddy_data:
+  caddy_config:

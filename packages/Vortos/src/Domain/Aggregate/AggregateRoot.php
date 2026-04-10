@@ -69,9 +69,13 @@ abstract class AggregateRoot
 
     /**
      * Returns all recorded events and clears the internal collection.
-     * Called once by ApplicationService after the Unit of Work commits.
+     * Called by ApplicationService INSIDE the Unit of Work transaction —
+     * events are written to the outbox within the same transaction as
+     * the aggregate save. This guarantees atomicity between state change
+     * and event publication.
+     *
      * Calling this twice returns an empty array the second time.
-     * 
+     *
      * @return DomainEventInterface[]
      */
     public function pullDomainEvents(): array 

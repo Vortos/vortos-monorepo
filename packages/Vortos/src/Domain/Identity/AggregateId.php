@@ -2,6 +2,7 @@
 
 namespace Vortos\Domain\Identity;
 
+use Stringable;
 use Symfony\Component\Uid\Uuid;
 use Symfony\Component\Uid\UuidV7;
 
@@ -24,7 +25,7 @@ use Symfony\Component\Uid\UuidV7;
  *   $same = UserId::fromString('019d...');
  *   $id->equals($same); // true or false
  */
-abstract class AggregateId
+abstract class AggregateId implements Stringable
 {
     /**
      * Private constructor — always use generate() or fromString().

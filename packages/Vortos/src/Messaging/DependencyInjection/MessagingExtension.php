@@ -59,6 +59,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
+use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 
 final class MessagingExtension extends Extension
 {
@@ -297,8 +298,8 @@ final class MessagingExtension extends Extension
             ->setAutoconfigured(true)
             ->setPublic(false);
 
-        $container->register(Connection::class, Connection::class)
-            ->setFactory([new Reference(DoctrineConnectionRegistry::class), 'getConnection']);
+        // $container->register(Connection::class, Connection::class)
+        //     ->setFactory([new Reference(DoctrineConnectionRegistry::class), 'getConnection']);
 
         $container->setAlias(OutboxInterface::class, OutboxWriter::class)
             ->setPublic(false);
@@ -332,9 +333,12 @@ final class MessagingExtension extends Extension
             ->setAutowired(true)
             ->setAutoconfigured(true);
 
+        // $container->register(TransactionalMiddleware::class, TransactionalMiddleware::class)
+        //     ->setAutowired(true)
+        //     ->setAutoconfigured(true);
         $container->register(TransactionalMiddleware::class, TransactionalMiddleware::class)
-            ->setAutowired(true)
-            ->setAutoconfigured(true);
+            ->setArgument('$unitOfWork', new Reference(UnitOfWorkInterface::class))
+            ->setPublic(false);
     }
 
     private function registerMiddlewareStack(ContainerBuilder $container): void

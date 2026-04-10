@@ -54,7 +54,7 @@ final class OutboxWriter implements OutboxInterface
                     'transport_name' => $transportName,
                     'event_class' => $eventClass,
                     'payload' => $payload,
-                    'headers' => json_encode($finalHeaders),
+                    'headers' => json_encode($finalHeaders, JSON_THROW_ON_ERROR),
                     'status' => 'pending',
                     'attempt_count' => 0,
                     'created_at' => $now->format('Y-m-d H:i:s'),

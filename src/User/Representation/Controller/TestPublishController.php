@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\User\Representation\Controller;
 
+use App\User\Domain\Entity\UserId;
 use App\User\Domain\Event\UserCreatedEvent;
 use Vortos\Attribute\ApiController;
 use Vortos\Messaging\Contract\EventBusInterface;
@@ -23,7 +24,7 @@ final class TestPublishController
     public function __invoke(Request $request): JsonResponse
     {
         $this->eventBus->dispatch(new UserCreatedEvent(
-            id: new UuidV7(),
+            id: UserId::generate()->toString(),
             name: 'test-123',
             email: 'test@example.com'
         ));

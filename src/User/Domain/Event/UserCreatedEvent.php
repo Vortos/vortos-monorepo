@@ -2,20 +2,31 @@
 
 namespace App\User\Domain\Event;
 
-use App\User\Infrastructure\Topics\UserTopics;
-use Vortos\Bus\Event\Attribute\AsEvent;
-// use Vortos\Messaging\Contract\DomainEventInterface;
+use DateTimeImmutable;
 use Symfony\Component\Uid\UuidV7;
 use Vortos\Domain\Event\DomainEventInterface;
 
-#[AsEvent(channel: 'async', topic: UserTopics::UserCreated, version: 'v5')]
-#[AsEvent(channel: 'rt', topic: UserTopics::UserCreated, version: 'v2')]
 final readonly class UserCreatedEvent implements DomainEventInterface
 {
     public function __construct(
-        public UuidV7 $id ,
+        public string $id ,
         public string $name ,
         public string $email 
     ){
+    }
+
+    public function aggregateId(): string
+    {
+        return $this->id;
+    }
+
+    public function occurredAt(): DateTimeImmutable
+    {
+        return new DateTimeImmutable();
+    }
+
+    public function eventVersion(): int
+    {
+        return 1;
     }
 }

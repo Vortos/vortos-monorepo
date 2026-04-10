@@ -1,0 +1,78 @@
+# ============================================================
+# Global options
+# ============================================================
+{
+    skip_install_trust
+
+    frankenphp {
+        worker {
+            file /var/www/html/public/index.php
+            num {$WORKER_NUM:4}
+        }
+    }
+
+    order rate_limit before php_server
+}
+
+# ============================================================
+# Site block
+# ============================================================
+{$SERVER_NAME:localhost} {
+
+    root * /var/www/html/public
+
+    # ----------------------------------------------------------
+    # Compression
+    # ----------------------------------------------------------
+    encode zstd br gzip
+
+    # ----------------------------------------------------------
+    # Security headers
+    # ----------------------------------------------------------
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'"
+        -Server
+        -X-Powered-By
+    }
+
+    # ----------------------------------------------------------
+    # Rate limiting
+    # ----------------------------------------------------------
+    rate_limit {
+        # Global burst protection — 1000 req per 10s across all clients
+        zone global {
+            key    static
+            window 10s
+            events 1000
+        }
+
+        # Per-IP abuse protection — 100 req per 10s per client
+        zone per_ip {
+            key    {http.request.remote.host}
+            window 10s
+            events 100
+        }
+    }
+
+    # Stricter zone on auth endpoints — 10 req per minute per IP
+    @auth_endpoints {
+        path /api/auth/*
+    }
+    rate_limit @auth_endpoints {
+        zone auth_ip {
+            key    {http.request.remote.host}
+            window 1m
+            events 10
+        }
+    }
+
+    # ----------------------------------------------------------
+    # PHP
+    # ----------------------------------------------------------
+    php_server
+}

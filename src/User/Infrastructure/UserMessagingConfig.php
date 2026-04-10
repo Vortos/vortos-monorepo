@@ -33,7 +33,7 @@ final class UserMessagingConfig
         return KafkaProducerDefinition::create('user.events')
             ->transport('user.events')
             ->publishes(UserCreatedEvent::class)
-            ->outbox(false)
+            ->outbox(true)
             ->linger(5);
     }
 

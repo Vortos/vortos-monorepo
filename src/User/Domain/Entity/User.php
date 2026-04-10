@@ -9,23 +9,25 @@ use Doctrine\ORM\Mapping\Entity;
 use Doctrine\ORM\Mapping\GeneratedValue;
 use Doctrine\ORM\Mapping\Id;
 use Doctrine\ORM\Mapping\Table;
-use Vortos\Domain\AggregateRootInterface;
-use Vortos\Domain\AggregateRootTrait;
+// use Vortos\Domain\AggregateRootInterface;
+// use Vortos\Domain\AggregateRootTrait;
 use Symfony\Component\Uid\Uuid;
 use Symfony\Component\Uid\UuidV7;
+use Vortos\Domain\Aggregate\AggregateRoot;
+use Vortos\Domain\Identity\AggregateId;
 
 #[Entity(DoctrineUserRepository::class)]
 #[Table(name: 'users')]
-class User implements AggregateRootInterface
+class User extends AggregateRoot
 {
 
-    use AggregateRootTrait;
+    // use AggregateRootTrait;
 
     private function __construct(
         #[Id]
         #[Column(name: 'id', type: 'uuid')]
         #[GeneratedValue(strategy: 'NONE')]
-        private UuidV7 $id,
+        private UserId $id,
 
         #[Column(name: 'name', type: 'string')]
         private string $name,
@@ -40,7 +42,7 @@ class User implements AggregateRootInterface
     public static function registerUser(string $name, string $email, ?bool $status): self
     {
         $user = new User(
-            Uuid::v7(),
+            UserId::generate(),
             $name,
             $email,
             $status
@@ -48,7 +50,7 @@ class User implements AggregateRootInterface
 
         $user->recordEvent(
             new UserCreatedEvent(
-                $user->id,
+                $user->id->toString(),
                 $user->name,
                 $user->email
             )
@@ -57,9 +59,9 @@ class User implements AggregateRootInterface
         return $user;
     }
 
-    public function getId(): string
+    public function getId(): AggregateId
     {
-        return $this->id->toRfc4122();
+        return $this->id;
     }
 
     // public function setId(int $id): void

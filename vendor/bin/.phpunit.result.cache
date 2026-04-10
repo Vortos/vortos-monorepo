@@ -1,0 +1,1 @@
+{"version":2,"defects":{"Vortos\\Tests\\Persistence\\Write\\InMemoryWriteRepositoryTest::test_it_throws_optimistic_lock_exception_on_stale_update":8},"times":{"Vortos\\Tests\\Persistence\\Write\\InMemoryWriteRepositoryTest::test_it_throws_optimistic_lock_exception_on_stale_update":0.008}}

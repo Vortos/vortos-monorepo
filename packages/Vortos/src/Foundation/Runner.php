@@ -86,8 +86,14 @@ class Runner
 
     public function cleanUp(): void
     {
-        $this->container = null;
+        // In worker mode, keep the container alive between requests
+        // Only reset the response
         $this->response = null;
+
+        // Only reset container in non-worker mode
+        if (!function_exists('frankenphp_handle_request')) {
+            $this->container = null;
+        }
     }
 
     private function getRequest(): Request
@@ -130,6 +136,10 @@ class Runner
 
     private function handleCachingContainer(Container $container):void
     {
+        if ($this->environment !== 'prod') {
+            return;
+        }
+        
         $dumper = new PhpDumper($container);
 
         if ($this->context === 'http') {

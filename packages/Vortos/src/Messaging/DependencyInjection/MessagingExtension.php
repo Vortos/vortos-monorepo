@@ -112,7 +112,7 @@ final class MessagingExtension extends Extension
         $this->registerCLICommands($container);
         $this->registerDefaultDriverInterfaces($container, $resolvedConfig['driver']);
         $this->registerHooks($container);
-        $this->registerIdempotency($container);
+        // $this->registerIdempotency($container);
     }
 
     private function registerIdempotency(ContainerBuilder $container): void

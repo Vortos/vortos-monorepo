@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\User\Representation\Controller;
 
 use App\User\Application\Command\RegisterUser\RegisterUserCommand;
+use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -16,7 +17,10 @@ use Vortos\Cqrs\Command\CommandBusInterface;
 #[Route('/test/command', methods: ['GET'])]
 final class TestCommandController
 {
-    public function __construct(private CommandBusInterface $commandBus) {}
+    public function __construct(
+        private CommandBusInterface $commandBus,
+        private CacheInterface $cache
+    ) {}
 
     public function __invoke(Request $request): JsonResponse
     {
@@ -26,6 +30,11 @@ final class TestCommandController
             userId: (string) new UuidV7(),
         ));
 
-        return new JsonResponse(['status' => 'command dispatched']);
+        $this->cache->set('test_key', 'hello_vortos43432', 60);
+        $value = $this->cache->get('test_key');
+        // return JsonResponse(['value' => $value])Undefined method 'invalidateTags'.intelephense(P1013)
+        
+
+        return new JsonResponse(['status' => 'command dispatched : ' . json_encode($value)]);
     }
 }

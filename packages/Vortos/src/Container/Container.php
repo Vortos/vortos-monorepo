@@ -20,6 +20,7 @@ use Symfony\Component\Console\Application;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
 use Symfony\Component\Messenger\DependencyInjection\MessengerPass;
+use Vortos\Cache\DependencyInjection\CachePackage;
 use Vortos\Cqrs\DependencyInjection\CqrsPackage;
 use Vortos\Persistence\DependencyInjection\PersistencePackage;
 use Vortos\PersistenceDbal\DependencyInjection\DbalPersistencePackage;
@@ -47,6 +48,7 @@ $container->register(Application::class, Application::class)
     ->setPublic(true);
 
 $packages = [
+    new CachePackage(),
     new MessagingPackage(),
     new TracingPackage(),
     new PersistencePackage(),       

@@ -11,6 +11,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Dumper\PhpDumper;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Vortos\Cache\Adapter\ArrayAdapter;
 
 class Runner
 {
@@ -103,6 +104,10 @@ class Runner
 
     public function cleanUp(): void
     {
+        if ($this->container !== null && $this->container->has(ArrayAdapter::class)) {
+            $this->container->get(ArrayAdapter::class)->clear();
+        }
+        
         // In worker mode, keep the container alive between requests
         // Only reset the response
         $this->response = null;

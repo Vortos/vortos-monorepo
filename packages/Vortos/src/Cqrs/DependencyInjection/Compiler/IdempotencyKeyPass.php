@@ -63,27 +63,44 @@ final class IdempotencyKeyPass implements CompilerPassInterface
     {
         $reflection = new ReflectionClass($commandClass);
 
-        // Priority 1: method override — class explicitly implements idempotencyKey()
-        // Check if the class itself declares idempotencyKey() (not just inherits the default)
+        $hasMethodOverride = false;
+        $hasAttributeProperty = null;
+
+        // Check for method override — declared on THIS class, not inherited default
         if ($reflection->hasMethod('idempotencyKey')) {
             $method = $reflection->getMethod('idempotencyKey');
-            // Only count it as an override if declared on THIS class, not the interface default
             if ($method->getDeclaringClass()->getName() === $commandClass) {
-                return ['strategy' => 'method'];
+                $hasMethodOverride = true;
             }
         }
 
-        // Priority 2: #[AsIdempotencyKey] on a property
+        // Check for #[AsIdempotencyKey] on a property
         foreach ($reflection->getProperties() as $property) {
             if (!empty($property->getAttributes(AsIdempotencyKey::class))) {
-                return [
-                    'strategy'  => 'property',
-                    'property'  => $property->getName(),
-                ];
+                $hasAttributeProperty = $property->getName();
+                break;
             }
         }
 
-        // Priority 3: no idempotency
+        // Fail loudly if both are present — ambiguity is a programming error
+        if ($hasMethodOverride && $hasAttributeProperty !== null) {
+            throw new \LogicException(sprintf(
+                'Command "%s" uses both #[AsIdempotencyKey] on property "$%s" '
+                    . 'AND overrides idempotencyKey() method. '
+                    . 'Use one or the other — remove the attribute or remove the method override.',
+                $commandClass,
+                $hasAttributeProperty,
+            ));
+        }
+
+        if ($hasMethodOverride) {
+            return ['strategy' => 'method'];
+        }
+
+        if ($hasAttributeProperty !== null) {
+            return ['strategy' => 'property', 'property' => $hasAttributeProperty];
+        }
+
         return ['strategy' => 'none'];
     }
 }

@@ -49,13 +49,4 @@ use Attribute;
 #[Attribute(Attribute::TARGET_CLASS)]
 final class AsCommandHandler
 {
-    public function __construct(
-        /**
-         * The command class this handler handles.
-         * If null (default), inferred from __invoke() first parameter type.
-         *
-         * @var class-string<\Vortos\Domain\Command\CommandInterface>|null
-         */
-        public readonly ?string $handles = null,
-    ) {}
 }

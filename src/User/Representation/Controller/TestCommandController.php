@@ -23,7 +23,7 @@ final class TestCommandController
         $this->commandBus->dispatch(new RegisterUserCommand(
             email: 'alice@example.com',
             name: 'Alice',
-            idempotencyKey: (string) new UuidV7(),
+            userId: (string) new UuidV7(),
         ));
 
         return new JsonResponse(['status' => 'command dispatched']);

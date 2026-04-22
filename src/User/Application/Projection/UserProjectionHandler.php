@@ -15,7 +15,7 @@ final class UserProjectionHandler
 
     public function __invoke(UserCreatedEvent $event): void
     {
-        $this->logger->info('UserProjectionHandler: updating read model', [
+        $this->logger->info('UserProjectionHandler: updating read mode', [
             'userId' => (string) $event->id,
             'email'  => $event->email,
         ]);

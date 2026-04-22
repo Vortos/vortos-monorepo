@@ -26,11 +26,8 @@ final class QueryHandlerPass implements CompilerPassInterface
 
         foreach ($taggedHandlers as $serviceId => $tags) {
             foreach ($tags as $tag) {
-                $queryClass = $tag['handles'] ?? null;
 
-                if ($queryClass === null) {
-                    $queryClass = $this->inferQueryClass($serviceId, $container);
-                }
+                $queryClass = $this->inferQueryClass($serviceId, $container);
 
                 if (isset($locatorMap[$queryClass])) {
                     throw new \LogicException(sprintf(

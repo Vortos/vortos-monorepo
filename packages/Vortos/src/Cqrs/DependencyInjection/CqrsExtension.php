@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Cqrs\DependencyInjection;
 
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
@@ -91,6 +92,7 @@ final class CqrsExtension extends Extension
                 new Reference(UnitOfWorkInterface::class),
                 new Reference(EventBusInterface::class),
                 new Reference(CommandIdempotencyStoreInterface::class),
+                new Reference(LoggerInterface::class),
                 '%vortos.cqrs.idempotency_strategies%',  // populated by IdempotencyKeyPass
             ])
             ->setPublic(false);
@@ -119,12 +121,8 @@ final class CqrsExtension extends Extension
         $container->registerAttributeForAutoconfiguration(
             AsCommandHandler::class,
             static function (ChildDefinition $definition, AsCommandHandler $attribute): void {
-                // 'handles' may be null — CommandHandlerPass infers from __invoke()
-                $tagAttributes = [];
-                if ($attribute->handles !== null) {
-                    $tagAttributes['handles'] = $attribute->handles;
-                }
-                $definition->addTag('vortos.command_handler', $tagAttributes);
+           
+                $definition->addTag('vortos.command_handler', []);
                 $definition->setPublic(true);
             },
         );
@@ -132,11 +130,8 @@ final class CqrsExtension extends Extension
         $container->registerAttributeForAutoconfiguration(
             AsQueryHandler::class,
             static function (ChildDefinition $definition, AsQueryHandler $attribute): void {
-                $tagAttributes = [];
-                if ($attribute->handles !== null) {
-                    $tagAttributes['handles'] = $attribute->handles;
-                }
-                $definition->addTag('vortos.query_handler', $tagAttributes);
+          
+                $definition->addTag('vortos.query_handler', []);
                 $definition->setPublic(true);
             },
         );
@@ -144,7 +139,7 @@ final class CqrsExtension extends Extension
         $container->registerAttributeForAutoconfiguration(
             AsProjectionHandler::class,
             static function (ChildDefinition $definition, AsProjectionHandler $attribute): void {
-                $definition->addTag('vortos.event_handler', [
+                $definition->addTag('vortos.projection_handler', [
                     'consumer'   => $attribute->consumer,
                     'handlerId'  => $attribute->handlerId,
                     'priority'   => $attribute->priority,

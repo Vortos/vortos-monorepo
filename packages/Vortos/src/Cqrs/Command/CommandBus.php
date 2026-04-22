@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Cqrs\Command;
 
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Cqrs\Command\Idempotency\CommandIdempotencyStoreInterface;
 use Vortos\Cqrs\Exception\CommandHandlerNotFoundException;
@@ -48,6 +49,7 @@ final class CommandBus implements CommandBusInterface
         private UnitOfWorkInterface $unitOfWork,
         private EventBusInterface $eventBus,
         private CommandIdempotencyStoreInterface $idempotencyStore,
+        private LoggerInterface $logger,
         private array $idempotencyStrategies = [],
     ) {}
 
@@ -84,6 +86,12 @@ final class CommandBus implements CommandBusInterface
         if ($idempotencyKey !== null) {
             $this->idempotencyStore->markProcessed($idempotencyKey);
         }
+
+        $this->logger->info('Idempotency check', [
+            'command' => get_class($command),
+            'strategy' => $this->idempotencyStrategies[get_class($command)] ?? 'NOT IN MAP',
+            'key' => $idempotencyKey,
+        ]);
     }
 
     /**

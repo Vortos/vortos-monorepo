@@ -26,7 +26,7 @@ final class HandlerDiscoveryCompilerPass implements CompilerPassInterface
         }
 
         $taggedHandlers = $container->findTaggedServiceIds('vortos.event_handler');
-
+      
         foreach ($taggedHandlers as $serviceId => $tags) {
             $containerDefinition = $container->getDefinition($serviceId);
             $className = $containerDefinition->getClass();
@@ -36,13 +36,13 @@ final class HandlerDiscoveryCompilerPass implements CompilerPassInterface
             $this->processHandlerClass($container, $serviceId, $reflClass);
         }
 
-        $handlerServices = [];
-        foreach ($taggedHandlers as $serviceId => $tags) {
-            $handlerServices[$serviceId] = new Reference($serviceId);
-        }
+        // $handlerServices = [];
+        // foreach ($taggedHandlers as $serviceId => $tags) {
+        //     $handlerServices[$serviceId] = new Reference($serviceId);
+        // }
 
-        $container->getDefinition('vortos.handler_locator')
-            ->setArguments([$handlerServices]);
+        // $container->getDefinition('vortos.handler_locator')
+        //     ->setArguments([$handlerServices]);
     }
 
     private function processHandlerClass(ContainerBuilder $container, string $serviceId, ReflectionClass $reflClass): void

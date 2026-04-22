@@ -135,6 +135,10 @@ final class ConsumerRunner
             ]
         );
 
+        file_put_contents(
+            '/var/www/html/var/log/handler_discovery_debug.txt',
+            print_r($descriptors, true)
+        );
 
         $allSucceeded = true;
 

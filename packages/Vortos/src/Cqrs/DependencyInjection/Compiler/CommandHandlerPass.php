@@ -32,12 +32,8 @@ final class CommandHandlerPass implements CompilerPassInterface
 
         foreach ($taggedHandlers as $serviceId => $tags) {
             foreach ($tags as $tag) {
-                $commandClass = $tag['handles'] ?? null;
 
-                // Infer from __invoke() if not explicitly provided
-                if ($commandClass === null) {
-                    $commandClass = $this->inferCommandClass($serviceId, $container);
-                }
+                $commandClass = $this->inferCommandClass($serviceId, $container);
 
                 if (isset($handlerMap[$commandClass])) {
                     throw new \LogicException(sprintf(
@@ -73,7 +69,7 @@ final class CommandHandlerPass implements CompilerPassInterface
     private function inferCommandClass(string $serviceId, ContainerBuilder $container): string
     {
         $className = $container->getDefinition($serviceId)->getClass();
-
+// var_dump("---------------------------".$className . "------------------");
         if ($className === null) {
             throw new \LogicException(sprintf(
                 'Cannot infer command class for service "%s" — class is null.',

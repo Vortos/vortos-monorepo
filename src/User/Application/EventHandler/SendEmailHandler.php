@@ -25,10 +25,10 @@ final class SendEmailHandler
             'email'  => $event->email,
         ]);
 
-        $this->connection->insert('test_events', [
-            'user_id' => (string) $event->id,
-            'email'   => $event->email,
-        ]);
+        // $this->connection->insert('test_events', [
+        //     'user_id' => (string) $event->id,
+        //     'email'   => $event->email,
+        // ]);
         // throw new Exception("test test test test test test tset");
     }
 }

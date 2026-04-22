@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\User\Application\Query;
+namespace App\User\Application\Query\GetUser;
 
 use Vortos\Domain\Query\QueryInterface;
 

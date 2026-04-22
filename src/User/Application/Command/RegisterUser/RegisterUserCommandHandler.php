@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace App\User\Application\Command\RegisterUser;
 
 use App\User\Domain\Entity\User;
+use Psr\Log\LoggerInterface;
 use Vortos\Cqrs\Attribute\AsCommandHandler;
 
-#[AsCommandHandler(handles:RegisterUserCommand::class)]
-final class RegisterUserHandler 
+#[AsCommandHandler()]
+final class RegisterUserCommandHandler 
 {
+    public function __construct(private LoggerInterface $logger)
+    {}
+
     public function __invoke(RegisterUserCommand $command): User
     {
         $user = User::registerUser(
@@ -18,7 +22,8 @@ final class RegisterUserHandler
             true
         );
 
-        // No repository yet — just return the aggregate
+        $this->logger->alert("command handler");
+
         return $user;
     }
 }

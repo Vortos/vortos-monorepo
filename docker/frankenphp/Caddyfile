@@ -8,6 +8,7 @@
         worker {
             file /var/www/html/public/index.php
             num {$WORKER_NUM:4}
+            {$FRANKENPHP_WATCH:}
         }
     }
 

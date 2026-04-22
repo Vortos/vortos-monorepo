@@ -34,13 +34,4 @@ use Attribute;
 #[Attribute(Attribute::TARGET_CLASS)]
 final class AsQueryHandler
 {
-    public function __construct(
-        /**
-         * The query class this handler answers.
-         * If null (default), inferred from __invoke() first parameter type.
-         *
-         * @var class-string<\Vortos\Domain\Query\QueryInterface>|null
-         */
-        public readonly ?string $handles = null,
-    ) {}
 }

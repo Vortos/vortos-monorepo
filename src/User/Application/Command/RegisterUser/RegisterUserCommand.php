@@ -13,7 +13,7 @@ final readonly class RegisterUserCommand extends AbstractCommand
         public readonly string $email,
         public readonly string $name,
 
-        #[AsIdempotencyKey]
-        private readonly string $idempotencyKey,
+        #[AsIdempotencyKey] 
+        public readonly string $userId,
     ) {}
 }

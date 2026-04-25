@@ -59,6 +59,8 @@ jobs:
             split_repository: 'vortos-auth'
           - local_path: 'packages/Vortos/src/Authorization'
             split_repository: 'vortos-authorization'
+          - local_path: 'packages/Vortos'
+            split_repository: 'vortos'
 
     steps:
       - uses: actions/checkout@v4
@@ -74,3 +76,4 @@ jobs:
           repository_name: ${{ matrix.package.split_repository }}
           user_name: 'vortos-bot'
           user_email: 'bot@vortos.dev'
+          tag: ${{ github.ref_type == 'tag' && github.ref_name || '' }}

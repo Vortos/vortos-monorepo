@@ -15,43 +15,43 @@ jobs:
       matrix:
         package:
           - local_path: 'packages/Vortos/src/Domain'
-            split_repository: 'vortos/vortos-domain'
+            split_repository: 'vortos-domain'
           - local_path: 'packages/Vortos/src/Foundation'
-            split_repository: 'vortos/vortos-foundation'
+            split_repository: 'vortos-foundation'
           - local_path: 'packages/Vortos/src/Http'
-            split_repository: 'vortos/vortos-http'
+            split_repository: 'vortos-http'
           - local_path: 'packages/Vortos/src/Logger'
-            split_repository: 'vortos/vortos-logger'
+            split_repository: 'vortos-logger'
           - local_path: 'packages/Vortos/src/Cache'
-            split_repository: 'vortos/vortos-cache'
+            split_repository: 'vortos-cache'
           - local_path: 'packages/Vortos/src/Tracing'
-            split_repository: 'vortos/vortos-tracing'
+            split_repository: 'vortos-tracing'
           - local_path: 'packages/Vortos/src/Persistence'
-            split_repository: 'vortos/vortos-persistence'
+            split_repository: 'vortos-persistence'
           - local_path: 'packages/Vortos/src/PersistenceDbal'
-            split_repository: 'vortos/vortos-persistence-dbal'
+            split_repository: 'vortos-persistence-dbal'
           - local_path: 'packages/Vortos/src/PersistenceMongo'
-            split_repository: 'vortos/vortos-persistence-mongo'
+            split_repository: 'vortos-persistence-mongo'
           - local_path: 'packages/Vortos/src/Messaging'
-            split_repository: 'vortos/vortos-messaging'
+            split_repository: 'vortos-messaging'
           - local_path: 'packages/Vortos/src/Cqrs'
-            split_repository: 'vortos/vortos-cqrs'
+            split_repository: 'vortos-cqrs'
           - local_path: 'packages/Vortos/src/Auth'
-            split_repository: 'vortos/vortos-auth'
+            split_repository: 'vortos-auth'
           - local_path: 'packages/Vortos/src/Authorization'
-            split_repository: 'vortos/vortos-authorization'
+            split_repository: 'vortos-authorization'
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: symplify/monorepo-split-github-action@4.2.1
+      - uses: danharrin/monorepo-split-github-action@v2.4.4
         env:
           GITHUB_TOKEN: ${{ secrets.MONOREPO_SPLIT_TOKEN }}
         with:
           package_directory: ${{ matrix.package.local_path }}
-          repository_organization: 'vortos'
+          repository_organization: 'Vortos'
           repository_name: ${{ matrix.package.split_repository }}
           user_name: 'vortos-bot'
           user_email: 'bot@vortos.dev'

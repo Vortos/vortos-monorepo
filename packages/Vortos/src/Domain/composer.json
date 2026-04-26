@@ -5,7 +5,7 @@
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "Vortos\\Domain\\": "src/"
+            "Vortos\\Domain\\": ""
         }
     },
     "require": {

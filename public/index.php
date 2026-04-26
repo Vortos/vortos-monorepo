@@ -25,7 +25,6 @@ if (isset($_SERVER['FRANKENPHP_WORKER'])) {
         // the worker gracefully after X requests to prevent memory leaks.
     }
 } else {
-dd('normal');
 
     // Fallback for standard execution (e.g., standard Docker boot or local php -S)
     $runner = new Runner(...$config, context: 'http');

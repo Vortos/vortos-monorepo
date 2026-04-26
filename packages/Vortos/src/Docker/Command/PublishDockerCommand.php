@@ -29,7 +29,7 @@ final class PublishDockerCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $runtime = $input->getOption('runtime');
-        $source = __DIR__ . '/../../stubs/' . $runtime;
+        $source = __DIR__ . '/../stubs/' . $runtime;
         $projectRoot = getcwd();
 
         if (!is_dir($source)) {

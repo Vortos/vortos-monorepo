@@ -1,2 +1,2 @@
-SELECT 'CREATE DATABASE squaura'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'squaura')\gexec
+-- Database is created automatically by PostgreSQL when POSTGRES_DB env var is set.
+-- This file is intentionally minimal — add your own initialization here.

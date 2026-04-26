@@ -1,3 +1,6 @@
+-- Vortos framework tables
+-- These are created automatically by: php bin/console vortos:setup:messaging
+
 CREATE TABLE IF NOT EXISTS users (
     id            UUID         PRIMARY KEY,
     name          TEXT         NOT NULL,

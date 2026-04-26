@@ -130,6 +130,9 @@ class Runner
             require_once $this->dumpFilePath;
             $container = new CachedContainer();
         } else {
+
+            $projectRoot = $this->projectRoot;
+
             $container = include $this->containerPath;
 
             $this->configureContainer($container);
@@ -202,3 +205,4 @@ class Runner
         return $response;
     }
 }
+

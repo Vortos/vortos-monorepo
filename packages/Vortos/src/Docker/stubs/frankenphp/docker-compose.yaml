@@ -20,7 +20,7 @@ services:
       - vortos-net
     env_file:
       - ./.env
-  
+
   write_db:
     image: postgres:18-alpine
     ports:
@@ -54,7 +54,7 @@ services:
       - 27017:27017
     env_file:
       - ./.env
-  
+
   kafka:
     image: apache/kafka:latest
     environment:
@@ -73,21 +73,23 @@ services:
       KAFKA_HEAP_OPTS: "-Xmx256M -Xms256M"
     networks:
       - vortos-net
-  
+
   worker:
-      build:
-        context: .
-        dockerfile: ./docker/php/Dockerfile
-        target: worker
-      restart: always
-      volumes:
-        - ./:/var/www/html
-      depends_on:
-        - kafka
-        - write_db
-        - redis
-      networks:
-        - vortos-net
+    build:
+      context: .
+      dockerfile: ./docker/php/Dockerfile
+      target: worker
+    restart: always
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      - kafka
+      - write_db
+      - redis
+    networks:
+      - vortos-net
+    healthcheck:
+      disable: true
 
 networks:
   vortos-net:

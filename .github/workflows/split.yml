@@ -59,6 +59,8 @@ jobs:
             split_repository: 'vortos-auth'
           - local_path: 'packages/Vortos/src/Authorization'
             split_repository: 'vortos-authorization'
+          - local_path: 'packages/Vortos/src/Docker'
+            split_repository: 'vortos-docker'
 
     steps:
       - uses: actions/checkout@v4

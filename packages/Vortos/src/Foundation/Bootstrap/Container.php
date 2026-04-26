@@ -15,6 +15,7 @@ use Symfony\Component\Config\FileLocator;
 use Symfony\Component\Console\Application;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
+use Vortos\Docker\DependencyInjection\DockerPackage;
 
 // $projectRoot is injected by Runner before include
 $container = new ContainerBuilder();
@@ -39,6 +40,7 @@ $packages = [
     new CqrsPackage(),
     new AuthPackage(),
     new AuthorizationPackage(),
+    new DockerPackage(),
 ];
 
 foreach ($packages as $package) {

@@ -1,0 +1,101 @@
+services:
+  backend:
+    build:
+      context: ./
+      dockerfile: ./docker/php/Dockerfile
+      target: backend
+    volumes:
+      - ./:/var/www/html
+      - ./docker/frankenphp/Caddyfile:/etc/frankenphp/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      SERVER_NAME: "${SERVER_NAME:-:80}"
+      WORKER_NUM: "${WORKER_NUM:-4}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks:
+      - vortos-net
+    env_file:
+      - ./.env
+  
+  write_db:
+    image: postgres:18-alpine
+    ports:
+      - 5432:5432
+    volumes:
+      - write_db_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - vortos-net
+    env_file:
+      - ./.env
+
+  redis:
+    image: redis:alpine
+    networks:
+      - vortos-net
+    volumes:
+      - redis_data:/data
+    ports:
+      - 6379:6379
+    env_file:
+      - ./.env
+
+  read_db:
+    image: mongo:8.0
+    networks:
+      - vortos-net
+    volumes:
+      - read_db_data:/data/db
+    ports:
+      - 27017:27017
+    env_file:
+      - ./.env
+  
+  kafka:
+    image: apache/kafka:latest
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_HEAP_OPTS: "-Xmx256M -Xms256M"
+    networks:
+      - vortos-net
+  
+  worker:
+      build:
+        context: .
+        dockerfile: ./docker/php/Dockerfile
+        target: worker
+      restart: always
+      volumes:
+        - ./:/var/www/html
+      depends_on:
+        - kafka
+        - write_db
+        - redis
+      networks:
+        - vortos-net
+
+networks:
+  vortos-net:
+    driver: bridge
+
+volumes:
+  write_db_data:
+  read_db_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

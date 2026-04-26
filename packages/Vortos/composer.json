@@ -1,5 +1,5 @@
 {
-    "name": "vortos/vortos",
+    "name": "vortos/vortos-framework",
     "description": "The Vortos Clean Architecture Framework — meta-package",
     "type": "library",
     "license": "MIT",
@@ -13,10 +13,12 @@
         "vortos/vortos-tracing": "^1.0",
         "vortos/vortos-persistence": "^1.0",
         "vortos/vortos-persistence-dbal": "^1.0",
-        "vortos/vortos-persistence-mongo": "^1.0",
         "vortos/vortos-messaging": "^1.0",
         "vortos/vortos-cqrs": "^1.0",
         "vortos/vortos-auth": "^1.0",
         "vortos/vortos-authorization": "^1.0"
+    },
+    "suggest": {
+        "vortos/vortos-persistence-mongo": "MongoDB read repository support — requires ext-mongodb"
     }
 }

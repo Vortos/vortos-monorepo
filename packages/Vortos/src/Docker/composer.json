@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-docker",
-    "description": "Vortos Docker — publish Docker environment files to your project",
+    "description": "Vortos Docker \u2014 publish Docker environment files to your project",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -12,5 +12,11 @@
         "php": ">=8.2",
         "vortos/vortos-foundation": "^1.0",
         "symfony/console": "^7.3"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Docker\\DependencyInjection\\DockerPackage",
+            "order": 120
+        }
     }
 }

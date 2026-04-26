@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-logger",
-    "description": "Vortos logger — Monolog PSR-3 integration",
+    "description": "Vortos logger \u2014 Monolog PSR-3 integration",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -13,5 +13,11 @@
         "vortos/vortos-foundation": "^1.0",
         "psr/log": "^3.0",
         "monolog/monolog": "^3.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Logger\\DependencyInjection\\LoggerPackage",
+            "order": 10
+        }
     }
 }

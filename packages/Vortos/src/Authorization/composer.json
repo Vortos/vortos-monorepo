@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-authorization",
-    "description": "Vortos authorization — policy engine, RBAC, role hierarchy",
+    "description": "Vortos authorization \u2014 policy engine, RBAC, role hierarchy",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -12,5 +12,11 @@
         "php": ">=8.2",
         "vortos/vortos-auth": "^1.0",
         "symfony/http-kernel": "^7.3"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Authorization\\DependencyInjection\\AuthorizationPackage",
+            "order": 110
+        }
     }
 }

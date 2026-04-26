@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-http",
-    "description": "Vortos HTTP kernel — routing, event dispatcher, error handling",
+    "description": "Vortos HTTP kernel \u2014 routing, event dispatcher, error handling",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -15,5 +15,11 @@
         "symfony/http-kernel": "^7.3",
         "symfony/routing": "^7.3",
         "symfony/event-dispatcher": "^7.3"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Http\\DependencyInjection\\HttpPackage",
+            "order": 20
+        }
     }
 }

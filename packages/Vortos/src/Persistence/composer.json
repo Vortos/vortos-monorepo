@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-persistence",
-    "description": "Vortos persistence core — repository contracts, InMemory adapters, UnitOfWork",
+    "description": "Vortos persistence core \u2014 repository contracts, InMemory adapters, UnitOfWork",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -12,5 +12,11 @@
         "php": ">=8.2",
         "vortos/vortos-domain": "^1.0",
         "vortos/vortos-foundation": "^1.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Persistence\\DependencyInjection\\PersistencePackage",
+            "order": 60
+        }
     }
 }

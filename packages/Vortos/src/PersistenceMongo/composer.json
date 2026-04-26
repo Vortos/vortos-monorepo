@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-persistence-mongo",
-    "description": "Vortos MongoDB persistence — read side via MongoDB driver",
+    "description": "Vortos MongoDB persistence \u2014 read side via MongoDB driver",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -12,5 +12,11 @@
         "php": ">=8.2",
         "vortos/vortos-persistence": "^1.0",
         "mongodb/mongodb": "^2.1"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\PersistenceMongo\\DependencyInjection\\MongoPersistencePackage",
+            "order": 80
+        }
     }
 }

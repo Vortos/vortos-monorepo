@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-cqrs",
-    "description": "Vortos CQRS — command bus, query bus, projection handlers",
+    "description": "Vortos CQRS \u2014 command bus, query bus, projection handlers",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -14,5 +14,11 @@
         "vortos/vortos-cache": "^1.0",
         "vortos/vortos-messaging": "^1.0",
         "vortos/vortos-persistence": "^1.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Cqrs\\DependencyInjection\\CqrsPackage",
+            "order": 90
+        }
     }
 }

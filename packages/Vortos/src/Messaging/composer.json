@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-messaging",
-    "description": "Vortos messaging — Kafka event bus, outbox pattern, dead letter queue",
+    "description": "Vortos messaging \u2014 Kafka event bus, outbox pattern, dead letter queue",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -29,5 +29,11 @@
     },
     "require-dev": {
         "kwn/php-rdkafka-stubs": "*"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Messaging\\DependencyInjection\\MessagingPackage",
+            "order": 40
+        }
     }
 }

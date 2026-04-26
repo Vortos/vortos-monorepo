@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-tracing",
-    "description": "Vortos tracing — OpenTelemetry distributed tracing integration",
+    "description": "Vortos tracing \u2014 OpenTelemetry distributed tracing integration",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -15,5 +15,11 @@
     "suggest": {
         "open-telemetry/api": "Required for OpenTelemetryTracer",
         "open-telemetry/sdk": "Required for OpenTelemetry SDK instrumentation"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Tracing\\DependencyInjection\\TracingPackage",
+            "order": 50
+        }
     }
 }

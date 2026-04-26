@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-cache",
-    "description": "Vortos cache — Redis-backed PSR-16 cache with tag invalidation",
+    "description": "Vortos cache \u2014 Redis-backed PSR-16 cache with tag invalidation",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -15,5 +15,11 @@
     },
     "suggest": {
         "ext-redis": "Required for RedisAdapter (recommended)"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Cache\\DependencyInjection\\CachePackage",
+            "order": 30
+        }
     }
 }

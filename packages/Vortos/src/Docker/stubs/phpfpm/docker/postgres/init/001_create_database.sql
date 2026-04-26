@@ -1,0 +1,2 @@
+-- Database is created automatically by PostgreSQL when POSTGRES_DB env var is set.
+-- This file is intentionally minimal — add your own initialization here.

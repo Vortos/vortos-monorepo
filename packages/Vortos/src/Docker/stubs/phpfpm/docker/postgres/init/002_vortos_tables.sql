@@ -1,0 +1,3 @@
+-- Add your application tables here.
+-- Vortos framework tables (outbox, dead letter) are created by:
+--   php bin/console vortos:setup:messaging

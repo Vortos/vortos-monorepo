@@ -88,6 +88,11 @@ services:
         - redis
       networks:
         - vortos-net
+      healthcheck:
+        test: ["CMD", "supervisorctl", "status"]
+        interval: 30s
+        timeout: 10s
+        retries: 3
 
 networks:
   vortos-net:

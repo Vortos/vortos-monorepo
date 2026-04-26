@@ -30,7 +30,7 @@ class Runner
         private readonly string $context = 'http',
     ) {
         $this->dumpFilePath = $projectRoot . "/var/cache/container_dump.php";
-        $this->containerPath = $projectRoot . "/packages/Vortos/src/Foundation/Bootstrap/Container.php";
+        $this->containerPath = __DIR__ . "/Bootstrap/Container.php";
         $this->withRoutes = $this->context === 'http';
     }
 

@@ -90,10 +90,12 @@ final class AuthExtension extends Extension
             ->setPublic(false);
 
         // Token storage implementations
+        if (extension_loaded('redis')) {
         $container->register(RedisTokenStorage::class, RedisTokenStorage::class)
             ->setArgument('$redis', new Reference(\Redis::class))
             ->setShared(true)
             ->setPublic(false);
+        }   
 
         $container->register(InMemoryTokenStorage::class, InMemoryTokenStorage::class)
             ->setShared(true)

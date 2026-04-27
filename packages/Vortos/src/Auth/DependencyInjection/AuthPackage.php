@@ -1,5 +1,4 @@
 <?php
-
 declare(strict_types=1);
 
 namespace Vortos\Auth\DependencyInjection;
@@ -7,28 +6,14 @@ namespace Vortos\Auth\DependencyInjection;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
+use Vortos\Auth\Audit\Compiler\AuditCompilerPass;
 use Vortos\Auth\DependencyInjection\Compiler\AuthDiscoveryPass;
+use Vortos\Auth\FeatureAccess\Compiler\FeatureAccessCompilerPass;
+use Vortos\Auth\Quota\Compiler\QuotaCompilerPass;
+use Vortos\Auth\RateLimit\Compiler\RateLimitCompilerPass;
+use Vortos\Auth\TwoFactor\Compiler\TwoFactorCompilerPass;
 use Vortos\Foundation\Contract\PackageInterface;
 
-/**
- * Auth package.
- *
- * Add to Container.php after CachePackage (AuthExtension uses ArrayAdapter):
- *
- *   $packages = [
- *       new CachePackage(),
- *       new AuthPackage(),
- *       new MessagingPackage(),
- *       // ...
- *   ];
- *
- * Then wrap the HTTP kernel with AuthMiddleware in Runner::run():
- *
- *   $kernel = $this->container->get('vortos');
- *   if ($this->container->has(AuthMiddleware::class)) {
- *       $kernel = $this->container->get(AuthMiddleware::class);
- *   }
- */
 final class AuthPackage implements PackageInterface
 {
     public function getContainerExtension(): ?ExtensionInterface
@@ -38,10 +23,11 @@ final class AuthPackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
-        $container->addCompilerPass(
-            new AuthDiscoveryPass(),
-            PassConfig::TYPE_BEFORE_OPTIMIZATION,
-            45, // after service autoconfiguration, before optimization
-        );
+        $container->addCompilerPass(new AuthDiscoveryPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 45);
+        $container->addCompilerPass(new RateLimitCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        $container->addCompilerPass(new FeatureAccessCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        $container->addCompilerPass(new QuotaCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        $container->addCompilerPass(new AuditCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        $container->addCompilerPass(new TwoFactorCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
     }
 }

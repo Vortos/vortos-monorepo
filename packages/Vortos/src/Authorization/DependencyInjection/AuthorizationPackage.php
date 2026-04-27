@@ -1,5 +1,4 @@
 <?php
-
 declare(strict_types=1);
 
 namespace Vortos\Authorization\DependencyInjection;
@@ -8,23 +7,10 @@ use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Authorization\DependencyInjection\Compiler\PolicyRegistryPass;
+use Vortos\Authorization\Ownership\Compiler\OwnershipCompilerPass;
+use Vortos\Authorization\Scope\Compiler\ScopeResolverCompilerPass;
 use Vortos\Foundation\Contract\PackageInterface;
 
-/**
- * Authorization package.
- *
- * Add to Container.php after AuthPackage:
- *
- *   $packages = [
- *       new CachePackage(),
- *       new AuthPackage(),
- *       new AuthorizationPackage(),
- *       // ...
- *   ];
- *
- * Compiler pass priorities:
- *   PolicyRegistryPass — 50 (after autoconfiguration)
- */
 final class AuthorizationPackage implements PackageInterface
 {
     public function getContainerExtension(): ?ExtensionInterface
@@ -34,10 +20,8 @@ final class AuthorizationPackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
-        $container->addCompilerPass(
-            new PolicyRegistryPass(),
-            PassConfig::TYPE_BEFORE_OPTIMIZATION,
-            50,
-        );
+        $container->addCompilerPass(new PolicyRegistryPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 50);
+        $container->addCompilerPass(new OwnershipCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        $container->addCompilerPass(new ScopeResolverCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
     }
 }

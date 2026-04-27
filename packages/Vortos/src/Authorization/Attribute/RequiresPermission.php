@@ -1,67 +1,38 @@
 <?php
-
 declare(strict_types=1);
 
 namespace Vortos\Authorization\Attribute;
 
-use Attribute;
+use Vortos\Authorization\Scope\Contract\ScopeMode;
 
 /**
  * Declares the permission required to access a controller or handler.
  *
  * Permission format: resource.action.scope
  *
- *   resource — what is being acted on    (athletes, competitions, users)
- *   action   — what is being done        (create, read, update, delete, list)
- *   scope    — who is allowed            (any, own, federation)
- *
- * ## Controller usage
- *
+ * Basic usage:
  *   #[RequiresPermission('athletes.update.own')]
- *   final class UpdateAthleteController { ... }
  *
- * ## Handler usage
+ * Scoped usage — checks permission within org/team/project scope:
+ *   #[RequiresPermission('documents.edit', scope: 'org')]
+ *   #[RequiresPermission('documents.edit', scope: ['org', 'team'])]
+ *   #[RequiresPermission('documents.edit', scope: ['org', 'team'], scopeMode: ScopeMode::Any)]
  *
- *   #[RequiresPermission('competitions.create.federation')]
- *   #[AsCommandHandler]
- *   final class CreateCompetitionHandler { ... }
- *
- * ## Multiple permissions (all must pass)
- *
- *   #[RequiresPermission('athletes.read.any')]
- *   #[RequiresPermission('reports.export.federation')]
- *   final class ExportAthleteReportController { ... }
- *
- * ## Scope semantics
- *
- *   any        — any authenticated user with this role can perform this action
- *   own        — only the resource owner can perform this action
- *   federation — only users in the same federation can perform this action
- *   global     — super-admin only
- *
- * ## Implies #[RequiresAuth]
- *
- * A controller with #[RequiresPermission] implicitly requires authentication.
- * AuthorizationMiddleware returns 401 for unauthenticated requests before
- * evaluating permissions, so #[RequiresAuth] is not needed alongside this.
+ * String or BackedEnum:
+ *   #[RequiresPermission(Permission::DocumentsEdit)]
+ *   #[RequiresPermission(Permission::DocumentsEdit, scope: 'org')]
  */
-#[Attribute(Attribute::TARGET_CLASS | Attribute::TARGET_METHOD | Attribute::IS_REPEATABLE)]
+#[\Attribute(\Attribute::TARGET_CLASS | \Attribute::TARGET_METHOD | \Attribute::IS_REPEATABLE)]
 final class RequiresPermission
 {
-    public function __construct(
-        /**
-         * The permission string in resource.action.scope format.
-         * e.g. 'athletes.update.own', 'competitions.create.federation'
-         */
-        public readonly string $permission,
+    public readonly string $permission;
 
-        /**
-         * Optional resource parameter name to extract from route attributes.
-         * Used for ownership and federation scope checks.
-         *
-         * e.g. resourceParam: 'athleteId' — the middleware fetches the resource
-         * using this route parameter and passes it to the policy for scope evaluation.
-         */
+    public function __construct(
+        string|\BackedEnum $permission,
         public readonly ?string $resourceParam = null,
-    ) {}
+        public readonly string|array|null $scope = null,
+        public readonly ScopeMode $scopeMode = ScopeMode::All,
+    ) {
+        $this->permission = $permission instanceof \BackedEnum ? $permission->value : $permission;
+    }
 }

@@ -1,5 +1,4 @@
 <?php
-
 declare(strict_types=1);
 
 namespace Vortos\Authorization\DependencyInjection;
@@ -14,24 +13,16 @@ use Vortos\Authorization\Contract\PolicyRegistryInterface;
 use Vortos\Authorization\Engine\PolicyEngine;
 use Vortos\Authorization\Engine\PolicyRegistry;
 use Vortos\Authorization\Middleware\AuthorizationMiddleware;
+use Vortos\Authorization\Ownership\Middleware\OwnershipMiddleware;
+use Vortos\Authorization\Scope\Contract\ScopedPermissionStoreInterface;
+use Vortos\Authorization\Scope\Contract\ScopeMode;
+use Vortos\Authorization\Scope\ScopeResolverRegistry;
+use Vortos\Authorization\Scope\ScopedAuthorizationManager;
+use Vortos\Authorization\Scope\Storage\RedisScopedPermissionStore;
+use Vortos\Authorization\Temporal\Storage\RedisTemporalPermissionStore;
+use Vortos\Authorization\Temporal\TemporalAuthorizationManager;
 use Vortos\Authorization\Voter\RoleVoter;
 
-/**
- * Wires all authorization services.
- *
- * ## Services registered
- *
- *   RoleVoter                    — role hierarchy voter, injectable in policies
- *   PolicyRegistry               — ServiceLocator of all registered policies
- *   PolicyRegistryInterface      — alias to PolicyRegistry
- *   PolicyEngine                 — central authorization check (can/authorize)
- *   AuthorizationMiddleware      — event subscriber, kernel.request priority 5
- *
- * ## Policy autoconfiguration
- *
- *   #[AsPolicy(resource: 'athletes')] → tagged 'vortos.policy' with resource attribute
- *   Discovered by PolicyRegistryPass
- */
 final class AuthorizationExtension extends Extension
 {
     public function getAlias(): string
@@ -58,44 +49,72 @@ final class AuthorizationExtension extends Extension
 
         $resolved = $this->processConfiguration(new Configuration(), [$config->toArray()]);
 
-        // RoleVoter — injectable in policies
+        // RoleVoter
         $container->register(RoleVoter::class, RoleVoter::class)
             ->setArguments([$resolved['role_hierarchy']])
-            ->setShared(true)
-            ->setPublic(true);
+            ->setShared(true)->setPublic(true);
 
-        // Policy ServiceLocator — filled by PolicyRegistryPass
+        // Policy ServiceLocator
         $container->register('vortos.authorization.policy_locator', ServiceLocator::class)
             ->setArguments([[]])
             ->addTag('container.service_locator')
             ->setPublic(false);
 
-        // PolicyRegistry
+        // PolicyRegistry + Engine
         $container->register(PolicyRegistry::class, PolicyRegistry::class)
             ->setArgument('$policies', new Reference('vortos.authorization.policy_locator'))
-            ->setShared(true)
-            ->setPublic(false);
+            ->setShared(true)->setPublic(false);
+        $container->setAlias(PolicyRegistryInterface::class, PolicyRegistry::class)->setPublic(false);
 
-        $container->setAlias(PolicyRegistryInterface::class, PolicyRegistry::class)
-            ->setPublic(false);
-
-        // PolicyEngine
         $container->register(PolicyEngine::class, PolicyEngine::class)
             ->setArgument('$registry', new Reference(PolicyRegistryInterface::class))
-            ->setShared(true)
-            ->setPublic(true);
+            ->setShared(true)->setPublic(true);
 
         // AuthorizationMiddleware
         $container->register(AuthorizationMiddleware::class, AuthorizationMiddleware::class)
-            ->setArguments([
-                new Reference(PolicyEngine::class),
-                new Reference(\Vortos\Auth\Identity\CurrentUserProvider::class),
-            ])
-            ->setShared(true)
-            ->setPublic(true)
+            ->setArguments([new Reference(PolicyEngine::class), new Reference(\Vortos\Auth\Identity\CurrentUserProvider::class)])
+            ->setShared(true)->setPublic(true)
             ->addTag('kernel.event_subscriber');
 
-        // Autoconfiguration — #[AsPolicy] → tag 'vortos.policy'
+        // Ownership middleware
+        $container->register(OwnershipMiddleware::class, OwnershipMiddleware::class)
+            ->setArguments([
+                new Reference(\Vortos\Auth\Identity\CurrentUserProvider::class),
+                new Reference(PolicyEngine::class),
+                [], // routeMap — filled by OwnershipCompilerPass
+                [], // policies — filled by OwnershipCompilerPass
+            ])
+            ->setShared(true)->setPublic(true)
+            ->addTag('kernel.event_subscriber');
+
+        // Scope resolver registry
+        $container->register(ScopeResolverRegistry::class, ScopeResolverRegistry::class)
+            ->setArgument('$resolvers', [])
+            ->setShared(true)->setPublic(true);
+
+        // Redis-backed scoped + temporal stores
+        if (extension_loaded('redis')) {
+            $container->register(RedisScopedPermissionStore::class, RedisScopedPermissionStore::class)
+                ->setArgument('$redis', new Reference(\Redis::class))
+                ->setShared(true)->setPublic(false);
+
+            $container->setAlias(ScopedPermissionStoreInterface::class, RedisScopedPermissionStore::class)
+                ->setPublic(false);
+
+            $container->register(ScopedAuthorizationManager::class, ScopedAuthorizationManager::class)
+                ->setArgument('$store', new Reference(ScopedPermissionStoreInterface::class))
+                ->setShared(true)->setPublic(true);
+
+            $container->register(RedisTemporalPermissionStore::class, RedisTemporalPermissionStore::class)
+                ->setArgument('$redis', new Reference(\Redis::class))
+                ->setShared(true)->setPublic(false);
+
+            $container->register(TemporalAuthorizationManager::class, TemporalAuthorizationManager::class)
+                ->setArgument('$store', new Reference(RedisTemporalPermissionStore::class))
+                ->setShared(true)->setPublic(true);
+        }
+
+        // Autoconfiguration
         $container->registerAttributeForAutoconfiguration(
             AsPolicy::class,
             static function (ChildDefinition $definition, AsPolicy $attribute): void {

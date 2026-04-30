@@ -9,19 +9,10 @@ use Doctrine\ORM\Mapping\Entity;
 use Doctrine\ORM\Mapping\GeneratedValue;
 use Doctrine\ORM\Mapping\Id;
 use Doctrine\ORM\Mapping\Table;
-use Symfony\Component\Uid\Uuid;
-use Symfony\Component\Uid\UuidV7;
-use Vortos\Auth\Attribute\AuthenticatableUser;
 use Vortos\Domain\Aggregate\AggregateRoot;
-use Vortos\Domain\Identity\AggregateId;
 
 #[Entity(UserRepository::class)]
 #[Table(name: 'users')]
-#[AuthenticatableUser(
-    emailField: 'email',
-    passwordField: 'passwordHash',
-    rolesField: 'roles',
-)]
 class User extends AggregateRoot
 {
     private function __construct(
@@ -58,17 +49,12 @@ class User extends AggregateRoot
         return $this->roles;
     }
 
-    // Also needed — static factory that matches your registerUser:
-    public static function registerUser(string $name, string $email, string $passwordHash = '', array $roles = ['ROLE_USER']): self
+    public static function registerUser(UserId $id, string $name, string $email, string $passwordHash = '', array $roles = ['ROLE_USER']): self
     {
-        $user = new self(UserId::generate(), $name, $email, null);
+        $user = new self($id, $name, $email, null);
         $user->passwordHash = $passwordHash;
         $user->roles = $roles;
-        $user->recordEvent(new UserCreatedEvent(
-            $user->id->toString(),
-            $user->name,
-            $user->email,
-        ));
+        $user->recordEvent(new UserCreatedEvent($id->toString(), $name, $email));
         return $user;
     }
 

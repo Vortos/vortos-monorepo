@@ -5,24 +5,34 @@ declare(strict_types=1);
 namespace App\User\Application\Command\RegisterUser;
 
 use App\User\Domain\Entity\User;
-use Psr\Log\LoggerInterface;
+use App\User\Domain\Entity\UserId;
+use App\User\Domain\Exception\UserAlreadyExistException;
+use App\User\Infrastructure\Repository\UserRepository;
+use Vortos\Auth\Contract\PasswordHasherInterface;
 use Vortos\Cqrs\Attribute\AsCommandHandler;
 
-#[AsCommandHandler()]
-final class RegisterUserCommandHandler 
+#[AsCommandHandler]
+final class RegisterUserCommandHandler
 {
-    public function __construct(private LoggerInterface $logger)
-    {}
+    public function __construct(
+        private readonly UserRepository $userRepository,
+        private readonly PasswordHasherInterface $hasher,
+    ) {}
 
     public function __invoke(RegisterUserCommand $command): User
     {
+        if ($this->userRepository->findByEmail($command->email) !== null) {
+            throw UserAlreadyExistException::withEmail($command->email);
+        }
+
         $user = User::registerUser(
-            $command->name,
-            $command->email,
-            ''
+            id: UserId::fromString($command->userId),
+            name: $command->name,
+            email: $command->email,
+            passwordHash: $this->hasher->hash($command->password),
         );
 
-        $this->logger->alert("command handler");
+        $this->userRepository->save($user);
 
         return $user;
     }

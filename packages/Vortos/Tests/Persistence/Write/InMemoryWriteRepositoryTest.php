@@ -5,9 +5,34 @@ declare(strict_types=1);
 namespace Vortos\Tests\Persistence\Write;
 
 use PHPUnit\Framework\TestCase;
-use App\User\Domain\Entity\User;
-use Vortos\Persistence\Write\InMemoryWriteRepository;
+use Vortos\Domain\Aggregate\AggregateRoot;
+use Vortos\Domain\Identity\AggregateId;
 use Vortos\Domain\Repository\Exception\OptimisticLockException;
+use Vortos\Persistence\Write\InMemoryWriteRepository;
+
+// Minimal ID for test
+final class TestId extends AggregateId {}
+
+// Minimal aggregate for test
+final class TestAggregate extends AggregateRoot
+{
+    public string $name;
+
+    public function __construct(private TestId $id, string $name)
+    {
+        $this->name = $name;
+    }
+
+    public static function create(string $name): self
+    {
+        return new self(TestId::generate(), $name);
+    }
+
+    public function getId(): TestId
+    {
+        return $this->id;
+    }
+}
 
 final class InMemoryWriteRepositoryTest extends TestCase
 {
@@ -15,24 +40,18 @@ final class InMemoryWriteRepositoryTest extends TestCase
     {
         $repository = new class extends InMemoryWriteRepository {};
 
-        // Assuming a newly registered user starts at version 0
-        $userA = User::registerUser('John Doe', 'john@example.com');
+        $aggregateA = TestAggregate::create('Alice');
 
-        // Save increments both the live object and the stored clone
-        $repository->save($userA); // store now has v1, userA is now v1
+        $repository->save($aggregateA); // store: v1, aggregateA: v1
 
-        // Simulate a second process loading the same user
-        $staleUser = $repository->findById($userA->getId()); // staleUser is a clone at v1
+        $staleAggregate = $repository->findById($aggregateA->getId()); // clone at v1
 
-        // The first process updates and saves
-        $userA->setName('Jane Doe');
-        $repository->save($userA); // store now has v2, userA is now v2
+        $aggregateA->name = 'Alice Updated';
+        $repository->save($aggregateA); // store: v2, aggregateA: v2
 
-        // The second process tries to save its stale copy
         $this->expectException(OptimisticLockException::class);
-        $staleUser->setName('Johnny');
 
-        // Conflict! The store is at v2, but staleUser expects the store to be at v1.
-        $repository->save($staleUser);
+        $staleAggregate->name = 'Stale Update';
+        $repository->save($staleAggregate); // conflict: store is v2, stale expects v1
     }
 }

@@ -13,7 +13,8 @@
         "vortos/vortos-domain": "^1.0",
         "vortos/vortos-cache": "^1.0",
         "vortos/vortos-messaging": "^1.0",
-        "vortos/vortos-persistence": "^1.0"
+        "vortos/vortos-persistence": "^1.0",
+        "symfony/validator": "^7.0"
     },
     "extra": {
         "vortos": {

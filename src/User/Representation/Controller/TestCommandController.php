@@ -31,6 +31,7 @@ final class TestCommandController
             email: 'alice@example.com',
             name: 'Alice',
             userId: (string) new UuidV7(),
+            password: ''
         ));
 
         $this->cache->set('test_key', 'hello_vortos', 60);

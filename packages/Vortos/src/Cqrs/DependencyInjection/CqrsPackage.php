@@ -11,16 +11,14 @@ use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\Cqrs\DependencyInjection\Compiler\CommandHandlerPass;
 use Vortos\Cqrs\DependencyInjection\Compiler\IdempotencyKeyPass;
 use Vortos\Cqrs\DependencyInjection\Compiler\QueryHandlerPass;
+use Vortos\Cqrs\DependencyInjection\Compiler\ValidationPass;
 
 /**
- * CQRS package.
- *
- * Compiler pass execution order:
- *   CommandHandlerPass  (priority 50) — builds command handler map, stores as parameter
- *   QueryHandlerPass    (priority 50) — builds query handler map
- *   IdempotencyKeyPass  (priority 40) — reads command handler map, resolves strategies
- *
- * IdempotencyKeyPass must run AFTER CommandHandlerPass so the map is available.
+ * Compiler pass order:
+ *   CommandHandlerPass (50) — builds command handler map
+ *   QueryHandlerPass   (50) — builds query handler map
+ *   IdempotencyKeyPass (40) — resolves idempotency strategies
+ *   ValidationPass     (30) — warns about unconstrained string properties
  */
 final class CqrsPackage implements PackageInterface
 {
@@ -31,23 +29,9 @@ final class CqrsPackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
-        $container->addCompilerPass(
-            new CommandHandlerPass(),
-            PassConfig::TYPE_BEFORE_OPTIMIZATION,
-            50,
-        );
-
-        $container->addCompilerPass(
-            new QueryHandlerPass(),
-            PassConfig::TYPE_BEFORE_OPTIMIZATION,
-            50,
-        );
-
-        // Must run after CommandHandlerPass (priority 40 < 50)
-        $container->addCompilerPass(
-            new IdempotencyKeyPass(),
-            PassConfig::TYPE_BEFORE_OPTIMIZATION,
-            40,
-        );
+        $container->addCompilerPass(new CommandHandlerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 50);
+        $container->addCompilerPass(new QueryHandlerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 50);
+        $container->addCompilerPass(new IdempotencyKeyPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        $container->addCompilerPass(new ValidationPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 30);
     }
 }

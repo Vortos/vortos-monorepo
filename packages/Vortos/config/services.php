@@ -71,5 +71,9 @@ return static function (ContainerConfigurator $configurator): void {
             '../src/View/',
             '../src/Attribute/',
             '../src/Contract/',
+        '../src/Cqrs/Validation/',
+        '../src/Http/Request/',
+        '../src/Http/EventListener/',
+        '../src/Docker/',
         ]);
 };

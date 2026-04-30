@@ -20,20 +20,11 @@ use Vortos\Cqrs\Command\Idempotency\InMemoryCommandIdempotencyStore;
 use Vortos\Cqrs\Command\Idempotency\RedisCommandIdempotencyStore;
 use Vortos\Cqrs\Query\QueryBus;
 use Vortos\Cqrs\Query\QueryBusInterface;
+use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Psr\SimpleCache\CacheInterface;
 
-/**
- * Wires all CQRS services.
- *
- * Registers CommandBus, QueryBus, idempotency stores, ServiceLocators.
- * Autoconfigures #[AsCommandHandler], #[AsQueryHandler], #[AsProjectionHandler].
- *
- * The CommandBus receives the compiled idempotency strategy map via
- * '%vortos.cqrs.idempotency_strategies%' — populated by IdempotencyKeyPass
- * which runs after CommandHandlerPass.
- */
 final class CqrsExtension extends Extension
 {
     public function getAlias(): string
@@ -44,7 +35,7 @@ final class CqrsExtension extends Extension
     public function load(array $configs, ContainerBuilder $container): void
     {
         $projectDir = $container->getParameter('kernel.project_dir');
-        $env = $container->getParameter('kernel.env');
+        $env        = $container->getParameter('kernel.env');
 
         $config = new VortosCqrsConfig();
 
@@ -60,13 +51,20 @@ final class CqrsExtension extends Extension
 
         $resolved = $this->processConfiguration(new Configuration(), [$config->toArray()]);
 
-        // Initialize strategies parameter — IdempotencyKeyPass fills it
         $container->setParameter('vortos.cqrs.idempotency_strategies', []);
         $container->setParameter('vortos.cqrs.command_handler_map', []);
 
+        $this->registerValidator($container);
         $this->registerCommandBus($container, $resolved['command_bus']);
         $this->registerQueryBus($container);
         $this->registerAutoconfiguration($container);
+    }
+
+    private function registerValidator(ContainerBuilder $container): void
+    {
+        $container->register(VortosValidator::class, VortosValidator::class)
+            ->setShared(true)
+            ->setPublic(false);
     }
 
     private function registerCommandBus(ContainerBuilder $container, array $config): void
@@ -93,7 +91,8 @@ final class CqrsExtension extends Extension
                 new Reference(EventBusInterface::class),
                 new Reference(CommandIdempotencyStoreInterface::class),
                 new Reference(LoggerInterface::class),
-                '%vortos.cqrs.idempotency_strategies%',  // populated by IdempotencyKeyPass
+                '%vortos.cqrs.idempotency_strategies%',
+                new Reference(VortosValidator::class),
             ])
             ->setPublic(false);
 
@@ -121,7 +120,6 @@ final class CqrsExtension extends Extension
         $container->registerAttributeForAutoconfiguration(
             AsCommandHandler::class,
             static function (ChildDefinition $definition, AsCommandHandler $attribute): void {
-           
                 $definition->addTag('vortos.command_handler', []);
                 $definition->setPublic(true);
             },
@@ -130,7 +128,6 @@ final class CqrsExtension extends Extension
         $container->registerAttributeForAutoconfiguration(
             AsQueryHandler::class,
             static function (ChildDefinition $definition, AsQueryHandler $attribute): void {
-          
                 $definition->addTag('vortos.query_handler', []);
                 $definition->setPublic(true);
             },

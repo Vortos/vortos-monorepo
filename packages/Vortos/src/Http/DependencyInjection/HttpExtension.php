@@ -19,27 +19,14 @@ use Symfony\Component\HttpKernel\EventListener\RouterListener;
 use Symfony\Component\Routing\Matcher\UrlMatcher;
 use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\RouteCollection;
-use Vortos\Http\Controller\ErrorController;
+use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\Http\Attribute\ApiController;
+use Vortos\Http\Controller\ErrorController;
+use Vortos\Http\EventListener\ValidationExceptionListener;
+use Vortos\Http\Factory\ArgumentResolverFactory;
 use Vortos\Http\Kernel;
+use Vortos\Http\Request\RequestDtoArgumentResolver;
 
-/**
- * Wires the HTTP kernel and all its dependencies.
- *
- * Replaces: packages/vortos.php, packages/route.php, packages/event.php
- *
- * Registers:
- *   - EventDispatcher
- *   - RequestStack, RequestContext
- *   - UrlMatcher (with synthetic RouteCollection)
- *   - RouterListener (tagged kernel.event_subscriber)
- *   - ResponseListener, ErrorListener (tagged kernel.event_subscriber)
- *   - ContainerControllerResolver, ArgumentResolver
- *   - Kernel as 'vortos'
- *   - ErrorController
- *   - Autoconfiguration: EventSubscriberInterface → kernel.event_subscriber
- *   - Autoconfiguration: #[ApiController] → public + vortos.api.controller tag
- */
 final class HttpExtension extends Extension
 {
     public function getAlias(): string
@@ -51,78 +38,76 @@ final class HttpExtension extends Extension
     {
         $charset = $container->hasParameter('charset') ? $container->getParameter('charset') : 'UTF-8';
 
-        // Event dispatcher
         $container->register(EventDispatcher::class, EventDispatcher::class)
-            ->setShared(true)
-            ->setPublic(true);
+            ->setShared(true)->setPublic(true);
 
-        // Request infrastructure
         $container->register(RequestStack::class, RequestStack::class)
-            ->setShared(true)
-            ->setPublic(true);
+            ->setShared(true)->setPublic(true);
 
         $container->register(RequestContext::class, RequestContext::class)
-            ->setShared(true)
-            ->setPublic(true);
+            ->setShared(true)->setPublic(true);
 
-        // Route collection — synthetic, filled by RouteCompilerPass
         $container->register(RouteCollection::class, RouteCollection::class)
-            ->setSynthetic(true)
-            ->setPublic(true);
+            ->setSynthetic(true)->setPublic(true);
 
-        // URL matcher
         $container->register(UrlMatcher::class, UrlMatcher::class)
-            ->setArguments([
-                new Reference(RouteCollection::class),
-                new Reference(RequestContext::class),
-            ])
-            ->setShared(true)
-            ->setPublic(true);
+            ->setArguments([new Reference(RouteCollection::class), new Reference(RequestContext::class)])
+            ->setShared(true)->setPublic(true);
 
-        // RouterListener — tagged, registered with dispatcher by RegisterEventSubscribersPass
         $container->register(RouterListener::class, RouterListener::class)
-            ->setArguments([
-                new Reference(UrlMatcher::class),
-                new Reference(RequestStack::class),
-            ])
-            ->setAutowired(false)
-            ->setAutoconfigured(false)
+            ->setArguments([new Reference(UrlMatcher::class), new Reference(RequestStack::class)])
+            ->setAutowired(false)->setAutoconfigured(false)
             ->addTag('kernel.event_subscriber')
-            ->setShared(true)
-            ->setPublic(false);
+            ->setShared(true)->setPublic(false);
 
-        // ErrorController
         $container->register(ErrorController::class, ErrorController::class)
-            ->setArguments([
-                $container->hasParameter('kernel.debug') ? '%kernel.debug%' : false,
-            ])
-            ->setShared(true)
-            ->setPublic(true);
+            ->setArguments([$container->hasParameter('kernel.debug') ? '%kernel.debug%' : false])
+            ->setShared(true)->setPublic(true);
 
-        // Response and error listeners
         $container->register(ResponseListener::class, ResponseListener::class)
             ->setArguments([$charset])
             ->addTag('kernel.event_subscriber')
-            ->setShared(true)
-            ->setPublic(false);
+            ->setShared(true)->setPublic(false);
 
         $container->register(ErrorListener::class, ErrorListener::class)
             ->setArguments([ErrorController::class])
             ->addTag('kernel.event_subscriber')
-            ->setShared(true)
-            ->setPublic(false);
+            ->setShared(true)->setPublic(false);
 
-        // Controller resolver and argument resolver
         $container->register(ContainerControllerResolver::class, ContainerControllerResolver::class)
             ->setArguments([new Reference('service_container')])
-            ->setShared(true)
-            ->setPublic(false);
+            ->setShared(true)->setPublic(false);
 
+        // // ArgumentResolver — keep exactly as original, no custom resolvers injected
+        // $container->register(ArgumentResolver::class, ArgumentResolver::class)
+        //     ->setShared(true)->setPublic(false);
+
+        // VortosValidator — shared instance
+        $container->register(VortosValidator::class, VortosValidator::class)
+            ->setShared(true)->setPublic(false);
+
+        // // RequestDtoArgumentResolver — tagged so ArgumentResolver picks it up
+        // $container->register(RequestDtoArgumentResolver::class, RequestDtoArgumentResolver::class)
+        //     ->setArguments([new Reference(VortosValidator::class)])
+        //     ->addTag('controller.argument_value_resolver', ['priority' => 110])
+        //     ->setShared(true)->setPublic(true);
+
+        // 1. Register your DTO resolver (Tags are no longer needed)
+        $container->register(RequestDtoArgumentResolver::class, RequestDtoArgumentResolver::class)
+            ->setArguments([new Reference(VortosValidator::class)])
+            ->setShared(true)->setPublic(false);
+
+        // 2. Register ArgumentResolver using the Factory
         $container->register(ArgumentResolver::class, ArgumentResolver::class)
-            ->setShared(true)
-            ->setPublic(false);
+            ->setFactory([ArgumentResolverFactory::class, 'create'])
+            ->setArguments([new Reference(RequestDtoArgumentResolver::class)])
+            ->setShared(true)->setPublic(false);
 
-        // HTTP Kernel registered as 'vortos'
+        // ValidationExceptionListener
+        $container->register(ValidationExceptionListener::class, ValidationExceptionListener::class)
+            ->addTag('kernel.event_subscriber')
+            ->setShared(true)->setPublic(false);
+
         $container->register('vortos', Kernel::class)
             ->setArguments([
                 new Reference(EventDispatcher::class),
@@ -130,10 +115,8 @@ final class HttpExtension extends Extension
                 new Reference(RequestStack::class),
                 new Reference(ArgumentResolver::class),
             ])
-            ->setShared(true)
-            ->setPublic(true);
+            ->setShared(true)->setPublic(true);
 
-        // Autoconfiguration
         $container->registerForAutoconfiguration(EventSubscriberInterface::class)
             ->addTag('kernel.event_subscriber');
 

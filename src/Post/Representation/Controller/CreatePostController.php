@@ -20,7 +20,7 @@ use Vortos\Http\Attribute\ApiController;
 #[ApiController]
 #[Route('/posts', methods: ['POST'])]
 #[RequiresAuth]
-#[RequiresPermission('beta.analytics_v2.any')]
+// #[RequiresPermission('beta.analytics_v2.any')]
 // #[RequiresPermission('posts.create.own')]
 final class CreatePostController
 {

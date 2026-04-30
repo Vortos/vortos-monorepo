@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\User\Representation\Controller;
 
-use App\User\Domain\Entity\User;
+use App\User\Infrastructure\Repository\UserRepository;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Vortos\Auth\Contract\PasswordHasherInterface;
 use Vortos\Auth\Identity\UserIdentity;
@@ -18,33 +19,42 @@ use Vortos\Http\Attribute\ApiController;
 final class LoginController
 {
     public function __construct(
-        private JwtService $jwtService,
-        private PasswordHasherInterface $hasher,
-        // private UserRepository $userRepository,
+        private readonly JwtService $jwtService,
+        private readonly PasswordHasherInterface $hasher,
+        private readonly UserRepository $userRepository,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
     {
-        $data = json_decode($request->getContent(), true, 512, JSON_THROW_ON_ERROR);
-        $email = $data['email'] ?? '';
+        $data     = json_decode($request->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        $email    = trim($data['email'] ?? '');
         $password = $data['password'] ?? '';
 
-        $user = User::registerUser('fdsf', 'dsfs', '');
+        if ($email === '' || $password === '') {
+            return new JsonResponse([
+                'error'      => 'validation_failed',
+                'message'    => 'The given data was invalid.',
+                'violations' => array_filter([
+                    'email'    => $email === '' ? ['This value is required.'] : null,
+                    'password' => $password === '' ? ['This value is required.'] : null,
+                ]),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
 
-        // if ($user === null || !$this->hasher->verify($password, $user->getPasswordHash())) {
-        //     return new JsonResponse(
-        //         ['error' => 'Invalid credentials'],
-        //         Response::HTTP_UNAUTHORIZED,
-        //     );
-        // }
+        $user = $this->userRepository->findByEmail($email);
 
-        $identity = new UserIdentity(
-            id: (string) $user->getId(),
-            roles: ['admin'],
+        if ($user === null || !$this->hasher->verify($password, $user->getPasswordHash())) {
+            return new JsonResponse(
+                ['error' => 'Invalid credentials.'],
+                Response::HTTP_UNAUTHORIZED,
+            );
+        }
+
+        return new JsonResponse(
+            $this->jwtService->issue(new UserIdentity(
+                id:    (string) $user->getId(),
+                roles: $user->getRoles(),
+            ))->toArray(),
         );
-
-        $token = $this->jwtService->issue($identity);
-
-        return new JsonResponse($token->toArray());
     }
 }

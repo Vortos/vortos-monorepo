@@ -95,6 +95,17 @@ abstract class AggregateRoot
     }
 
     /**
+     * Restores version when reconstructing from persistence.
+     * Only call from static reconstruct() factory methods.
+     *
+     * @internal
+     */
+    protected function restoreVersion(int $version): void
+    {
+        $this->version = $version;
+    }
+
+    /**
      * Increments version. Called by DbalWriteRepository after successful save.
      * Not called by user code directly.
      * 

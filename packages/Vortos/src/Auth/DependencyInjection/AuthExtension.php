@@ -8,11 +8,7 @@ use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Auth\Contract\PasswordHasherInterface;
 use Vortos\Auth\Contract\TokenStorageInterface;
-use Vortos\Auth\Controller\LoginController;
-use Vortos\Auth\Controller\LogoutController;
-use Vortos\Auth\Controller\RefreshTokenController;
 use Vortos\Auth\Hasher\ArgonPasswordHasher;
-use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Auth\Jwt\JwtConfig;
 use Vortos\Auth\Jwt\JwtService;
@@ -164,14 +160,5 @@ final class AuthExtension extends Extension
             ->setArguments([new Reference(CurrentUserProvider::class), null, []])
             ->setShared(true)->setPublic(true)
             ->addTag('kernel.event_subscriber');
-
-        // Built-in controllers
-        if ($resolved['enable_built_in_controllers']) {
-            foreach ([LoginController::class, RefreshTokenController::class, LogoutController::class] as $ctrl) {
-                $container->register($ctrl, $ctrl)
-                    ->setAutowired(true)->setPublic(true)
-                    ->addTag('controller.service_arguments');
-            }
-        }
     }
 }

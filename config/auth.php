@@ -7,6 +7,5 @@ return static function (VortosAuthConfig $config): void {
         ->secret($_ENV['JWT_SECRET'] ?: throw new \RuntimeException('JWT_SECRET not set'))
         ->accessTokenTtl(900)
         ->refreshTokenTtl(604800)
-        ->issuer($_ENV['APP_NAME'] ?: 'squaura')
-        ->enableBuiltInControllers(true);
+        ->issuer($_ENV['APP_NAME'] ?: 'squaura');
 };

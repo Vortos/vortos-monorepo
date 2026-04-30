@@ -5,7 +5,6 @@ namespace Vortos\Auth\DependencyInjection;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
 use Vortos\Auth\Storage\InMemoryTokenStorage;
-use Vortos\Auth\Storage\RedisTokenStorage;
 
 final class Configuration implements ConfigurationInterface
 {
@@ -34,10 +33,6 @@ final class Configuration implements ConfigurationInterface
                 ->scalarNode('token_storage')
                     ->defaultValue(InMemoryTokenStorage::class)
                     ->info('FQCN of TokenStorageInterface implementation')
-                ->end()
-                ->booleanNode('enable_built_in_controllers')
-                    ->defaultFalse()
-                    ->info('using built in login/token refresh/logout controllers')
                 ->end()
             ->end();
 

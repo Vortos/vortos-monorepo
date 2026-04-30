@@ -9,8 +9,6 @@ use Doctrine\ORM\Mapping\Entity;
 use Doctrine\ORM\Mapping\GeneratedValue;
 use Doctrine\ORM\Mapping\Id;
 use Doctrine\ORM\Mapping\Table;
-// use Vortos\Domain\AggregateRootInterface;
-// use Vortos\Domain\AggregateRootTrait;
 use Symfony\Component\Uid\Uuid;
 use Symfony\Component\Uid\UuidV7;
 use Vortos\Auth\Attribute\AuthenticatableUser;
@@ -19,12 +17,13 @@ use Vortos\Domain\Identity\AggregateId;
 
 #[Entity(UserRepository::class)]
 #[Table(name: 'users')]
-#[AuthenticatableUser()]
+#[AuthenticatableUser(
+    emailField: 'email',
+    passwordField: 'passwordHash',
+    rolesField: 'roles',
+)]
 class User extends AggregateRoot
 {
-
-    // use AggregateRootTrait;
-
     private function __construct(
         #[Id]
         #[Column(name: 'id', type: 'uuid')]
@@ -39,9 +38,6 @@ class User extends AggregateRoot
 
         #[Column(name: 'status', type: 'boolean', nullable: true)]
         private ?bool $status,
-
-        #[Column(name: 'version', type: 'integer')]
-        private int $version = 0,
 
         private string $passwordHash = '',
         private array $roles = ['ROLE_USER'],
@@ -62,28 +58,6 @@ class User extends AggregateRoot
         return $this->roles;
     }
 
-    // public static function registerUser(string $name, string $email, ?bool $status): self
-    // {
-    //     $id = UserId::generate();
-
-    //     $user = new User(
-    //         $id,
-    //         $name,
-    //         $email,
-    //         $status
-    //     );
-
-    //     $user->recordEvent(
-    //         new UserCreatedEvent(
-    //             $user->id->toString(),
-    //             $user->name,
-    //             $user->email
-    //         )
-    //     );
-
-    //     return $user;
-    // }
-
     // Also needed — static factory that matches your registerUser:
     public static function registerUser(string $name, string $email, string $passwordHash = '', array $roles = ['ROLE_USER']): self
     {
@@ -98,20 +72,18 @@ class User extends AggregateRoot
         return $user;
     }
 
-    // Reconstruct from DB row — needed by fromRow()
     public static function reconstruct(UserId $id, string $name, string $email, string $passwordHash, array $roles, int $version): self
     {
         $user = new self($id, $name, $email, null);
         $user->passwordHash = $passwordHash;
         $user->roles = $roles;
-        // Restore version — reflection needed since it's private on AggregateRoot
-        $versionProp = new \ReflectionProperty(\Vortos\Domain\Aggregate\AggregateRoot::class, 'version');
-        $versionProp->setAccessible(true);
-        $versionProp->setValue($user, $version);
+
+        $user->restoreVersion($version);
+
         return $user;
     }
 
-    public function getId(): AggregateId
+    public function getId(): UserId
     {
         return $this->id;
     }

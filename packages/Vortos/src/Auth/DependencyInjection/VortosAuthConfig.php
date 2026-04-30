@@ -13,7 +13,6 @@ final class VortosAuthConfig
     private int $refreshTokenTtl = 604800;
     private string $issuer = 'vortos';
     private string $tokenStorage = InMemoryTokenStorage::class;
-    private bool $enableBuiltInControllers = false;
     private ?LockoutConfig $lockoutConfig = null;
 
     public function secret(string $secret): static
@@ -46,12 +45,6 @@ final class VortosAuthConfig
         return $this;
     }
 
-    public function enableBuiltInControllers(bool $enable = true): static
-    {
-        $this->enableBuiltInControllers = $enable;
-        return $this;
-    }
-
     public function lockout(): LockoutConfig
     {
         if ($this->lockoutConfig === null) {
@@ -73,7 +66,6 @@ final class VortosAuthConfig
             'refresh_token_ttl'           => $this->refreshTokenTtl,
             'issuer'                      => $this->issuer,
             'token_storage'               => $this->tokenStorage,
-            'enable_built_in_controllers' => $this->enableBuiltInControllers,
         ];
     }
 }

@@ -70,8 +70,12 @@ foreach ($discovered as $entry) {
 $loader = new PhpFileLoader($container, new FileLocator($projectRoot . '/config'));
 $loader->load('services.php');
 
-// Load framework services — from package's own config/ if it exists
-$frameworkConfig = __DIR__ . '/../../../config/services.php';
+// Load framework services — resolves in both monorepo and Packagist installs
+$frameworkConfig = __DIR__ . '/../../../../vortos-framework/config/services.php';
+if (!file_exists($frameworkConfig)) {
+    // Monorepo fallback: packages/Vortos/config/services.php
+    $frameworkConfig = __DIR__ . '/../../../config/services.php';
+}
 if (file_exists($frameworkConfig)) {
     $loader2 = new PhpFileLoader($container, new FileLocator(dirname($frameworkConfig)));
     $loader2->load('services.php');

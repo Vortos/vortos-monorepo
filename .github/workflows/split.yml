@@ -63,6 +63,8 @@ jobs:
             split_repository: 'vortos-docker'
           - local_path: 'packages/Vortos'
             split_repository: 'vortos-framework'
+          - local_path: 'packages/Migration'
+            split_repository: 'vortos-migration'
 
     steps:
       - uses: actions/checkout@v4

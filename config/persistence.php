@@ -9,7 +9,7 @@ return static function (VortosPersistenceConfig $config): void {
             $_ENV['POSTGRES_USER'],
             $_ENV['POSTGRES_PASSWORD'],
             $_ENV['POSTGRES_HOST'],
-            $_ENV['POSTGRES_DB_NAME'],
+            $_ENV['POSTGRES_DB'],
         ))
         ->readDsn(sprintf(
             'mongodb://%s:%s@%s:%s',

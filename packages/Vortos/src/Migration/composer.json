@@ -1,0 +1,25 @@
+{
+    "name": "vortos/vortos-migration",
+    "description": "Vortos migration system — Doctrine Migrations wrapper with module stub publishing",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Migration\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-persistence-dbal": "^1.0",
+        "doctrine/migrations": "^3.9",
+        "doctrine/dbal": "^4.4",
+        "symfony/console": "^7.3"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Migration\\DependencyInjection\\MigrationPackage",
+            "order": 75
+        }
+    }
+}

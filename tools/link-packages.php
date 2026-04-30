@@ -17,6 +17,7 @@ $packages = [
     'vortos-persistence-dbal'  => 'PersistenceDbal',
     'vortos-persistence-mongo' => 'PersistenceMongo',
     'vortos-tracing'           => 'Tracing',
+    'vortos-migration'         => 'Migration',
 ];
 
 foreach ($packages as $vendorName => $srcName) {

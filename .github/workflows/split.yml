@@ -63,7 +63,7 @@ jobs:
             split_repository: 'vortos-docker'
           - local_path: 'packages/Vortos'
             split_repository: 'vortos-framework'
-          - local_path: 'packages/Migration'
+          - local_path: 'packages/Vortos/src/Migration'
             split_repository: 'vortos-migration'
 
     steps:

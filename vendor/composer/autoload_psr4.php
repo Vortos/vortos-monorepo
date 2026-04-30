@@ -7,6 +7,8 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'Vortos\\Tracing\\' => array($vendorDir . '/vortos/vortos-tracing'),
+    'Vortos\\Migration\\' => array($baseDir . '/packages/Vortos/src/Migration'),
+    'App\\Migrations\\' => array($baseDir . '/migrations'),
     'Vortos\\Tests\\' => array($baseDir . '/packages/Vortos/Tests'),
     'Vortos\\Persistence\\' => array($vendorDir . '/vortos/vortos-persistence'),
     'Vortos\\PersistenceMongo\\' => array($vendorDir . '/vortos/vortos-persistence-mongo'),

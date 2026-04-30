@@ -39,7 +39,9 @@
   },
   "autoload": {
     "psr-4": {
-      "App\\": "src/"
+      "App\\": "src/",
+      "App\\Migrations\\": "migrations/",
+      "Vortos\\Migration\\": "packages/Vortos/src/Migration/"
     }
   },
   "autoload-dev": {

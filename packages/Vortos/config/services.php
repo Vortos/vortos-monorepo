@@ -75,5 +75,6 @@ return static function (ContainerConfigurator $configurator): void {
         '../src/Http/Request/',
         '../src/Http/EventListener/',
         '../src/Docker/',
+        '../src/Migration/',
         ]);
 };

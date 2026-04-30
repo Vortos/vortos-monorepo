@@ -78,19 +78,9 @@ final class HttpExtension extends Extension
             ->setArguments([new Reference('service_container')])
             ->setShared(true)->setPublic(false);
 
-        // // ArgumentResolver — keep exactly as original, no custom resolvers injected
-        // $container->register(ArgumentResolver::class, ArgumentResolver::class)
-        //     ->setShared(true)->setPublic(false);
-
         // VortosValidator — shared instance
         $container->register(VortosValidator::class, VortosValidator::class)
             ->setShared(true)->setPublic(false);
-
-        // // RequestDtoArgumentResolver — tagged so ArgumentResolver picks it up
-        // $container->register(RequestDtoArgumentResolver::class, RequestDtoArgumentResolver::class)
-        //     ->setArguments([new Reference(VortosValidator::class)])
-        //     ->addTag('controller.argument_value_resolver', ['priority' => 110])
-        //     ->setShared(true)->setPublic(true);
 
         // 1. Register your DTO resolver (Tags are no longer needed)
         $container->register(RequestDtoArgumentResolver::class, RequestDtoArgumentResolver::class)

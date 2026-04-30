@@ -32,6 +32,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'V' =>
         array (
             'Vortos\\Tracing\\' => 15,
+            'Vortos\\Migration\\' => 18,
             'Vortos\\Tests\\' => 13,
             'Vortos\\Persistence\\' => 19,
             'Vortos\\PersistenceMongo\\' => 24,
@@ -134,6 +135,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         ),
         'A' =>
         array (
+            'App\\Migrations\\' => 16,
             'App\\' => 4,
         ),
     );
@@ -142,6 +144,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Tracing\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-tracing',
+        ),
+        'Vortos\\Migration\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Migration',
         ),
         'Vortos\\Tests\\' =>
         array (
@@ -455,6 +461,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'DeepCopy\\' =>
         array (
             0 => __DIR__ . '/..' . '/myclabs/deep-copy/src/DeepCopy',
+        ),
+        'App\\Migrations\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/migrations',
         ),
         'App\\' =>
         array (
@@ -1723,7 +1733,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'TheSeer\\Tokenizer\\XMLSerializer' => __DIR__ . '/..' . '/theseer/tokenizer/src/XMLSerializer.php',
         'staabm\\SideEffectsDetector\\SideEffect' => __DIR__ . '/..' . '/staabm/side-effects-detector/lib/SideEffect.php',
         'staabm\\SideEffectsDetector\\SideEffectsDetector' => __DIR__ . '/..' . '/staabm/side-effects-detector/lib/SideEffectsDetector.php',
-        '©' => __DIR__ . '/..' . '/symfony/cache/Traits/ValueWrapper.php',
+        'ï¿½' => __DIR__ . '/..' . '/symfony/cache/Traits/ValueWrapper.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

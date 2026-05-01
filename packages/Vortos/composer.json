@@ -13,6 +13,7 @@
         "vortos/vortos-tracing": "^1.0",
         "vortos/vortos-persistence": "^1.0",
         "vortos/vortos-persistence-dbal": "^1.0",
+        "vortos/vortos-persistence-orm": "^1.0",
         "vortos/vortos-messaging": "^1.0",
         "vortos/vortos-cqrs": "^1.0",
         "vortos/vortos-auth": "^1.0",

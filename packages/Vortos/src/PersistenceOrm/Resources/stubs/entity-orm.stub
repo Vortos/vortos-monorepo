@@ -1,0 +1,32 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Domain\Entity;
+
+use Doctrine\ORM\Mapping as ORM;
+use Vortos\PersistenceOrm\Aggregate\OrmAggregateRoot;
+
+#[ORM\Entity]
+#[ORM\Table(name: '{{TableName}}')]
+final class {{ClassName}} extends OrmAggregateRoot
+{
+    #[ORM\Id]
+    #[ORM\Column(type: 'string', length: 36)]
+    private string $id;
+
+    private function __construct({{ClassName}}Id $id)
+    {
+        $this->id = (string) $id;
+    }
+
+    public static function create({{ClassName}}Id $id): self
+    {
+        return new self($id);
+    }
+
+    public function getId(): {{ClassName}}Id
+    {
+        return {{ClassName}}Id::fromString($this->id);
+    }
+}

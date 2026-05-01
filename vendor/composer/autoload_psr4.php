@@ -9,6 +9,7 @@ return array(
     'Vortos\\Tracing\\' => array($vendorDir . '/vortos/vortos-tracing'),
     'Vortos\\Tests\\' => array($baseDir . '/packages/Vortos/Tests'),
     'Vortos\\Persistence\\' => array($vendorDir . '/vortos/vortos-persistence'),
+    'Vortos\\PersistenceOrm\\' => array($baseDir . '/packages/Vortos/src/PersistenceOrm'),
     'Vortos\\PersistenceMongo\\' => array($vendorDir . '/vortos/vortos-persistence-mongo'),
     'Vortos\\PersistenceDbal\\' => array($vendorDir . '/vortos/vortos-persistence-dbal'),
     'Vortos\\Migration\\' => array($baseDir . '/packages/Vortos/src/Migration'),

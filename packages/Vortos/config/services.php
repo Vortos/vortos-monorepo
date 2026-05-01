@@ -78,6 +78,7 @@ return static function (ContainerConfigurator $configurator): void {
         '../src/Docker/',
         '../src/Migration/',
         '../src/Make/',
+        '../src/Debug/',
         ]);
 
     $services->set(ModulePathResolver::class)

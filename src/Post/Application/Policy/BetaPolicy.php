@@ -26,8 +26,5 @@ final class BetaPolicy implements PolicyInterface
         return $this->temporal->isValid($identity->id(), $permission);
     }
 
-    public function supports(string $resource): bool
-    {
-        return $resource === 'beta';
-    }
+
 }

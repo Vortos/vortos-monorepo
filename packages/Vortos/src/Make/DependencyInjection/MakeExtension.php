@@ -38,6 +38,13 @@ final class MakeExtension extends Extension
     {
         $projectDir = $container->getParameter('kernel.project_dir');
 
+        if (!$container->has(ModulePathResolver::class)) {
+            $container->register(ModulePathResolver::class, ModulePathResolver::class)
+                ->setArgument('$projectDir', $projectDir)
+                ->setShared(true)
+                ->setPublic(false);
+        }
+
         $container->register(StubScanner::class, StubScanner::class)
             ->setArguments([new Reference(ModulePathResolver::class), $projectDir])
             ->setPublic(false);

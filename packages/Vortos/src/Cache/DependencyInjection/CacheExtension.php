@@ -16,6 +16,7 @@ use Vortos\Cache\Adapter\RedisConnectionFactory;
 use Vortos\Cache\Command\CacheClearCommand;
 use Vortos\Cache\Command\CacheWarmupCommand;
 use Vortos\Cache\Contract\TaggedCacheInterface;
+use Vortos\Cache\Health\RedisHealthCheck;
 
 /**
  * Wires all cache services.
@@ -89,6 +90,10 @@ final class CacheExtension extends Extension
                     $resolved['default_ttl'],
                 ])
                 ->setShared(true)
+                ->setPublic(false);
+
+            $container->register(RedisHealthCheck::class, RedisHealthCheck::class)
+                ->setArgument('$redis', new Reference(\Redis::class))
                 ->setPublic(false);
         }
 

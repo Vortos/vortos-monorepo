@@ -17,11 +17,6 @@ use Attribute;
  *   #[AsPolicy(resource: 'athletes')]
  *   final class AthletePolicy implements PolicyInterface
  *   {
- *       public function supports(string $resource): bool
- *       {
- *           return $resource === 'athletes';
- *       }
- *
  *       public function can(
  *           UserIdentityInterface $identity,
  *           string $action,

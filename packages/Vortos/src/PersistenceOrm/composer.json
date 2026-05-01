@@ -1,0 +1,24 @@
+{
+    "name": "vortos/vortos-persistence-orm",
+    "description": "Vortos persistence — Doctrine ORM write repository for DDD aggregates",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\PersistenceOrm\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-persistence": "^1.0",
+        "doctrine/orm": "^3.0",
+        "doctrine/dbal": "^4.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\PersistenceOrm\\DependencyInjection\\PersistenceOrmPackage",
+            "order": 65
+        }
+    }
+}

@@ -1,0 +1,17 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure\Repository;
+
+use Vortos\PersistenceOrm\Write\OrmWriteRepository;
+use {{AggregateNamespace}}\Domain\Entity\{{AggregateClass}};
+use {{AggregateNamespace}}\Domain\Repository\{{AggregateClass}}RepositoryInterface;
+
+final class {{AggregateClass}}Repository extends OrmWriteRepository implements {{AggregateClass}}RepositoryInterface
+{
+    protected function entityClass(): string
+    {
+        return {{AggregateClass}}::class;
+    }
+}

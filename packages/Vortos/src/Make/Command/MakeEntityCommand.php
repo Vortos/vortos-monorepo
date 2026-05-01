@@ -40,15 +40,20 @@ final class MakeEntityCommand extends Command
             return Command::FAILURE;
         }
 
+        $ormActive = class_exists(\Vortos\PersistenceOrm\Aggregate\OrmAggregateRoot::class);
+        $stubName  = $ormActive ? 'entity-orm' : 'entity';
+        $tableName = strtolower(preg_replace('/(?<!^)[A-Z]/', '_$0', $name) ?? $name) . 's';
+
         $vars = [
             'Namespace' => "App\\{$context}",
             'ClassName' => $name,
+            'TableName' => $tableName,
         ];
 
-        $output->writeln("<info>vortos:make:entity</info> {$name} --context={$context}");
+        $output->writeln("<info>vortos:make:entity</info> {$name} --context={$context}" . ($ormActive ? ' <fg=cyan>[ORM]</>' : ''));
         $output->writeln('');
 
-        $this->engine->write("{$context}/Domain/Entity/{$name}.php", $this->engine->render('entity', $vars), $output);
+        $this->engine->write("{$context}/Domain/Entity/{$name}.php", $this->engine->render($stubName, $vars), $output);
         $this->engine->write("{$context}/Domain/Entity/{$name}Id.php", $this->engine->render('entity-id', $vars), $output);
         $this->engine->write("{$context}/Domain/Repository/{$name}RepositoryInterface.php", $this->engine->render('repository-interface', $vars), $output);
 

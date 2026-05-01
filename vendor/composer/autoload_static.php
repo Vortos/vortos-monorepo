@@ -34,6 +34,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Tracing\\' => 15,
             'Vortos\\Tests\\' => 13,
             'Vortos\\Persistence\\' => 19,
+            'Vortos\\PersistenceOrm\\' => 22,
             'Vortos\\PersistenceMongo\\' => 24,
             'Vortos\\PersistenceDbal\\' => 23,
             'Vortos\\Migration\\' => 17,
@@ -154,6 +155,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Persistence\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-persistence',
+        ),
+        'Vortos\\PersistenceOrm\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/PersistenceOrm',
         ),
         'Vortos\\PersistenceMongo\\' =>
         array (

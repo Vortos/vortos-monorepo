@@ -49,6 +49,8 @@ jobs:
             split_repository: 'vortos-persistence'
           - local_path: 'packages/Vortos/src/PersistenceDbal'
             split_repository: 'vortos-persistence-dbal'
+          - local_path: 'packages/Vortos/src/PersistenceOrm'
+            split_repository: 'vortos-persistence-orm'
           - local_path: 'packages/Vortos/src/PersistenceMongo'
             split_repository: 'vortos-persistence-mongo'
           - local_path: 'packages/Vortos/src/Messaging'

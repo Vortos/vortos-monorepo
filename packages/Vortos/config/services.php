@@ -79,6 +79,7 @@ return static function (ContainerConfigurator $configurator): void {
         '../src/Migration/',
         '../src/Make/',
         '../src/Debug/',
+        '../src/PersistenceOrm/',
         ]);
 
     $services->set(ModulePathResolver::class)

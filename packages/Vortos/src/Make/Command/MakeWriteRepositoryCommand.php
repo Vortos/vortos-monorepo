@@ -40,6 +40,9 @@ final class MakeWriteRepositoryCommand extends Command
             return Command::FAILURE;
         }
 
+        $ormActive = class_exists(\Vortos\PersistenceOrm\Aggregate\OrmAggregateRoot::class);
+        $stubName  = $ormActive ? 'write-repository-orm' : 'write-repository';
+
         $vars = [
             'Namespace'          => "App\\{$context}",
             'ClassName'          => $aggregate,
@@ -48,7 +51,7 @@ final class MakeWriteRepositoryCommand extends Command
             'TableName'          => $this->toTableName($aggregate),
         ];
 
-        $output->writeln("<info>vortos:make:write-repository</info> {$aggregate} --context={$context}");
+        $output->writeln("<info>vortos:make:write-repository</info> {$aggregate} --context={$context}" . ($ormActive ? ' <fg=cyan>[ORM]</>' : ''));
         $output->writeln('');
 
         $this->engine->write(
@@ -58,7 +61,7 @@ final class MakeWriteRepositoryCommand extends Command
         );
         $this->engine->write(
             "{$context}/Infrastructure/Repository/{$aggregate}Repository.php",
-            $this->engine->render('write-repository', $vars),
+            $this->engine->render($stubName, $vars),
             $output,
         );
 

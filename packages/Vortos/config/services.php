@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Vortos\Foundation\Module\ModulePathResolver;
 
 return static function (ContainerConfigurator $configurator): void {
    
@@ -76,5 +77,9 @@ return static function (ContainerConfigurator $configurator): void {
         '../src/Http/EventListener/',
         '../src/Docker/',
         '../src/Migration/',
+        '../src/Make/',
         ]);
+
+    $services->set(ModulePathResolver::class)
+        ->arg('$projectDir', '%kernel.project_dir%');
 };

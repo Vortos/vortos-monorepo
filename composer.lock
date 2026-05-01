@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "36a0f583f1f3aebd6d57118d74755943",
+    "content-hash": "905e8094af9fa62f84371db16caf1a08",
     "packages": [
         {
             "name": "doctrine/collections",
@@ -7561,12 +7561,47 @@
                 }
             ],
             "time": "2025-11-17T20:03:58+00:00"
+        },
+        {
+            "name": "vortos/vortos-make",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "./packages/Vortos/src/Make",
+                "reference": "a4645ba8418d87093e444d3542d8c78fc8367549"
+            },
+            "require": {
+                "php": ">=8.2",
+                "symfony/console": "^7.0",
+                "vortos/vortos-foundation": "^1.0"
+            },
+            "type": "library",
+            "extra": {
+                "vortos": {
+                    "package": "Vortos\\Make\\DependencyInjection\\MakePackage",
+                    "order": 200
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Vortos\\Make\\": ""
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Vortos code generator — scaffold DDD/CQRS artifacts from stubs",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         }
     ],
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "vortos/vortos": 20
+        "vortos/vortos": 20,
+        "vortos/vortos-make": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

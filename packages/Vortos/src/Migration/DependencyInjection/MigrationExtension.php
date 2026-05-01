@@ -17,6 +17,7 @@ use Vortos\Migration\Command\MigrateRollbackCommand;
 use Vortos\Migration\Command\MigrateStatusCommand;
 use Vortos\Migration\Generator\MigrationClassGenerator;
 use Vortos\Migration\Service\DependencyFactoryProvider;
+use Vortos\Foundation\Module\ModulePathResolver;
 use Vortos\Migration\Service\ModuleStubScanner;
 
 /**
@@ -70,6 +71,7 @@ final class MigrationExtension extends Extension
             ->setPublic(false);
 
         $container->register(ModuleStubScanner::class, ModuleStubScanner::class)
+            ->setArgument('$resolver', new Reference(ModulePathResolver::class))
             ->setArgument('$projectDir', $projectDir)
             ->setShared(true)
             ->setPublic(false);

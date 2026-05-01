@@ -1,0 +1,17 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Application\EventHandler;
+
+use {{EventClass}};
+use Vortos\Messaging\Attribute\AsEventHandler;
+
+#[AsEventHandler(handlerId: '{{HandlerId}}', consumer: '{{ConsumerName}}', idempotent: {{Idempotent}})]
+final class {{ClassName}}Handler
+{
+    public function __invoke({{EventShortClass}} $event): void
+    {
+        //
+    }
+}

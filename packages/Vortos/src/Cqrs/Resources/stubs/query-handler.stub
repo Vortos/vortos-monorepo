@@ -1,0 +1,16 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Application\Query\{{ClassName}};
+
+use Vortos\Cqrs\Attribute\AsQueryHandler;
+
+#[AsQueryHandler]
+final class {{ClassName}}Handler
+{
+    public function __invoke({{ClassName}} $query): mixed
+    {
+        // Return query result
+    }
+}

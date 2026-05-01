@@ -7,6 +7,7 @@ namespace Vortos\Tests\Migration\Command;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
+use Vortos\Foundation\Module\ModulePathResolver;
 use Vortos\Migration\Command\MigratePublishCommand;
 use Vortos\Migration\Generator\MigrationClassGenerator;
 use Vortos\Migration\Service\ModuleStubScanner;
@@ -16,12 +17,18 @@ final class MigratePublishCommandTest extends TestCase
     private string $tempDir;
     private string $migrationsDir;
 
+    /** @var list<string> */
+    private array $registeredModules = [];
+
     protected function setUp(): void
     {
-        $this->tempDir       = sys_get_temp_dir() . '/vortos_publish_test_' . uniqid('', true);
-        $this->migrationsDir = $this->tempDir . '/migrations';
+        $this->tempDir          = sys_get_temp_dir() . '/vortos_publish_test_' . uniqid('', true);
+        $this->migrationsDir    = $this->tempDir . '/migrations';
+        $this->registeredModules = [];
 
         mkdir($this->migrationsDir, 0755, true);
+        mkdir($this->tempDir . '/vendor/composer', 0755, true);
+        $this->writeInstalledJson();
     }
 
     protected function tearDown(): void
@@ -177,7 +184,7 @@ final class MigratePublishCommandTest extends TestCase
 
     private function runCommand(array $options = []): CommandTester
     {
-        $scanner   = new ModuleStubScanner($this->tempDir);
+        $scanner   = new ModuleStubScanner(new ModulePathResolver($this->tempDir), $this->tempDir);
         $generator = new MigrationClassGenerator();
         $command   = new MigratePublishCommand($scanner, $generator, $this->tempDir);
 
@@ -197,6 +204,24 @@ final class MigratePublishCommandTest extends TestCase
             mkdir($dir, 0755, true);
         }
         file_put_contents($dir . '/' . $filename, $sql);
+
+        if (!in_array($module, $this->registeredModules, true)) {
+            $this->registeredModules[] = $module;
+            $this->writeInstalledJson();
+        }
+    }
+
+    private function writeInstalledJson(): void
+    {
+        $packages = array_map(static fn(string $m) => [
+            'name'         => 'vortos/vortos-' . strtolower($m),
+            'install-path' => '../../packages/Vortos/src/' . $m,
+        ], $this->registeredModules);
+
+        file_put_contents(
+            $this->tempDir . '/vendor/composer/installed.json',
+            json_encode(['packages' => $packages]),
+        );
     }
 
     private function removeDirectory(string $dir): void

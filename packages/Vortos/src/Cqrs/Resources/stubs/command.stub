@@ -1,0 +1,13 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Application\Command\{{ClassName}};
+
+use Vortos\Domain\Command\AbstractCommand;
+
+final readonly class {{ClassName}} extends AbstractCommand
+{
+    public function __construct(
+    ) {}
+}

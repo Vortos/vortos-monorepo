@@ -4,21 +4,26 @@ declare(strict_types=1);
 
 namespace Vortos\Migration\Service;
 
+use Vortos\Foundation\Module\ModulePathResolver;
+
 /**
- * Scans Vortos module packages for SQL migration stubs.
+ * Scans installed vortos/* packages for SQL migration stubs.
  *
- * Scans two locations:
- *   1. Monorepo:   packages/Vortos/src/{Module}/Resources/migrations/*.sql
- *   2. Packagist:  vendor/vortos/{package}/Resources/migrations/*.sql
+ * Uses ModulePathResolver to find Resources/migrations/*.sql files across all
+ * installed vortos/* modules. Works in both monorepo and Packagist installs
+ * without dual-path globs or deduplication — installed.json is the source of truth.
  *
- * Additional scan paths can be registered via addScanPath().
+ * Additional scan paths can be registered via addScanPath() for app-level stubs.
  */
 final class ModuleStubScanner
 {
     /** @var list<string> */
     private array $additionalPatterns = [];
 
-    public function __construct(private readonly string $projectDir) {}
+    public function __construct(
+        private readonly ModulePathResolver $resolver,
+        private readonly string $projectDir,
+    ) {}
 
     public function addScanPath(string $globPattern): void
     {
@@ -30,27 +35,28 @@ final class ModuleStubScanner
      */
     public function scan(): array
     {
-        $patterns = array_merge(
-            [
-                // Monorepo path
-                $this->projectDir . '/packages/Vortos/src/*/Resources/migrations/*.sql',
-                // Packagist install path
-                $this->projectDir . '/vendor/vortos/*/Resources/migrations/*.sql',
-            ],
-            array_map(
-                fn(string $p) => str_starts_with($p, '/') ? $p : $this->projectDir . '/' . $p,
-                $this->additionalPatterns,
-            ),
-        );
-
         $stubs = [];
         $seen  = [];
 
-        foreach ($patterns as $pattern) {
-            foreach (glob($pattern) ?: [] as $absolutePath) {
-                $relative = ltrim(str_replace($this->projectDir, '', $absolutePath), '/');
+        foreach ($this->resolver->findInModules('Resources/migrations/*.sql') as $absolutePath) {
+            $real = realpath($absolutePath);
+            if ($real) {
+                $seen[$real] = true;
+            }
 
-                // Deduplicate — monorepo symlinks may resolve to same file as vendor path
+            $relative = $this->toRelative($absolutePath);
+            $stubs[]  = [
+                'module'   => $this->extractModuleName($relative),
+                'filename' => basename($absolutePath),
+                'path'     => $absolutePath,
+                'relative' => $relative,
+            ];
+        }
+
+        foreach ($this->additionalPatterns as $pattern) {
+            $fullPattern = str_starts_with($pattern, '/') ? $pattern : $this->projectDir . '/' . $pattern;
+
+            foreach (glob($fullPattern) ?: [] as $absolutePath) {
                 $real = realpath($absolutePath);
                 if ($real && isset($seen[$real])) {
                     continue;
@@ -59,9 +65,9 @@ final class ModuleStubScanner
                     $seen[$real] = true;
                 }
 
-                $module  = $this->extractModuleName($relative);
-                $stubs[] = [
-                    'module'   => $module,
+                $relative = $this->toRelative($absolutePath);
+                $stubs[]  = [
+                    'module'   => $this->extractModuleName($relative),
                     'filename' => basename($absolutePath),
                     'path'     => $absolutePath,
                     'relative' => $relative,
@@ -72,6 +78,11 @@ final class ModuleStubScanner
         usort($stubs, static fn(array $a, array $b) => strcmp($a['filename'], $b['filename']));
 
         return $stubs;
+    }
+
+    private function toRelative(string $absolutePath): string
+    {
+        return ltrim(str_replace($this->projectDir, '', $absolutePath), '/');
     }
 
     private function extractModuleName(string $relativePath): string

@@ -1,0 +1,37 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure\Policy;
+
+use Vortos\Auth\Contract\UserIdentityInterface;
+use Vortos\Authorization\Attribute\AsPolicy;
+use Vortos\Authorization\Contract\PolicyInterface;
+use Vortos\Authorization\Voter\RoleVoter;
+
+#[AsPolicy(resource: '{{Resource}}')]
+final class {{ClassName}}Policy implements PolicyInterface
+{
+    public function __construct(private RoleVoter $roles) {}
+
+    public function supports(string $resource): bool
+    {
+        return $resource === '{{Resource}}';
+    }
+
+    public function can(
+        UserIdentityInterface $identity,
+        string $action,
+        string $scope,
+        mixed $resource = null,
+    ): bool {
+        return match ($action) {
+            'list'   => $this->roles->atLeast($identity, 'ROLE_USER'),
+            'read'   => $this->roles->atLeast($identity, 'ROLE_USER'),
+            'create' => $this->roles->atLeast($identity, 'ROLE_ADMIN'),
+            'update' => $this->roles->atLeast($identity, 'ROLE_ADMIN'),
+            'delete' => $this->roles->hasAny($identity, ['ROLE_ADMIN', 'ROLE_SUPER_ADMIN']),
+            default  => false,
+        };
+    }
+}

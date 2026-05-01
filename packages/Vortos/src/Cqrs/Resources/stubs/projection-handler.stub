@@ -1,0 +1,18 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Application\Projection;
+
+use Vortos\Cqrs\Attribute\AsProjectionHandler;
+use Vortos\Cqrs\Projection\ProjectionHandlerInterface;
+{{EventImport}}
+
+#[AsProjectionHandler(consumer: '{{ConsumerName}}', handlerId: '{{HandlerId}}')]
+final class {{ClassName}}ProjectionHandler implements ProjectionHandlerInterface
+{
+    public function __invoke({{EventType}} $event): void
+    {
+        // Always upsert in projection handlers — Kafka delivers at-least-once.
+    }
+}

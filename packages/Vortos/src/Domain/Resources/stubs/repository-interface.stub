@@ -1,0 +1,11 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Domain\Repository;
+
+use Vortos\Domain\Repository\WriteRepositoryInterface;
+
+interface {{ClassName}}RepositoryInterface extends WriteRepositoryInterface
+{
+}

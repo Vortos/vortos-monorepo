@@ -1,0 +1,231 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+
+const CONTAINER = 'backend';
+
+// ─── Colours (disabled when not a TTY) ───────────────────────────────────────
+
+$tty = stream_isatty(STDOUT);
+
+function c(string $code, string $text): string
+{
+    global $tty;
+    return $tty ? "\033[{$code}m{$text}\033[0m" : $text;
+}
+
+function green(string $s): string  { return c('32', $s); }
+function yellow(string $s): string { return c('33', $s); }
+function red(string $s): string    { return c('31', $s); }
+function bold(string $s): string   { return c('1',  $s); }
+function dim(string $s): string    { return c('2',  $s); }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function isDockerRunning(): bool
+{
+    exec('docker compose ps --status running -q ' . CONTAINER . ' 2>/dev/null', $out);
+    return !empty(array_filter($out));
+}
+
+function hostUser(): string
+{
+    if (function_exists('posix_getuid')) {
+        return posix_getuid() . ':' . posix_getgid();
+    }
+    $uid = trim((string) shell_exec('id -u'));
+    $gid = trim((string) shell_exec('id -g'));
+    return "{$uid}:{$gid}";
+}
+
+function run(string $cmd, bool $interactive = false): int
+{
+    passthru($cmd, $code);
+    return (int) $code;
+}
+
+function docker(string $cmd, bool $interactive = false): int
+{
+    $flag = $interactive ? '-it' : '-t';
+    $exec = sprintf(
+        'docker compose exec %s -u %s -e TERM=xterm-256color -e COLUMNS=%d %s %s',
+        $flag,
+        hostUser(),
+        (int) (shell_exec('tput cols 2>/dev/null') ?: 220),
+        CONTAINER,
+        $cmd,
+    );
+
+    return run($exec, $interactive);
+}
+
+function abort(string $msg, int $code = 1): never
+{
+    fwrite(STDERR, red('Error:') . ' ' . $msg . PHP_EOL);
+    exit($code);
+}
+
+function warn(string $msg): void
+{
+    echo yellow('⚠') . ' ' . $msg . PHP_EOL;
+}
+
+// ─── Help ────────────────────────────────────────────────────────────────────
+
+function showHelp(): void
+{
+    $b = fn(string $cmd, string $desc) =>
+        '  ' . str_pad(green($cmd), 38) . dim($desc) . PHP_EOL;
+
+    echo PHP_EOL;
+    echo bold('Vortos CLI') . '  ' . dim('php vortos [command] [options]') . PHP_EOL;
+    echo PHP_EOL;
+
+    echo bold('Environment') . PHP_EOL;
+    echo $b('up',              'Start the Docker environment');
+    echo $b('down',            'Stop the Docker environment');
+    echo $b('restart',         'Restart the Docker environment');
+    echo $b('logs [service]',  'Tail Docker logs');
+    echo $b('bash',            'Open a shell in the backend container');
+    echo $b('status',          'Show running container status');
+    echo $b('docker [args]',   'Run any docker compose command');
+    echo PHP_EOL;
+
+    echo bold('Tools') . PHP_EOL;
+    echo $b('composer [args]', 'Run Composer (docker or local)');
+    echo $b('test [args]',     'Run PHPUnit (docker or local)');
+    echo $b('list',            'List all available console commands');
+    echo PHP_EOL;
+
+    echo bold('Scaffold  ' . dim('(php vortos make:* -c Context)')) . PHP_EOL;
+    echo $b('make:context Name',                'Scaffold a full bounded context');
+    echo $b('make:entity Name -c Ctx',          'Entity + EntityId + RepositoryInterface');
+    echo $b('make:command Name -c Ctx',         'CQRS command + handler');
+    echo $b('make:query Name -c Ctx',           'CQRS query + handler');
+    echo $b('make:consumer Name -c Ctx',        'Kafka event handler');
+    echo $b('make:domain-event Name -c Ctx',    'Domain event');
+    echo $b('make:domain-exception Name -c Ctx','Domain exception');
+    echo $b('make:value-object Name -c Ctx',    'Value object');
+    echo $b('make:controller Name -c Ctx',      'HTTP controller + request');
+    echo $b('make:write-repository Agg -c Ctx', 'Postgres write repository');
+    echo $b('make:read-repository Agg -c Ctx',  'Mongo read repository');
+    echo $b('make:projection-handler Name -c Ctx', 'Kafka projection handler');
+    echo $b('make:messaging-config -c Ctx',     'Kafka transport/producer/consumer config');
+    echo $b('make:middleware Name -c Ctx',      'Consumer middleware');
+    echo $b('make:hook Name -c Ctx --type=*',   'Messaging lifecycle hook');
+    echo $b('make:policy Name -c Ctx',          'Authorization policy');
+    echo PHP_EOL;
+
+    echo bold('Migrations') . PHP_EOL;
+    echo $b('migrate',                'Run all pending migrations');
+    echo $b('migrate:publish',        'Publish module SQL stubs as migration classes');
+    echo $b('migrate:status',         'Show migration state');
+    echo $b('migrate:make Name',      'Generate an empty migration class');
+    echo $b('migrate:rollback',       'Rollback last migration');
+    echo $b('migrate:fresh',          'Drop all tables and re-run (non-prod only)');
+    echo $b('migrate:baseline',       'Mark all migrations as executed');
+    echo PHP_EOL;
+
+    echo bold('Examples') . PHP_EOL;
+    echo dim('  php vortos up') . PHP_EOL;
+    echo dim('  php vortos make:entity User -c User') . PHP_EOL;
+    echo dim('  php vortos make:consumer SendEmail -c User --event=UserCreatedEvent --consumer=user.events') . PHP_EOL;
+    echo dim('  php vortos migrate:publish') . PHP_EOL;
+    echo dim('  php vortos composer require vendor/package') . PHP_EOL;
+    echo dim('  php vortos test --filter=AggregateRootTest') . PHP_EOL;
+    echo PHP_EOL;
+}
+
+// ─── Bootstrap ───────────────────────────────────────────────────────────────
+
+$argv    = $_SERVER['argv'];
+$args    = array_slice($argv, 1);
+$command = $args[0] ?? null;
+$rest    = array_slice($args, 1);
+$restStr = implode(' ', array_map('escapeshellarg', $rest));
+
+if ($command === null || in_array($command, ['--help', '-h', 'help'], true)) {
+    showHelp();
+    exit(0);
+}
+
+$docker = isDockerRunning();
+
+// ─── Commands ────────────────────────────────────────────────────────────────
+
+switch ($command) {
+
+    case 'up':
+        if ($docker) {
+            warn('Environment is already running.');
+        } else {
+            exit(run('docker compose up -d'));
+        }
+        break;
+
+    case 'down':
+        exit(run('docker compose down ' . $restStr));
+
+    case 'restart':
+        run('docker compose down');
+        exit(run('docker compose up -d'));
+
+    case 'logs':
+        exit(run('docker compose logs -f ' . $restStr));
+
+    case 'ps':
+    case 'status':
+        exit(run('docker compose ps ' . $restStr));
+
+    case 'docker':
+        if (empty($rest)) {
+            abort('Specify a docker compose command. Example: php vortos docker build');
+        }
+        exit(run('docker compose ' . $restStr));
+
+    case 'bash':
+    case 'shell':
+        if (!$docker) {
+            warn('Docker is not running — you are already in your local shell.');
+            break;
+        }
+        exit(docker('bash', interactive: true));
+
+    case 'composer':
+        if (empty($rest)) {
+            abort('Specify a Composer command. Example: php vortos composer require vendor/package');
+        }
+        $cmd = 'composer ' . $restStr;
+        exit($docker ? docker($cmd) : run($cmd));
+
+    case 'test':
+    case 'tests':
+        $cmd = 'vendor/bin/phpunit ' . $restStr;
+        exit($docker ? docker($cmd) : run($cmd));
+
+    case 'list':
+        $cmd = 'php bin/console list --ansi';
+        exit($docker ? docker($cmd) : run($cmd));
+
+    default:
+        // Normalise: strip any leading "vortos:" then re-add it once.
+        // Both forms work:
+        //   php vortos make:entity User        → vortos:make:entity
+        //   php vortos vortos:make:entity User → vortos:make:entity
+        $console = 'vortos:' . ltrim($command, 'vortos:');
+        $ansi    = str_contains($restStr, '--no-ansi') ? '' : '--ansi';
+        $cmd     = 'php bin/console ' . escapeshellarg($console) . ' ' . $restStr . ' ' . $ansi;
+
+        if ($docker) {
+            $exitCode = docker($cmd);
+        } elseif (PHP_BINARY !== '') {
+            $exitCode = run(PHP_BINARY . ' bin/console ' . escapeshellarg($console) . ' ' . $restStr);
+        } else {
+            abort('PHP not found locally and Docker is not running.');
+        }
+
+        exit($exitCode);
+}

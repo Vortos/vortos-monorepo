@@ -1,0 +1,24 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure\Messaging;
+
+use Vortos\Messaging\Attribute\AsMiddleware;
+use Vortos\Messaging\Middleware\MiddlewareInterface;
+use Symfony\Component\Messenger\Envelope;
+
+#[AsMiddleware(priority: {{Priority}})]
+final class {{ClassName}}Middleware implements MiddlewareInterface
+{
+    public function handle(Envelope $envelope, callable $next): Envelope
+    {
+        // before
+
+        $envelope = $next($envelope);
+
+        // after
+
+        return $envelope;
+    }
+}

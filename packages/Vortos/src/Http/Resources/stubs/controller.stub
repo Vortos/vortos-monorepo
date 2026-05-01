@@ -1,0 +1,21 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Representation\Controller;
+
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+use Vortos\Http\Attribute\ApiController;
+use {{Namespace}}\Representation\Request\{{ClassName}}Request;
+
+#[ApiController]
+#[Route('/{{RoutePrefix}}', name: '{{RouteName}}', methods: ['{{RouteMethod}}'])]
+final class {{ClassName}}Controller
+{
+    public function __invoke({{ClassName}}Request $request): Response
+    {
+        return new JsonResponse([], Response::HTTP_OK);
+    }
+}

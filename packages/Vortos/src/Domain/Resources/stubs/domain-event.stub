@@ -1,0 +1,16 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Domain\Event;
+
+use Vortos\Domain\Event\DomainEvent;
+
+final readonly class {{ClassName}}Event extends DomainEvent
+{
+    public function __construct(
+        string $aggregateId,
+    ) {
+        parent::__construct($aggregateId);
+    }
+}

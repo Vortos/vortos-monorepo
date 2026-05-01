@@ -10,6 +10,13 @@
       "options": {
         "symlink": true
       }
+    },
+    {
+      "type": "path",
+      "url": "./packages/Vortos/src/Make",
+      "options": {
+        "symlink": true
+      }
     }
   ],
   "require": {
@@ -32,6 +39,7 @@
     "symfony/validator": "^7.0"
   },
   "require-dev": {
+    "vortos/vortos-make": "@dev",
     "phpunit/phpunit": "^11.0",
     "kwn/php-rdkafka-stubs": "^2.0",
     "open-telemetry/api": "^1.8",

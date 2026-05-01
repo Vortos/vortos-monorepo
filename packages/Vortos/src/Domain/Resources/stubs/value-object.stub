@@ -1,0 +1,29 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Domain\ValueObject;
+
+use Vortos\Domain\ValueObject\ValueObject;
+
+final readonly class {{ClassName}} extends ValueObject
+{
+    private function __construct(
+        private string $value,
+    ) {}
+
+    public static function fromString(string $value): self
+    {
+        return new self($value);
+    }
+
+    public function equals(ValueObject $other): bool
+    {
+        return $other instanceof self && $this->value === $other->value;
+    }
+
+    public function __toString(): string
+    {
+        return $this->value;
+    }
+}

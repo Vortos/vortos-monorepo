@@ -18,6 +18,7 @@ $packages = [
     'vortos-tracing'           => 'Tracing',
     'vortos-migration'         => 'Migration',
     'vortos-make'              => 'Make',
+    'vortos-debug'             => 'Debug',
 ];
 
 foreach ($packages as $vendorName => $srcName) {

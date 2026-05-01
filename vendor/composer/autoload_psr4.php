@@ -18,6 +18,7 @@ return array(
     'Vortos\\Http\\' => array($vendorDir . '/vortos/vortos-http'),
     'Vortos\\Foundation\\' => array($vendorDir . '/vortos/vortos-foundation'),
     'Vortos\\Domain\\' => array($vendorDir . '/vortos/vortos-domain'),
+    'Vortos\\Debug\\' => array($baseDir . '/packages/Vortos/src/Debug'),
     'Vortos\\Cqrs\\' => array($vendorDir . '/vortos/vortos-cqrs'),
     'Vortos\\Cache\\' => array($vendorDir . '/vortos/vortos-cache'),
     'Vortos\\Authorization\\' => array($vendorDir . '/vortos/vortos-authorization'),

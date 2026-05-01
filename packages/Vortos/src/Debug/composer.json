@@ -1,0 +1,21 @@
+{
+    "name": "vortos/vortos-debug",
+    "description": "Vortos debug — route and container inspection commands",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Debug\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Debug\\DependencyInjection\\DebugPackage",
+            "order": 900
+        }
+    }
+}

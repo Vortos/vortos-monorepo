@@ -14,11 +14,6 @@ final class {{ClassName}}Policy implements PolicyInterface
 {
     public function __construct(private RoleVoter $roles) {}
 
-    public function supports(string $resource): bool
-    {
-        return $resource === '{{Resource}}';
-    }
-
     public function can(
         UserIdentityInterface $identity,
         string $action,

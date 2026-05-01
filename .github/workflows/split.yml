@@ -67,6 +67,8 @@ jobs:
             split_repository: 'vortos-migration'
           - local_path: 'packages/Vortos/src/Make'
             split_repository: 'vortos-make'
+          - local_path: 'packages/Vortos/src/Debug'
+            split_repository: 'vortos-debug'
 
     steps:
       - uses: actions/checkout@v4

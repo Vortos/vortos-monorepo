@@ -21,6 +21,7 @@ use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryConsumer;
 use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryProducer;
 use Vortos\Messaging\Driver\Kafka\Factory\KafkaConsumerFactory;
 use Vortos\Messaging\Driver\Kafka\Factory\KafkaProducerFactory;
+use Vortos\Messaging\Health\KafkaHealthCheck;
 use Vortos\Messaging\Driver\Kafka\Runtime\KafkaProducer;
 use Vortos\Messaging\Driver\Kafka\Runtime\LazyKafkaProducer;
 use Vortos\Messaging\Hook\Attribute\AfterConsume;
@@ -113,6 +114,14 @@ final class MessagingExtension extends Extension
         $this->registerDefaultDriverInterfaces($container, $resolvedConfig['driver']);
         $this->registerHooks($container);
         $this->registerRetry($container);
+        $this->registerHealthCheck($container);
+    }
+
+    private function registerHealthCheck(ContainerBuilder $container): void
+    {
+        $container->register(KafkaHealthCheck::class, KafkaHealthCheck::class)
+            ->setArgument('$transports', new Reference(TransportRegistry::class))
+            ->setPublic(false);
     }
 
     private function registerRetry(ContainerBuilder $container): void

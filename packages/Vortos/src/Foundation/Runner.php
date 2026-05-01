@@ -4,6 +4,8 @@ namespace Vortos\Foundation;
 
 use CachedContainer;
 use Vortos\Foundation\DependencyInjection\Compiler\ConsoleCommandPass;
+use Vortos\Foundation\DependencyInjection\Compiler\HealthCheckPass;
+use Vortos\Foundation\Health\HealthRegistry;
 use Vortos\Http\Controller\ErrorController;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Container;
@@ -137,7 +139,12 @@ class Runner
 
             $this->configureContainer($container);
 
+            $container->register(HealthRegistry::class, HealthRegistry::class)
+                ->setArgument('$checks', [])
+                ->setPublic(true);
+
             $container->addCompilerPass(new ConsoleCommandPass());
+            $container->addCompilerPass(new HealthCheckPass());
 
             $container->compile();
 

@@ -7,7 +7,9 @@ namespace Vortos\PersistenceMongo\DependencyInjection;
 use MongoDB\Client;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\DependencyInjection\Reference;
 use Vortos\PersistenceMongo\Connection\MongoClientFactory;
+use Vortos\PersistenceMongo\Health\MongoHealthCheck;
 
 /**
  * Wires MongoDB-specific services.
@@ -58,5 +60,9 @@ final class MongoPersistenceExtension extends Extension
             ->setPublic(true);
 
         $container->setParameter('vortos.persistence.mongo.database_name', $database);
+
+        $container->register(MongoHealthCheck::class, MongoHealthCheck::class)
+            ->setArgument('$client', new Reference(Client::class))
+            ->setPublic(false);
     }
 }

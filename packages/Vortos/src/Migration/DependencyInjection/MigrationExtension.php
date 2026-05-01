@@ -70,6 +70,13 @@ final class MigrationExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
+        if (!$container->has(ModulePathResolver::class)) {
+            $container->register(ModulePathResolver::class, ModulePathResolver::class)
+                ->setArgument('$projectDir', $projectDir)
+                ->setShared(true)
+                ->setPublic(false);
+        }
+
         $container->register(ModuleStubScanner::class, ModuleStubScanner::class)
             ->setArgument('$resolver', new Reference(ModulePathResolver::class))
             ->setArgument('$projectDir', $projectDir)

@@ -1,0 +1,17 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure\Messaging;
+
+use Vortos\Messaging\Hook\Attribute\{{HookAttribute}};
+use Vortos\Domain\Event\DomainEventInterface;
+
+#[{{HookAttribute}}]
+final class {{ClassName}}Hook
+{
+    public function __invoke(DomainEventInterface $event): void
+    {
+        //
+    }
+}

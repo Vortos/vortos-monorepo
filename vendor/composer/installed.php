@@ -1,9 +1,9 @@
 <?php return array(
     'root' => array(
         'name' => 'fortizan/squaura',
-        'pretty_version' => '1.0.0+no-version-set',
-        'version' => '1.0.0.0',
-        'reference' => null,
+        'pretty_version' => 'dev-main',
+        'version' => 'dev-main',
+        'reference' => '7ae967f42f05be6e900e75f31f37d2adaa896624',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -110,9 +110,9 @@
             'dev_requirement' => false,
         ),
         'fortizan/squaura' => array(
-            'pretty_version' => '1.0.0+no-version-set',
-            'version' => '1.0.0.0',
-            'reference' => null,
+            'pretty_version' => 'dev-main',
+            'version' => 'dev-main',
+            'reference' => '7ae967f42f05be6e900e75f31f37d2adaa896624',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
@@ -1006,6 +1006,15 @@
             'install_path' => __DIR__ . '/../vortos/vortos-logger',
             'aliases' => array(),
             'dev_requirement' => false,
+        ),
+        'vortos/vortos-make' => array(
+            'pretty_version' => 'dev-main',
+            'version' => 'dev-main',
+            'reference' => 'a4645ba8418d87093e444d3542d8c78fc8367549',
+            'type' => 'library',
+            'install_path' => __DIR__ . '/../vortos/vortos-make',
+            'aliases' => array(),
+            'dev_requirement' => true,
         ),
         'vortos/vortos-messaging' => array(
             'pretty_version' => 'v1.0.0-alpha-25',

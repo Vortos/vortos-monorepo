@@ -7,13 +7,13 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'Vortos\\Tracing\\' => array($vendorDir . '/vortos/vortos-tracing'),
-    'Vortos\\Migration\\' => array($baseDir . '/packages/Vortos/src/Migration'),
-    'App\\Migrations\\' => array($baseDir . '/migrations'),
     'Vortos\\Tests\\' => array($baseDir . '/packages/Vortos/Tests'),
     'Vortos\\Persistence\\' => array($vendorDir . '/vortos/vortos-persistence'),
     'Vortos\\PersistenceMongo\\' => array($vendorDir . '/vortos/vortos-persistence-mongo'),
     'Vortos\\PersistenceDbal\\' => array($vendorDir . '/vortos/vortos-persistence-dbal'),
+    'Vortos\\Migration\\' => array($baseDir . '/packages/Vortos/src/Migration'),
     'Vortos\\Messaging\\' => array($vendorDir . '/vortos/vortos-messaging'),
+    'Vortos\\Make\\' => array($vendorDir . '/vortos/vortos-make'),
     'Vortos\\Logger\\' => array($vendorDir . '/vortos/vortos-logger'),
     'Vortos\\Http\\' => array($vendorDir . '/vortos/vortos-http'),
     'Vortos\\Foundation\\' => array($vendorDir . '/vortos/vortos-foundation'),
@@ -87,5 +87,6 @@ return array(
     'Doctrine\\Common\\Collections\\' => array($vendorDir . '/doctrine/collections/src'),
     'Doctrine\\Common\\' => array($vendorDir . '/doctrine/event-manager/src'),
     'DeepCopy\\' => array($vendorDir . '/myclabs/deep-copy/src/DeepCopy'),
+    'App\\Migrations\\' => array($baseDir . '/migrations'),
     'App\\' => array($baseDir . '/src'),
 );

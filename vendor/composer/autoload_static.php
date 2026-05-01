@@ -32,12 +32,13 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'V' =>
         array (
             'Vortos\\Tracing\\' => 15,
-            'Vortos\\Migration\\' => 18,
             'Vortos\\Tests\\' => 13,
             'Vortos\\Persistence\\' => 19,
             'Vortos\\PersistenceMongo\\' => 24,
             'Vortos\\PersistenceDbal\\' => 23,
+            'Vortos\\Migration\\' => 17,
             'Vortos\\Messaging\\' => 17,
+            'Vortos\\Make\\' => 12,
             'Vortos\\Logger\\' => 14,
             'Vortos\\Http\\' => 12,
             'Vortos\\Foundation\\' => 18,
@@ -135,7 +136,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         ),
         'A' =>
         array (
-            'App\\Migrations\\' => 16,
+            'App\\Migrations\\' => 15,
             'App\\' => 4,
         ),
     );
@@ -144,10 +145,6 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Tracing\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-tracing',
-        ),
-        'Vortos\\Migration\\' =>
-        array (
-            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Migration',
         ),
         'Vortos\\Tests\\' =>
         array (
@@ -165,9 +162,17 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-persistence-dbal',
         ),
+        'Vortos\\Migration\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Migration',
+        ),
         'Vortos\\Messaging\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-messaging',
+        ),
+        'Vortos\\Make\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/vortos/vortos-make',
         ),
         'Vortos\\Logger\\' =>
         array (
@@ -1733,7 +1738,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'TheSeer\\Tokenizer\\XMLSerializer' => __DIR__ . '/..' . '/theseer/tokenizer/src/XMLSerializer.php',
         'staabm\\SideEffectsDetector\\SideEffect' => __DIR__ . '/..' . '/staabm/side-effects-detector/lib/SideEffect.php',
         'staabm\\SideEffectsDetector\\SideEffectsDetector' => __DIR__ . '/..' . '/staabm/side-effects-detector/lib/SideEffectsDetector.php',
-        'ï¿½' => __DIR__ . '/..' . '/symfony/cache/Traits/ValueWrapper.php',
+        '©' => __DIR__ . '/..' . '/symfony/cache/Traits/ValueWrapper.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

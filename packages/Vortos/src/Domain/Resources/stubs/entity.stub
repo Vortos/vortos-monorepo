@@ -1,0 +1,34 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Domain\Entity;
+
+use Vortos\Domain\Aggregate\AggregateRoot;
+
+final class {{ClassName}} extends AggregateRoot
+{
+    private function __construct(
+        private {{ClassName}}Id $id,
+    ) {}
+
+    public static function create({{ClassName}}Id $id): self
+    {
+        $instance = new self($id);
+
+        return $instance;
+    }
+
+    public static function reconstruct({{ClassName}}Id $id, int $version): self
+    {
+        $instance = new self($id);
+        $instance->restoreVersion($version);
+
+        return $instance;
+    }
+
+    public function getId(): {{ClassName}}Id
+    {
+        return $this->id;
+    }
+}

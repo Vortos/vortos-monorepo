@@ -1,0 +1,13 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Representation\Request;
+
+use Vortos\Http\Request\RequestDto;
+
+final class {{ClassName}}Request extends RequestDto
+{
+    public function __construct(
+    ) {}
+}

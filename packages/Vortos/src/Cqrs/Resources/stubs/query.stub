@@ -1,0 +1,13 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Application\Query\{{ClassName}};
+
+use Vortos\Domain\Query\QueryInterface;
+
+final readonly class {{ClassName}} implements QueryInterface
+{
+    public function __construct(
+    ) {}
+}

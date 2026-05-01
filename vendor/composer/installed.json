@@ -7639,6 +7639,43 @@
             "install-path": "../vortos/vortos-logger"
         },
         {
+            "name": "vortos/vortos-make",
+            "version": "dev-main",
+            "version_normalized": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "./packages/Vortos/src/Make",
+                "reference": "a4645ba8418d87093e444d3542d8c78fc8367549"
+            },
+            "require": {
+                "php": ">=8.2",
+                "symfony/console": "^7.0",
+                "vortos/vortos-foundation": "^1.0"
+            },
+            "type": "library",
+            "extra": {
+                "vortos": {
+                    "package": "Vortos\\Make\\DependencyInjection\\MakePackage",
+                    "order": 200
+                }
+            },
+            "installation-source": "dist",
+            "autoload": {
+                "psr-4": {
+                    "Vortos\\Make\\": ""
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Vortos code generator — scaffold DDD/CQRS artifacts from stubs",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            },
+            "install-path": "../vortos/vortos-make"
+        },
+        {
             "name": "vortos/vortos-messaging",
             "version": "v1.0.0-alpha-25",
             "version_normalized": "1.0.0.0-alpha25",
@@ -7912,6 +7949,7 @@
         "sebastian/version",
         "staabm/side-effects-detector",
         "symfony/polyfill-php82",
-        "theseer/tokenizer"
+        "theseer/tokenizer",
+        "vortos/vortos-make"
     ]
 }

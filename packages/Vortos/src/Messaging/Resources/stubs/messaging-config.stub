@@ -1,0 +1,49 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure;
+
+use Vortos\Messaging\Attribute\MessagingConfig;
+use Vortos\Messaging\Attribute\RegisterTransport;
+use Vortos\Messaging\Attribute\RegisterProducer;
+use Vortos\Messaging\Attribute\RegisterConsumer;
+use Vortos\Messaging\Driver\Kafka\Definition\KafkaTransportDefinition;
+use Vortos\Messaging\Driver\Kafka\Definition\KafkaProducerDefinition;
+use Vortos\Messaging\Driver\Kafka\Definition\KafkaConsumerDefinition;
+use Vortos\Messaging\Retry\RetryPolicy;
+
+#[MessagingConfig]
+final class {{ClassName}}MessagingConfig
+{
+    #[RegisterTransport]
+    public function transport(): KafkaTransportDefinition
+    {
+        return KafkaTransportDefinition::create('{{TransportName}}')
+            ->dsn('kafka://kafka:9092')
+            ->topic('{{TopicName}}')
+            ->partitions(3)
+            ->replicationFactor(1);
+    }
+
+    #[RegisterProducer]
+    public function producer(): KafkaProducerDefinition
+    {
+        return KafkaProducerDefinition::create('{{TransportName}}')
+            ->transport('{{TransportName}}')
+            ->outbox(true)
+            ->linger(5);
+    }
+
+    #[RegisterConsumer]
+    public function consumer(): KafkaConsumerDefinition
+    {
+        return KafkaConsumerDefinition::create('{{TransportName}}')
+            ->groupId('{{GroupId}}')
+            ->parallelism(1)
+            ->batchSize(1)
+            ->retry(RetryPolicy::exponential(attempts: 3, initialDelayMs: 500))
+            ->dlq('{{TopicName}}.dlq')
+            ->offsetReset('earliest');
+    }
+}

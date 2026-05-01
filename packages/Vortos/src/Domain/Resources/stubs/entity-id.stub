@@ -1,0 +1,9 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Domain\Entity;
+
+use Vortos\Domain\Identity\AggregateId;
+
+final class {{ClassName}}Id extends AggregateId {}

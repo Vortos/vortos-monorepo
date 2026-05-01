@@ -1,0 +1,16 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Application\Command\{{ClassName}};
+
+use Vortos\Cqrs\Attribute\AsCommandHandler;
+
+#[AsCommandHandler]
+final class {{ClassName}}Handler
+{
+    public function __invoke({{ClassName}} $command): mixed
+    {
+        // Return the aggregate so CommandBus can dispatch its domain events.
+    }
+}

@@ -48,7 +48,7 @@ final class OrmSchemaCommand extends Command
             $sqls = $tool->getDropSchemaSQL($metas);
             $verb = 'drop';
         } else {
-            $sqls = $tool->getUpdateSchemaSql($metas, saveMode: true);
+            $sqls = $tool->getUpdateSchemaSql($metas, true);
             $verb = 'update';
         }
 

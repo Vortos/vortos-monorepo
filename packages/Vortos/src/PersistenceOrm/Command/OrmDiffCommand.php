@@ -31,7 +31,7 @@ final class OrmDiffCommand extends Command
     {
         $tool  = new SchemaTool($this->em);
         $metas = $this->em->getMetadataFactory()->getAllMetadata();
-        $sqls  = $tool->getUpdateSchemaSql($metas, true);
+        $sqls  = $tool->getUpdateSchemaSql($metas);
 
         if (empty($sqls)) {
             $output->writeln('<info>Schema is up to date — nothing to generate.</info>');

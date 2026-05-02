@@ -17,6 +17,7 @@ use Vortos\FeatureFlags\Command\FlagsEnableCommand;
 use Vortos\FeatureFlags\Command\FlagsListCommand;
 use Vortos\FeatureFlags\FlagEvaluator;
 use Vortos\FeatureFlags\FlagRegistry;
+use Vortos\FeatureFlags\FlagRegistryInterface;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\FeatureFlags\Http\DefaultFlagContextResolver;
 use Vortos\FeatureFlags\Http\FeatureFlagMiddleware;
@@ -62,6 +63,9 @@ final class FeatureFlagsExtension extends Extension
             ->setArgument('$storage', new Reference(FlagStorageInterface::class))
             ->setArgument('$evaluator', new Reference(FlagEvaluator::class))
             ->setShared(true)
+            ->setPublic(true);
+
+        $container->setAlias(FlagRegistryInterface::class, FlagRegistry::class)
             ->setPublic(true);
 
         $container->register(DefaultFlagContextResolver::class, DefaultFlagContextResolver::class)

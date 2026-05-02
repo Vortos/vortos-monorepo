@@ -9,7 +9,7 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\FeatureFlags\Attribute\RequiresFlag;
 use Vortos\FeatureFlags\Exception\FeatureNotAvailableException;
-use Vortos\FeatureFlags\FlagRegistry;
+use Vortos\FeatureFlags\FlagRegistryInterface;
 
 /**
  * Enforces #[RequiresFlag] on controllers.
@@ -22,7 +22,7 @@ final class FeatureFlagMiddleware implements EventSubscriberInterface
     private array $cache = [];
 
     public function __construct(
-        private readonly FlagRegistry $registry,
+        private readonly FlagRegistryInterface $registry,
         private readonly FlagContextResolverInterface $contextResolver,
     ) {}
 

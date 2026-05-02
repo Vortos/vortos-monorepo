@@ -7,7 +7,7 @@ namespace Vortos\FeatureFlags\Http;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
-use Vortos\FeatureFlags\FlagRegistry;
+use Vortos\FeatureFlags\FlagRegistryInterface;
 use Vortos\Http\Attribute\ApiController;
 
 #[ApiController]
@@ -15,7 +15,7 @@ use Vortos\Http\Attribute\ApiController;
 final class FlagsController
 {
     public function __construct(
-        private readonly FlagRegistry $registry,
+        private readonly FlagRegistryInterface $registry,
         private readonly FlagContextResolverInterface $contextResolver,
     ) {}
 

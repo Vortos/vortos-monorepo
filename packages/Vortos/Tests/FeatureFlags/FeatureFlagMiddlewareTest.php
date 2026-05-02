@@ -11,8 +11,8 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Vortos\FeatureFlags\Attribute\RequiresFlag;
 use Vortos\FeatureFlags\Exception\FeatureNotAvailableException;
 use Vortos\FeatureFlags\FlagContext;
-use Vortos\FeatureFlags\FlagRegistry;
-use Vortos\FeatureFlags\Http\DefaultFlagContextResolver;
+use Vortos\FeatureFlags\FlagRegistryInterface;
+use Vortos\FeatureFlags\Http\FlagContextResolverInterface;
 use Vortos\FeatureFlags\Http\FeatureFlagMiddleware;
 
 // --- fixtures ---
@@ -32,28 +32,28 @@ final class FeatureFlagMiddlewareTest extends TestCase
 {
     public function test_passes_through_when_no_controller_in_request(): void
     {
-        $registry   = $this->createMock(FlagRegistry::class);
+        $registry   = $this->createMock(FlagRegistryInterface::class);
         $registry->expects($this->never())->method('isEnabled');
 
-        $middleware = new FeatureFlagMiddleware($registry, new DefaultFlagContextResolver());
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver());
         $middleware->onRequest($this->event(new Request()));
     }
 
     public function test_passes_through_for_controller_without_attribute(): void
     {
-        $registry = $this->createMock(FlagRegistry::class);
+        $registry = $this->createMock(FlagRegistryInterface::class);
         $registry->expects($this->never())->method('isEnabled');
 
-        $middleware = new FeatureFlagMiddleware($registry, new DefaultFlagContextResolver());
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver());
         $middleware->onRequest($this->event($this->requestFor(UnflaggedController::class)));
     }
 
     public function test_passes_through_when_flag_is_enabled(): void
     {
-        $registry = $this->createMock(FlagRegistry::class);
+        $registry = $this->createMock(FlagRegistryInterface::class);
         $registry->method('isEnabled')->with('new-dashboard')->willReturn(true);
 
-        $middleware = new FeatureFlagMiddleware($registry, new DefaultFlagContextResolver());
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver());
 
         // Should not throw
         $middleware->onRequest($this->event($this->requestFor(FlaggedController::class)));
@@ -62,10 +62,10 @@ final class FeatureFlagMiddlewareTest extends TestCase
 
     public function test_throws_when_flag_is_disabled(): void
     {
-        $registry = $this->createMock(FlagRegistry::class);
+        $registry = $this->createMock(FlagRegistryInterface::class);
         $registry->method('isEnabled')->with('new-dashboard')->willReturn(false);
 
-        $middleware = new FeatureFlagMiddleware($registry, new DefaultFlagContextResolver());
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver());
 
         $this->expectException(FeatureNotAvailableException::class);
         $middleware->onRequest($this->event($this->requestFor(FlaggedController::class)));
@@ -73,13 +73,13 @@ final class FeatureFlagMiddlewareTest extends TestCase
 
     public function test_reflection_cache_calls_registry_on_each_request_but_reflects_once(): void
     {
-        $registry = $this->createMock(FlagRegistry::class);
+        $registry = $this->createMock(FlagRegistryInterface::class);
         $registry->expects($this->exactly(3))
             ->method('isEnabled')
             ->with('new-dashboard')
             ->willReturn(true);
 
-        $middleware = new FeatureFlagMiddleware($registry, new DefaultFlagContextResolver());
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver());
         $request    = $this->requestFor(FlaggedController::class);
 
         // Three requests — registry called 3 times but reflection only once (internal cache)
@@ -92,6 +92,13 @@ final class FeatureFlagMiddlewareTest extends TestCase
     {
         $events = FeatureFlagMiddleware::getSubscribedEvents();
         $this->assertArrayHasKey('kernel.request', $events);
+    }
+
+    private function resolver(): FlagContextResolverInterface
+    {
+        return new class implements FlagContextResolverInterface {
+            public function resolve(Request $request): FlagContext { return new FlagContext(); }
+        };
     }
 
     private function requestFor(string $controllerClass): Request

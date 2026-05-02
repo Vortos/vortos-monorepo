@@ -215,7 +215,7 @@ switch ($command) {
         // Both forms work:
         //   php vortos make:entity User        → vortos:make:entity
         //   php vortos vortos:make:entity User → vortos:make:entity
-        $console = 'vortos:' . ltrim($command, 'vortos:');
+        $console = 'vortos:' . (str_starts_with($command, 'vortos:') ? substr($command, 7) : $command);
         $ansi    = str_contains($restStr, '--no-ansi') ? '' : '--ansi';
         $cmd     = 'php bin/console ' . escapeshellarg($console) . ' ' . $restStr . ' ' . $ansi;
 

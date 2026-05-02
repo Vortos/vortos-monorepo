@@ -15,7 +15,8 @@
         "vortos/vortos-migration": "^1.0",
         "doctrine/orm": "^3.0",
         "doctrine/dbal": "^4.0",
-        "symfony/cache": "^7.0"
+        "symfony/cache": "^7.0",
+        "symfony/var-exporter": "^7.0"
     },
     "extra": {
         "vortos": {

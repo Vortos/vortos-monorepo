@@ -3,9 +3,6 @@
 namespace Vortos\Foundation;
 
 use CachedContainer;
-use Vortos\Foundation\DependencyInjection\Compiler\ConsoleCommandPass;
-use Vortos\Foundation\DependencyInjection\Compiler\HealthCheckPass;
-use Vortos\Foundation\Health\HealthRegistry;
 use Vortos\Http\Controller\ErrorController;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Container;
@@ -40,17 +37,13 @@ class Runner
     {
         $request = $this->getRequest();
 
-        // try {
-
-        // $this->getContainer();
         try {
             $this->getContainer();
         } catch (\Throwable $e) {
-            // Container failed to compile — log it prominently
+
             error_log('FATAL: Container compilation failed: ' . $e->getMessage());
             error_log($e->getTraceAsString());
 
-            // Return a clear 503 with the error in debug mode
             return new Response(
                 $this->debug
                     ? '<h1>Container Error</h1><pre>' . htmlspecialchars($e->getMessage()) . '</pre><pre>' . htmlspecialchars($e->getTraceAsString()) . '</pre>'
@@ -110,7 +103,7 @@ class Runner
         if ($this->container !== null && $this->container->has(ArrayAdapter::class)) {
             $this->container->get(ArrayAdapter::class)->clear();
         }
-        
+
         // In worker mode, keep the container alive between requests
         // Only reset the response
         $this->response = null;
@@ -132,19 +125,11 @@ class Runner
             require_once $this->dumpFilePath;
             $container = new CachedContainer();
         } else {
-
             $projectRoot = $this->projectRoot;
 
             $container = include $this->containerPath;
 
             $this->configureContainer($container);
-
-            $container->register(HealthRegistry::class, HealthRegistry::class)
-                ->setArgument('$checks', [])
-                ->setPublic(true);
-
-            $container->addCompilerPass(new ConsoleCommandPass());
-            $container->addCompilerPass(new HealthCheckPass());
 
             $container->compile();
 
@@ -176,12 +161,9 @@ class Runner
         $dumper = new PhpDumper($container);
 
         if ($this->context === 'http') {
-
             file_put_contents(
                 $this->dumpFilePath,
-                $dumper->dump(
-                    ['class' => 'CachedContainer']
-                )
+                $dumper->dump(['class' => 'CachedContainer'])
             );
         }
     }
@@ -189,7 +171,6 @@ class Runner
     private function handleBoostrapErrors(\Throwable $exception, Request $request, ?Container $container = null): Response
     {
         try {
-
             $logger = null;
             if (isset($container)) {
                 try {
@@ -212,4 +193,3 @@ class Runner
         return $response;
     }
 }
-

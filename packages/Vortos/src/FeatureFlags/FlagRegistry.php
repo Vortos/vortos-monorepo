@@ -6,7 +6,7 @@ namespace Vortos\FeatureFlags;
 
 use Vortos\FeatureFlags\Storage\FlagStorageInterface;
 
-final class FlagRegistry
+final class FlagRegistry implements FlagRegistryInterface
 {
     /** Per-request in-memory cache — avoids repeated storage reads within one request. */
     private array $resolved = [];

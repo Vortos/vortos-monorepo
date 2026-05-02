@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Shared\Representation\Controller;
+namespace Vortos\Foundation\Health\Http;
 
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -12,7 +12,7 @@ use Vortos\Foundation\Health\HealthRegistry;
 use Vortos\Http\Attribute\ApiController;
 
 #[ApiController]
-#[Route('/health', name: 'health', methods: ['GET'])]
+#[Route('/health', name: 'vortos.health', methods: ['GET'])]
 final class HealthController
 {
     public function __construct(private readonly HealthRegistry $registry) {}

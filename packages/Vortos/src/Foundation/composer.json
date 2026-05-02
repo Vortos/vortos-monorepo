@@ -8,6 +8,12 @@
       "Vortos\\Foundation\\": ""
     }
   },
+  "extra": {
+    "vortos": {
+      "package": "Vortos\\Foundation\\DependencyInjection\\FoundationPackage",
+      "order": 5
+    }
+  },
   "require": {
     "php": ">=8.2",
     "vortos/vortos-domain": "^1.0",

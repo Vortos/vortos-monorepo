@@ -43,6 +43,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Logger\\' => 14,
             'Vortos\\Http\\' => 12,
             'Vortos\\Foundation\\' => 18,
+            'Vortos\\FeatureFlags\\' => 20,
             'Vortos\\Domain\\' => 14,
             'Vortos\\Debug\\' => 13,
             'Vortos\\Cqrs\\' => 12,
@@ -191,6 +192,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Foundation\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-foundation',
+        ),
+        'Vortos\\FeatureFlags\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/FeatureFlags',
         ),
         'Vortos\\Domain\\' =>
         array (

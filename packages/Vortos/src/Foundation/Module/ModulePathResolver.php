@@ -81,6 +81,18 @@ final class ModulePathResolver
             }
         }
 
+        // Also pick up symlinked monorepo packages that aren't in installed.json yet
+        // (e.g. newly added modules wired via link-packages.php before composer install).
+        $vendorVortos = $this->projectDir . '/vendor/vortos';
+        if (is_dir($vendorVortos)) {
+            foreach (glob($vendorVortos . '/*', GLOB_ONLYDIR) ?: [] as $dir) {
+                $abs = realpath($dir);
+                if ($abs !== false && !in_array($abs, $roots, true)) {
+                    $roots[] = $abs;
+                }
+            }
+        }
+
         return $this->roots = $roots;
     }
 }

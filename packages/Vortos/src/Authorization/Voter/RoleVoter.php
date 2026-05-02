@@ -92,6 +92,16 @@ final class RoleVoter
     }
 
     /**
+     * Return all roles the identity holds, including inherited roles via hierarchy.
+     *
+     * @return string[]
+     */
+    public function expand(UserIdentityInterface $identity): array
+    {
+        return array_values($this->expandRoles($identity->roles()));
+    }
+
+    /**
      * Expand a set of roles to include all inherited roles via the hierarchy.
      *
      * @param  string[] $roles

@@ -20,6 +20,7 @@ $packages = [
     'vortos-make'              => 'Make',
     'vortos-debug'             => 'Debug',
     'vortos-persistence-orm'   => 'PersistenceOrm',
+    'vortos-feature-flags'     => 'FeatureFlags',
 ];
 
 foreach ($packages as $vendorName => $srcName) {

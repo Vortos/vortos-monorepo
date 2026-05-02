@@ -71,6 +71,8 @@ jobs:
             split_repository: 'vortos-make'
           - local_path: 'packages/Vortos/src/Debug'
             split_repository: 'vortos-debug'
+          - local_path: 'packages/Vortos/src/FeatureFlags'
+            split_repository: 'vortos-feature-flags'
 
     steps:
       - uses: actions/checkout@v4

@@ -51,7 +51,8 @@
       "App\\Migrations\\": "migrations/",
       "Vortos\\Migration\\": "packages/Vortos/src/Migration/",
       "Vortos\\Debug\\": "packages/Vortos/src/Debug/",
-      "Vortos\\PersistenceOrm\\": "packages/Vortos/src/PersistenceOrm/"
+      "Vortos\\PersistenceOrm\\": "packages/Vortos/src/PersistenceOrm/",
+      "Vortos\\FeatureFlags\\": "packages/Vortos/src/FeatureFlags/"
     }
   },
   "autoload-dev": {

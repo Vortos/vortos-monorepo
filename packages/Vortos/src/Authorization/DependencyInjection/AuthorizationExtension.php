@@ -21,6 +21,7 @@ use Vortos\Authorization\Scope\ScopedAuthorizationManager;
 use Vortos\Authorization\Scope\Storage\RedisScopedPermissionStore;
 use Vortos\Authorization\Temporal\Storage\RedisTemporalPermissionStore;
 use Vortos\Authorization\Temporal\TemporalAuthorizationManager;
+use Vortos\Authorization\Http\PermissionsController;
 use Vortos\Authorization\Voter\RoleVoter;
 
 final class AuthorizationExtension extends Extension
@@ -53,6 +54,13 @@ final class AuthorizationExtension extends Extension
         $container->register(RoleVoter::class, RoleVoter::class)
             ->setArguments([$resolved['role_hierarchy']])
             ->setShared(true)->setPublic(true);
+
+        // Permissions endpoint — returns hierarchy-expanded roles for the current user
+        $container->register(PermissionsController::class, PermissionsController::class)
+            ->setArgument('$currentUser', new Reference(\Vortos\Auth\Identity\CurrentUserProvider::class))
+            ->setArgument('$roleVoter', new Reference(RoleVoter::class))
+            ->addTag('vortos.api.controller')
+            ->setPublic(true);
 
         // Policy ServiceLocator
         $container->register('vortos.authorization.policy_locator', ServiceLocator::class)

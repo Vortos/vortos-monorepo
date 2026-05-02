@@ -18,6 +18,7 @@ return array(
     'Vortos\\Logger\\' => array($vendorDir . '/vortos/vortos-logger'),
     'Vortos\\Http\\' => array($vendorDir . '/vortos/vortos-http'),
     'Vortos\\Foundation\\' => array($vendorDir . '/vortos/vortos-foundation'),
+    'Vortos\\FeatureFlags\\' => array($baseDir . '/packages/Vortos/src/FeatureFlags'),
     'Vortos\\Domain\\' => array($vendorDir . '/vortos/vortos-domain'),
     'Vortos\\Debug\\' => array($baseDir . '/packages/Vortos/src/Debug'),
     'Vortos\\Cqrs\\' => array($vendorDir . '/vortos/vortos-cqrs'),

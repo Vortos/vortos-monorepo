@@ -80,6 +80,7 @@ return static function (ContainerConfigurator $configurator): void {
         '../src/Make/',
         '../src/Debug/',
         '../src/PersistenceOrm/',
+        '../src/FeatureFlags/',
         ]);
 
     $services->set(ModulePathResolver::class)

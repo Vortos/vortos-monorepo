@@ -1,0 +1,25 @@
+{
+    "name": "vortos/vortos-feature-flags",
+    "description": "Vortos feature flags — percentage rollout, user targeting, attribute rules, kill switch",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\FeatureFlags\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-persistence-dbal": "^1.0",
+        "doctrine/dbal": "^4.0",
+        "symfony/http-kernel": "^7.0",
+        "symfony/uid": "^7.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\FeatureFlags\\DependencyInjection\\FeatureFlagsPackage",
+            "order": 120
+        }
+    }
+}

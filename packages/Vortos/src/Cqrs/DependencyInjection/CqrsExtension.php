@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Vortos\Cqrs\DependencyInjection;
 
 use Psr\Log\LoggerInterface;
+use ReflectionMethod;
+use Reflector;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
@@ -135,12 +137,13 @@ final class CqrsExtension extends Extension
 
         $container->registerAttributeForAutoconfiguration(
             AsProjectionHandler::class,
-            static function (ChildDefinition $definition, AsProjectionHandler $attribute): void {
+            static function (ChildDefinition $definition, AsProjectionHandler $attribute, Reflector $reflector): void {
                 $definition->addTag('vortos.projection_handler', [
                     'consumer'   => $attribute->consumer,
                     'handlerId'  => $attribute->handlerId,
                     'priority'   => $attribute->priority,
                     'idempotent' => true,
+                    'method'     => $reflector instanceof ReflectionMethod ? $reflector->getName() : null,
                 ]);
                 $definition->setPublic(true);
             },

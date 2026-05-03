@@ -68,7 +68,7 @@ final class OrmAggregateRootTest extends TestCase
 
     public function test_orm_version_field_has_version_and_column_attributes(): void
     {
-        $prop = new \ReflectionProperty(OrmAggregateRoot::class, 'ormVersion');
+        $prop = new \ReflectionProperty(OrmAggregateRoot::class, 'version');
 
         $this->assertCount(1, $prop->getAttributes(ORM\Version::class));
         $this->assertCount(1, $prop->getAttributes(ORM\Column::class));

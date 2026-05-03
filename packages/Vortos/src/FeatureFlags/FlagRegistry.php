@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Vortos\FeatureFlags;
 
+use Symfony\Contracts\Service\ResetInterface;
 use Vortos\FeatureFlags\Storage\FlagStorageInterface;
 
-final class FlagRegistry implements FlagRegistryInterface
+final class FlagRegistry implements FlagRegistryInterface, ResetInterface
 {
     /** Per-request in-memory cache — avoids repeated storage reads within one request. */
     private array $resolved = [];
@@ -45,6 +46,11 @@ final class FlagRegistry implements FlagRegistryInterface
      *
      * @return array{flags: list<string>, variants: array<string, string>}
      */
+    public function reset(): void
+    {
+        $this->resolved = [];
+    }
+
     public function allForContext(FlagContext $context = new FlagContext()): array
     {
         $flags    = [];

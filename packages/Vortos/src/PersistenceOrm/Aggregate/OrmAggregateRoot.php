@@ -10,7 +10,7 @@ use Vortos\Domain\Aggregate\AggregateRoot;
 /**
  * MappedSuperclass for aggregates persisted via Doctrine ORM.
  *
- * Extends AggregateRoot with an ORM-managed version column.
+ * Extends AggregateRoot with an ORM-managed `version` column.
  * Doctrine owns the version field — it increments it automatically
  * on flush and throws OptimisticLockException on concurrent modification.
  *
@@ -38,20 +38,20 @@ abstract class OrmAggregateRoot extends AggregateRoot
 {
     #[ORM\Version]
     #[ORM\Column(type: 'integer')]
-    protected int $ormVersion = 0;
+    protected int $version = 0;
 
     public function getVersion(): int
     {
-        return $this->ormVersion;
+        return $this->version;
     }
 
     public function incrementVersion(): void
     {
-        $this->ormVersion++;
+        $this->version++;
     }
 
     protected function restoreVersion(int $version): void
     {
-        $this->ormVersion = $version;
+        $this->version = $version;
     }
 }

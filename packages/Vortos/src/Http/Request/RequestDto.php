@@ -92,7 +92,8 @@ abstract class RequestDto
         $handled     = [];
 
         // Phase 1: constructor params (handles readonly promoted properties)
-        $args = [];
+        $args      = [];
+        $missing   = new ConstraintViolationList();
         if ($constructor !== null) {
             foreach ($constructor->getParameters() as $param) {
                 $name  = $param->getName();
@@ -105,11 +106,16 @@ abstract class RequestDto
                     $args[$name] = $param->getDefaultValue();
                 } elseif ($param->allowsNull()) {
                     $args[$name] = null;
+                } else {
+                    $missing->add(new ConstraintViolation('This field is required.', 'This field is required.', [], null, $name, null));
                 }
-                // Non-nullable, no default, not in data → omit, let PHP throw or leave uninitialised
 
                 $handled[] = $name;
             }
+        }
+
+        if (count($missing) > 0) {
+            throw new ValidationException($missing);
         }
 
         $instance = $reflection->newInstanceArgs($args);

@@ -20,7 +20,8 @@ final class InMemoryConsumerDefinition extends AbstractConsumerDefinition
             'parallelism' => $this->parallelism,
             'batchSize'   => $this->batchSize,
             'retry'       => $this->retryPolicy,
-            'dlq'         => $this->dlqTransport
+            'dlq'         => $this->dlqTransport,
+            'inProcess'   => true,
         ];  
     }
 }

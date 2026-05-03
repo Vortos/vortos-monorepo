@@ -63,7 +63,7 @@ final class OutboxPoller implements OutboxPollerInterface
     public function markFailed(string $outboxId, string $reason): void
     {
         $currentAttemptCount = (int) $this->connection->fetchOne(
-            "SELECT `attempt_count` FROM {$this->tableName} WHERE `id` = :id",
+            "SELECT attempt_count FROM {$this->tableName} WHERE id = :id",
             [
                 'id' => $outboxId
             ]

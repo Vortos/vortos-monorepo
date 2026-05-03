@@ -24,7 +24,7 @@ final class JsonSerializer implements SerializerInterface
     public function serialize(DomainEventInterface $event): string
     {
         $properties = new ReflectionClass($event)->getProperties(ReflectionProperty::IS_PUBLIC);
-        $data = [];
+        $data = ['aggregateId' => $event->aggregateId()];
 
         foreach ($properties as $property) {
             $value = $property->getValue($event);

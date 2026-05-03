@@ -42,20 +42,23 @@ final class ProjectionDiscoveryCompilerPass implements CompilerPassInterface
                 $className = $container->getDefinition($serviceId)->getClass();
                 $reflClass = new ReflectionClass($className);
 
-                // Get event class from __invoke() parameter type
-                if (!$reflClass->hasMethod('__invoke')) {
+                $method = $tag['method'] ?? '__invoke';
+
+                if (!$reflClass->hasMethod($method)) {
                     throw new \LogicException(sprintf(
-                        'Projection handler "%s" must have an __invoke() method.',
+                        'Projection handler "%s" has no method "%s".',
                         $className,
+                        $method,
                     ));
                 }
 
-                $params = $reflClass->getMethod('__invoke')->getParameters();
+                $params = $reflClass->getMethod($method)->getParameters();
 
                 if (empty($params)) {
                     throw new \LogicException(sprintf(
-                        'Projection handler "%s" __invoke() must have an event parameter.',
+                        'Projection handler "%s::%s()" must have an event parameter.',
                         $className,
+                        $method,
                     ));
                 }
 
@@ -63,19 +66,20 @@ final class ProjectionDiscoveryCompilerPass implements CompilerPassInterface
 
                 if (!$type instanceof ReflectionNamedType || $type->isBuiltin()) {
                     throw new \LogicException(sprintf(
-                        'Projection handler "%s" __invoke() first parameter must be a typed event class.',
+                        'Projection handler "%s::%s()" first parameter must be a typed event class.',
                         $className,
+                        $method,
                     ));
                 }
 
                 $eventClass = $type->getName();
 
-                // Validate it implements DomainEventInterface
                 $reflEvent = new ReflectionClass($eventClass);
                 if (!$reflEvent->implementsInterface(DomainEventInterface::class)) {
                     throw new \LogicException(sprintf(
-                        'Projection handler "%s" parameter "%s" must implement DomainEventInterface.',
+                        'Projection handler "%s::%s()" parameter "%s" must implement DomainEventInterface.',
                         $className,
+                        $method,
                         $eventClass,
                     ));
                 }
@@ -91,15 +95,15 @@ final class ProjectionDiscoveryCompilerPass implements CompilerPassInterface
                 }
 
                 $descriptor = [
-                    'handlerId'  => $handlerId,
-                    'serviceId'  => $serviceId,
-                    'method'     => '__invoke',
-                    'priority'   => $tag['priority'] ?? 0,
-                    'idempotent' => true,   // projections are ALWAYS idempotent — enforced here
-                    'version'    => $tag['version'] ?? null,
-                    'eventClass' => $eventClass,
-                    'isProjection' => true, // flag for ConsumerRunner to apply projection behavior
-                    'parameters' => [
+                    'handlerId'    => $handlerId,
+                    'serviceId'    => $serviceId,
+                    'method'       => $method,
+                    'priority'     => $tag['priority'] ?? 0,
+                    'idempotent'   => true,
+                    'version'      => $tag['version'] ?? null,
+                    'eventClass'   => $eventClass,
+                    'isProjection' => true,
+                    'parameters'   => [
                         ['type' => 'event', 'eventClass' => $eventClass],
                     ],
                 ];

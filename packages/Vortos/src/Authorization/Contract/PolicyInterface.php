@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Authorization\Contract;
 
-use Vortos\Auth\Contract\UserIdentityInterface;
+use Vortos\Authorization\Context\AuthorizationContext;
 
 /**
  * Contract for resource-specific authorization policies.
@@ -17,15 +17,10 @@ use Vortos\Auth\Contract\UserIdentityInterface;
  *   #[AsPolicy(resource: 'athletes')]
  *   final class AthletePolicy implements PolicyInterface
  *   {
- *       public function can(
- *           UserIdentityInterface $identity,
- *           string $action,
- *           string $scope,
- *           mixed $resource = null,
- *       ): bool {
+ *       public function can(AuthorizationContext $auth, string $action, string $scope, mixed $resource = null): bool {
  *           return match ($action) {
  *               'read'   => true,
- *               'create' => $identity->hasRole('ROLE_COACH'),
+ *               'create' => $auth->atLeast('ROLE_COACH'),
  *               default  => false,
  *           };
  *       }
@@ -41,13 +36,13 @@ interface PolicyInterface
     /**
      * Evaluate whether the identity is allowed to perform action on resource.
      *
-     * @param UserIdentityInterface $identity The authenticated user
+     * @param AuthorizationContext  $auth     Resolved authorization context for the current user
      * @param string                $action   The action (create, read, update, delete, list)
      * @param string                $scope    The scope (any, own, federation, global)
      * @param mixed                 $resource The loaded resource for scope checks, or null
      */
     public function can(
-        UserIdentityInterface $identity,
+        AuthorizationContext $auth,
         string $action,
         string $scope,
         mixed $resource = null,

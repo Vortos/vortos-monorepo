@@ -82,6 +82,11 @@ final class MigratePublishCommand extends Command
         $published      = 0;
         $skipped        = 0;
         $baseTimestamp  = (int) (new \DateTimeImmutable())->format('YmdHis');
+        $hasUnpublished = $this->hasUnpublishedStubs($stubs, $manifest);
+
+        if (!$dryRun && $hasUnpublished) {
+            $this->assertPublishTargetWritable($migrationsDir);
+        }
 
         foreach ($stubs as $stub) {
             if (isset($manifest[$stub['relative']])) {
@@ -114,7 +119,7 @@ final class MigratePublishCommand extends Command
                     mkdir($migrationsDir, 0755, true);
                 }
 
-                file_put_contents($filePath, $content);
+                $this->writeFile($filePath, $content);
 
                 $manifest[$stub['relative']] = [
                     'class'        => $fqcn,
@@ -151,6 +156,47 @@ final class MigratePublishCommand extends Command
         return Command::SUCCESS;
     }
 
+    /**
+     * @param list<array{relative: string}> $stubs
+     * @param array<string, mixed> $manifest
+     */
+    private function hasUnpublishedStubs(array $stubs, array $manifest): bool
+    {
+        foreach ($stubs as $stub) {
+            if (!isset($manifest[$stub['relative']])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function assertPublishTargetWritable(string $migrationsDir): void
+    {
+        if (is_dir($migrationsDir) && !is_writable($migrationsDir)) {
+            throw new \RuntimeException(sprintf(
+                'Cannot publish migrations because "%s" is not writable.',
+                $migrationsDir,
+            ));
+        }
+
+        $manifestPath = $this->projectDir . '/' . self::MANIFEST_FILE;
+
+        if (file_exists($manifestPath) && !is_writable($manifestPath)) {
+            throw new \RuntimeException(sprintf(
+                'Cannot publish migrations because manifest "%s" is not writable. Fix file ownership/permissions before publishing.',
+                $manifestPath,
+            ));
+        }
+
+        if (!file_exists($manifestPath) && is_dir($migrationsDir) && !is_writable($migrationsDir)) {
+            throw new \RuntimeException(sprintf(
+                'Cannot create migration publish manifest in "%s" because the directory is not writable.',
+                $migrationsDir,
+            ));
+        }
+    }
+
     /** @return array<string, mixed> */
     private function loadManifest(): array
     {
@@ -174,6 +220,18 @@ final class MigratePublishCommand extends Command
             'published' => $published,
         ];
 
-        file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        $this->writeFile($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+    }
+
+    private function writeFile(string $path, string $content): void
+    {
+        $bytes = @file_put_contents($path, $content, LOCK_EX);
+
+        if ($bytes === false) {
+            throw new \RuntimeException(sprintf(
+                'Failed to write "%s". Check file ownership and permissions.',
+                $path,
+            ));
+        }
     }
 }

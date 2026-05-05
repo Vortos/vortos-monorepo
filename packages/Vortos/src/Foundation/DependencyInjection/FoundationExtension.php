@@ -9,6 +9,8 @@ use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\DependencyInjection\ChildDefinition;
 use Vortos\Foundation\Health\HealthRegistry;
 use Vortos\Foundation\Health\Http\HealthController;
 use Vortos\Foundation\Reset\ServicesResetter;
@@ -35,5 +37,12 @@ final class FoundationExtension extends Extension
             ->setArgument('$registry', new Reference(HealthRegistry::class))
             ->addTag('vortos.api.controller')
             ->setPublic(true);
+
+        $container->registerAttributeForAutoconfiguration(
+            AsCommand::class,
+            static function (ChildDefinition $definition, AsCommand $attribute): void {
+                $definition->addTag('console.command');
+            },
+        );
     }
 }

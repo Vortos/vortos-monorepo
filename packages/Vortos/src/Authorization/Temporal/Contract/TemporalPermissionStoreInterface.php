@@ -23,4 +23,9 @@ interface TemporalPermissionStoreInterface
     public function isValid(string $userId, string $permission): bool;
 
     public function getExpiry(string $userId, string $permission): ?\DateTimeImmutable;
+
+    /**
+     * @return string[]
+     */
+    public function activeGrantsForUser(string $userId): array;
 }

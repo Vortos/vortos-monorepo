@@ -76,6 +76,7 @@ final class JwtService
             'iat'   => $now,
             'exp'   => $accessExpiresAt,
             'roles' => $identity->roles(),
+            'authz_version' => $identity->getAttribute('authz_version', 0),
             'type'  => 'access',
         ];
 
@@ -126,6 +127,7 @@ final class JwtService
         return new UserIdentity(
             id: $payload['sub'],
             roles: $payload['roles'] ?? [],
+            attributes: $this->identityAttributes($payload),
         );
     }
 
@@ -212,6 +214,24 @@ final class JwtService
     private function decode(string $token): array
     {
         return (array) JWT::decode($token, new Key($this->config->secret, 'HS256'));
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function identityAttributes(array $payload): array
+    {
+        unset(
+            $payload['iss'],
+            $payload['sub'],
+            $payload['iat'],
+            $payload['exp'],
+            $payload['roles'],
+            $payload['type'],
+        );
+
+        return $payload;
     }
 
     /**

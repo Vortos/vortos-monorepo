@@ -2,8 +2,8 @@
 
 namespace App\Post\Application\Policy;
 
-use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Authorization\Attribute\AsPolicy;
+use Vortos\Authorization\Context\AuthorizationContext;
 use Vortos\Authorization\Contract\PolicyInterface;
 use Vortos\Authorization\Temporal\TemporalAuthorizationManager;
 
@@ -15,7 +15,7 @@ final class BetaPolicy implements PolicyInterface
     ) {}
 
     public function can(
-        UserIdentityInterface $identity,
+        AuthorizationContext $auth,
         string $action,
         string $scope,
         mixed $resource = null,
@@ -23,7 +23,7 @@ final class BetaPolicy implements PolicyInterface
         // action is the second segment: 'analytics_v2', 'ai_suggestions', etc.
         $permission = "beta.{$action}";
 
-        return $this->temporal->isValid($identity->id(), $permission);
+        return $this->temporal->isValid($auth->user()->id(), $permission);
     }
 
 

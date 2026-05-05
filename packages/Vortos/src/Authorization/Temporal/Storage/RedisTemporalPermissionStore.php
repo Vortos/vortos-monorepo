@@ -30,16 +30,21 @@ final class RedisTemporalPermissionStore implements TemporalPermissionStoreInter
             return; // Already expired — don't store
         }
 
-        $this->redis->setEx(
-            $this->key($userId, $permission),
-            $ttl,
-            json_encode(['expires_at' => $expiresAt->getTimestamp()]),
-        );
+        $key = $this->key($userId, $permission);
+
+        $this->redis->multi();
+        $this->redis->setEx($key, $ttl, json_encode(['expires_at' => $expiresAt->getTimestamp()]));
+        $this->redis->sAdd($this->indexKey($userId), $permission);
+        $this->redis->expire($this->indexKey($userId), max($ttl, 1));
+        $this->redis->exec();
     }
 
     public function revoke(string $userId, string $permission): void
     {
+        $this->redis->multi();
         $this->redis->del($this->key($userId, $permission));
+        $this->redis->sRem($this->indexKey($userId), $permission);
+        $this->redis->exec();
     }
 
     public function isValid(string $userId, string $permission): bool
@@ -59,8 +64,37 @@ final class RedisTemporalPermissionStore implements TemporalPermissionStoreInter
             : null;
     }
 
+    public function activeGrantsForUser(string $userId): array
+    {
+        $permissions = $this->redis->sMembers($this->indexKey($userId));
+
+        if ($permissions === [] || $permissions === false) {
+            return [];
+        }
+
+        $active = [];
+
+        foreach ($permissions as $permission) {
+            if ($this->isValid($userId, (string) $permission)) {
+                $active[] = (string) $permission;
+                continue;
+            }
+
+            $this->redis->sRem($this->indexKey($userId), (string) $permission);
+        }
+
+        sort($active);
+
+        return $active;
+    }
+
     private function key(string $userId, string $permission): string
     {
         return "temporal_perm:{$userId}:{$permission}";
+    }
+
+    private function indexKey(string $userId): string
+    {
+        return "temporal_perms:{$userId}";
     }
 }

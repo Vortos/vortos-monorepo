@@ -29,10 +29,10 @@ final class PublishDockerCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $runtime = $input->getOption('runtime');
-        $source = __DIR__ . '/../stubs/' . $runtime;
+        $source = realpath(__DIR__ . '/../stubs/' . $runtime);
         $projectRoot = getcwd();
 
-        if (!is_dir($source)) {
+        if ($source === false || !is_dir($source)) {
             $output->writeln("<error>Unknown runtime: $runtime. Use frankenphp or phpfpm</error>");
             return Command::FAILURE;
         }
@@ -44,14 +44,19 @@ final class PublishDockerCommand extends Command
 
     private function copyDirectory(string $source, string $dest): void
     {
+        $source = rtrim($source, DIRECTORY_SEPARATOR);
+
         foreach (new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($source, \RecursiveDirectoryIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::SELF_FIRST
         ) as $item) {
-            $target = $dest . '/' . str_replace($source . '/', '', $item->getPathname());
+            $relativePath = substr($item->getPathname(), strlen($source) + 1);
+            $target = $dest . DIRECTORY_SEPARATOR . $relativePath;
+
             if ($item->isDir()) {
                 @mkdir($target, 0755, true);
             } else {
+                @mkdir(dirname($target), 0755, true);
                 copy($item->getPathname(), $target);
             }
         }

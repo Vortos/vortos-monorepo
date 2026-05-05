@@ -12,6 +12,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Vortos\Auth\Middleware\AuthMiddleware;
 use Vortos\Cache\Adapter\ArrayAdapter;
+use Vortos\Foundation\Reset\ServicesResetter;
 
 class Runner
 {
@@ -100,6 +101,10 @@ class Runner
 
     public function cleanUp(): void
     {
+        if ($this->container !== null && $this->container->has(ServicesResetter::class)) {
+            $this->container->get(ServicesResetter::class)->reset();
+        }
+
         if ($this->container !== null && $this->container->has(ArrayAdapter::class)) {
             $this->container->get(ArrayAdapter::class)->clear();
         }

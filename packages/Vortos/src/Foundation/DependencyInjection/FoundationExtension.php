@@ -6,9 +6,12 @@ namespace Vortos\Foundation\DependencyInjection;
 
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
+use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Foundation\Health\HealthRegistry;
 use Vortos\Foundation\Health\Http\HealthController;
+use Vortos\Foundation\Reset\ServicesResetter;
 
 final class FoundationExtension extends Extension
 {
@@ -19,6 +22,11 @@ final class FoundationExtension extends Extension
 
     public function load(array $configs, ContainerBuilder $container): void
     {
+        $container->register(ServicesResetter::class, ServicesResetter::class)
+            ->setArgument('$services', new Definition(ServiceLocator::class, [[]]))
+            ->setArgument('$serviceIds', [])
+            ->setPublic(true);
+
         $container->register(HealthRegistry::class, HealthRegistry::class)
             ->setArgument('$checks', [])
             ->setPublic(true);

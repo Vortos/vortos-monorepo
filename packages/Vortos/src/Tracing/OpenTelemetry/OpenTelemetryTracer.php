@@ -10,6 +10,7 @@ use OpenTelemetry\API\Trace\Span;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
+use Symfony\Contracts\Service\ResetInterface;
 
 /**
  * OpenTelemetry implementation of TracingInterface.
@@ -26,8 +27,10 @@ use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
  * currentCorrelationId() returns the active OTel trace ID, unifying correlation IDs
  * with distributed traces — the same ID appears in logs, Kafka headers, and the tracing UI.
  */
-final class OpenTelemetryTracer implements TracingInterface
+final class OpenTelemetryTracer implements TracingInterface, ResetInterface
 {
+    private array $scopes = [];
+
     public function __construct(
         private TracerInterface $tracer,
         private TextMapPropagatorInterface $propagator
@@ -37,7 +40,17 @@ final class OpenTelemetryTracer implements TracingInterface
     public function startSpan(string $name, array $attributes = []): SpanInterface
     {
         $otelSpan = $this->tracer->spanBuilder($name)->setAttributes($attributes)->startSpan();
-        return new OpenTelemetrySpan($otelSpan);
+        $scope = $otelSpan->activate();
+        $scopeId = spl_object_id($scope);
+        $this->scopes[$scopeId] = $scope;
+
+        return new OpenTelemetrySpan(
+            $otelSpan,
+            $scope,
+            function () use ($scopeId): void {
+                unset($this->scopes[$scopeId]);
+            },
+        );
     }
 
     public function injectHeaders(array &$headers): void
@@ -48,7 +61,8 @@ final class OpenTelemetryTracer implements TracingInterface
     public function extractContext(array $headers): void
     {
         $context = $this->propagator->extract($headers);
-        Context::storage()->attach($context);
+        $scope = Context::storage()->attach($context);
+        $this->scopes[spl_object_id($scope)] = $scope;
     }
 
     public function currentCorrelationId(): ?string
@@ -60,5 +74,14 @@ final class OpenTelemetryTracer implements TracingInterface
         }
 
         return $context->getTraceId();
+    }
+
+    public function reset(): void
+    {
+        foreach (array_reverse($this->scopes) as $scope) {
+            $scope->detach();
+        }
+
+        $this->scopes = [];
     }
 }

@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\Foundation\DependencyInjection\Compiler\ConsoleCommandPass;
 use Vortos\Foundation\DependencyInjection\Compiler\HealthCheckPass;
+use Vortos\Foundation\DependencyInjection\Compiler\ResettableServicesPass;
 
 final class FoundationPackage implements PackageInterface
 {
@@ -19,6 +20,7 @@ final class FoundationPackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
+        $container->addCompilerPass(new ResettableServicesPass());
         $container->addCompilerPass(new ConsoleCommandPass());
         $container->addCompilerPass(new HealthCheckPass());
     }

@@ -10,7 +10,8 @@
     },
     "require": {
         "php": ">=8.2",
-        "vortos/vortos-foundation": "^1.0"
+        "vortos/vortos-foundation": "^1.0",
+        "symfony/service-contracts": "^3.0"
     },
     "suggest": {
         "open-telemetry/api": "Required for OpenTelemetryTracer",

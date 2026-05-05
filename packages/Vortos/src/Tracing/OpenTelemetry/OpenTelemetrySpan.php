@@ -7,6 +7,7 @@ namespace Vortos\Tracing\OpenTelemetry;
 use Vortos\Tracing\Contract\SpanInterface;
 use OpenTelemetry\API\Trace\SpanInterface as OTelSpanInterface;
 use OpenTelemetry\API\Trace\StatusCode;
+use OpenTelemetry\Context\ScopeInterface;
 use Throwable;
 
 /**
@@ -19,14 +20,34 @@ use Throwable;
  */
 final class OpenTelemetrySpan implements SpanInterface
 {
+    private bool $ended = false;
+
     public function __construct(
-        private OTelSpanInterface $span
+        private OTelSpanInterface $span,
+        private ?ScopeInterface $scope = null,
+        private ?\Closure $onEnd = null,
     ){
     }
 
     public function end(): void
     {
+        if ($this->ended) {
+            return;
+        }
+
+        $this->ended = true;
+
+        if ($this->scope !== null) {
+            $this->scope->detach();
+            $this->scope = null;
+        }
+
         $this->span->end();
+
+        if ($this->onEnd !== null) {
+            ($this->onEnd)();
+            $this->onEnd = null;
+        }
     }
 
     public function addAttribute(string $key, mixed $value): void

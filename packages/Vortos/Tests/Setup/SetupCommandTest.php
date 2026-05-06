@@ -331,7 +331,16 @@ final class SetupCommandTest extends TestCase
     public function test_interactive_setup_can_customize_from_profile_review(): void
     {
         $tester = $this->tester();
-        $tester->setInputs(['docker', 'Customize', 'local', 'Continue']);
+        $tester->setInputs([
+            'docker',
+            'Customize',
+            '2',
+            '0',
+            '0',
+            '1',
+            '1',
+            'Continue',
+        ]);
 
         $tester->execute([]);
 
@@ -340,6 +349,43 @@ final class SetupCommandTest extends TestCase
 
         $this->assertSame('custom', $state['profile']);
         $this->assertSame('local', $state['preset']);
+        $this->assertSame('local-postgres', $state['database']);
+        $this->assertFalse($state['mongo']);
+        $this->assertSame('in-memory', $state['cache']);
+        $this->assertSame('in-memory', $state['messaging']);
+    }
+
+    public function test_interactive_custom_profile_asks_each_configurable_category(): void
+    {
+        $tester = $this->tester();
+        $tester->setInputs([
+            'custom',
+            '1',
+            '0',
+            '1',
+            '0',
+            '0',
+            'Continue',
+        ]);
+
+        $tester->execute(['--skip-docker-publish' => true]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $output = $tester->getDisplay();
+        $state = json_decode((string) file_get_contents($this->projectDir . '/.vortos-setup.json'), true);
+
+        $this->assertStringContainsString('Choose runtime', $output);
+        $this->assertStringContainsString('Choose write database', $output);
+        $this->assertStringContainsString('Choose read database', $output);
+        $this->assertStringContainsString('Choose cache', $output);
+        $this->assertStringContainsString('Choose messaging', $output);
+        $this->assertSame('custom', $state['profile']);
+        $this->assertSame('docker-phpfpm', $state['preset']);
+        $this->assertSame('phpfpm', $state['runtime']);
+        $this->assertSame('docker-postgres', $state['database']);
+        $this->assertTrue($state['mongo']);
+        $this->assertSame('redis', $state['cache']);
+        $this->assertSame('kafka', $state['messaging']);
     }
 
     private function tester(): CommandTester

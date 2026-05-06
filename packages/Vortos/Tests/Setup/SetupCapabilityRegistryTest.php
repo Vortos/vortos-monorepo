@@ -25,15 +25,16 @@ final class SetupCapabilityRegistryTest extends TestCase
     public function test_capabilities_can_be_filtered_by_availability(): void
     {
         $registry = new SetupCapabilityRegistry([
+            new StaticSetupCapability('read_db.none', 'None', 'read_db'),
             new StaticSetupCapability('read_db.mongo', 'MongoDB', 'read_db'),
             new StaticSetupCapability('read_db.mysql', 'MySQL', 'read_db', available: false),
         ]);
 
-        $this->assertSame(['read_db.mongo'], array_map(
+        $this->assertSame(['read_db.none', 'read_db.mongo'], array_map(
             static fn($capability): string => $capability->key(),
             $registry->byCategory('read_db'),
         ));
-        $this->assertSame(['read_db.mongo', 'read_db.mysql'], array_map(
+        $this->assertSame(['read_db.none', 'read_db.mongo', 'read_db.mysql'], array_map(
             static fn($capability): string => $capability->key(),
             $registry->byCategory('read_db', availableOnly: false),
         ));

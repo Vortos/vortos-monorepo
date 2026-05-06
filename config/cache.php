@@ -11,6 +11,6 @@ return static function (VortosCacheConfig $config): void {
 
     $config
         ->dsn(sprintf('redis://%s:%s', $_ENV['REDIS_HOST'], $_ENV['REDIS_PORT']))
-        ->prefix($_ENV['APP_ENV'] . '_squaura_')
+        ->prefix($_ENV['VORTOS_CACHE_PREFIX'] ?? ($_ENV['APP_ENV'] . '_' . ($_ENV['APP_NAME'] ?? 'app') . '_'))
         ->defaultTtl(3600);
 };

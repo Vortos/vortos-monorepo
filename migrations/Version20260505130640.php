@@ -16,7 +16,7 @@ final class Version20260505130640 extends AbstractMigration
 
     public function up(Schema $schema): void
     {
-        $this->addSql('CREATE TABLE authorization_audit_log (
+        $this->addSql('CREATE TABLE IF NOT EXISTS authorization_audit_log (
     id VARCHAR(64) NOT NULL,
     actor_user_id VARCHAR(190) NOT NULL,
     action VARCHAR(190) NOT NULL,
@@ -32,14 +32,14 @@ final class Version20260505130640 extends AbstractMigration
     created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
 )');
-        $this->addSql('CREATE INDEX idx_authorization_audit_actor ON authorization_audit_log (actor_user_id)');
-        $this->addSql('CREATE INDEX idx_authorization_audit_target ON authorization_audit_log (target_user_id)');
-        $this->addSql('CREATE INDEX idx_authorization_audit_action ON authorization_audit_log (action)');
-        $this->addSql('CREATE INDEX idx_authorization_audit_role ON authorization_audit_log (role)');
-        $this->addSql('CREATE INDEX idx_authorization_audit_permission ON authorization_audit_log (permission)');
-        $this->addSql('CREATE INDEX idx_authorization_audit_request ON authorization_audit_log (request_id)');
-        $this->addSql('CREATE INDEX idx_authorization_audit_correlation ON authorization_audit_log (correlation_id)');
-        $this->addSql('CREATE INDEX idx_authorization_audit_created ON authorization_audit_log (created_at)');
+        $this->addSql('CREATE INDEX IF NOT EXISTS idx_authorization_audit_actor ON authorization_audit_log (actor_user_id)');
+        $this->addSql('CREATE INDEX IF NOT EXISTS idx_authorization_audit_target ON authorization_audit_log (target_user_id)');
+        $this->addSql('CREATE INDEX IF NOT EXISTS idx_authorization_audit_action ON authorization_audit_log (action)');
+        $this->addSql('CREATE INDEX IF NOT EXISTS idx_authorization_audit_role ON authorization_audit_log (role)');
+        $this->addSql('CREATE INDEX IF NOT EXISTS idx_authorization_audit_permission ON authorization_audit_log (permission)');
+        $this->addSql('CREATE INDEX IF NOT EXISTS idx_authorization_audit_request ON authorization_audit_log (request_id)');
+        $this->addSql('CREATE INDEX IF NOT EXISTS idx_authorization_audit_correlation ON authorization_audit_log (correlation_id)');
+        $this->addSql('CREATE INDEX IF NOT EXISTS idx_authorization_audit_created ON authorization_audit_log (created_at)');
     }
 
     public function down(Schema $schema): void

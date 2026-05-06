@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Vortos\Migration\Generator;
 
+use Doctrine\DBAL\Platforms\AbstractPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
+use Doctrine\DBAL\Schema\Schema;
+use Vortos\Migration\Schema\ModuleSchemaProviderInterface;
+
 /**
  * Generates Doctrine AbstractMigration PHP class source from SQL content.
  *
@@ -20,6 +25,31 @@ namespace Vortos\Migration\Generator;
  */
 final class MigrationClassGenerator
 {
+    public function generateFromSchemaProvider(
+        string $className,
+        string $namespace,
+        ModuleSchemaProviderInterface $provider,
+        ?AbstractPlatform $platform = null,
+    ): string {
+        $schema = new Schema();
+        $provider->define($schema);
+
+        $platform ??= new PostgreSQLPlatform();
+
+        $statements = array_map(
+            $this->makeCreateStatementIdempotent(...),
+            $schema->toSql($platform),
+        );
+
+        return $this->renderTemplate(
+            $className,
+            $namespace,
+            $this->escapeString($provider->description()),
+            $this->buildAddSqlCallsFromStatements($statements),
+            down: null,
+        );
+    }
+
     public function generateFromSql(
         string $className,
         string $namespace,
@@ -68,8 +98,16 @@ final class MigrationClassGenerator
             static fn(string $s) => $s !== '',
         );
 
+        return $this->buildAddSqlCallsFromStatements(array_values($statements));
+    }
+
+    /**
+     * @param string[] $statements
+     */
+    private function buildAddSqlCallsFromStatements(array $statements): string
+    {
         $lines = '';
-        foreach (array_values($statements) as $statement) {
+        foreach ($statements as $statement) {
             $escaped = $this->escapeString($statement);
             $lines  .= "        \$this->addSql('{$escaped}');\n";
         }
@@ -123,5 +161,13 @@ PHP;
     private function escapeString(string $value): string
     {
         return str_replace(['\\', "'"], ['\\\\', "\\'"], $value);
+    }
+
+    private function makeCreateStatementIdempotent(string $statement): string
+    {
+        $statement = preg_replace('/^CREATE TABLE (?!IF NOT EXISTS )/i', 'CREATE TABLE IF NOT EXISTS ', $statement) ?? $statement;
+        $statement = preg_replace('/^CREATE (UNIQUE )?INDEX (?!IF NOT EXISTS )/i', 'CREATE $1INDEX IF NOT EXISTS ', $statement) ?? $statement;
+
+        return $statement;
     }
 }

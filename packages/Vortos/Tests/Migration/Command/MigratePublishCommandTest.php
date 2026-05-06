@@ -10,6 +10,7 @@ use Symfony\Component\Console\Tester\CommandTester;
 use Vortos\Foundation\Module\ModulePathResolver;
 use Vortos\Migration\Command\MigratePublishCommand;
 use Vortos\Migration\Generator\MigrationClassGenerator;
+use Vortos\Migration\Service\ModuleSchemaProviderScanner;
 use Vortos\Migration\Service\ModuleStubScanner;
 
 final class MigratePublishCommandTest extends TestCase
@@ -182,11 +183,61 @@ final class MigratePublishCommandTest extends TestCase
         $this->assertCount(2, array_unique($classNames));
     }
 
+    public function test_publishes_schema_provider_as_doctrine_migration_class(): void
+    {
+        $this->makeSchemaProvider('Messaging', '001_vortos_outbox.php', 'Messaging', 'messaging.outbox');
+
+        $this->runCommand();
+
+        $published = glob($this->migrationsDir . '/Version*.php') ?: [];
+        $this->assertCount(1, $published);
+
+        $content = (string) file_get_contents($published[0]);
+        $this->assertStringContainsString('CREATE TABLE IF NOT EXISTS vortos_outbox', $content);
+        $this->assertStringContainsString('idx_vortos_outbox_status', $content);
+    }
+
+    public function test_schema_provider_manifest_records_objects_and_checksum(): void
+    {
+        $this->makeSchemaProvider('Authorization', '001_authorization_rbac.php', 'Authorization', 'authorization.rbac');
+
+        $this->runCommand();
+
+        $data = json_decode(
+            (string) file_get_contents($this->migrationsDir . '/.vortos-published.json'),
+            true,
+        );
+
+        $entry = array_values($data['published'])[0];
+
+        $this->assertSame('schema', $entry['source_type']);
+        $this->assertSame('Authorization', $entry['module']);
+        $this->assertSame(['vortos_outbox'], $entry['objects']['tables']);
+        $this->assertSame(['idx_vortos_outbox_status'], $entry['objects']['indexes']);
+        $this->assertStringStartsWith('sha256:', $entry['checksum']);
+    }
+
+    public function test_schema_provider_takes_precedence_over_matching_sql_stub(): void
+    {
+        $this->makeSchemaProvider('Messaging', '001_outbox.php', 'Messaging', 'messaging.outbox');
+        $this->makeSqlStub('Messaging', '001_outbox.sql', 'CREATE TABLE legacy_outbox (id INT)');
+
+        $this->runCommand();
+
+        $published = glob($this->migrationsDir . '/Version*.php') ?: [];
+        $this->assertCount(1, $published);
+
+        $content = (string) file_get_contents($published[0]);
+        $this->assertStringContainsString('CREATE TABLE IF NOT EXISTS vortos_outbox', $content);
+        $this->assertStringNotContainsString('legacy_outbox', $content);
+    }
+
     private function runCommand(array $options = []): CommandTester
     {
         $scanner   = new ModuleStubScanner(new ModulePathResolver($this->tempDir), $this->tempDir);
+        $schemaScanner = new ModuleSchemaProviderScanner(new ModulePathResolver($this->tempDir), $this->tempDir);
         $generator = new MigrationClassGenerator();
-        $command   = new MigratePublishCommand($scanner, $generator, $this->tempDir);
+        $command   = new MigratePublishCommand($scanner, $generator, $this->tempDir, $schemaScanner);
 
         $app = new Application();
         $app->add($command);
@@ -204,6 +255,40 @@ final class MigratePublishCommandTest extends TestCase
             mkdir($dir, 0755, true);
         }
         file_put_contents($dir . '/' . $filename, $sql);
+
+        if (!in_array($module, $this->registeredModules, true)) {
+            $this->registeredModules[] = $module;
+            $this->writeInstalledJson();
+        }
+    }
+
+    private function makeSchemaProvider(string $module, string $filename, string $providerModule, string $id): void
+    {
+        $dir = $this->tempDir . '/packages/Vortos/src/' . $module . '/Resources/migrations';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        file_put_contents($dir . '/' . $filename, <<<PHP
+<?php
+
+use Doctrine\DBAL\Schema\Schema;
+use Vortos\Migration\Schema\AbstractModuleSchemaProvider;
+
+return new class extends AbstractModuleSchemaProvider {
+    public function module(): string { return '{$providerModule}'; }
+    public function id(): string { return '{$id}'; }
+    public function description(): string { return 'Vortos outbox'; }
+    public function define(Schema \$schema): void
+    {
+        \$table = \$schema->createTable('vortos_outbox');
+        \$table->addColumn('id', 'guid');
+        \$table->addColumn('status', 'string', ['length' => 20]);
+        \$table->setPrimaryKey(['id']);
+        \$table->addIndex(['status'], 'idx_vortos_outbox_status');
+    }
+};
+PHP);
 
         if (!in_array($module, $this->registeredModules, true)) {
             $this->registeredModules[] = $module;

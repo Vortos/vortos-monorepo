@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Vortos\Tests\Migration\Generator;
 
 use PHPUnit\Framework\TestCase;
+use Doctrine\DBAL\Schema\Schema;
 use Vortos\Migration\Generator\MigrationClassGenerator;
+use Vortos\Migration\Schema\AbstractModuleSchemaProvider;
 
 final class MigrationClassGeneratorTest extends TestCase
 {
@@ -78,6 +80,32 @@ final class MigrationClassGeneratorTest extends TestCase
         );
 
         $this->assertStringContainsString('throwIrreversibleMigrationException', $output);
+    }
+
+    public function test_schema_provider_generation_uses_idempotent_create_statements(): void
+    {
+        $provider = new class extends AbstractModuleSchemaProvider {
+            public function module(): string { return 'Test'; }
+            public function id(): string { return 'test.schema'; }
+            public function description(): string { return 'Test schema'; }
+            public function define(Schema $schema): void
+            {
+                $table = $schema->createTable('example');
+                $table->addColumn('id', 'integer');
+                $table->addColumn('name', 'string');
+                $table->setPrimaryKey(['id']);
+                $table->addIndex(['name'], 'idx_example_name');
+            }
+        };
+
+        $output = $this->generator->generateFromSchemaProvider(
+            'Version20260430000001',
+            'App\\Migrations',
+            $provider,
+        );
+
+        $this->assertStringContainsString('CREATE TABLE IF NOT EXISTS example', $output);
+        $this->assertStringContainsString('CREATE INDEX IF NOT EXISTS idx_example_name', $output);
     }
 
     public function test_multi_statement_sql_produces_multiple_add_sql_calls(): void

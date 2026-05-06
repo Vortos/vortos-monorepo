@@ -9,8 +9,14 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Helper\TableSeparator;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Vortos\Migration\Schema\MigrationDriftReport;
+use Vortos\Migration\Service\MigrationDriftDetector;
+use Vortos\Migration\Service\MigrationDriftFormatter;
 use Vortos\Migration\Service\DependencyFactoryProvider;
+use Vortos\Migration\Service\ModuleMigrationRegistry;
+use Vortos\Migration\Service\ModuleSchemaProviderScanner;
 use Vortos\Migration\Service\ModuleStubScanner;
 
 /**
@@ -42,8 +48,17 @@ final class MigrateStatusCommand extends Command
         private readonly DependencyFactoryProvider $factoryProvider,
         private readonly ModuleStubScanner $scanner,
         private readonly string $projectDir,
+        private readonly ?ModuleMigrationRegistry $moduleRegistry = null,
+        private readonly ?MigrationDriftDetector $driftDetector = null,
+        private readonly ?MigrationDriftFormatter $driftFormatter = null,
+        private readonly ?ModuleSchemaProviderScanner $schemaScanner = null,
     ) {
         parent::__construct();
+    }
+
+    protected function configure(): void
+    {
+        $this->addOption('json', null, InputOption::VALUE_NONE, 'Output machine-readable JSON');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -56,6 +71,36 @@ final class MigrateStatusCommand extends Command
         $executed  = $storage->getExecutedMigrations();
         $new       = $factory->getMigrationStatusCalculator()->getNewMigrations();
         $orphaned  = $factory->getMigrationStatusCalculator()->getExecutedUnavailableMigrations();
+        $asJson    = (bool) $input->getOption('json');
+        $rows      = [];
+
+        if ($asJson) {
+            foreach ($available->getItems() as $migration) {
+                $version = (string) $migration->getVersion();
+                $isExecuted = $executed->hasMigration($migration->getVersion());
+                $report = $this->driftReportFor($version, $isExecuted);
+
+                $rows[] = [
+                    'version' => $version,
+                    'description' => $migration->getMigration()->getDescription(),
+                    'status' => $isExecuted ? 'migrated' : 'pending',
+                    'executed_at' => $isExecuted
+                        ? $executed->getMigration($migration->getVersion())->getExecutedAt()?->format(\DateTimeInterface::ATOM)
+                        : null,
+                    'schema' => ($this->driftFormatter ?? new MigrationDriftFormatter())->toArray($report, $isExecuted),
+                ];
+            }
+
+            $output->writeln(json_encode([
+                'migrated' => $executed->count(),
+                'pending' => $new->count(),
+                'orphaned' => $orphaned->count(),
+                'migrations' => $rows,
+                'unpublished_stubs' => $this->unpublishedStubs(),
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+            return Command::SUCCESS;
+        }
 
         $output->writeln('<info>Migration Status</info>');
         $output->writeln(str_repeat('─', 72));
@@ -66,12 +111,13 @@ final class MigrateStatusCommand extends Command
             $output->writeln('Run <info>vortos:migrate:publish</info> or <info>vortos:migrate:make</info> to create migrations.');
         } else {
             $table = new Table($output);
-            $table->setHeaders(['Version', 'Description', 'Status', 'Executed At']);
+            $table->setHeaders(['Version', 'Description', 'Status', 'Schema', 'Executed At']);
             $table->setStyle('box');
 
             foreach ($available->getItems() as $i => $migration) {
                 $version    = (string) $migration->getVersion();
                 $isExecuted = $executed->hasMigration($migration->getVersion());
+                $report     = $this->driftReportFor($version, $isExecuted);
                 $executedAt = '';
 
                 if ($isExecuted) {
@@ -83,6 +129,7 @@ final class MigrateStatusCommand extends Command
                 $status = $isExecuted
                     ? '<info>Migrated</info>'
                     : '<comment>Pending</comment>';
+                $schema = $this->schemaLabel($report, $isExecuted);
 
                 $desc = $migration->getMigration()->getDescription();
 
@@ -90,6 +137,7 @@ final class MigrateStatusCommand extends Command
                     $version,
                     $desc !== '' ? $desc : '<fg=gray>—</>',
                     $status,
+                    $schema,
                     $executedAt !== '' ? $executedAt : '<fg=gray>—</>',
                 ]);
 
@@ -120,11 +168,33 @@ final class MigrateStatusCommand extends Command
         return Command::SUCCESS;
     }
 
+    private function driftReportFor(string $version, bool $isExecuted): ?MigrationDriftReport
+    {
+        if ($isExecuted || $this->moduleRegistry === null || $this->driftDetector === null) {
+            return null;
+        }
+
+        $descriptor = $this->moduleRegistry->descriptorForClass($version);
+
+        return $descriptor !== null ? $this->driftDetector->detect($descriptor) : null;
+    }
+
+    private function schemaLabel(?MigrationDriftReport $report, bool $isExecuted): string
+    {
+        $label = ($this->driftFormatter ?? new MigrationDriftFormatter())->label($report, $isExecuted);
+
+        return match ($report?->status()) {
+            MigrationDriftReport::Clean => '<info>' . $label . '</info>',
+            MigrationDriftReport::CompatibleExisting,
+            MigrationDriftReport::Partial => '<error>' . $label . '</error>',
+            MigrationDriftReport::Unknown => '<comment>' . $label . '</comment>',
+            default => $isExecuted ? '<info>' . $label . '</info>' : '<fg=gray>' . $label . '</>',
+        };
+    }
+
     private function warnUnpublishedStubs(OutputInterface $output): void
     {
-        $manifest    = $this->loadManifest();
-        $stubs       = $this->scanner->scan();
-        $unpublished = array_filter($stubs, static fn(array $s) => !isset($manifest[$s['relative']]));
+        $unpublished = $this->unpublishedStubs();
 
         if (empty($unpublished)) {
             return;
@@ -146,6 +216,49 @@ final class MigrateStatusCommand extends Command
         $output->writeln('');
         $output->writeln('  ! Run <info>php bin/console vortos:migrate:publish</info> to generate migration classes for these stubs.');
         $output->writeln('');
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function unpublishedStubs(): array
+    {
+        $manifest = $this->loadManifest();
+        $stubs = [];
+        $schemaCounterparts = [];
+
+        foreach ($this->schemaScanner?->scan() ?? [] as $schemaProvider) {
+            $stubs[] = $schemaProvider;
+            $schemaCounterparts[$this->replaceExtension($schemaProvider['relative'], 'sql')] = true;
+        }
+
+        foreach ($this->scanner->scan() as $sqlStub) {
+            if (isset($schemaCounterparts[$sqlStub['relative']])) {
+                continue;
+            }
+
+            $stubs[] = $sqlStub;
+        }
+
+        return array_values(array_filter($stubs, fn(array $s) => !$this->isPublished($s['relative'], $manifest)));
+    }
+
+    /**
+     * @param array<string, mixed> $manifest
+     */
+    private function isPublished(string $relative, array $manifest): bool
+    {
+        if (isset($manifest[$relative])) {
+            return true;
+        }
+
+        return isset($manifest[$this->replaceExtension($relative, 'sql')])
+            || isset($manifest[$this->replaceExtension($relative, 'php')]);
+    }
+
+    private function replaceExtension(string $path, string $extension): string
+    {
+        return preg_replace('/\.[^.\/]+$/', '.' . $extension, $path) ?? $path;
     }
 
     /** @return array<string, mixed> */

@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Migration\Command\MigrateBaselineCommand;
+use Vortos\Migration\Command\MigrateAdoptCommand;
 use Vortos\Migration\Command\MigrateCommand;
 use Vortos\Migration\Command\MigrateFreshCommand;
 use Vortos\Migration\Command\MigrateMakeCommand;
@@ -18,6 +19,14 @@ use Vortos\Migration\Command\MigrateStatusCommand;
 use Vortos\Migration\Generator\MigrationClassGenerator;
 use Vortos\Migration\Service\DependencyFactoryProvider;
 use Vortos\Foundation\Module\ModulePathResolver;
+use Vortos\Migration\Service\MigrationDriftDetector;
+use Vortos\Migration\Service\MigrationDriftFormatter;
+use Vortos\Migration\Service\MigrationLock;
+use Vortos\Migration\Service\MigrationPreflight;
+use Vortos\Migration\Service\MigrationSchemaInspector;
+use Vortos\Migration\Service\MigrationSchemaInspectorInterface;
+use Vortos\Migration\Service\ModuleMigrationRegistry;
+use Vortos\Migration\Service\ModuleSchemaProviderScanner;
 use Vortos\Migration\Service\ModuleStubScanner;
 
 /**
@@ -32,12 +41,14 @@ use Vortos\Migration\Service\ModuleStubScanner;
  *   vortos:migrate:publish    — convert module SQL stubs → Doctrine migration classes
  *   vortos:migrate:fresh      — drop all tables and re-run (non-production only)
  *   vortos:migrate:baseline   — mark all available migrations as already executed
+ *   vortos:migrate:adopt      — mark verified existing module schema as executed
  *
  * ## Services registered
  *
  *   DependencyFactoryProvider — lazily builds Doctrine\Migrations\DependencyFactory
  *                               reusing the PersistenceDbal DBAL Connection
  *   ModuleStubScanner         — scans `packages/Vortos/src/{*}/Resources/migrations/{*}.sql`
+ *   ModuleSchemaProviderScanner — scans `packages/Vortos/src/{*}/Resources/migrations/{*}.php`
  *   MigrationClassGenerator   — converts SQL content to a Doctrine migration PHP class
  *
  * ## Configuration
@@ -83,12 +94,54 @@ final class MigrationExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
+        $container->register(ModuleSchemaProviderScanner::class, ModuleSchemaProviderScanner::class)
+            ->setArgument('$resolver', new Reference(ModulePathResolver::class))
+            ->setArgument('$projectDir', $projectDir)
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(ModuleMigrationRegistry::class, ModuleMigrationRegistry::class)
+            ->setArgument('$schemaScanner', new Reference(ModuleSchemaProviderScanner::class))
+            ->setArgument('$projectDir', $projectDir)
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(MigrationSchemaInspector::class, MigrationSchemaInspector::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setShared(true)
+            ->setPublic(false);
+        $container->setAlias(MigrationSchemaInspectorInterface::class, MigrationSchemaInspector::class)
+            ->setPublic(false);
+
+        $container->register(MigrationDriftDetector::class, MigrationDriftDetector::class)
+            ->setArgument('$inspector', new Reference(MigrationSchemaInspectorInterface::class))
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(MigrationDriftFormatter::class, MigrationDriftFormatter::class)
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(MigrationPreflight::class, MigrationPreflight::class)
+            ->setArgument('$moduleRegistry', new Reference(ModuleMigrationRegistry::class))
+            ->setArgument('$driftDetector', new Reference(MigrationDriftDetector::class))
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(MigrationLock::class, MigrationLock::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setShared(true)
+            ->setPublic(false);
+
         $container->register(MigrationClassGenerator::class, MigrationClassGenerator::class)
             ->setShared(true)
             ->setPublic(false);
 
         $container->register(MigrateCommand::class, MigrateCommand::class)
             ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
+            ->setArgument('$preflight', new Reference(MigrationPreflight::class))
+            ->setArgument('$driftFormatter', new Reference(MigrationDriftFormatter::class))
+            ->setArgument('$lock', new Reference(MigrationLock::class))
             ->setPublic(true)
             ->addTag('console.command');
 
@@ -96,6 +149,10 @@ final class MigrationExtension extends Extension
             ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
             ->setArgument('$scanner', new Reference(ModuleStubScanner::class))
             ->setArgument('$projectDir', $projectDir)
+            ->setArgument('$moduleRegistry', new Reference(ModuleMigrationRegistry::class))
+            ->setArgument('$driftDetector', new Reference(MigrationDriftDetector::class))
+            ->setArgument('$driftFormatter', new Reference(MigrationDriftFormatter::class))
+            ->setArgument('$schemaScanner', new Reference(ModuleSchemaProviderScanner::class))
             ->setPublic(true)
             ->addTag('console.command');
 
@@ -115,6 +172,7 @@ final class MigrationExtension extends Extension
             ->setArgument('$scanner', new Reference(ModuleStubScanner::class))
             ->setArgument('$generator', new Reference(MigrationClassGenerator::class))
             ->setArgument('$projectDir', $projectDir)
+            ->setArgument('$schemaScanner', new Reference(ModuleSchemaProviderScanner::class))
             ->setPublic(true)
             ->addTag('console.command');
 
@@ -127,6 +185,14 @@ final class MigrationExtension extends Extension
 
         $container->register(MigrateBaselineCommand::class, MigrateBaselineCommand::class)
             ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
+            ->setPublic(true)
+            ->addTag('console.command');
+
+        $container->register(MigrateAdoptCommand::class, MigrateAdoptCommand::class)
+            ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
+            ->setArgument('$moduleRegistry', new Reference(ModuleMigrationRegistry::class))
+            ->setArgument('$driftDetector', new Reference(MigrationDriftDetector::class))
+            ->setArgument('$driftFormatter', new Reference(MigrationDriftFormatter::class))
             ->setPublic(true)
             ->addTag('console.command');
     }

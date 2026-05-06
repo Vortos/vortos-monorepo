@@ -1,4 +1,4 @@
-CREATE TABLE authorization_audit_log (
+CREATE TABLE IF NOT EXISTS authorization_audit_log (
     id VARCHAR(64) NOT NULL,
     actor_user_id VARCHAR(190) NOT NULL,
     action VARCHAR(190) NOT NULL,
@@ -15,11 +15,11 @@ CREATE TABLE authorization_audit_log (
     PRIMARY KEY (id)
 );
 
-CREATE INDEX idx_authorization_audit_actor ON authorization_audit_log (actor_user_id);
-CREATE INDEX idx_authorization_audit_target ON authorization_audit_log (target_user_id);
-CREATE INDEX idx_authorization_audit_action ON authorization_audit_log (action);
-CREATE INDEX idx_authorization_audit_role ON authorization_audit_log (role);
-CREATE INDEX idx_authorization_audit_permission ON authorization_audit_log (permission);
-CREATE INDEX idx_authorization_audit_request ON authorization_audit_log (request_id);
-CREATE INDEX idx_authorization_audit_correlation ON authorization_audit_log (correlation_id);
-CREATE INDEX idx_authorization_audit_created ON authorization_audit_log (created_at);
+CREATE INDEX IF NOT EXISTS idx_authorization_audit_actor ON authorization_audit_log (actor_user_id);
+CREATE INDEX IF NOT EXISTS idx_authorization_audit_target ON authorization_audit_log (target_user_id);
+CREATE INDEX IF NOT EXISTS idx_authorization_audit_action ON authorization_audit_log (action);
+CREATE INDEX IF NOT EXISTS idx_authorization_audit_role ON authorization_audit_log (role);
+CREATE INDEX IF NOT EXISTS idx_authorization_audit_permission ON authorization_audit_log (permission);
+CREATE INDEX IF NOT EXISTS idx_authorization_audit_request ON authorization_audit_log (request_id);
+CREATE INDEX IF NOT EXISTS idx_authorization_audit_correlation ON authorization_audit_log (correlation_id);
+CREATE INDEX IF NOT EXISTS idx_authorization_audit_created ON authorization_audit_log (created_at);

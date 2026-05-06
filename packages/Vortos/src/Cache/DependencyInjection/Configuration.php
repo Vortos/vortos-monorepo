@@ -4,7 +4,7 @@ namespace Vortos\Cache\DependencyInjection;
 
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
-use Vortos\Cache\Adapter\RedisAdapter;
+use Vortos\Cache\Adapter\InMemoryAdapter;
 
 /**
  * Validates the vortos_cache configuration tree.
@@ -22,7 +22,7 @@ final class Configuration implements ConfigurationInterface
             ->addDefaultsIfNotSet()
             ->children()
                 ->scalarNode('driver')
-                    ->defaultValue(RedisAdapter::class)
+                    ->defaultValue(InMemoryAdapter::class)
                     ->info('FQCN of TaggedCacheInterface implementation')
                 ->end()
                 ->scalarNode('dsn')

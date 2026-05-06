@@ -408,9 +408,8 @@ final class SetupCommand extends Command
     private function choiceLabel(SetupCapabilityInterface $capability): string
     {
         $packages = $capability->composerPackages();
-        $suffix = $packages === [] ? '' : sprintf(' (%s)', implode(', ', $packages));
 
-        return sprintf('%s - %s%s', $capability->key(), $capability->label(), $suffix);
+        return $capability->label() . ($packages === [] ? '' : sprintf(' (%s)', implode(', ', $packages)));
     }
 
     private function capabilityValue(string $key): string
@@ -460,6 +459,7 @@ final class SetupCommand extends Command
             }
 
             $config = $this->askCustomConfig($input, $output, $io, $config);
+            $io->newLine();
         }
     }
 
@@ -587,8 +587,7 @@ final class SetupCommand extends Command
         $io->writeln('<fg=cyan;options=bold>  \ \ / / | | | | |_) || || | | \___ \ </>');
         $io->writeln('<fg=cyan;options=bold>   \ V /  | |_| |  _ < | || |_| |___) |</>');
         $io->writeln('<fg=cyan;options=bold>    \_/    \___/|_| \_\|_| \___/|____/ </>');
-        $io->writeln('<fg=cyan;options=bold> V O R T O S</>');
-        $io->writeln('<fg=gray>Configure Docker or local development without editing secrets by hand.</>');
+        $io->writeln('<fg=gray>Configure Docker or local development.</>');
         $io->writeln('');
 
         if (!$this->supportsAnimation($input, $output)) {

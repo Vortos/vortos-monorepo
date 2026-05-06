@@ -9,6 +9,7 @@ services:
       - vortos-net
     env_file:
       - ./.env
+      - ./.env.local
 
   nginx:
     build:
@@ -35,6 +36,7 @@ services:
       - vortos-net
     env_file:
       - ./.env
+      - ./.env.local
 
   redis:
     image: redis:alpine
@@ -46,6 +48,7 @@ services:
       - 6379:6379
     env_file:
       - ./.env
+      - ./.env.local
 
   read_db:
     image: mongo:8.0
@@ -57,6 +60,7 @@ services:
       - 27017:27017
     env_file:
       - ./.env
+      - ./.env.local
 
   kafka:
     image: apache/kafka:latest
@@ -89,6 +93,9 @@ services:
       - kafka
       - write_db
       - redis
+    env_file:
+      - ./.env
+      - ./.env.local
     networks:
       - vortos-net
     healthcheck:

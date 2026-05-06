@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Cache\DependencyInjection;
 
 use Vortos\Cache\Adapter\RedisAdapter;
+use Vortos\Cache\Adapter\InMemoryAdapter;
 
 /**
  * Fluent configuration object for vortos-cache.
@@ -41,10 +42,18 @@ use Vortos\Cache\Adapter\RedisAdapter;
  */
 final class VortosCacheConfig
 {
-    private string $driver = RedisAdapter::class;
+    private string $driver;
     private string $dsn = 'redis://redis:6379';
     private string $prefix = 'vortos_';
     private int $defaultTtl = 3600;
+
+    public function __construct()
+    {
+        $this->driver = match ($_ENV['VORTOS_CACHE_DRIVER'] ?? 'in-memory') {
+            'redis' => RedisAdapter::class,
+            default => InMemoryAdapter::class,
+        };
+    }
 
     /**
      * Set the cache adapter driver.

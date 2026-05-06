@@ -54,6 +54,21 @@ final class DockerFilePublisherTest extends TestCase
         $this->assertSame('custom' . PHP_EOL, file_get_contents($this->projectDir . '/docker-compose.yaml'));
     }
 
+    public function test_dev_compose_stubs_load_local_env_after_base_env(): void
+    {
+        $stubRoot = dirname(__DIR__, 2) . '/src/Docker/stubs';
+
+        foreach (['frankenphp', 'phpfpm'] as $runtime) {
+            $compose = (string) file_get_contents($stubRoot . '/' . $runtime . '/docker-compose.yaml');
+
+            $this->assertStringContainsString(
+                "env_file:\n      - ./.env\n      - ./.env.local",
+                $compose,
+                sprintf('%s docker-compose.yaml must load .env.local after .env.', $runtime),
+            );
+        }
+    }
+
     private function removeDirectory(string $dir): void
     {
         if (!is_dir($dir)) {

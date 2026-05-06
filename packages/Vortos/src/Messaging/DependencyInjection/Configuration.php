@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\DependencyInjection;
 
-use Vortos\Messaging\Driver\Kafka\Runtime\LazyKafkaProducer;
+use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryConsumer;
+use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryProducer;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
 
@@ -20,10 +21,10 @@ final class Configuration implements ConfigurationInterface
                     ->addDefaultsIfNotSet()
                     ->children()
                         ->scalarNode('producer')
-                            ->defaultValue(LazyKafkaProducer::class)
+                            ->defaultValue(InMemoryProducer::class)
                         ->end()
                         ->scalarNode('consumer')
-                            ->defaultNull()
+                            ->defaultValue(InMemoryConsumer::class)
                         ->end()
                     ->end()
                 ->end()

@@ -301,7 +301,7 @@ final class SetupCommandTest extends TestCase
     public function test_interactive_setup_can_be_cancelled_before_writes(): void
     {
         $tester = $this->tester();
-        $tester->setInputs(['local', 'no']);
+        $tester->setInputs(['minimal', 'Cancel']);
 
         $tester->execute([]);
 
@@ -309,6 +309,20 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('Setup cancelled', $tester->getDisplay());
         $this->assertFileDoesNotExist($this->projectDir . '/.env.local');
         $this->assertFileDoesNotExist($this->projectDir . '/.vortos-setup.json');
+    }
+
+    public function test_interactive_setup_can_customize_from_profile_review(): void
+    {
+        $tester = $this->tester();
+        $tester->setInputs(['docker', 'Customize', 'local', 'Continue']);
+
+        $tester->execute([]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $state = json_decode((string) file_get_contents($this->projectDir . '/.vortos-setup.json'), true);
+
+        $this->assertSame('custom', $state['profile']);
+        $this->assertSame('local', $state['preset']);
     }
 
     private function tester(): CommandTester

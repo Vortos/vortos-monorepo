@@ -21,15 +21,57 @@ $packages = [
     'vortos-debug'             => 'Debug',
     'vortos-persistence-orm'   => 'PersistenceOrm',
     'vortos-feature-flags'     => 'FeatureFlags',
+    'vortos-docker'            => 'Docker',
+    'vortos-setup'             => 'Setup',
 ];
 
 foreach ($packages as $vendorName => $srcName) {
     $link   = $vendorDir . '/' . $vendorName;
     $target = '../../packages/Vortos/src/' . $srcName;
 
-    if (is_link($link)) unlink($link);
-    elseif (is_dir($link)) exec('rm -rf ' . escapeshellarg($link));
+    if (is_link($link) || is_file($link)) {
+        unlink($link);
+    } elseif (is_dir($link)) {
+        removeDirectory($link);
+    }
 
-    symlink($target, $link);
+    if (!@symlink($target, $link)) {
+        copyDirectory(__DIR__ . '/../packages/Vortos/src/' . $srcName, $link);
+    }
     echo "Linked: vendor/vortos/{$vendorName}\n";
+}
+
+function removeDirectory(string $dir): void
+{
+    foreach (new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($dir, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
+    ) as $item) {
+        $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
+    }
+
+    rmdir($dir);
+}
+
+function copyDirectory(string $source, string $dest): void
+{
+    foreach (new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($source, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST,
+    ) as $item) {
+        $target = $dest . DIRECTORY_SEPARATOR . substr($item->getPathname(), strlen($source) + 1);
+
+        if ($item->isDir()) {
+            if (!is_dir($target)) {
+                mkdir($target, 0755, true);
+            }
+            continue;
+        }
+
+        if (!is_dir(dirname($target))) {
+            mkdir(dirname($target), 0755, true);
+        }
+
+        copy($item->getPathname(), $target);
+    }
 }

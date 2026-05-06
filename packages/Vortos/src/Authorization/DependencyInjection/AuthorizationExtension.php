@@ -61,6 +61,7 @@ use Vortos\Authorization\Storage\NullEmergencyDenyList;
 use Vortos\Authorization\Storage\RedisAuthorizationVersionStore;
 use Vortos\Authorization\Storage\RedisEmergencyDenyList;
 use Vortos\Authorization\Temporal\Contract\TemporalPermissionStoreInterface;
+use Vortos\Authorization\Temporal\Storage\NullTemporalPermissionStore;
 use Vortos\Authorization\Temporal\Storage\RedisTemporalPermissionStore;
 use Vortos\Authorization\Temporal\TemporalAuthorizationManager;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
@@ -293,6 +294,17 @@ final class AuthorizationExtension extends Extension
                 ->setPublic(false);
             $container->setAlias(AuthorizationVersionStoreInterface::class, NullAuthorizationVersionStore::class)
                 ->setPublic(false);
+
+            $container->register(NullTemporalPermissionStore::class, NullTemporalPermissionStore::class)
+                ->setShared(true)
+                ->setPublic(false);
+            $container->setAlias(TemporalPermissionStoreInterface::class, NullTemporalPermissionStore::class)
+                ->setPublic(false);
+
+            $container->register(TemporalAuthorizationManager::class, TemporalAuthorizationManager::class)
+                ->setArgument('$store', new Reference(TemporalPermissionStoreInterface::class))
+                ->setShared(true)
+                ->setPublic(true);
         }
 
         $container->getDefinition(PolicyEngine::class)

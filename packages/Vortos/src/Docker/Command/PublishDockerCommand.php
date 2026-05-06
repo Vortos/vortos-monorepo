@@ -8,6 +8,8 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
+use Vortos\Docker\Service\DockerFilePublisher;
 
 #[AsCommand(
     name: 'vortos:docker:publish',
@@ -15,6 +17,11 @@ use Symfony\Component\Console\Output\OutputInterface;
 )]
 final class PublishDockerCommand extends Command
 {
+    public function __construct(private readonly DockerFilePublisher $publisher)
+    {
+        parent::__construct();
+    }
+
     protected function configure(): void
     {
         $this->addOption(
@@ -23,42 +30,48 @@ final class PublishDockerCommand extends Command
             InputOption::VALUE_OPTIONAL,
             'Runtime to use: frankenphp or phpfpm',
             'frankenphp'
-        );
+        )
+            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Preview files without writing them')
+            ->addOption('no-backup', null, InputOption::VALUE_NONE, 'Overwrite changed files without creating .bak copies')
+            ->addOption('no-overwrite', null, InputOption::VALUE_NONE, 'Skip files that already exist with different content');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $runtime = $input->getOption('runtime');
-        $source = realpath(__DIR__ . '/../stubs/' . $runtime);
+        $io = new SymfonyStyle($input, $output);
+        $runtime = (string) $input->getOption('runtime');
         $projectRoot = getcwd();
 
-        if ($source === false || !is_dir($source)) {
-            $output->writeln("<error>Unknown runtime: $runtime. Use frankenphp or phpfpm</error>");
+        try {
+            $result = $this->publisher->publish(
+                $runtime,
+                $projectRoot,
+                (bool) $input->getOption('dry-run'),
+                !(bool) $input->getOption('no-backup'),
+                !(bool) $input->getOption('no-overwrite'),
+            );
+        } catch (\InvalidArgumentException $e) {
+            $io->error($e->getMessage());
             return Command::FAILURE;
         }
 
-        $this->copyDirectory($source, $projectRoot);
-        $output->writeln("<info>Docker files published for $runtime runtime.</info>");
-        return Command::SUCCESS;
-    }
+        $io->success(sprintf(
+            '%s Docker files %s for %s runtime.',
+            count($result->copied),
+            $input->getOption('dry-run') ? 'would be published' : 'published',
+            $runtime,
+        ));
 
-    private function copyDirectory(string $source, string $dest): void
-    {
-        $source = rtrim($source, DIRECTORY_SEPARATOR);
-
-        foreach (new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($source, \RecursiveDirectoryIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::SELF_FIRST
-        ) as $item) {
-            $relativePath = substr($item->getPathname(), strlen($source) + 1);
-            $target = $dest . DIRECTORY_SEPARATOR . $relativePath;
-
-            if ($item->isDir()) {
-                @mkdir($target, 0755, true);
-            } else {
-                @mkdir(dirname($target), 0755, true);
-                copy($item->getPathname(), $target);
-            }
+        if ($result->backedUp !== []) {
+            $io->section('Backups');
+            $io->listing($result->backedUp);
         }
+
+        if ($result->skipped !== []) {
+            $io->section('Skipped unchanged or protected files');
+            $io->listing($result->skipped);
+        }
+
+        return Command::SUCCESS;
     }
 }

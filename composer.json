@@ -52,7 +52,9 @@
       "Vortos\\Migration\\": "packages/Vortos/src/Migration/",
       "Vortos\\Debug\\": "packages/Vortos/src/Debug/",
       "Vortos\\PersistenceOrm\\": "packages/Vortos/src/PersistenceOrm/",
-      "Vortos\\FeatureFlags\\": "packages/Vortos/src/FeatureFlags/"
+      "Vortos\\FeatureFlags\\": "packages/Vortos/src/FeatureFlags/",
+      "Vortos\\Docker\\": "packages/Vortos/src/Docker/",
+      "Vortos\\Setup\\": "packages/Vortos/src/Setup/"
     }
   },
   "autoload-dev": {
@@ -61,6 +63,9 @@
     }
   },
   "scripts": {
+    "post-create-project-cmd": [
+      "@php vortos setup --first-run"
+    ],
     "post-install-cmd": [
       "php tools/link-packages.php"
     ],

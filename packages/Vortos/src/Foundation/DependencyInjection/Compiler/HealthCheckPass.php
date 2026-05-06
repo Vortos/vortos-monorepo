@@ -31,8 +31,16 @@ final class HealthCheckPass implements CompilerPassInterface
 
             $ref = new \ReflectionClass($class);
 
-            if ($ref->getAttributes(AsHealthCheck::class) !== []) {
-                $checks[] = new Reference($id);
+            $attributes = $ref->getAttributes(AsHealthCheck::class);
+
+            if ($attributes !== []) {
+                /** @var AsHealthCheck $attribute */
+                $attribute = $attributes[0]->newInstance();
+                $checks[] = [
+                    'check' => new Reference($id),
+                    'critical' => $attribute->critical,
+                    'timeout_ms' => $attribute->timeoutMs,
+                ];
             }
         }
 

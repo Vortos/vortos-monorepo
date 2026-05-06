@@ -33,6 +33,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             'Vortos\\Tracing\\' => 15,
             'Vortos\\Tests\\' => 13,
+            'Vortos\\Setup\\' => 13,
             'Vortos\\Persistence\\' => 19,
             'Vortos\\PersistenceOrm\\' => 22,
             'Vortos\\PersistenceMongo\\' => 24,
@@ -45,6 +46,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Foundation\\' => 18,
             'Vortos\\FeatureFlags\\' => 20,
             'Vortos\\Domain\\' => 14,
+            'Vortos\\Docker\\' => 14,
             'Vortos\\Debug\\' => 13,
             'Vortos\\Cqrs\\' => 12,
             'Vortos\\Cache\\' => 13,
@@ -153,6 +155,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/Tests',
         ),
+        'Vortos\\Setup\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Setup',
+        ),
         'Vortos\\Persistence\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-persistence',
@@ -200,6 +206,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Domain\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-domain',
+        ),
+        'Vortos\\Docker\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Docker',
         ),
         'Vortos\\Debug\\' =>
         array (

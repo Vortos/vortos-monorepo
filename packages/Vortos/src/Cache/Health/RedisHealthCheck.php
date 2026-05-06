@@ -31,9 +31,10 @@ final class RedisHealthCheck implements HealthCheckInterface
                 $ok,
                 $this->ms($start),
                 $ok ? null : 'Unexpected PING response',
+                $ok ? null : 'redis_unexpected_response',
             );
         } catch (\Throwable $e) {
-            return new HealthResult($this->name(), false, $this->ms($start), $e->getMessage());
+            return new HealthResult($this->name(), false, $this->ms($start), $e->getMessage(), 'redis_unreachable');
         }
     }
 

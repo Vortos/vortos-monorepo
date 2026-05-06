@@ -75,6 +75,14 @@ final class CacheExtension extends Extension
 
         $resolved = $this->processConfiguration(new Configuration(), [$config->toArray()]);
 
+        if ($resolved['driver'] === RedisAdapter::class && !class_exists(\Redis::class)) {
+            if ($env === 'prod') {
+                throw new \RuntimeException('Redis cache driver requires the ext-redis PHP extension.');
+            }
+
+            $resolved['driver'] = InMemoryAdapter::class;
+        }
+
         // Only register Redis connection when the active driver needs it
         if ($resolved['driver'] === RedisAdapter::class) {
             $container->register(\Redis::class, \Redis::class)

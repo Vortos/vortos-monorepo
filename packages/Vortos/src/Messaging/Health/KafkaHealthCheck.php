@@ -9,7 +9,7 @@ use Vortos\Foundation\Health\Contract\HealthCheckInterface;
 use Vortos\Foundation\Health\HealthResult;
 use Vortos\Messaging\Registry\TransportRegistry;
 
-#[AsHealthCheck]
+#[AsHealthCheck(critical: false)]
 final class KafkaHealthCheck implements HealthCheckInterface
 {
     public function __construct(private readonly TransportRegistry $transports) {}
@@ -30,7 +30,7 @@ final class KafkaHealthCheck implements HealthCheckInterface
         }
 
         if (!extension_loaded('rdkafka')) {
-            return new HealthResult($this->name(), false, 0.0, 'rdkafka extension not loaded');
+            return new HealthResult($this->name(), false, 0.0, 'rdkafka extension not loaded', 'kafka_extension_missing');
         }
 
         try {
@@ -44,7 +44,7 @@ final class KafkaHealthCheck implements HealthCheckInterface
 
             return new HealthResult($this->name(), true, $this->ms($start));
         } catch (\Throwable $e) {
-            return new HealthResult($this->name(), false, $this->ms($start), $e->getMessage());
+            return new HealthResult($this->name(), false, $this->ms($start), $e->getMessage(), 'kafka_unreachable');
         }
     }
 

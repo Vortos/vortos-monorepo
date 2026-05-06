@@ -142,6 +142,7 @@ function showHelp(): void
     echo PHP_EOL;
 
     echo bold('Environment') . PHP_EOL;
+    echo $b('setup',           'Configure Docker/local development setup');
     echo $b('up',              'Start the Docker environment');
     echo $b('down',            'Stop the Docker environment');
     echo $b('restart',         'Restart the Docker environment');

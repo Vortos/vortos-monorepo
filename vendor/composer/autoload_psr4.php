@@ -8,6 +8,7 @@ $baseDir = dirname($vendorDir);
 return array(
     'Vortos\\Tracing\\' => array($vendorDir . '/vortos/vortos-tracing'),
     'Vortos\\Tests\\' => array($baseDir . '/packages/Vortos/Tests'),
+    'Vortos\\Setup\\' => array($baseDir . '/packages/Vortos/src/Setup'),
     'Vortos\\Persistence\\' => array($vendorDir . '/vortos/vortos-persistence'),
     'Vortos\\PersistenceOrm\\' => array($baseDir . '/packages/Vortos/src/PersistenceOrm'),
     'Vortos\\PersistenceMongo\\' => array($vendorDir . '/vortos/vortos-persistence-mongo'),
@@ -20,6 +21,7 @@ return array(
     'Vortos\\Foundation\\' => array($vendorDir . '/vortos/vortos-foundation'),
     'Vortos\\FeatureFlags\\' => array($baseDir . '/packages/Vortos/src/FeatureFlags'),
     'Vortos\\Domain\\' => array($vendorDir . '/vortos/vortos-domain'),
+    'Vortos\\Docker\\' => array($baseDir . '/packages/Vortos/src/Docker'),
     'Vortos\\Debug\\' => array($baseDir . '/packages/Vortos/src/Debug'),
     'Vortos\\Cqrs\\' => array($vendorDir . '/vortos/vortos-cqrs'),
     'Vortos\\Cache\\' => array($vendorDir . '/vortos/vortos-cache'),

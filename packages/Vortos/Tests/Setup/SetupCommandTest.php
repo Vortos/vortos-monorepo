@@ -224,6 +224,23 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('@write_db:5432/' . $projectName, $this->envValue($env, 'DATABASE_URL'));
     }
 
+    public function test_setup_ignores_skeleton_app_name_placeholder(): void
+    {
+        file_put_contents($this->projectDir . '/.env', 'APP_NAME=myapp' . PHP_EOL);
+
+        $tester = $this->tester();
+        $tester->execute([
+            '--preset' => 'local',
+            '--no-interaction' => true,
+        ]);
+
+        $env = (string) file_get_contents($this->projectDir . '/.env.local');
+        $projectName = $this->expectedProjectName();
+
+        $this->assertSame($projectName, $this->envValue($env, 'APP_NAME'));
+        $this->assertSame($projectName, $this->envValue($env, 'POSTGRES_DB_NAME'));
+    }
+
     public function test_existing_app_name_is_preserved_on_setup(): void
     {
         file_put_contents($this->projectDir . '/.env', 'APP_NAME=custom_app' . PHP_EOL);

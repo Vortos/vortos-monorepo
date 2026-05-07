@@ -31,6 +31,10 @@ services:
       - ./docker/postgres/init:/docker-entrypoint-initdb.d
     networks:
       - vortos-net
+    environment:
+      POSTGRES_USER:     ${VORTOS_WRITE_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${VORTOS_WRITE_DB_PASSWORD}
+      POSTGRES_DB:       ${VORTOS_WRITE_DB_NAME}
     env_file:
       - ./.env
       - ./.env.local
@@ -55,6 +59,9 @@ services:
       - read_db_data:/data/db
     ports:
       - 27017:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${VORTOS_READ_DB_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${VORTOS_READ_DB_PASSWORD}
     env_file:
       - ./.env
       - ./.env.local

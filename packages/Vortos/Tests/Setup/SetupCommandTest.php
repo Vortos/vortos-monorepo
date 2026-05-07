@@ -172,10 +172,10 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('### Generated locally. Do not commit this file.', $env);
         $this->assertStringContainsString('### Security', $env);
         $this->assertStringContainsString('### Database', $env);
-        $this->assertNotContains($this->envValue($env, 'POSTGRES_PASSWORD'), ['12345', 'password', 'postgres', 'secret']);
-        $this->assertNotContains($this->envValue($env, 'MONGO_INITDB_ROOT_PASSWORD'), ['12345', 'password', 'postgres', 'secret']);
-        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $this->envValue($env, 'POSTGRES_PASSWORD'));
-        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $this->envValue($env, 'MONGO_INITDB_ROOT_PASSWORD'));
+        $this->assertNotContains($this->envValue($env, 'VORTOS_WRITE_DB_PASSWORD'), ['12345', 'password', 'postgres', 'secret']);
+        $this->assertNotContains($this->envValue($env, 'VORTOS_READ_DB_PASSWORD'), ['12345', 'password', 'postgres', 'secret']);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $this->envValue($env, 'VORTOS_WRITE_DB_PASSWORD'));
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $this->envValue($env, 'VORTOS_READ_DB_PASSWORD'));
     }
 
     public function test_regenerate_secrets_replaces_existing_secrets(): void
@@ -212,17 +212,18 @@ final class SetupCommandTest extends TestCase
             '--skip-docker-publish' => true,
         ]);
 
-        $env = (string) file_get_contents($this->projectDir . '/.env.local');
+        $local = (string) file_get_contents($this->projectDir . '/.env.local');
+        $base  = (string) file_get_contents($this->projectDir . '/.env');
         $projectName = $this->expectedProjectName();
 
-        $this->assertSame($projectName, $this->envValue($env, 'APP_NAME'));
-        $this->assertSame($projectName, $this->envValue($env, 'POSTGRES_DB'));
-        $this->assertSame('postgres', $this->envValue($env, 'VORTOS_WRITE_DB_DRIVER'));
-        $this->assertSame('mongo', $this->envValue($env, 'VORTOS_READ_DB_DRIVER'));
-        $this->assertSame($projectName, $this->envValue($env, 'VORTOS_READ_DB_NAME'));
-        $this->assertSame('dev_' . $projectName . '_', $this->envValue($env, 'VORTOS_CACHE_PREFIX'));
-        $this->assertStringContainsString('@write_db:5432/' . $projectName, $this->envValue($env, 'VORTOS_WRITE_DB_DSN'));
-        $this->assertStringContainsString('@read_db:27017', $this->envValue($env, 'VORTOS_READ_DB_DSN'));
+        $this->assertSame($projectName, $this->envValue($base, 'APP_NAME'));
+        $this->assertSame($projectName, $this->envValue($local, 'VORTOS_WRITE_DB_NAME'));
+        $this->assertSame('postgres', $this->envValue($local, 'VORTOS_WRITE_DB_DRIVER'));
+        $this->assertSame('mongo', $this->envValue($local, 'VORTOS_READ_DB_DRIVER'));
+        $this->assertSame($projectName, $this->envValue($local, 'VORTOS_READ_DB_NAME'));
+        $this->assertSame('dev_' . $projectName . '_', $this->envValue($local, 'VORTOS_CACHE_PREFIX'));
+        $this->assertStringContainsString('@write_db:5432/' . $projectName, $this->envValue($local, 'VORTOS_WRITE_DB_DSN'));
+        $this->assertStringContainsString('@read_db:27017', $this->envValue($local, 'VORTOS_READ_DB_DSN'));
     }
 
     public function test_setup_ignores_skeleton_app_name_placeholder(): void
@@ -235,11 +236,12 @@ final class SetupCommandTest extends TestCase
             '--no-interaction' => true,
         ]);
 
-        $env = (string) file_get_contents($this->projectDir . '/.env.local');
+        $base  = (string) file_get_contents($this->projectDir . '/.env');
+        $local = (string) file_get_contents($this->projectDir . '/.env.local');
         $projectName = $this->expectedProjectName();
 
-        $this->assertSame($projectName, $this->envValue($env, 'APP_NAME'));
-        $this->assertStringContainsString('/' . $projectName, $this->envValue($env, 'VORTOS_WRITE_DB_DSN'));
+        $this->assertSame($projectName, $this->envValue($base, 'APP_NAME'));
+        $this->assertStringContainsString('/' . $projectName, $this->envValue($local, 'VORTOS_WRITE_DB_DSN'));
     }
 
     public function test_existing_app_name_is_preserved_on_setup(): void
@@ -252,10 +254,11 @@ final class SetupCommandTest extends TestCase
             '--no-interaction' => true,
         ]);
 
-        $env = (string) file_get_contents($this->projectDir . '/.env.local');
+        $base  = (string) file_get_contents($this->projectDir . '/.env');
+        $local = (string) file_get_contents($this->projectDir . '/.env.local');
 
-        $this->assertSame('custom_app', $this->envValue($env, 'APP_NAME'));
-        $this->assertStringContainsString('/custom_app', $this->envValue($env, 'VORTOS_WRITE_DB_DSN'));
+        $this->assertSame('custom_app', $this->envValue($base, 'APP_NAME'));
+        $this->assertStringContainsString('/custom_app', $this->envValue($local, 'VORTOS_WRITE_DB_DSN'));
     }
 
     public function test_setup_writes_agnostic_app_env_without_legacy_service_helpers(): void
@@ -274,8 +277,8 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('VORTOS_READ_DB_DSN=', $env);
         $this->assertStringContainsString('VORTOS_CACHE_DSN=', $env);
         $this->assertStringContainsString('VORTOS_MESSAGING_DSN=', $env);
-        $this->assertStringContainsString('POSTGRES_PASSWORD=', $env);
-        $this->assertStringContainsString('MONGO_INITDB_ROOT_PASSWORD=', $env);
+        $this->assertStringContainsString('VORTOS_WRITE_DB_PASSWORD=', $env);
+        $this->assertStringContainsString('VORTOS_READ_DB_PASSWORD=', $env);
 
         foreach ([
             'DATABASE_URL',

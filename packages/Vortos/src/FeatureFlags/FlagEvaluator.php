@@ -89,6 +89,6 @@ final class FlagEvaluator
     // Deterministic 0-99 bucket — same user always lands in the same bucket for a given flag.
     private function stableBucket(string $flagName, string $userId): int
     {
-        return abs(crc32($flagName . $userId)) % 100;
+        return abs(crc32($flagName . "\x00" . $userId)) % 100;
     }
 }

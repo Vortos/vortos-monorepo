@@ -10,6 +10,9 @@ use Vortos\Migration\Schema\ModuleMigrationDescriptor;
 
 final class MigrationSchemaInspector implements MigrationSchemaInspectorInterface
 {
+    /** @var array<string, true>|null */
+    private ?array $tableNameCache = null;
+
     public function __construct(private readonly Connection $connection)
     {
     }
@@ -128,9 +131,13 @@ final class MigrationSchemaInspector implements MigrationSchemaInspectorInterfac
      */
     private function tableNameIndex(): array
     {
-        return array_fill_keys(
-            array_map('strtolower', $this->connection->createSchemaManager()->listTableNames()),
-            true,
-        );
+        if ($this->tableNameCache === null) {
+            $this->tableNameCache = array_fill_keys(
+                array_map('strtolower', $this->connection->createSchemaManager()->listTableNames()),
+                true,
+            );
+        }
+
+        return $this->tableNameCache;
     }
 }

@@ -30,12 +30,16 @@ final class UnflaggedController
 
 final class FeatureFlagMiddlewareTest extends TestCase
 {
+    private const FLAG_MAP = [
+        FlaggedController::class . '::__invoke' => 'new-dashboard',
+    ];
+
     public function test_passes_through_when_no_controller_in_request(): void
     {
-        $registry   = $this->createMock(FlagRegistryInterface::class);
+        $registry = $this->createMock(FlagRegistryInterface::class);
         $registry->expects($this->never())->method('isEnabled');
 
-        $middleware = new FeatureFlagMiddleware($registry, $this->resolver());
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver(), self::FLAG_MAP);
         $middleware->onRequest($this->event(new Request()));
     }
 
@@ -44,7 +48,7 @@ final class FeatureFlagMiddlewareTest extends TestCase
         $registry = $this->createMock(FlagRegistryInterface::class);
         $registry->expects($this->never())->method('isEnabled');
 
-        $middleware = new FeatureFlagMiddleware($registry, $this->resolver());
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver(), self::FLAG_MAP);
         $middleware->onRequest($this->event($this->requestFor(UnflaggedController::class)));
     }
 
@@ -53,9 +57,8 @@ final class FeatureFlagMiddlewareTest extends TestCase
         $registry = $this->createMock(FlagRegistryInterface::class);
         $registry->method('isEnabled')->with('new-dashboard')->willReturn(true);
 
-        $middleware = new FeatureFlagMiddleware($registry, $this->resolver());
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver(), self::FLAG_MAP);
 
-        // Should not throw
         $middleware->onRequest($this->event($this->requestFor(FlaggedController::class)));
         $this->assertTrue(true);
     }
@@ -65,13 +68,13 @@ final class FeatureFlagMiddlewareTest extends TestCase
         $registry = $this->createMock(FlagRegistryInterface::class);
         $registry->method('isEnabled')->with('new-dashboard')->willReturn(false);
 
-        $middleware = new FeatureFlagMiddleware($registry, $this->resolver());
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver(), self::FLAG_MAP);
 
         $this->expectException(FeatureNotAvailableException::class);
         $middleware->onRequest($this->event($this->requestFor(FlaggedController::class)));
     }
 
-    public function test_reflection_cache_calls_registry_on_each_request_but_reflects_once(): void
+    public function test_registry_called_on_each_request_via_compiled_map(): void
     {
         $registry = $this->createMock(FlagRegistryInterface::class);
         $registry->expects($this->exactly(3))
@@ -79,13 +82,21 @@ final class FeatureFlagMiddlewareTest extends TestCase
             ->with('new-dashboard')
             ->willReturn(true);
 
-        $middleware = new FeatureFlagMiddleware($registry, $this->resolver());
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver(), self::FLAG_MAP);
         $request    = $this->requestFor(FlaggedController::class);
 
-        // Three requests — registry called 3 times but reflection only once (internal cache)
         $middleware->onRequest($this->event($request));
         $middleware->onRequest($this->event($request));
         $middleware->onRequest($this->event($request));
+    }
+
+    public function test_empty_flag_map_skips_all_flag_checks(): void
+    {
+        $registry = $this->createMock(FlagRegistryInterface::class);
+        $registry->expects($this->never())->method('isEnabled');
+
+        $middleware = new FeatureFlagMiddleware($registry, $this->resolver(), []);
+        $middleware->onRequest($this->event($this->requestFor(FlaggedController::class)));
     }
 
     public function test_subscribed_to_kernel_request(): void

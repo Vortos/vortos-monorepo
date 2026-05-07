@@ -45,6 +45,7 @@ final class PersistenceOrmExtensionTest extends TestCase
     {
         $container = new ContainerBuilder();
         $container->setParameter('kernel.project_dir', sys_get_temp_dir());
+        $container->setParameter('kernel.env', 'test');
         $container->setParameter('vortos.persistence.write_dsn', $dsn);
 
         return $container;

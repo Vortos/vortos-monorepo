@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Vortos\FeatureFlags\DependencyInjection;
 
 use Doctrine\DBAL\Connection;
+use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\FeatureFlags\Command\FlagsAddRuleCommand;
@@ -78,6 +80,8 @@ final class FeatureFlagsExtension extends Extension
         $container->register(FeatureFlagMiddleware::class, FeatureFlagMiddleware::class)
             ->setArgument('$registry', new Reference(FlagRegistry::class))
             ->setArgument('$contextResolver', new Reference(FlagContextResolverInterface::class))
+            ->setArgument('$flagMap', [])
+            ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag('kernel.event_subscriber')
             ->setPublic(false);
 

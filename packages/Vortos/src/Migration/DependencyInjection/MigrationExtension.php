@@ -57,11 +57,13 @@ use Vortos\Migration\Service\ModuleStubScanner;
  * Migration classes live in {project_root}/migrations/ under namespace App\Migrations.
  * The tracking table is vortos_migrations (not Doctrine's default).
  *
- * ## Dependency on PersistenceDbal
+ * ## Connection dependency
  *
- * DependencyFactoryProvider requires Connection::class which is registered by
- * DbalPersistenceExtension (order 70). MigrationExtension loads at order 75.
- * MigrateFreshCommand also injects Connection directly for DROP TABLE operations.
+ * DependencyFactoryProvider requires Connection::class, which is registered by
+ * either DbalPersistenceExtension (order 70) or PersistenceOrmExtension (order 65,
+ * which extracts the connection from the EntityManager). MigrationExtension loads
+ * at order 75, after both. MigrateFreshCommand also injects Connection directly
+ * for DROP TABLE operations. Do not include this module without one of those two.
  */
 final class MigrationExtension extends Extension
 {

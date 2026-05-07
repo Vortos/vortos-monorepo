@@ -7,7 +7,7 @@ namespace Vortos\Tests\PersistenceOrm;
 use Doctrine\ORM\Mapping as ORM;
 use PHPUnit\Framework\TestCase;
 use Vortos\Domain\Identity\AggregateId;
-use Vortos\PersistenceOrm\Aggregate\OrmAggregateRoot;
+use Vortos\PersistenceOrm\Aggregate\AggregateRoot as OrmAggregateRoot;
 
 final class OrmTestId extends AggregateId {}
 
@@ -47,11 +47,9 @@ final class OrmAggregateRootTest extends TestCase
     public function test_restore_version_sets_orm_version(): void
     {
         $agg = new OrmTestAggregate();
-        // restoreVersion is protected — call via a subclass method
         $agg->incrementVersion(); // 1
         $agg->incrementVersion(); // 2
 
-        // Use reflection to call restoreVersion
         $ref = new \ReflectionMethod(OrmAggregateRoot::class, 'restoreVersion');
         $ref->invoke($agg, 7);
 
@@ -68,7 +66,7 @@ final class OrmAggregateRootTest extends TestCase
 
     public function test_orm_version_field_has_version_and_column_attributes(): void
     {
-        $prop = new \ReflectionProperty(OrmAggregateRoot::class, 'version');
+        $prop = new \ReflectionProperty(OrmAggregateRoot::class, 'ormVersion');
 
         $this->assertCount(1, $prop->getAttributes(ORM\Version::class));
         $this->assertCount(1, $prop->getAttributes(ORM\Column::class));

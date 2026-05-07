@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
 use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Identity\AggregateId;
 use Vortos\Domain\Repository\Exception\OptimisticLockException;
-use Vortos\PersistenceOrm\Aggregate\OrmAggregateRoot;
+use Vortos\PersistenceOrm\Aggregate\AggregateRoot as OrmAggregateRoot;
 use Vortos\PersistenceOrm\Write\OrmWriteRepository;
 
 // --- fixtures ---
@@ -76,12 +76,25 @@ final class OrmWriteRepositoryTest extends TestCase
         $this->assertNull($repo->findById($id));
     }
 
-    public function test_save_calls_persist_and_flush(): void
+    public function test_save_calls_persist_and_flush_for_new_aggregate(): void
     {
         $agg = new RepoTestAggregate();
 
         $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(false);
         $em->expects($this->once())->method('persist')->with($agg);
+        $em->expects($this->once())->method('flush');
+
+        (new RepoTestRepository($em))->save($agg);
+    }
+
+    public function test_save_skips_persist_for_managed_aggregate(): void
+    {
+        $agg = new RepoTestAggregate();
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(true);
+        $em->expects($this->never())->method('persist');
         $em->expects($this->once())->method('flush');
 
         (new RepoTestRepository($em))->save($agg);
@@ -92,9 +105,10 @@ final class OrmWriteRepositoryTest extends TestCase
         $agg = new RepoTestAggregate();
 
         $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(false);
         $em->method('persist');
         $em->method('flush')->willThrowException(
-            DoctrineOptimisticLockException::lockFailed($agg, 1),
+            DoctrineOptimisticLockException::lockFailed($agg),
         );
 
         $this->expectException(OptimisticLockException::class);
@@ -102,13 +116,40 @@ final class OrmWriteRepositoryTest extends TestCase
         (new RepoTestRepository($em))->save($agg);
     }
 
-    public function test_delete_calls_remove_and_flush(): void
+    public function test_delete_calls_remove_and_flush_for_managed_aggregate(): void
     {
         $agg = new RepoTestAggregate();
 
         $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(true);
         $em->expects($this->once())->method('remove')->with($agg);
         $em->expects($this->once())->method('flush');
+
+        (new RepoTestRepository($em))->delete($agg);
+    }
+
+    public function test_delete_uses_find_for_unmanaged_aggregate(): void
+    {
+        $agg = new RepoTestAggregate();
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(false);
+        $em->method('find')->with(RepoTestAggregate::class, (string) $agg->getId())->willReturn($agg);
+        $em->expects($this->once())->method('remove')->with($agg);
+        $em->expects($this->once())->method('flush');
+
+        (new RepoTestRepository($em))->delete($agg);
+    }
+
+    public function test_delete_is_no_op_when_aggregate_not_found(): void
+    {
+        $agg = new RepoTestAggregate();
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(false);
+        $em->method('find')->willReturn(null);
+        $em->expects($this->never())->method('remove');
+        $em->expects($this->never())->method('flush');
 
         (new RepoTestRepository($em))->delete($agg);
     }
@@ -118,9 +159,10 @@ final class OrmWriteRepositoryTest extends TestCase
         $agg = new RepoTestAggregate();
 
         $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(true);
         $em->method('remove');
         $em->method('flush')->willThrowException(
-            DoctrineOptimisticLockException::lockFailed($agg, 1),
+            DoctrineOptimisticLockException::lockFailed($agg),
         );
 
         $this->expectException(OptimisticLockException::class);

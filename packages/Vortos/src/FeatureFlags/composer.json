@@ -13,6 +13,7 @@
         "vortos/vortos-foundation": "^1.0",
         "vortos/vortos-persistence-dbal": "^1.0",
         "doctrine/dbal": "^4.0",
+        "psr/log": "^3.0",
         "symfony/http-kernel": "^7.0",
         "symfony/uid": "^7.0"
     },

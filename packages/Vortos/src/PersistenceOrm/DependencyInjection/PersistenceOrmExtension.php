@@ -8,11 +8,15 @@ use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
-use Vortos\Persistence\Transaction\UnitOfWorkInterface;
+use Vortos\Cache\Contract\TaggedCacheInterface;
 use Vortos\Migration\Generator\MigrationClassGenerator;
 use Vortos\Migration\Service\DependencyFactoryProvider;
+use Vortos\Persistence\Transaction\UnitOfWorkInterface;
+use Vortos\PersistenceOrm\Cache\OrmMetadataCache;
+use Vortos\PersistenceOrm\Command\OrmClearCacheCommand;
 use Vortos\PersistenceOrm\Command\OrmDiffCommand;
 use Vortos\PersistenceOrm\Command\OrmSchemaCommand;
 use Vortos\PersistenceOrm\Factory\EntityManagerFactory;
@@ -51,12 +55,27 @@ final class PersistenceOrmExtension extends Extension
     {
         $projectDir  = $container->getParameter('kernel.project_dir');
         $entityPaths = [$projectDir . '/src'];
-        $devMode     = ($_ENV['APP_ENV'] ?? 'prod') === 'dev';
-        $dsn = (string) $container->getParameter('vortos.persistence.write_dsn');
+        $devMode     = $container->getParameter('kernel.env') === 'dev';
+        $dsn         = (string) $container->getParameter('vortos.persistence.write_dsn');
+
+        $metadataCacheRef = null;
+        if ($container->has(TaggedCacheInterface::class)) {
+            $container->register(OrmMetadataCache::class, OrmMetadataCache::class)
+                ->setArgument('$cache', new Reference(TaggedCacheInterface::class))
+                ->setShared(true)
+                ->setPublic(false);
+
+            $metadataCacheRef = new Reference(OrmMetadataCache::class);
+
+            $container->register(OrmClearCacheCommand::class, OrmClearCacheCommand::class)
+                ->setArgument('$cache', new Reference(TaggedCacheInterface::class))
+                ->setPublic(false)
+                ->addTag('console.command');
+        }
 
         $container->register(EntityManager::class, EntityManager::class)
             ->setFactory([EntityManagerFactory::class, 'fromDsn'])
-            ->setArguments([$dsn, $entityPaths, $devMode])
+            ->setArguments([$dsn, $entityPaths, $devMode, $metadataCacheRef])
             ->setShared(true)
             ->setPublic(true)
             ->setLazy(true);

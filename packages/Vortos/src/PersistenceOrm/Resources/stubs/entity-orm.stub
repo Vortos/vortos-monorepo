@@ -5,15 +5,19 @@ declare(strict_types=1);
 namespace {{Namespace}}\Domain\Entity;
 
 use Doctrine\ORM\Mapping as ORM;
-use Vortos\PersistenceOrm\Aggregate\OrmAggregateRoot;
+use Vortos\PersistenceOrm\Aggregate\AggregateRoot;
 
 #[ORM\Entity]
 #[ORM\Table(name: '{{TableName}}')]
-final class {{ClassName}} extends OrmAggregateRoot
+final class {{ClassName}} extends AggregateRoot
 {
     #[ORM\Id]
     #[ORM\Column(type: 'string', length: 36)]
     private string $id;
+
+    // Add your domain properties here:
+    // #[ORM\Column(type: 'string')]
+    // private string $email;
 
     private function __construct({{ClassName}}Id $id)
     {
@@ -22,7 +26,9 @@ final class {{ClassName}} extends OrmAggregateRoot
 
     public static function create({{ClassName}}Id $id): self
     {
-        return new self($id);
+        $self = new self($id);
+        $self->incrementVersion();
+        return $self;
     }
 
     public function getId(): {{ClassName}}Id

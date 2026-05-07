@@ -16,6 +16,7 @@ use Vortos\Docker\Service\DockerPublishResult;
 use Vortos\Setup\Capability\SetupCapabilityInterface;
 use Vortos\Setup\Capability\SetupCapabilityRegistry;
 use Vortos\Setup\Console\TerminalMenu;
+use Vortos\Setup\Service\ComposerPackageInspector;
 use Vortos\Setup\Service\EnvironmentFileWriter;
 use Vortos\Setup\Service\SetupEnvironmentChecker;
 use Vortos\Setup\Service\SetupStateStore;
@@ -72,6 +73,7 @@ final class SetupCommand extends Command
         private readonly DockerFilePublisher $dockerPublisher,
         private readonly ?TerminalMenu $terminalMenu = null,
         private readonly ?SetupCapabilityRegistry $capabilityRegistry = null,
+        private readonly ?ComposerPackageInspector $packageInspector = null,
     ) {
         parent::__construct();
     }
@@ -152,6 +154,8 @@ final class SetupCommand extends Command
 
             $this->renderDockerResult($io, $result, $dryRun);
         }
+
+        $this->installMissingPackages($config, $io, $dryRun);
 
         $stateToWrite = [
             'profile' => $config['profile'] ?? null,
@@ -696,5 +700,61 @@ final class SetupCommand extends Command
         }
 
         return bin2hex(random_bytes($bytes));
+    }
+
+    /** @param array<string, mixed> $config */
+    private function installMissingPackages(array $config, SymfonyStyle $io, bool $dryRun): void
+    {
+        if ($this->packageInspector === null) {
+            return;
+        }
+
+        $registry = $this->capabilities();
+        $keys     = array_filter($this->selectedCapabilityKeys($config), fn(string $k) => $registry->has($k));
+        $missing  = $registry->missingPackagesFor($keys, $this->packageInspector->installedPackages());
+
+        if ($missing === []) {
+            return;
+        }
+
+        $io->section('Installing packages');
+
+        if ($dryRun) {
+            $io->writeln('  <fg=gray>Would run:</> ' . $this->packageInspector->requireCommand($missing));
+            return;
+        }
+
+        $io->writeln('  Running: <info>' . $this->packageInspector->requireCommand($missing) . '</info>');
+        $io->writeln('');
+
+        $success = $this->packageInspector->runRequire($missing);
+
+        $io->writeln('');
+
+        if ($success) {
+            $io->writeln('<info>✔ Packages installed successfully.</info>');
+        } else {
+            $io->warning('composer require failed. Run the command above manually, then re-run vortos:setup.');
+        }
+    }
+
+    /**
+     * Derives the selected capability keys from a resolved config array.
+     * Used to determine which composer packages the chosen stack requires.
+     *
+     * @param array<string, mixed> $config
+     * @return string[]
+     */
+    private function selectedCapabilityKeys(array $config): array
+    {
+        $dbValue = (string) preg_replace('/^(?:docker|local)-/', '', (string) $config['database']);
+
+        return [
+            'runtime.' . str_replace('-', '_', (string) $config['runtime']),
+            'write_db.' . str_replace('-', '_', $dbValue),
+            (bool) $config['mongo'] ? 'read_db.mongo' : 'read_db.none',
+            'cache.' . str_replace('-', '_', (string) $config['cache']),
+            'messaging.' . str_replace('-', '_', (string) $config['messaging']),
+        ];
     }
 }

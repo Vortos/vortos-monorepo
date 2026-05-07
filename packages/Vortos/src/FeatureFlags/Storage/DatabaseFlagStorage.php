@@ -43,17 +43,19 @@ final class DatabaseFlagStorage implements FlagStorageInterface
     {
         $row = $this->toRow($flag);
 
-        $exists = $this->connection->fetchOne(
-            'SELECT id FROM ' . self::TABLE . ' WHERE name = ?',
-            [$flag->name],
+        $this->connection->executeStatement(
+            'INSERT INTO ' . self::TABLE . '
+                 (id, name, description, enabled, rules, variants, created_at, updated_at)
+             VALUES
+                 (:id, :name, :description, :enabled, :rules, :variants, :created_at, :updated_at)
+             ON CONFLICT (name) DO UPDATE SET
+                 description = EXCLUDED.description,
+                 enabled     = EXCLUDED.enabled,
+                 rules       = EXCLUDED.rules,
+                 variants    = EXCLUDED.variants,
+                 updated_at  = EXCLUDED.updated_at',
+            $row,
         );
-
-        if ($exists === false) {
-            $this->connection->insert(self::TABLE, $row);
-        } else {
-            unset($row['id'], $row['created_at']);
-            $this->connection->update(self::TABLE, $row, ['name' => $flag->name]);
-        }
     }
 
     public function delete(string $name): void

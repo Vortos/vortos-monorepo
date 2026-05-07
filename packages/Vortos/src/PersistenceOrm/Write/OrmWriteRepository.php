@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Vortos\PersistenceOrm\Write;
 
 use Doctrine\ORM\EntityManagerInterface;
-use Doctrine\ORM\Exception\ORMException;
 use Doctrine\ORM\OptimisticLockException as DoctrineOptimisticLockException;
 use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Identity\AggregateId;
@@ -15,9 +14,10 @@ use Vortos\Domain\Repository\WriteRepositoryInterface;
 /**
  * Abstract Doctrine ORM write repository.
  *
- * Provides findById, save, and delete backed by Doctrine's EntityManager.
- * Optimistic locking is enforced by Doctrine's #[ORM\Version] mechanism —
- * no manual version checks needed in this class.
+ * Domain aggregates extend Vortos\PersistenceOrm\Aggregate\AggregateRoot and
+ * carry #[ORM\Entity] annotations directly — one class, no translation layer.
+ * This repository delegates all persistence to the EntityManager and translates
+ * Doctrine's optimistic lock exception into the domain exception.
  *
  * ## Usage
  *
@@ -29,25 +29,32 @@ use Vortos\Domain\Repository\WriteRepositoryInterface;
  *       }
  *   }
  *
- * ## Choosing ORM vs DBAL
+ * ## Save semantics
  *
- * Use OrmWriteRepository when:
- *   - Your aggregate is a Doctrine #[ORM\Entity] with full attribute mapping
- *   - You want Doctrine to manage relations, lazy loading, or lifecycle callbacks
- *   - You prefer no-SQL aggregate persistence
+ * save() inspects whether the aggregate is currently tracked by Doctrine's
+ * identity map ($em->contains()). If tracked, it flushes changes. If not
+ * tracked (new aggregate), it persists then flushes. This handles both insert
+ * and update without requiring callers to distinguish between the two.
  *
- * Use DbalWriteRepository when:
- *   - You want full SQL control and no entity mapping overhead
- *   - Your aggregate is reconstructed from raw rows (toRow/fromRow pattern)
- *   - You need bulk operations (batchInsert, batchUpsert)
+ * ## Optimistic locking
  *
- * ## Note on flush scope
+ * Doctrine enforces #[ORM\Version] locking automatically on UPDATE. On conflict
+ * it throws DoctrineOptimisticLockException, which is caught here and translated
+ * to the domain OptimisticLockException with the expected version from the exception.
  *
- * Each save() and delete() calls flush() immediately (unit-level flush).
- * If you want to batch multiple saves before flushing, inject the
- * EntityManagerInterface directly and call flush() yourself after all saves.
- * The OrmUnitOfWork wraps the outer transaction — flush() still participates
- * in that transaction.
+ * ## Worker mode
+ *
+ * OrmUnitOfWork implements ResetInterface and calls $em->clear() between
+ * requests, detaching all entities. findById() always loads a fresh managed
+ * entity from the database on the next request — identity map state never
+ * leaks across request boundaries.
+ *
+ * ## flush() scope
+ *
+ * Each save() and delete() flushes immediately (unit-level flush). To batch
+ * multiple saves before a single flush, inject EntityManagerInterface directly
+ * and call flush() yourself after all operations. The OrmUnitOfWork transaction
+ * wraps everything — flush() still participates in the outer transaction.
  */
 abstract class OrmWriteRepository implements WriteRepositoryInterface
 {
@@ -63,7 +70,10 @@ abstract class OrmWriteRepository implements WriteRepositoryInterface
     public function save(AggregateRoot $aggregate): void
     {
         try {
-            $this->em->persist($aggregate);
+            if (!$this->em->contains($aggregate)) {
+                $this->em->persist($aggregate);
+            }
+
             $this->em->flush();
         } catch (DoctrineOptimisticLockException $e) {
             throw OptimisticLockException::forAggregate(
@@ -78,7 +88,15 @@ abstract class OrmWriteRepository implements WriteRepositoryInterface
     public function delete(AggregateRoot $aggregate): void
     {
         try {
-            $this->em->remove($aggregate);
+            $managed = $this->em->contains($aggregate)
+                ? $aggregate
+                : $this->em->find($this->entityClass(), (string) $aggregate->getId());
+
+            if ($managed === null) {
+                return;
+            }
+
+            $this->em->remove($managed);
             $this->em->flush();
         } catch (DoctrineOptimisticLockException $e) {
             throw OptimisticLockException::forAggregate(

@@ -33,6 +33,10 @@ final class EntityManagerFactory
 
     public static function fromDsn(string $dsn, array $entityPaths, bool $devMode = false): EntityManager
     {
+        if (trim($dsn) === '') {
+            throw new \RuntimeException('The ORM persistence adapter requires VORTOS_WRITE_DB_DSN to be set.');
+        }
+
         $config = ORMSetup::createAttributeMetadataConfiguration(
             paths: $entityPaths,
             isDevMode: $devMode,

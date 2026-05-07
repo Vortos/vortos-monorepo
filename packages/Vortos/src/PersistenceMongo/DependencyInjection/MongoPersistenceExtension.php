@@ -50,8 +50,8 @@ final class MongoPersistenceExtension extends Extension
 
     public function load(array $configs, ContainerBuilder $container): void
     {
-        $dsn = $container->getParameter('vortos.persistence.read_dsn');
-        $database = $container->getParameter('vortos.persistence.read_database');
+        $dsn = (string) $container->getParameter('vortos.persistence.read_dsn');
+        $database = (string) $container->getParameter('vortos.persistence.read_database');
 
         $container->register(Client::class, Client::class)
             ->setFactory([MongoClientFactory::class, 'fromDsn'])

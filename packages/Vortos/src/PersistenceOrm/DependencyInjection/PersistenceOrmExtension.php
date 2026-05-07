@@ -52,12 +52,11 @@ final class PersistenceOrmExtension extends Extension
         $projectDir  = $container->getParameter('kernel.project_dir');
         $entityPaths = [$projectDir . '/src'];
         $devMode     = ($_ENV['APP_ENV'] ?? 'prod') === 'dev';
+        $dsn = (string) $container->getParameter('vortos.persistence.write_dsn');
 
-        // %vortos.persistence.write_dsn% is resolved at compile time, not here —
-        // safe to reference even though PersistenceExtension loaded before us.
         $container->register(EntityManager::class, EntityManager::class)
             ->setFactory([EntityManagerFactory::class, 'fromDsn'])
-            ->setArguments(['%vortos.persistence.write_dsn%', $entityPaths, $devMode])
+            ->setArguments([$dsn, $entityPaths, $devMode])
             ->setShared(true)
             ->setPublic(true)
             ->setLazy(true);

@@ -9,9 +9,8 @@ use Symfony\Component\Config\Definition\ConfigurationInterface;
  * Validates the vortos_persistence configuration tree.
  *
  * Called by PersistenceExtension::load() via processConfiguration().
- * All values are required — no sensible defaults for connection strings.
- * Failing loudly on missing config is better than silently connecting
- * to a wrong or empty host.
+ * DSNs are read from VORTOS_* env by VortosPersistenceConfig.
+ * Adapter packages validate the specific DSN they require when loaded.
  *
  * The root node alias must match PersistenceExtension::getAlias()
  * exactly — 'vortos_persistence'. A mismatch causes a Symfony DI error
@@ -29,7 +28,7 @@ final class Configuration implements ConfigurationInterface
                     ->children()
                         ->scalarNode('dsn')
                             ->defaultValue('')
-                            ->info('PostgreSQL DSN — pgsql://user:pass@host:port/dbname')
+                            ->info('Write database DSN')
                         ->end()
                     ->end()
                 ->end()
@@ -37,11 +36,11 @@ final class Configuration implements ConfigurationInterface
                     ->children()
                         ->scalarNode('dsn')
                             ->defaultValue('')
-                            ->info('MongoDB DSN — mongodb://user:pass@host:port')
+                            ->info('Read database DSN')
                         ->end()
                         ->scalarNode('database')
                             ->defaultValue('')
-                            ->info('MongoDB database name')
+                            ->info('Read database name')
                         ->end()
                     ->end()
                 ->end()

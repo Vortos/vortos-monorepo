@@ -21,14 +21,15 @@ use MongoDB\Client;
  *
  * ## Standard usage
  *
- * Set a single MONGODB_URL environment variable:
+ * Set Vortos read database environment variables:
  *
- *   MONGODB_URL=mongodb://root:secret@read_db:27017
+ *   VORTOS_READ_DB_DSN=mongodb://root:secret@read_db:27017
+ *   VORTOS_READ_DB_NAME=squaura
  *
  * Then in config/persistence.php:
  *
- *   $config->readDsn($_ENV['MONGODB_URL']);
- *   $config->readDatabase($_ENV['MONGO_DB_NAME']);
+ *   $config->readDsn($_ENV['VORTOS_READ_DB_DSN']);
+ *   $config->readDatabase($_ENV['VORTOS_READ_DB_NAME']);
  *
  * ## DSN format
  *
@@ -65,6 +66,10 @@ final class MongoClientFactory
      */
     public static function fromDsn(string $dsn, array $options = []): Client
     {
+        if (trim($dsn) === '') {
+            throw new \RuntimeException('The Mongo persistence adapter requires VORTOS_READ_DB_DSN to be set.');
+        }
+
         return new Client($dsn, $options);
     }
 }

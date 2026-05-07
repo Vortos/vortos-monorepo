@@ -19,7 +19,7 @@ use Vortos\Cache\Adapter\InMemoryAdapter;
  *
  *   return static function(VortosCacheConfig $config): void {
  *       $config
- *           ->dsn(sprintf('redis://%s:%s', getenv('REDIS_HOST'), getenv('REDIS_PORT')))
+ *           ->dsn($_ENV['VORTOS_CACHE_DSN'])
  *           ->prefix(getenv('APP_ENV') . '_squaura_')
  *           ->defaultTtl(3600);
  *   };
@@ -53,6 +53,8 @@ final class VortosCacheConfig
             'redis' => RedisAdapter::class,
             default => InMemoryAdapter::class,
         };
+        $this->dsn = $_ENV['VORTOS_CACHE_DSN'] ?? 'redis://127.0.0.1:6379';
+        $this->prefix = $_ENV['VORTOS_CACHE_PREFIX'] ?? (($_ENV['APP_ENV'] ?? 'dev') . '_' . ($_ENV['APP_NAME'] ?? 'app') . '_');
     }
 
     /**

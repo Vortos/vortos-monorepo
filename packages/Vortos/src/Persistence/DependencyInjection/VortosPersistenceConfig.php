@@ -8,35 +8,33 @@ namespace Vortos\Persistence\DependencyInjection;
  * Fluent configuration object for the Vortos persistence layer.
  *
  * Loaded via require in PersistenceExtension::load().
- * Users configure persistence in config/persistence.php:
+ * Project config can override persistence in config/persistence.php:
  *
  *   return static function(VortosPersistenceConfig $config): void {
  *       $config
- *           ->writeDsn($_ENV['DATABASE_URL'])
- *           ->readDsn($_ENV['MONGODB_URL'])
- *           ->readDatabase($_ENV['MONGO_DB_NAME']);
+ *           ->writeDsn('pgsql://postgres:secret@write_db:5432/app')
+ *           ->readDsn('mongodb://root:secret@read_db:27017')
+ *           ->readDatabase('app');
  *   };
  *
- * Environment-specific overrides in config/{env}/persistence.php:
- *
- *   return static function(VortosPersistenceConfig $config): void {
- *       $config->writeDsn('pgsql://postgres:test@write_db:5432/squaura_test');
- *   };
- *
- * All values are required — the extension will throw if any are empty.
- * Never hardcode credentials here — always read from environment variables.
+ * By default, framework setup writes VORTOS_WRITE_DB_DSN,
+ * VORTOS_READ_DB_DSN, and VORTOS_READ_DB_NAME to .env.local.
  */
 final class VortosPersistenceConfig
 {
-    private string $writeDsn = '';
-    private string $readDsn = '';
-    private string $readDatabase = '';
+    private string $writeDsn;
+    private string $readDsn;
+    private string $readDatabase;
+
+    public function __construct()
+    {
+        $this->writeDsn = $_ENV['VORTOS_WRITE_DB_DSN'] ?? '';
+        $this->readDsn = $_ENV['VORTOS_READ_DB_DSN'] ?? '';
+        $this->readDatabase = $_ENV['VORTOS_READ_DB_NAME'] ?? '';
+    }
 
     /**
-     * DSN for the write database (PostgreSQL).
-     *
-     * Format: pgsql://user:pass@host:port/dbname
-     * Reads from DATABASE_URL environment variable by convention.
+     * DSN for the write database.
      */
     public function writeDsn(string $dsn): static
     {
@@ -45,11 +43,7 @@ final class VortosPersistenceConfig
     }
 
     /**
-     * DSN for the read database (MongoDB).
-     *
-     * Format: mongodb://user:pass@host:port
-     * Reads from MONGODB_URL environment variable by convention.
-     * Do not include the database name in the DSN — use readDatabase() instead.
+     * DSN for the read database.
      */
     public function readDsn(string $dsn): static
     {
@@ -58,12 +52,7 @@ final class VortosPersistenceConfig
     }
 
     /**
-     * The MongoDB database name to use for all read repositories.
-     *
-     * Kept separate from the DSN so it can be overridden per environment
-     * without changing the connection string.
-     *
-     * Reads from MONGO_DB_NAME environment variable by convention.
+     * The read database name to use for read repositories.
      */
     public function readDatabase(string $name): static
     {

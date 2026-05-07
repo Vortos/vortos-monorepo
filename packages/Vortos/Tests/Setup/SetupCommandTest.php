@@ -153,8 +153,7 @@ final class SetupCommandTest extends TestCase
         $secondEnv = (string) file_get_contents($this->projectDir . '/.env.local');
         $this->assertSame($this->envValue($firstEnv, 'JWT_SECRET'), $this->envValue($secondEnv, 'JWT_SECRET'));
         $this->assertSame($this->envValue($firstEnv, 'HEALTH_TOKEN'), $this->envValue($secondEnv, 'HEALTH_TOKEN'));
-        $this->assertSame($this->envValue($firstEnv, 'POSTGRES_PASSWORD'), $this->envValue($secondEnv, 'POSTGRES_PASSWORD'));
-        $this->assertSame($this->envValue($firstEnv, 'MONGO_INITDB_ROOT_PASSWORD'), $this->envValue($secondEnv, 'MONGO_INITDB_ROOT_PASSWORD'));
+        $this->assertSame($this->envValue($firstEnv, 'VORTOS_WRITE_DB_DSN'), $this->envValue($secondEnv, 'VORTOS_WRITE_DB_DSN'));
     }
 
     public function test_setup_generates_local_passwords_and_sections_env_file(): void
@@ -200,7 +199,7 @@ final class SetupCommandTest extends TestCase
 
         $this->assertNotSame($this->envValue($firstEnv, 'JWT_SECRET'), $this->envValue($secondEnv, 'JWT_SECRET'));
         $this->assertNotSame($this->envValue($firstEnv, 'HEALTH_TOKEN'), $this->envValue($secondEnv, 'HEALTH_TOKEN'));
-        $this->assertNotSame($this->envValue($firstEnv, 'POSTGRES_PASSWORD'), $this->envValue($secondEnv, 'POSTGRES_PASSWORD'));
+        $this->assertNotSame($this->envValue($firstEnv, 'VORTOS_WRITE_DB_DSN'), $this->envValue($secondEnv, 'VORTOS_WRITE_DB_DSN'));
     }
 
     public function test_setup_derives_project_name_for_environment_defaults(): void
@@ -218,10 +217,12 @@ final class SetupCommandTest extends TestCase
 
         $this->assertSame($projectName, $this->envValue($env, 'APP_NAME'));
         $this->assertSame($projectName, $this->envValue($env, 'POSTGRES_DB'));
-        $this->assertSame($projectName, $this->envValue($env, 'POSTGRES_DB_NAME'));
-        $this->assertSame($projectName, $this->envValue($env, 'MONGO_DB_NAME'));
+        $this->assertSame('postgres', $this->envValue($env, 'VORTOS_WRITE_DB_DRIVER'));
+        $this->assertSame('mongo', $this->envValue($env, 'VORTOS_READ_DB_DRIVER'));
+        $this->assertSame($projectName, $this->envValue($env, 'VORTOS_READ_DB_NAME'));
         $this->assertSame('dev_' . $projectName . '_', $this->envValue($env, 'VORTOS_CACHE_PREFIX'));
-        $this->assertStringContainsString('@write_db:5432/' . $projectName, $this->envValue($env, 'DATABASE_URL'));
+        $this->assertStringContainsString('@write_db:5432/' . $projectName, $this->envValue($env, 'VORTOS_WRITE_DB_DSN'));
+        $this->assertStringContainsString('@read_db:27017', $this->envValue($env, 'VORTOS_READ_DB_DSN'));
     }
 
     public function test_setup_ignores_skeleton_app_name_placeholder(): void
@@ -238,7 +239,7 @@ final class SetupCommandTest extends TestCase
         $projectName = $this->expectedProjectName();
 
         $this->assertSame($projectName, $this->envValue($env, 'APP_NAME'));
-        $this->assertSame($projectName, $this->envValue($env, 'POSTGRES_DB_NAME'));
+        $this->assertStringContainsString('/' . $projectName, $this->envValue($env, 'VORTOS_WRITE_DB_DSN'));
     }
 
     public function test_existing_app_name_is_preserved_on_setup(): void
@@ -254,7 +255,42 @@ final class SetupCommandTest extends TestCase
         $env = (string) file_get_contents($this->projectDir . '/.env.local');
 
         $this->assertSame('custom_app', $this->envValue($env, 'APP_NAME'));
-        $this->assertSame('custom_app', $this->envValue($env, 'POSTGRES_DB_NAME'));
+        $this->assertStringContainsString('/custom_app', $this->envValue($env, 'VORTOS_WRITE_DB_DSN'));
+    }
+
+    public function test_setup_writes_agnostic_app_env_without_legacy_service_helpers(): void
+    {
+        $tester = $this->tester();
+
+        $tester->execute([
+            '--preset' => 'docker-frankenphp',
+            '--no-interaction' => true,
+            '--skip-docker-publish' => true,
+        ]);
+
+        $env = (string) file_get_contents($this->projectDir . '/.env.local');
+
+        $this->assertStringContainsString('VORTOS_WRITE_DB_DSN=', $env);
+        $this->assertStringContainsString('VORTOS_READ_DB_DSN=', $env);
+        $this->assertStringContainsString('VORTOS_CACHE_DSN=', $env);
+        $this->assertStringContainsString('VORTOS_MESSAGING_DSN=', $env);
+        $this->assertStringContainsString('POSTGRES_PASSWORD=', $env);
+        $this->assertStringContainsString('MONGO_INITDB_ROOT_PASSWORD=', $env);
+
+        foreach ([
+            'DATABASE_URL',
+            'MONGODB_URL',
+            'POSTGRES_HOST',
+            'POSTGRES_DB_NAME',
+            'REDIS_HOST',
+            'REDIS_PORT',
+            'MONGO_HOST',
+            'MONGO_PORT',
+            'MONGO_DB_NAME',
+            'KAFKA_BROKERS',
+        ] as $legacyKey) {
+            $this->assertStringNotContainsString($legacyKey . '=', $env);
+        }
     }
 
     public function test_docker_preset_publishes_docker_files_with_backup_on_rerun(): void

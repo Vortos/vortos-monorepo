@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Vortos\Cache\DependencyInjection;
 
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
+use Vortos\Cache\Tracing\CacheTracingCompilerPass;
 use Vortos\Foundation\Contract\PackageInterface;
 
 /**
@@ -39,7 +41,12 @@ final class CachePackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
-        // No compiler passes needed at this stage.
-        // CacheWarmerPass would go here when implemented.
+        // Wraps the active cache adapter with TracingCacheAdapter when TracingInterface is available.
+        // Runs after all extensions load so TracingInterface is guaranteed to be defined.
+        $container->addCompilerPass(
+            new CacheTracingCompilerPass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            0,
+        );
     }
 }

@@ -1,0 +1,18 @@
+<?php
+
+declare(strict_types=1);
+
+use Vortos\Metrics\Config\MetricsAdapter;
+use Vortos\Metrics\Config\MetricsModule;
+use Vortos\Metrics\DependencyInjection\VortosMetricsConfig;
+
+return static function (VortosMetricsConfig $config): void {
+    $config
+        ->adapter(MetricsAdapter::Prometheus)
+        ->prometheusStorageRedis(prefix: 'metrics:')
+        ->prometheusEndpoint('/metrics')
+        ->prometheusEndpointToken($_ENV['METRICS_TOKEN'] ?? '');
+
+    // Uncomment to disable noisy high-cardinality modules:
+    // $config->disableModule(MetricsModule::Cache, MetricsModule::Persistence);
+};

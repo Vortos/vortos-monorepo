@@ -11,6 +11,7 @@
     "require": {
         "php": ">=8.2",
         "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-tracing": "^1.0",
         "symfony/http-foundation": "^7.3",
         "symfony/http-kernel": "^7.3",
         "symfony/routing": "^7.3",

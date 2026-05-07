@@ -15,6 +15,7 @@ use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\Domain\Command\AbstractCommand;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
+use Vortos\Tracing\NoOpTracer;
 
 final readonly class ValidatedCommand extends AbstractCommand
 {
@@ -48,6 +49,7 @@ final class CommandBusValidationTest extends TestCase
             $this->createMock(EventBusInterface::class),
             new InMemoryCommandIdempotencyStore(),
             new NullLogger(),
+            new NoOpTracer(),
             [],
             $validator,
         );
@@ -135,7 +137,7 @@ final class CommandBusValidationTest extends TestCase
         $bus     = new CommandBus(
             $locator, $this->makeUow(),
             $this->createMock(EventBusInterface::class),
-            $store, new NullLogger(), [], new VortosValidator(),
+            $store, new NullLogger(), new NoOpTracer(), [], new VortosValidator(),
         );
         try {
             $bus->dispatch(new ValidatedCommand('bad', 'Alice', 30));

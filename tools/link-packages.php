@@ -23,6 +23,7 @@ $packages = [
     'vortos-feature-flags'     => 'FeatureFlags',
     'vortos-docker'            => 'Docker',
     'vortos-setup'             => 'Setup',
+    'vortos-metrics'           => 'Metrics',
 ];
 
 foreach ($packages as $vendorName => $srcName) {

@@ -54,7 +54,8 @@
       "Vortos\\PersistenceOrm\\": "packages/Vortos/src/PersistenceOrm/",
       "Vortos\\FeatureFlags\\": "packages/Vortos/src/FeatureFlags/",
       "Vortos\\Docker\\": "packages/Vortos/src/Docker/",
-      "Vortos\\Setup\\": "packages/Vortos/src/Setup/"
+      "Vortos\\Setup\\": "packages/Vortos/src/Setup/",
+      "Vortos\\Metrics\\": "packages/Vortos/src/Metrics/"
     }
   },
   "autoload-dev": {

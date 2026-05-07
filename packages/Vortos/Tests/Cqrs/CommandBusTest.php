@@ -12,6 +12,7 @@ use Vortos\Cqrs\Exception\CommandHandlerNotFoundException;
 use Vortos\Domain\Command\AbstractCommand;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
+use Vortos\Tracing\NoOpTracer;
 
 final readonly class BusTestCommand extends AbstractCommand
 {
@@ -32,8 +33,9 @@ final class CommandBusTest extends TestCase
         $eventBus = $this->createMock(EventBusInterface::class);
         $idempotency = new InMemoryCommandIdempotencyStore();
         $logger = new NullLogger();
+        $tracer = new NoOpTracer();
 
-        return new CommandBus($locator, $uow, $eventBus, $idempotency, $logger, $strategies);
+        return new CommandBus($locator, $uow, $eventBus, $idempotency, $logger, $tracer, $strategies);
     }
 
     public function test_dispatches_command_to_handler(): void

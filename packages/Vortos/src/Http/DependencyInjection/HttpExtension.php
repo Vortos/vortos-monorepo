@@ -22,10 +22,12 @@ use Symfony\Component\Routing\RouteCollection;
 use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\Http\Attribute\ApiController;
 use Vortos\Http\Controller\ErrorController;
+use Vortos\Http\EventListener\TracingMiddleware;
 use Vortos\Http\EventListener\ValidationExceptionListener;
 use Vortos\Http\Factory\ArgumentResolverFactory;
 use Vortos\Http\Kernel;
 use Vortos\Http\Request\RequestDtoArgumentResolver;
+use Vortos\Tracing\Contract\TracingInterface;
 
 final class HttpExtension extends Extension
 {
@@ -92,6 +94,21 @@ final class HttpExtension extends Extension
             ->setFactory([ArgumentResolverFactory::class, 'create'])
             ->setArguments([new Reference(RequestDtoArgumentResolver::class)])
             ->setShared(true)->setPublic(false);
+
+        // Default: never trust W3C traceparent from external callers.
+        // TracingExtension (order 50) will override this with the user-configured value.
+        if (!$container->hasParameter('vortos.tracing.trust_remote_context')) {
+            $container->setParameter('vortos.tracing.trust_remote_context', false);
+        }
+
+        // TracingMiddleware — creates root HTTP span, propagates W3C trace context.
+        // TracingInterface defaults to NoOpTracer, so this is always safe to register.
+        $container->register(TracingMiddleware::class, TracingMiddleware::class)
+            ->setArgument('$tracer', new Reference(TracingInterface::class))
+            ->setArgument('$trustRemoteContext', '%vortos.tracing.trust_remote_context%')
+            ->addTag('kernel.event_subscriber')
+            ->setShared(true)
+            ->setPublic(false);
 
         // ValidationExceptionListener
         $container->register(ValidationExceptionListener::class, ValidationExceptionListener::class)

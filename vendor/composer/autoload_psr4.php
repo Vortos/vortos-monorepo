@@ -14,6 +14,7 @@ return array(
     'Vortos\\PersistenceMongo\\' => array($vendorDir . '/vortos/vortos-persistence-mongo'),
     'Vortos\\PersistenceDbal\\' => array($vendorDir . '/vortos/vortos-persistence-dbal'),
     'Vortos\\Migration\\' => array($baseDir . '/packages/Vortos/src/Migration'),
+    'Vortos\\Metrics\\' => array($baseDir . '/packages/Vortos/src/Metrics'),
     'Vortos\\Messaging\\' => array($vendorDir . '/vortos/vortos-messaging'),
     'Vortos\\Make\\' => array($vendorDir . '/vortos/vortos-make'),
     'Vortos\\Logger\\' => array($vendorDir . '/vortos/vortos-logger'),

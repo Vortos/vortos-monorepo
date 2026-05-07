@@ -25,6 +25,7 @@ use Vortos\Cqrs\Query\QueryBusInterface;
 use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
+use Vortos\Tracing\Contract\TracingInterface;
 use Psr\SimpleCache\CacheInterface;
 
 final class CqrsExtension extends Extension
@@ -93,6 +94,7 @@ final class CqrsExtension extends Extension
                 new Reference(EventBusInterface::class),
                 new Reference(CommandIdempotencyStoreInterface::class),
                 new Reference(LoggerInterface::class),
+                new Reference(TracingInterface::class),
                 '%vortos.cqrs.idempotency_strategies%',
                 new Reference(VortosValidator::class),
             ])

@@ -9,6 +9,8 @@ use MongoDB\Collection;
 use MongoDB\Database;
 use Vortos\Domain\Repository\PageResult;
 use Vortos\Domain\Repository\ReadRepositoryInterface;
+use Vortos\Tracing\Config\TracingModule;
+use Vortos\Tracing\Contract\TracingInterface;
 
 /**
  * Abstract MongoDB-backed read repository.
@@ -72,10 +74,17 @@ use Vortos\Domain\Repository\ReadRepositoryInterface;
 abstract class MongoReadRepository implements ReadRepositoryInterface
 {
     private Database $database;
+    private ?TracingInterface $tracer = null;
 
     public function __construct(Client $client, string $databaseName)
     {
         $this->database = $client->selectDatabase($databaseName);
+    }
+
+    /** @internal Injected by MongoTracingCompilerPass at compile time */
+    public function setTracer(TracingInterface $tracer): void
+    {
+        $this->tracer = $tracer;
     }
 
     /**
@@ -160,13 +169,15 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
      */
     public function findById(string $id): ?array
     {
-        $doc = $this->collection()->findOne(['_id' => $id]);
+        return $this->traced('findOne', function () use ($id): ?array {
+            $doc = $this->collection()->findOne(['_id' => $id]);
 
-        if ($doc === null) {
-            return null;
-        }
+            if ($doc === null) {
+                return null;
+            }
 
-        return (array) $this->fromDocument((array) $doc);
+            return (array) $this->fromDocument((array) $doc);
+        });
     }
 
     /**
@@ -187,26 +198,28 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
         int $limit = 50,
         ?string $cursor = null,
     ): array {
-        if ($cursor !== null) {
-            $cursorFilter = $this->decodeCursor($cursor);
-            $criteria = array_merge($criteria, $cursorFilter);
-        }
+        return $this->traced('find', function () use ($criteria, $sort, $limit, $cursor): array {
+            if ($cursor !== null) {
+                $cursorFilter = $this->decodeCursor($cursor);
+                $criteria = array_merge($criteria, $cursorFilter);
+            }
 
-        $options = ['limit' => $limit];
+            $options = ['limit' => $limit];
 
-        if (!empty($sort)) {
-            $options['sort'] = array_map(
-                fn(string $dir) => $dir === 'asc' ? 1 : -1,
-                $sort,
+            if (!empty($sort)) {
+                $options['sort'] = array_map(
+                    fn(string $dir) => $dir === 'asc' ? 1 : -1,
+                    $sort,
+                );
+            }
+
+            $result = $this->collection()->find($criteria, $options);
+
+            return array_map(
+                fn($doc) => (array) $this->fromDocument((array) $doc),
+                iterator_to_array($result),
             );
-        }
-
-        $cursor = $this->collection()->find($criteria, $options);
-
-        return array_map(
-            fn($doc) => (array) $this->fromDocument((array) $doc),
-            iterator_to_array($cursor),
-        );
+        });
     }
 
     /**
@@ -265,7 +278,7 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
      */
     public function countByCriteria(array $criteria): int
     {
-        return (int) $this->collection()->countDocuments($criteria);
+        return $this->traced('countDocuments', fn(): int => (int) $this->collection()->countDocuments($criteria));
     }
 
     /**
@@ -276,13 +289,17 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
      */
     public function upsert(string $id, array $document): void
     {
-        $document['_id'] = $id;
+        $this->traced('replaceOne', function () use ($id, $document): null {
+            $document['_id'] = $id;
 
-        $this->collection()->replaceOne(
-            ['_id' => $id],
-            $document,
-            ['upsert' => true],
-        );
+            $this->collection()->replaceOne(
+                ['_id' => $id],
+                $document,
+                ['upsert' => true],
+            );
+
+            return null;
+        });
     }
 
     /**
@@ -299,18 +316,22 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
             return;
         }
 
-        $operations = array_map(
-            fn(array $doc) => [
-                'replaceOne' => [
-                    ['_id' => $doc['_id']],
-                    $doc,
-                    ['upsert' => true],
+        $this->traced('bulkWrite', function () use ($documents): null {
+            $operations = array_map(
+                fn(array $doc) => [
+                    'replaceOne' => [
+                        ['_id' => $doc['_id']],
+                        $doc,
+                        ['upsert' => true],
+                    ],
                 ],
-            ],
-            $documents,
-        );
+                $documents,
+            );
 
-        $this->collection()->bulkWrite($operations);
+            $this->collection()->bulkWrite($operations);
+
+            return null;
+        });
     }
 
     /**
@@ -324,7 +345,10 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
             return;
         }
 
-        $this->collection()->deleteMany(['_id' => ['$in' => $ids]]);
+        $this->traced('deleteMany', function () use ($ids): null {
+            $this->collection()->deleteMany(['_id' => ['$in' => $ids]]);
+            return null;
+        });
     }
 
     /**
@@ -342,6 +366,36 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
     protected function collection(): Collection
     {
         return $this->database->selectCollection($this->collectionName());
+    }
+
+    /**
+     * Wraps a MongoDB operation in a tracing span.
+     * No-ops when TracingInterface was not injected or returns NoOpSpan.
+     */
+    private function traced(string $operation, callable $fn): mixed
+    {
+        if ($this->tracer === null) {
+            return $fn();
+        }
+
+        $span = $this->tracer->startSpan('db.mongo.' . $operation, [
+            'db.collection'  => $this->collectionName(),
+            'db.operation'   => $operation,
+            'db.system'      => 'mongodb',
+            'vortos.module'  => TracingModule::Persistence,
+        ]);
+
+        try {
+            $result = $fn();
+            $span->setStatus('ok');
+            return $result;
+        } catch (\Throwable $e) {
+            $span->recordException($e);
+            $span->setStatus('error');
+            throw $e;
+        } finally {
+            $span->end();
+        }
     }
 
     /**

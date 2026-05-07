@@ -47,6 +47,7 @@ final class EntityManagerFactory
         array $entityPaths,
         bool $devMode = false,
         ?CacheItemPoolInterface $metadataCache = null,
+        array $middlewares = [],
     ): EntityManager {
         if (trim($dsn) === '') {
             throw new \RuntimeException('The ORM persistence adapter requires VORTOS_WRITE_DB_DSN to be set.');
@@ -57,6 +58,10 @@ final class EntityManagerFactory
             isDevMode: $devMode,
             cache: $metadataCache,
         );
+
+        if ($middlewares !== []) {
+            $config->setMiddlewares($middlewares);
+        }
 
         $parser = new DsnParser([
             'pgsql'    => 'pdo_pgsql',

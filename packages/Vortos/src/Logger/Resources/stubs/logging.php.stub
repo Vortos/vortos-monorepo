@@ -1,0 +1,28 @@
+<?php
+
+declare(strict_types=1);
+
+use Vortos\Logger\Config\LogChannel;
+use Vortos\Logger\DependencyInjection\VortosLoggingConfig;
+
+return static function (VortosLoggingConfig $config): void {
+    // Defaults are env-driven — override here when needed.
+
+    // Silence high-volume framework channels in production:
+    // $config->disableChannel(LogChannel::Cache, LogChannel::Query);
+
+    // Limit log file retention (dev only):
+    // $config->rotation(true, maxFiles: 14);
+
+    // Disable request-end buffer flush:
+    // $config->buffer(false);
+
+    // Route errors to Sentry (requires sentry/sentry):
+    // $config->sentry(dsn: $_ENV['SENTRY_DSN'] ?? '');
+
+    // Route critical alerts to Slack:
+    // $config->slack(webhook: $_ENV['SLACK_ALERT_WEBHOOK'] ?? '');
+
+    // Route errors to email:
+    // $config->email(to: $_ENV['ALERT_EMAIL'] ?? '');
+};

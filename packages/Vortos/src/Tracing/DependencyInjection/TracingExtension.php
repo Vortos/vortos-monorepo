@@ -77,5 +77,9 @@ final class TracingExtension extends Extension
         // Alias TracingInterface to the outermost decorator
         $container->setAlias(TracingInterface::class, ModuleAwareTracer::class)
             ->setPublic(true);
+
+        // HttpExtension (order 20) sets a safe default of false before this runs.
+        // This overrides it with the user-configured value.
+        $container->setParameter('vortos.tracing.trust_remote_context', $config->getTrustRemoteContext());
     }
 }

@@ -39,6 +39,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\PersistenceMongo\\' => 24,
             'Vortos\\PersistenceDbal\\' => 23,
             'Vortos\\Migration\\' => 17,
+            'Vortos\\Metrics\\' => 15,
             'Vortos\\Messaging\\' => 17,
             'Vortos\\Make\\' => 12,
             'Vortos\\Logger\\' => 14,
@@ -178,6 +179,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Migration\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Migration',
+        ),
+        'Vortos\\Metrics\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Metrics',
         ),
         'Vortos\\Messaging\\' =>
         array (

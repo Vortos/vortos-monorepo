@@ -14,6 +14,10 @@
         "psr/log": "^3.0",
         "monolog/monolog": "^3.0"
     },
+    "suggest": {
+        "vortos/vortos-tracing": "Required for trace ID correlation in log records",
+        "sentry/sentry": "Required for Sentry alerting handler (VortosLoggingConfig::sentry())"
+    },
     "extra": {
         "vortos": {
             "package": "Vortos\\Logger\\DependencyInjection\\LoggerPackage",

@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Vortos\PersistenceMongo\DependencyInjection;
 
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
+use Vortos\PersistenceMongo\Tracing\MongoTracingCompilerPass;
 
 /**
  * MongoDB persistence package.
@@ -26,6 +28,10 @@ final class MongoPersistencePackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
-        // No compiler passes needed.
+        $container->addCompilerPass(
+            new MongoTracingCompilerPass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            0,
+        );
     }
 }

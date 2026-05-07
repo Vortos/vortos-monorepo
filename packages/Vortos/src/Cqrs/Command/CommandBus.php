@@ -14,6 +14,7 @@ use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Command\CommandInterface;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
+use Vortos\Tracing\Contract\TracingInterface;
 
 /**
  * Default synchronous command bus.
@@ -47,6 +48,7 @@ final class CommandBus implements CommandBusInterface
         private EventBusInterface $eventBus,
         private CommandIdempotencyStoreInterface $idempotencyStore,
         private LoggerInterface $logger,
+        private TracingInterface $tracer,
         private array $idempotencyStrategies = [],
         private ?VortosValidator $validator = null,
     ) {}
@@ -54,44 +56,60 @@ final class CommandBus implements CommandBusInterface
     public function dispatch(CommandInterface $command): void
     {
         $commandClass = get_class($command);
+        $shortName    = substr(strrchr($commandClass, '\\') ?: $commandClass, 1);
 
         if (!$this->handlerLocator->has($commandClass)) {
             throw new CommandHandlerNotFoundException($commandClass);
         }
 
-        // 1. Validate — before idempotency, before transaction
-        $this->runValidation($command);
-
-        // 2. Idempotency check
-        $idempotencyKey = $this->resolveIdempotencyKey($command);
-
-        if ($idempotencyKey !== null && $this->idempotencyStore->wasProcessed($idempotencyKey)) {
-            return;
-        }
-
-        $handler = $this->handlerLocator->get($commandClass);
-
-        // 3. Transaction
-        $this->unitOfWork->run(function () use ($command, $handler): void {
-            $result = $handler($command);
-
-            if ($result instanceof AggregateRoot) {
-                foreach ($result->pullDomainEvents() as $event) {
-                    $this->eventBus->dispatch($event);
-                }
-            }
-        });
-
-        // 4. Mark processed — only reached on success
-        if ($idempotencyKey !== null) {
-            $this->idempotencyStore->markProcessed($idempotencyKey);
-        }
-
-        $this->logger->info('Command dispatched', [
-            'command'  => $commandClass,
-            'strategy' => $this->idempotencyStrategies[$commandClass] ?? 'none',
-            'key'      => $idempotencyKey,
+        $span = $this->tracer->startSpan('cqrs.command.' . $shortName, [
+            'command.class' => $commandClass,
         ]);
+
+        try {
+            // 1. Validate — before idempotency, before transaction
+            $this->runValidation($command);
+
+            // 2. Idempotency check
+            $idempotencyKey = $this->resolveIdempotencyKey($command);
+
+            if ($idempotencyKey !== null && $this->idempotencyStore->wasProcessed($idempotencyKey)) {
+                $span->setStatus('ok');
+                return;
+            }
+
+            $handler = $this->handlerLocator->get($commandClass);
+
+            // 3. Transaction
+            $this->unitOfWork->run(function () use ($command, $handler): void {
+                $result = $handler($command);
+
+                if ($result instanceof AggregateRoot) {
+                    foreach ($result->pullDomainEvents() as $event) {
+                        $this->eventBus->dispatch($event);
+                    }
+                }
+            });
+
+            // 4. Mark processed — only reached on success
+            if ($idempotencyKey !== null) {
+                $this->idempotencyStore->markProcessed($idempotencyKey);
+            }
+
+            $this->logger->info('Command dispatched', [
+                'command'  => $commandClass,
+                'strategy' => $this->idempotencyStrategies[$commandClass] ?? 'none',
+                'key'      => $idempotencyKey,
+            ]);
+
+            $span->setStatus('ok');
+        } catch (\Throwable $e) {
+            $span->recordException($e);
+            $span->setStatus('error');
+            throw $e;
+        } finally {
+            $span->end();
+        }
     }
 
     /** @throws ValidationException */

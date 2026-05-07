@@ -1,0 +1,28 @@
+{
+    "name": "vortos/vortos-metrics",
+    "description": "Vortos metrics — Prometheus, StatsD and NoOp adapters with auto-instrumentation",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Metrics\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-tracing": "^1.0"
+    },
+    "suggest": {
+        "promphp/prometheus_client_php": "Required for Prometheus adapter",
+        "vortos/vortos-cache": "Required for Redis-backed Prometheus storage (FrankenPHP multi-process)",
+        "vortos/vortos-cqrs": "Required for CQRS command metrics auto-instrumentation",
+        "vortos/vortos-messaging": "Required for event bus metrics auto-instrumentation"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Metrics\\DependencyInjection\\MetricsPackage",
+            "order": 55
+        }
+    }
+}

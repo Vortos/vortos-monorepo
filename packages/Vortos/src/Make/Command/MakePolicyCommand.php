@@ -52,7 +52,7 @@ final class MakePolicyCommand extends Command
         $output->writeln('');
 
         $this->engine->write(
-            "{$context}/Infrastructure/Policy/{$name}Policy.php",
+            "{$context}/Application/Policy/{$name}Policy.php",
             $this->engine->render('policy', $vars),
             $output,
         );

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace {{Namespace}}\Infrastructure\Policy;
+namespace {{Namespace}}\Application\Policy;
 
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Authorization\Attribute\AsPolicy;

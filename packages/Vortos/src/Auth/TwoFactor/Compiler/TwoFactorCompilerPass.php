@@ -35,9 +35,30 @@ final class TwoFactorCompilerPass implements CompilerPassInterface
                 !$definition->hasTag('controller.service_arguments')) continue;
 
             $reflection = new \ReflectionClass($class);
+
+            // Class-level
             if (!empty($reflection->getAttributes(Requires2FA::class))) {
                 $protectedControllers[] = $class;
+                continue;
             }
+
+            // Method-level — if any method requires 2FA, the whole controller is protected
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                if (!empty($method->getAttributes(Requires2FA::class))) {
+                    $protectedControllers[] = $class;
+                    break;
+                }
+            }
+        }
+
+        // Fail fast — a #[Requires2FA] controller with no verifier registered is a misconfiguration
+        if (!empty($protectedControllers) && $verifierServiceId === null) {
+            throw new \RuntimeException(sprintf(
+                '%d controller(s) require 2FA via #[Requires2FA] but no %s implementation is registered. ' .
+                'Implement the interface and register it as a service.',
+                count($protectedControllers),
+                TwoFactorVerifierInterface::class,
+            ));
         }
 
         $verifierRef = $verifierServiceId ? new Reference($verifierServiceId) : null;

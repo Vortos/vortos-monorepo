@@ -6,7 +6,8 @@ namespace Vortos\Authorization\Resolver;
 
 final class RoleGenerationStore
 {
-    private const KEY = 'authorization:role_generations';
+    private const KEY_PREFIX = 'authorization:role_gen:';
+    private const TTL = 86_400; // 24 hours — resets on each increment
 
     public function __construct(private readonly \Redis $redis)
     {
@@ -25,11 +26,16 @@ final class RoleGenerationStore
             return [];
         }
 
-        $values = $this->redis->hMGet(self::KEY, $roles);
-        $generations = [];
-
+        // Batch-fetch all role generation counters in a single pipeline round-trip
+        $this->redis->multi(\Redis::PIPELINE);
         foreach ($roles as $role) {
-            $value = is_array($values) ? ($values[$role] ?? false) : false;
+            $this->redis->get(self::KEY_PREFIX . $role);
+        }
+        $values = $this->redis->exec();
+
+        $generations = [];
+        foreach ($roles as $i => $role) {
+            $value = $values[$i] ?? false;
             $generations[$role] = $value === false ? 0 : (int) $value;
         }
 
@@ -46,6 +52,11 @@ final class RoleGenerationStore
 
     public function increment(string $role): void
     {
-        $this->redis->hIncrBy(self::KEY, $role, 1);
+        $script = <<<'LUA'
+local v = redis.call("incr", KEYS[1])
+redis.call("expire", KEYS[1], ARGV[1])
+return v
+LUA;
+        $this->redis->eval($script, [self::KEY_PREFIX . $role, self::TTL], 1);
     }
 }

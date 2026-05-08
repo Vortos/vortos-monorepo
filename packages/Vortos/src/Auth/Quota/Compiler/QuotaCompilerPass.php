@@ -34,9 +34,19 @@ final class QuotaCompilerPass implements CompilerPassInterface
                 !$definition->hasTag('controller.service_arguments')) continue;
 
             $reflection = new \ReflectionClass($class);
+
+            // Class-level attributes
             foreach ($reflection->getAttributes(RequiresQuota::class) as $attr) {
                 $instance = $attr->newInstance();
                 $routeMap[$class][] = ['quota' => $instance->quota, 'cost' => $instance->cost];
+            }
+
+            // Method-level attributes
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                foreach ($method->getAttributes(RequiresQuota::class) as $attr) {
+                    $instance = $attr->newInstance();
+                    $routeMap[$class][] = ['quota' => $instance->quota, 'cost' => $instance->cost];
+                }
             }
         }
 

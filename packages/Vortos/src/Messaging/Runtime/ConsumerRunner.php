@@ -25,6 +25,7 @@ use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Messenger\Envelope;
+use Symfony\Component\Uid\UuidV7;
 
 /**
  * Orchestrates the full message processing pipeline for a named consumer.
@@ -87,6 +88,22 @@ final class ConsumerRunner
             return;
         }
 
+        $descriptors = $this->handlerRegistry->getHandlers($consumerName, $eventClass);
+
+        if (empty($descriptors)) {
+            $this->logger->warning(
+                'No handlers found for event',
+                [
+                    'consumer' => $consumerName,
+                    'event_class' => $eventClass
+                ]
+            );
+
+            $consumer->acknowledge($message);
+
+            return;
+        }
+
         $serializer = $this->serializerLocator->locate('json');
 
         try {
@@ -107,24 +124,8 @@ final class ConsumerRunner
             return;
         }
 
-        $descriptors = $this->handlerRegistry->getHandlers($consumerName, $eventClass);
-
-        if (empty($descriptors)) {
-            $this->logger->warning(
-                'No handlers found for event',
-                [
-                    'consumer' => $consumerName,
-                    'event_class' => $eventClass
-                ]
-            );
-
-            $consumer->acknowledge($message);
-
-            return;
-        }
-
-        $eventId = $message->headers['event_id'] ?? bin2hex(random_bytes(8));
-        $correlationId = $message->headers['correlation_id'] ?? bin2hex(random_bytes(8));
+        $eventId = $message->headers['event_id'] ?? (new UuidV7())->toRfc4122();
+        $correlationId = $message->headers['correlation_id'] ?? (new UuidV7())->toRfc4122();
 
         $envelope = new Envelope(
             $event,
@@ -133,11 +134,6 @@ final class ConsumerRunner
                 new CorrelationIdStamp($correlationId),
                 new ConsumerStamp($consumerName)
             ]
-        );
-
-        file_put_contents(
-            '/var/www/html/var/log/handler_discovery_debug.txt',
-            print_r($descriptors, true)
         );
 
         $allSucceeded = true;
@@ -211,11 +207,8 @@ final class ConsumerRunner
                 try {
                     $this->middlewareStack->process($envelope, $handlerCallable);
 
-                    if ($eventId !== null) {
-
-                        if (isset($cacheKey)) {
-                            $this->cache->set($cacheKey, true, $this->idempotencyTtl);
-                        }
+                    if (isset($cacheKey)) {
+                        $this->cache->set($cacheKey, true, $this->idempotencyTtl);
                     }
 
                     return true;

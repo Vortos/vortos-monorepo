@@ -29,6 +29,8 @@ use Vortos\Tracing\Contract\TracingInterface;
  */
 final class TracingCacheAdapter implements TaggedCacheInterface
 {
+    private static ?object $sentinel = null;
+
     public function __construct(
         private readonly TaggedCacheInterface $inner,
         private readonly TracingInterface $tracer,
@@ -36,16 +38,19 @@ final class TracingCacheAdapter implements TaggedCacheInterface
 
     public function get(string $key, mixed $default = null): mixed
     {
+        $sentinel = self::$sentinel ??= new \stdClass();
+
         $span = $this->tracer->startSpan('cache.get', [
             'cache.key'     => $key,
             'vortos.module' => TracingModule::Cache,
         ]);
 
         try {
-            $value = $this->inner->get($key, $default);
-            $span->addAttribute('cache.hit', $value !== $default);
+            $value = $this->inner->get($key, $sentinel);
+            $hit = $value !== $sentinel;
+            $span->addAttribute('cache.hit', $hit);
             $span->setStatus('ok');
-            return $value;
+            return $hit ? $value : $default;
         } catch (\Throwable $e) {
             $span->recordException($e);
             $span->setStatus('error');

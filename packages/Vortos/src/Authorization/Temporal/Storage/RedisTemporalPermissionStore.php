@@ -31,11 +31,20 @@ final class RedisTemporalPermissionStore implements TemporalPermissionStoreInter
         }
 
         $key = $this->key($userId, $permission);
+        $indexKey = $this->indexKey($userId);
+
+        // Read current index TTL before entering MULTI so we can decide whether to extend it.
+        // -2 = key does not exist, -1 = no TTL (persistent), >= 0 = remaining seconds.
+        $currentIndexTtl = $this->redis->ttl($indexKey);
 
         $this->redis->multi();
         $this->redis->setEx($key, $ttl, json_encode(['expires_at' => $expiresAt->getTimestamp()]));
-        $this->redis->sAdd($this->indexKey($userId), $permission);
-        $this->redis->expire($this->indexKey($userId), max($ttl, 1));
+        $this->redis->sAdd($indexKey, $permission);
+        // Only extend the index TTL, never shrink it. Lazy cleanup in activeGrantsForUser handles
+        // expired entries left in the index after a short-lived grant outlives the index.
+        if ($currentIndexTtl === -2 || ($currentIndexTtl >= 0 && $currentIndexTtl < $ttl)) {
+            $this->redis->expire($indexKey, $ttl);
+        }
         $this->redis->exec();
     }
 
@@ -72,15 +81,28 @@ final class RedisTemporalPermissionStore implements TemporalPermissionStoreInter
             return [];
         }
 
-        $active = [];
+        $permissions = array_values($permissions);
 
+        // Batch-check existence via pipeline to avoid N sequential round-trips
+        $this->redis->multi(\Redis::PIPELINE);
         foreach ($permissions as $permission) {
-            if ($this->isValid($userId, (string) $permission)) {
-                $active[] = (string) $permission;
-                continue;
-            }
+            $this->redis->exists($this->key($userId, (string) $permission));
+        }
+        $exists = $this->redis->exec();
 
-            $this->redis->sRem($this->indexKey($userId), (string) $permission);
+        $active = [];
+        $toRemove = [];
+
+        foreach ($permissions as $i => $permission) {
+            if (!empty($exists[$i])) {
+                $active[] = (string) $permission;
+            } else {
+                $toRemove[] = (string) $permission;
+            }
+        }
+
+        if (!empty($toRemove)) {
+            $this->redis->sRem($this->indexKey($userId), ...$toRemove);
         }
 
         sort($active);

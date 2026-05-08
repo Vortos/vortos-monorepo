@@ -32,7 +32,7 @@ final class TwoFactorMiddleware implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         // Between auth (6) and authorization (5)
-        return [KernelEvents::REQUEST => ['onKernelRequest', 55, ]];
+        return [KernelEvents::REQUEST => ['onKernelRequest', 5]];
     }
 
     public function onKernelRequest(RequestEvent $event): void

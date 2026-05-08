@@ -16,6 +16,11 @@ use Vortos\Domain\Event\DomainEventInterface;
 
 final class JsonSerializer implements SerializerInterface
 {
+    private const MAX_DEPTH = 8;
+
+    /** @var array<string, ReflectionClass> */
+    private static array $reflectionCache = [];
+
     public function supports(string $format): bool
     {
         return $format === 'json';
@@ -23,7 +28,7 @@ final class JsonSerializer implements SerializerInterface
 
     public function serialize(DomainEventInterface $event): string
     {
-        $properties = new ReflectionClass($event)->getProperties(ReflectionProperty::IS_PUBLIC);
+        $properties = self::reflect(get_class($event))->getProperties(ReflectionProperty::IS_PUBLIC);
         $data = ['aggregateId' => $event->aggregateId()];
 
         foreach ($properties as $property) {
@@ -43,13 +48,19 @@ final class JsonSerializer implements SerializerInterface
         }
     }
 
-    public function deserialize(string $payload, string $eventClass): DomainEventInterface
+    public function deserialize(string $payload, string $eventClass, int $depth = 0): DomainEventInterface
     {
+        if ($depth > self::MAX_DEPTH) {
+            throw new DeserializationException(
+                message: "Maximum deserialization depth (" . self::MAX_DEPTH . ") exceeded for class '{$eventClass}'."
+            );
+        }
+
         try {
             $data = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
             unset($data['_class']);
 
-            $reflClass = new ReflectionClass($eventClass);
+            $reflClass = self::reflect($eventClass);
             $constructor = $reflClass->getConstructor();
 
             if ($constructor === null) {
@@ -69,7 +80,7 @@ final class JsonSerializer implements SerializerInterface
                         $nestedClass = $paramType->getName();
 
                         if (is_array($data[$paramName])) {
-                            $args[] = $this->deserialize(json_encode($data[$paramName]), $nestedClass);
+                            $args[] = $this->deserialize(json_encode($data[$paramName]), $nestedClass, $depth + 1);
                         } elseif (method_exists($nestedClass, 'fromString')) {
                             $args[] = $nestedClass::fromString($data[$paramName]);
                         } elseif (method_exists($nestedClass, 'fromRfc4122')) {
@@ -95,5 +106,10 @@ final class JsonSerializer implements SerializerInterface
         } catch (\Throwable $e) {
             throw DeserializationException::forPayload($payload, $eventClass, $e);
         }
+    }
+
+    private static function reflect(string $class): ReflectionClass
+    {
+        return self::$reflectionCache[$class] ??= new ReflectionClass($class);
     }
 }

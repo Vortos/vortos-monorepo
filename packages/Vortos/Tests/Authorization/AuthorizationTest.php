@@ -572,18 +572,19 @@ final class AuthorizationTest extends TestCase
 
     public function test_permission_format_parsing(): void
     {
-        [$resource, $action, $scope] = $this->engine->parsePermission('articles.update.own');
-
-        $this->assertSame('articles', $resource);
-        $this->assertSame('update', $action);
-        $this->assertSame('own', $scope);
+        // Valid format: engine accepts and evaluates it (denied only because user lacks the permission,
+        // not because of a format error)
+        $identity = new UserIdentity('user-1', ['ROLE_USER']);
+        $decision = $this->engine->decide($identity, 'articles.update.own');
+        $this->assertNotSame('invalid_permission_format', $decision->reason());
     }
 
-    public function test_invalid_permission_format_throws(): void
+    public function test_invalid_permission_format_is_denied(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
-
-        $this->engine->parsePermission('invalid-format');
+        $identity = new UserIdentity('user-1', ['ROLE_USER']);
+        $decision = $this->engine->decide($identity, 'invalid-format');
+        $this->assertFalse($decision->allowed());
+        $this->assertSame('invalid_permission_format', $decision->reason());
     }
 
     private function makeMiddleware(?ScopedPermissionStoreInterface $scopedPermissions = null): AuthorizationMiddleware

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Driver\Kafka\Runtime;
 
-use App\User\Application\EventHandler\SendEmailHandler;
 use Vortos\Messaging\Contract\ConsumerInterface;
 use Vortos\Messaging\ValueObject\ReceivedMessage;
 use Vortos\Tracing\Contract\TracingInterface;
@@ -84,11 +83,13 @@ final class KafkaConsumer implements ConsumerInterface
 
     public function reject(ReceivedMessage $message, bool $requeue = false): void
     {
-        if($requeue){
-            // Kafka requeue: offset not committed, message will be redelivered
-        }else{
-            $this->commit();
-        }   
+        if ($requeue) {
+            throw new \LogicException(
+                'Kafka does not support server-side requeue. To redeliver, do not commit the offset — simply omit the acknowledge() call instead of calling reject(requeue: true).'
+            );
+        }
+
+        $this->commit();
     }
 
     private function commit($message_or_offsets = null):void

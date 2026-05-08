@@ -7,6 +7,7 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
+use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Auth\RateLimit\Attribute\RateLimit;
@@ -17,13 +18,20 @@ use Vortos\Auth\RateLimit\Storage\RedisRateLimitStore;
 /**
  * Enforces #[RateLimit] on controllers.
  *
- * Priority 7 — runs before AuthMiddleware (6) so IP-based limits
- * apply even to unauthenticated requests.
+ * Scope-aware execution order:
  *
- * Runtime: reads pre-built compile-time map of controller → rate limit rules.
- * Zero reflection at runtime.
+ *   Priority 7 — IP + Global scopes (onKernelRequestIpGlobal)
+ *     Runs before AuthMiddleware (6). Does not need identity — keyed on IP
+ *     or controller name only. Protects unauthenticated endpoints (e.g. login).
+ *
+ *   Priority 5 — User scope (onKernelRequestUser)
+ *     Runs after AuthMiddleware (6). Identity is resolved and real user ID is
+ *     available. Each user gets their own isolated rate limit bucket.
  *
  * Returns 429 with Retry-After header when limit exceeded.
+ * Sets X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset on all responses.
+ *
+ * Runtime: reads pre-built compile-time map — zero reflection.
  */
 final class RateLimitMiddleware implements EventSubscriberInterface
 {
@@ -42,10 +50,48 @@ final class RateLimitMiddleware implements EventSubscriberInterface
 
     public static function getSubscribedEvents(): array
     {
-        return [KernelEvents::REQUEST => ['onKernelRequest', 7]];
+        return [
+            KernelEvents::REQUEST => [
+                ['onKernelRequestIpGlobal', 7], // IP + Global — before auth
+                ['onKernelRequestUser', 4],      // User — after auth (4, below 2FA at 5)
+            ],
+            KernelEvents::RESPONSE => ['onKernelResponse', 0],
+        ];
     }
 
-    public function onKernelRequest(RequestEvent $event): void
+    /**
+     * Enforces IP-scoped and Global-scoped rate limits.
+     * Runs at priority 7 — before auth — so unauthenticated requests are covered.
+     */
+    public function onKernelRequestIpGlobal(RequestEvent $event): void
+    {
+        $this->enforce($event, RateLimitScope::Ip, RateLimitScope::Global);
+    }
+
+    /**
+     * Enforces User-scoped rate limits.
+     * Runs at priority 5 — after AuthMiddleware (6) has resolved the identity.
+     * If auth rejected the request, propagation is already stopped and this won't fire.
+     */
+    public function onKernelRequestUser(RequestEvent $event): void
+    {
+        $this->enforce($event, RateLimitScope::User);
+    }
+
+    public function onKernelResponse(ResponseEvent $event): void
+    {
+        if (!$event->isMainRequest()) return;
+
+        $rl = $event->getRequest()->attributes->get('_rate_limit_headers');
+        if ($rl === null) return;
+
+        $response = $event->getResponse();
+        $response->headers->set('X-RateLimit-Limit', (string) $rl['limit']);
+        $response->headers->set('X-RateLimit-Remaining', (string) max(0, $rl['remaining']));
+        $response->headers->set('X-RateLimit-Reset', (string) $rl['reset']);
+    }
+
+    private function enforce(RequestEvent $event, RateLimitScope ...$scopes): void
     {
         if (!$event->isMainRequest()) return;
 
@@ -60,6 +106,7 @@ final class RateLimitMiddleware implements EventSubscriberInterface
             $policyClass = $rule['policy'];
             $scope = $rule['per'];
 
+            if (!in_array($scope, $scopes, true)) continue;
             if (!isset($this->policies[$policyClass])) continue;
 
             $policy = $this->policies[$policyClass];
@@ -67,7 +114,7 @@ final class RateLimitMiddleware implements EventSubscriberInterface
 
             if ($limit->isUnlimited()) continue;
 
-            $key = match($scope) {
+            $key = match ($scope) {
                 RateLimitScope::User   => "rl:user:{$identity->id()}:{$controller}:{$policyClass}",
                 RateLimitScope::Ip     => "rl:ip:{$request->getClientIp()}:{$controller}:{$policyClass}",
                 RateLimitScope::Global => "rl:global:{$controller}:{$policyClass}",
@@ -88,6 +135,17 @@ final class RateLimitMiddleware implements EventSubscriberInterface
                     ['Retry-After' => $retryAfter],
                 ));
                 return;
+            }
+
+            // Track the most restrictive limit for response headers
+            $remaining = $limit->limit - $current;
+            $existing = $request->attributes->get('_rate_limit_headers');
+            if ($existing === null || $remaining < $existing['remaining']) {
+                $request->attributes->set('_rate_limit_headers', [
+                    'limit'     => $limit->limit,
+                    'remaining' => $remaining,
+                    'reset'     => time() + $this->store->getTtl($key),
+                ]);
             }
         }
     }

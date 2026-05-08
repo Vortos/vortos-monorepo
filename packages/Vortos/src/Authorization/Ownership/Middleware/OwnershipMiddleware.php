@@ -14,8 +14,11 @@ use Vortos\Authorization\Ownership\Contract\OwnershipPolicyInterface;
 
 /**
  * Enforces #[RequiresOwnership] and #[RequiresOwnershipOrPermission].
- * Priority 4.5 — between authorization (5) and feature access (4).
+ * Priority 2 — after authorization (3), before feature access (1).
  * Zero reflection — reads compile-time map.
+ *
+ * Route map keys: ControllerClass (class-level) or ControllerClass::method (method-level).
+ * Method-level takes precedence over class-level when both are present.
  */
 final class OwnershipMiddleware implements EventSubscriberInterface
 {
@@ -32,7 +35,7 @@ final class OwnershipMiddleware implements EventSubscriberInterface
 
     public static function getSubscribedEvents(): array
     {
-        return [KernelEvents::REQUEST => ['onKernelRequest', 45]];
+        return [KernelEvents::REQUEST => ['onKernelRequest', 2]];
     }
 
     public function onKernelRequest(RequestEvent $event): void
@@ -40,15 +43,22 @@ final class OwnershipMiddleware implements EventSubscriberInterface
         if (!$event->isMainRequest()) return;
 
         $request = $event->getRequest();
-        $controller = $this->extractControllerClass($request->attributes->get('_controller'));
+        [$controllerClass, $controllerMethod] = $this->extractControllerReference($request->attributes->get('_controller'));
 
-        if ($controller === null || !isset($this->routeMap[$controller])) return;
+        if ($controllerClass === null) return;
+
+        // Method-level takes precedence over class-level
+        $methodKey = $controllerMethod !== null ? $controllerClass . '::' . $controllerMethod : null;
+        $rule = ($methodKey !== null && isset($this->routeMap[$methodKey]))
+            ? $this->routeMap[$methodKey]
+            : ($this->routeMap[$controllerClass] ?? null);
+
+        if ($rule === null) return;
 
         $identity = $this->currentUser->get();
 
         if (!$identity->isAuthenticated()) return;
 
-        $rule = $this->routeMap[$controller];
         $policyClass = $rule['policy'];
 
         if (!isset($this->policies[$policyClass])) return;
@@ -79,11 +89,24 @@ final class OwnershipMiddleware implements EventSubscriberInterface
         }
     }
 
-    private function extractControllerClass(mixed $controller): ?string
+    /**
+     * @return array{0: ?class-string, 1: ?string}
+     */
+    private function extractControllerReference(mixed $controller): array
     {
-        if (is_string($controller)) return explode('::', $controller)[0];
-        if (is_array($controller)) return is_object($controller[0]) ? get_class($controller[0]) : $controller[0];
-        if (is_object($controller)) return get_class($controller);
-        return null;
+        if (is_string($controller)) {
+            $parts = explode('::', $controller, 2);
+            return [$parts[0], $parts[1] ?? null];
+        }
+        if (is_array($controller)) {
+            return [
+                is_object($controller[0]) ? get_class($controller[0]) : $controller[0],
+                isset($controller[1]) && is_string($controller[1]) ? $controller[1] : null,
+            ];
+        }
+        if (is_object($controller)) {
+            return [get_class($controller), '__invoke'];
+        }
+        return [null, null];
     }
 }

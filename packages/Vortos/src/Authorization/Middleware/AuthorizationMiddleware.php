@@ -15,16 +15,18 @@ use Vortos\Authorization\Engine\PolicyEngine;
 /**
  * Enforces #[RequiresPermission] on controllers.
  *
- * Listens on kernel.request at priority 5 — after RouterListener (8)
- * and after AuthMiddleware (6). By the time this runs:
+ * Listens on kernel.request at priority 3 — after TwoFactor (5) and RateLimitUser (4).
+ * By the time this runs:
  *   - _controller is set in request attributes (from RouterListener)
  *   - UserIdentity is set in ArrayAdapter (from AuthMiddleware)
+ *   - 2FA is verified (from TwoFactorMiddleware)
  *
  * ## Sequence per request
  *
- *   priority 8: RouterListener    — matches route, sets _controller
  *   priority 6: AuthMiddleware    — validates token, sets identity
- *   priority 5: AuthorizationMiddleware — checks permissions
+ *   priority 5: TwoFactorMiddleware — 2FA gate
+ *   priority 4: RateLimitUser     — per-user rate limit
+ *   priority 3: AuthorizationMiddleware — checks permissions
  *   priority 0: ControllerResolver → controller executes
  *
  * ## Unauthenticated requests
@@ -54,7 +56,7 @@ final class AuthorizationMiddleware implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            KernelEvents::REQUEST => ['onKernelRequest', 5],
+            KernelEvents::REQUEST => ['onKernelRequest', 3],
         ];
     }
 

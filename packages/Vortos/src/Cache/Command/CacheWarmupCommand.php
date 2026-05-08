@@ -75,6 +75,7 @@ final class CacheWarmupCommand extends Command
         $output->writeln('');
 
         $count = 0;
+        $failed = 0;
 
         foreach ($this->warmers as $warmer) {
             $name = get_class($warmer);
@@ -85,17 +86,22 @@ final class CacheWarmupCommand extends Command
                 $count++;
             } catch (\Throwable $e) {
                 $output->writeln(sprintf('  <error>✘ %s: %s</error>', $name, $e->getMessage()));
+                $failed++;
             }
         }
 
         $output->writeln('');
 
-        if ($count === 0) {
+        if ($count === 0 && $failed === 0) {
             $output->writeln('<comment>No cache warmers registered. Tag your warmers with vortos.cache_warmer.</comment>');
         } else {
             $output->writeln(sprintf('<info>Done. %d warmer(s) ran successfully.</info>', $count));
         }
 
-        return Command::SUCCESS;
+        if ($failed > 0) {
+            $output->writeln(sprintf('<error>%d warmer(s) failed.</error>', $failed));
+        }
+
+        return $failed > 0 ? Command::FAILURE : Command::SUCCESS;
     }
 }

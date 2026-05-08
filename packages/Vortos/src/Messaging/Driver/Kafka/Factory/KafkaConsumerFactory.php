@@ -39,6 +39,11 @@ final class KafkaConsumerFactory
 
         $sasl = $transportConfig['security']['sasl'] ?? [];
         if (!empty($sasl)) {
+            if (empty($sasl['username']) || empty($sasl['password'])) {
+                throw new \InvalidArgumentException(
+                    "SASL username and password must not be empty for consumer '{$consumerName}'."
+                );
+            }
             $conf->set('sasl.mechanisms', $sasl['mechanism']);
             $conf->set('sasl.username', $sasl['username']);
             $conf->set('sasl.password', $sasl['password']);
@@ -49,14 +54,23 @@ final class KafkaConsumerFactory
         if (!empty($ssl)) {
 
             if (isset($ssl['ca_location'])) {
+                if (!is_readable($ssl['ca_location'])) {
+                    throw new \InvalidArgumentException("SSL CA file is not readable: {$ssl['ca_location']}");
+                }
                 $conf->set('ssl.ca.location', $ssl['ca_location']);
             }
 
             if (isset($ssl['certificate_location'])) {
+                if (!is_readable($ssl['certificate_location'])) {
+                    throw new \InvalidArgumentException("SSL certificate file is not readable: {$ssl['certificate_location']}");
+                }
                 $conf->set('ssl.certificate.location', $ssl['certificate_location']);
             }
 
             if (isset($ssl['key_location'])) {
+                if (!is_readable($ssl['key_location'])) {
+                    throw new \InvalidArgumentException("SSL key file is not readable: {$ssl['key_location']}");
+                }
                 $conf->set('ssl.key.location', $ssl['key_location']);
             }
 

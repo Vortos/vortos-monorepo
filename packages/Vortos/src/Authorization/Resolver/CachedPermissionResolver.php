@@ -11,14 +11,17 @@ use Vortos\Authorization\Tracing\AuthorizationTracer;
 
 final class CachedPermissionResolver implements PermissionResolverInterface
 {
-    private const TTL_SECONDS = 60;
-    private const LOCK_TTL_MS = 500;
+    private const DEFAULT_TTL_SECONDS = 60;
+    private const LOCK_TTL_MS = 3000;
+    private const LOCK_RETRY_ATTEMPTS = 5;
+    private const LOCK_RETRY_SLEEP_US = 60_000; // 60ms
 
     public function __construct(
         private readonly PermissionResolverInterface $inner,
         private readonly \Redis $redis,
         private readonly RoleGenerationStore $generations,
         private readonly ?AuthorizationTracer $tracer = null,
+        private readonly int $ttlSeconds = self::DEFAULT_TTL_SECONDS,
     ) {
     }
 
@@ -75,11 +78,15 @@ final class CachedPermissionResolver implements PermissionResolverInterface
     {
         $payload = $this->redis->get($cacheKey);
 
-        if ($payload === false) {
+        if ($payload === false || !is_string($payload)) {
             return null;
         }
 
-        $data = unserialize($payload);
+        try {
+            $data = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return null;
+        }
 
         return is_array($data) && isset($data['resolved'], $data['roleGenerationHash'])
             ? $data
@@ -118,18 +125,18 @@ final class CachedPermissionResolver implements PermissionResolverInterface
             }
         }
 
-        usleep(50000);
+        // Lock held by another worker — retry with backoff before falling back to direct resolve
+        for ($i = 0; $i < self::LOCK_RETRY_ATTEMPTS; $i++) {
+            usleep(self::LOCK_RETRY_SLEEP_US * (1 + $i));
 
-        $cached = $this->read($cacheKey);
-
-        if ($cached !== null && $this->isFresh($cached)) {
-            return ResolvedPermissions::fromArray($cached['resolved']);
+            $cached = $this->read($cacheKey);
+            if ($cached !== null && $this->isFresh($cached)) {
+                return ResolvedPermissions::fromArray($cached['resolved']);
+            }
         }
 
-        $resolved = $this->inner->resolve($identity);
-        $this->write($cacheKey, $resolved);
-
-        return $resolved;
+        // All retries exhausted — resolve directly without caching to avoid a thundering herd write
+        return $this->inner->resolve($identity);
     }
 
     private function write(string $cacheKey, ResolvedPermissions $resolved): void
@@ -139,7 +146,11 @@ final class CachedPermissionResolver implements PermissionResolverInterface
             'roleGenerationHash' => $this->generations->hashForRoles($resolved->expandedRoles()),
         ];
 
-        $this->redis->setEx($cacheKey, self::TTL_SECONDS, serialize($payload));
+        $this->redis->setEx(
+            $cacheKey,
+            $this->ttlSeconds,
+            json_encode($payload, JSON_THROW_ON_ERROR),
+        );
     }
 
     private function acquireLock(string $lockKey, string $token): bool

@@ -10,7 +10,6 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
-use Vortos\Auth\Attribute\RequiresAuth;
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Jwt\JwtService;
@@ -42,12 +41,21 @@ use Vortos\Cache\Adapter\ArrayAdapter;
  * route is protected. This ensures CurrentUserProvider::get() always
  * returns the correct identity — authenticated or anonymous — for any
  * component that reads it during the request lifecycle.
+ *
+ * ## Protected controller list
+ *
+ * Built at compile time by AuthCompilerPass — zero reflection at runtime.
+ * @see \Vortos\Auth\Middleware\Compiler\AuthCompilerPass
  */
 final class AuthMiddleware implements EventSubscriberInterface
 {
+    /**
+     * @param list<string> $protectedControllers Pre-built by AuthCompilerPass.
+     */
     public function __construct(
         private JwtService $jwtService,
         private ArrayAdapter $arrayAdapter,
+        private array $protectedControllers = [],
     ) {}
 
     public static function getSubscribedEvents(): array
@@ -105,9 +113,9 @@ final class AuthMiddleware implements EventSubscriberInterface
 
     /**
      * Read _controller from request attributes — already populated by RouterListener.
-     * Zero extra routing cost.
+     * Zero extra routing cost. Zero reflection — uses compile-time list from AuthCompilerPass.
      */
-    private function routeRequiresAuth(mixed $request): bool
+    private function routeRequiresAuth(Request $request): bool
     {
         $controller = $request->attributes->get('_controller');
 
@@ -117,15 +125,11 @@ final class AuthMiddleware implements EventSubscriberInterface
 
         $controllerClass = $this->extractControllerClass($controller);
 
-        if ($controllerClass === null || !class_exists($controllerClass)) {
+        if ($controllerClass === null) {
             return false;
         }
 
-        try {
-            return !empty((new \ReflectionClass($controllerClass))->getAttributes(RequiresAuth::class));
-        } catch (\Throwable) {
-            return false;
-        }
+        return in_array($controllerClass, $this->protectedControllers, true);
     }
 
     private function extractControllerClass(mixed $controller): ?string

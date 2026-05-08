@@ -49,16 +49,31 @@ final class RedisScopedPermissionStoreTest extends TestCase
         $this->assertFalse($this->store->has('user-456', 'org', 'org-123', 'documents.edit'));
     }
 
-    public function test_revoke_all_uses_keys_pattern(): void
+    public function test_revoke_all_uses_scan_and_deletes_found_keys(): void
     {
-        $this->redis->method('keys')->willReturn(['key1', 'key2']);
-        $this->redis->expects($this->once())->method('del');
+        $this->redis->method('scan')
+            ->willReturnCallback(static function (mixed &$iterator, string $pattern, int $count): array|false {
+                if ($iterator === null || $iterator === 0) {
+                    $iterator = 0;
+                    return ['key1', 'key2'];
+                }
+                return false;
+            });
+
+        $this->redis->expects($this->once())->method('del')
+            ->with('key1', 'key2');
+
         $this->store->revokeAll('user-456', 'org', 'org-123');
     }
 
     public function test_revoke_all_does_nothing_when_no_keys(): void
     {
-        $this->redis->method('keys')->willReturn([]);
+        $this->redis->method('scan')
+            ->willReturnCallback(static function (mixed &$iterator, string $pattern, int $count): array|false {
+                $iterator = 0;
+                return [];
+            });
+
         $this->redis->expects($this->never())->method('del');
         $this->store->revokeAll('user-456', 'org', 'org-123');
     }

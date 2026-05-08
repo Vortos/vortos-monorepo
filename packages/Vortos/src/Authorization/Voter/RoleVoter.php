@@ -120,21 +120,25 @@ final class RoleVoter
      */
     private function expandRoles(array $roles): array
     {
-        $expanded = $roles;
+        $expanded = [];
         $queue = $roles;
 
         while (!empty($queue)) {
             $role = array_shift($queue);
-            $inherited = $this->hierarchy[$role] ?? [];
 
-            foreach ($inherited as $inheritedRole) {
-                if (!in_array($inheritedRole, $expanded, true)) {
-                    $expanded[] = $inheritedRole;
+            if (isset($expanded[$role])) {
+                continue;
+            }
+
+            $expanded[$role] = true;
+
+            foreach ($this->hierarchy[$role] ?? [] as $inheritedRole) {
+                if (!isset($expanded[$inheritedRole])) {
                     $queue[] = $inheritedRole;
                 }
             }
         }
 
-        return $expanded;
+        return array_keys($expanded);
     }
 }

@@ -47,7 +47,14 @@ final class RedisTokenStorage implements TokenStorageInterface
         // Track JTI under user for revokeAllForUser()
         $userKey = self::USER_TOKENS_PREFIX . $userId;
         $this->redis->sAdd($userKey, $jti);
-        $this->redis->expire($userKey, 86400 * 8); // slightly longer than refresh token TTL
+
+        // Extend user-set TTL to cover this token plus a buffer — never shrink an existing TTL.
+        // Using a fixed 86400*8 broke when refreshTokenTtl was configured longer than 8 days.
+        $requiredTtl = $ttl + 3600;
+        $existingTtl = $this->redis->ttl($userKey);
+        if ($existingTtl < $requiredTtl) {
+            $this->redis->expire($userKey, $requiredTtl);
+        }
     }
 
     public function isValid(string $jti): bool

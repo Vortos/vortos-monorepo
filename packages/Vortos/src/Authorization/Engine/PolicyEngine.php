@@ -294,12 +294,10 @@ final class PolicyEngine
     }
 
     /**
-     * Parse a permission string into [resource, action, scope].
-     *
      * @throws \InvalidArgumentException If format is invalid
      * @return array{0: string, 1: string, 2: string}
      */
-    public function parsePermission(string $permission): array
+    private function parsePermission(string $permission): array
     {
         $parts = explode('.', $permission);
 

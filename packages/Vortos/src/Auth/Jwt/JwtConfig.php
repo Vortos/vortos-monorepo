@@ -34,5 +34,9 @@ final readonly class JwtConfig
          * Use your application name or domain.
          */
         public string $issuer = 'vortos',
-    ) {}
+    ) {
+        if (strlen($secret) < 32) {
+            throw new \InvalidArgumentException('JWT secret must be at least 32 characters. Generate one with: php -r "echo bin2hex(random_bytes(32));"');
+        }
+    }
 }

@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Vortos\Auth\Audit\Middleware;
 
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
+use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Auth\Audit\AuditEntry;
 use Vortos\Auth\Audit\Contract\AuditStoreInterface;
@@ -12,10 +12,15 @@ use Vortos\Auth\Identity\CurrentUserProvider;
 
 /**
  * Records audit log entries for controllers with #[AuditLog].
- * Priority 2 — after quota (3), only fires when auth confirmed.
- * Zero reflection at runtime — reads compile-time map.
  *
- * Fires and forgets — audit failure never blocks the request.
+ * Fires on kernel.response — after the controller has executed and a real
+ * HTTP status code is available. This means the audit log reflects what
+ * actually happened, not just what was attempted.
+ *
+ * The response status code is included in entry metadata as '_status'.
+ *
+ * Zero reflection at runtime — reads compile-time map.
+ * Audit failure never affects the response.
  */
 final class AuditMiddleware implements EventSubscriberInterface
 {
@@ -30,10 +35,10 @@ final class AuditMiddleware implements EventSubscriberInterface
 
     public static function getSubscribedEvents(): array
     {
-        return [KernelEvents::REQUEST => ['onKernelRequest', 2]];
+        return [KernelEvents::RESPONSE => ['onKernelResponse', 0]];
     }
 
-    public function onKernelRequest(RequestEvent $event): void
+    public function onKernelResponse(ResponseEvent $event): void
     {
         if (!$event->isMainRequest()) return;
         if ($this->store === null) return;
@@ -47,8 +52,11 @@ final class AuditMiddleware implements EventSubscriberInterface
 
         if (!$identity->isAuthenticated()) return;
 
+        $statusCode = $event->getResponse()->getStatusCode();
+
         foreach ($this->routeMap[$controller] as $rule) {
-            $metadata = [];
+            $metadata = ['_status' => $statusCode];
+
             foreach ($rule['include'] as $param) {
                 $value = $request->attributes->get($param) ?? $request->query->get($param);
                 if ($value !== null) {
@@ -66,7 +74,7 @@ final class AuditMiddleware implements EventSubscriberInterface
                     metadata: $metadata,
                 ));
             } catch (\Throwable) {
-                // Audit failure must never block the request
+                // Audit failure must never affect the response
             }
         }
     }

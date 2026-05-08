@@ -36,17 +36,38 @@ final class OwnershipCompilerPass implements CompilerPassInterface
 
             $reflection = new \ReflectionClass($class);
 
+            // Class-level attributes apply to the whole controller
             $ownershipAttrs = $reflection->getAttributes(RequiresOwnership::class);
             if (!empty($ownershipAttrs)) {
                 $instance = $ownershipAttrs[0]->newInstance();
                 $routeMap[$class] = ['type' => 'ownership', 'policy' => $instance->policy, 'override' => null];
-                continue;
             }
 
             $overrideAttrs = $reflection->getAttributes(RequiresOwnershipOrPermission::class);
             if (!empty($overrideAttrs)) {
                 $instance = $overrideAttrs[0]->newInstance();
                 $routeMap[$class] = ['type' => 'ownership_or_permission', 'policy' => $instance->policy, 'override' => $instance->override];
+            }
+
+            // Method-level attributes keyed as ControllerClass::methodName
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                if ($method->getDeclaringClass()->getName() !== $class) {
+                    continue;
+                }
+
+                $key = $class . '::' . $method->getName();
+
+                $methodOwnershipAttrs = $method->getAttributes(RequiresOwnership::class);
+                if (!empty($methodOwnershipAttrs)) {
+                    $instance = $methodOwnershipAttrs[0]->newInstance();
+                    $routeMap[$key] = ['type' => 'ownership', 'policy' => $instance->policy, 'override' => null];
+                }
+
+                $methodOverrideAttrs = $method->getAttributes(RequiresOwnershipOrPermission::class);
+                if (!empty($methodOverrideAttrs)) {
+                    $instance = $methodOverrideAttrs[0]->newInstance();
+                    $routeMap[$key] = ['type' => 'ownership_or_permission', 'policy' => $instance->policy, 'override' => $instance->override];
+                }
             }
         }
 

@@ -42,12 +42,13 @@ final class RedisConnectionFactory
     /**
      * Build and return a connected \Redis instance.
      *
-     * @param string $dsn DSN string — redis://[:password@]host[:port][/database]
+     * @param string $dsn            DSN string — redis://[:password@]host[:port][/database]
+     * @param float  $connectTimeout TCP connection timeout in seconds (default 2.0)
      *
      * @throws \InvalidArgumentException If the DSN is malformed
-     * @throws \RuntimeException         If connection or authentication fails
+     * @throws \RuntimeException         If connection, authentication, or database selection fails
      */
-    public static function fromDsn(string $dsn): \Redis
+    public static function fromDsn(string $dsn, float $connectTimeout = 2.0): \Redis
     {
         $parsed = parse_url($dsn);
 
@@ -68,7 +69,7 @@ final class RedisConnectionFactory
         $redis = new \Redis();
 
         try {
-            $redis->connect($host, $port);
+            $redis->connect($host, $port, $connectTimeout);
         } catch (\Throwable $e) {
             throw new \RuntimeException(sprintf(
                 'Failed to connect to Redis at "%s:%d": %s',
@@ -79,7 +80,18 @@ final class RedisConnectionFactory
         }
 
         if ($password !== null) {
-            if (!$redis->auth($password)) {
+            try {
+                $authed = $redis->auth($password);
+            } catch (\Throwable $e) {
+                throw new \RuntimeException(sprintf(
+                    'Redis authentication failed for host "%s:%d": %s',
+                    $host,
+                    $port,
+                    $e->getMessage(),
+                ), 0, $e);
+            }
+
+            if (!$authed) {
                 throw new \RuntimeException(sprintf(
                     'Redis authentication failed for host "%s:%d".',
                     $host,
@@ -89,7 +101,14 @@ final class RedisConnectionFactory
         }
 
         if ($database !== 0) {
-            $redis->select($database);
+            if ($redis->select($database) === false) {
+                throw new \RuntimeException(sprintf(
+                    'Redis SELECT %d failed for host "%s:%d". Ensure the database index is valid.',
+                    $database,
+                    $host,
+                    $port,
+                ));
+            }
         }
 
         // Disable built-in serialization — RedisAdapter handles serialization directly

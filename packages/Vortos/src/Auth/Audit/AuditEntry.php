@@ -29,7 +29,7 @@ final readonly class AuditEntry
         array $metadata = [],
     ): self {
         return new self(
-            id: bin2hex(random_bytes(16)),
+            id: (string) new \Symfony\Component\Uid\UuidV7(),
             userId: $userId,
             action: $action,
             resourceId: $resourceId,

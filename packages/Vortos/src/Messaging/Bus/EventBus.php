@@ -19,6 +19,7 @@ use Vortos\Tracing\Contract\TracingInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Uid\UuidV7;
 use Vortos\Domain\Event\DomainEventInterface;
 use Vortos\Messaging\Registry\ConsumerRegistry;
 
@@ -38,6 +39,9 @@ use Vortos\Messaging\Registry\ConsumerRegistry;
  */
 final class EventBus implements EventBusInterface
 {
+    /** @var array<string, bool> event class → true for event classes that have at least one in-process consumer */
+    private array $inProcessEventClasses;
+
     public function __construct(
         private MessageBusInterface $bus,
         private OutboxInterface $outbox,
@@ -49,7 +53,8 @@ final class EventBus implements EventBusInterface
         private LoggerInterface $logger,
         private TracingInterface $tracer,
         private ConsumerRegistry $consumerRegistry,
-    ){
+    ) {
+        $this->inProcessEventClasses = $this->buildInProcessEventClassIndex();
     }
 
     public function dispatch(DomainEventInterface $event): void
@@ -57,9 +62,9 @@ final class EventBus implements EventBusInterface
         $throwable = null;
         try {
 
-            $eventId = bin2hex(random_bytes(16));
+            $eventId = (new UuidV7())->toRfc4122();
 
-            $correlationId = $this->tracer->currentCorrelationId() ?? bin2hex(random_bytes(16));
+            $correlationId = $this->tracer->currentCorrelationId() ?? (new UuidV7())->toRfc4122();
 
             $eventIdStamp = new EventIdStamp($eventId);
             $timestampStamp = new TimestampStamp(new DateTimeImmutable());
@@ -82,7 +87,7 @@ final class EventBus implements EventBusInterface
 
             $eventClass = get_class($event);
 
-            $hasHandlers = $this->hasInternalHandlers($eventClass);
+            $hasHandlers = isset($this->inProcessEventClasses[$eventClass]);
 
             if ($hasHandlers) {
                 $this->bus->dispatch($envelope);
@@ -135,25 +140,29 @@ final class EventBus implements EventBusInterface
     }
 
     /**
-     * Returns true if any consumer has at least one handler registered for this event class.
-     * Determines whether the event should be dispatched through the internal Symfony Messenger bus.
+     * Builds an index of event classes that have at least one in-process consumer handler.
+     * Called once at construction — O(consumers × event_classes) at startup, O(1) at dispatch time.
      */
-    private function hasInternalHandlers(string $eventClass): bool
+    private function buildInProcessEventClassIndex(): array
     {
+        $index = [];
+
         foreach ($this->handlerRegistry->allConsumers() as $consumerName) {
-            if (!$this->handlerRegistry->hasHandlers($consumerName, $eventClass)) {
+            try {
+                $consumerConfig = $this->consumerRegistry->get($consumerName);
+            } catch (\Throwable) {
                 continue;
             }
 
-            try {
-                $consumerConfig = $this->consumerRegistry->get($consumerName);
-                if ($consumerConfig['inProcess'] ?? false) {
-                    return true;
-                }
-            } catch (\Throwable) {
+            if (!($consumerConfig['inProcess'] ?? false)) {
+                continue;
+            }
+
+            foreach (array_keys($this->handlerRegistry->allForConsumer($consumerName)) as $eventClass) {
+                $index[$eventClass] = true;
             }
         }
 
-        return false;
+        return $index;
     }
 }

@@ -34,7 +34,20 @@ final class FeatureAccessCompilerPass implements CompilerPassInterface
                 !$definition->hasTag('controller.service_arguments')) continue;
 
             $reflection = new \ReflectionClass($class);
-            $this->scanForAttribute($reflection, RequiresFeatureAccess::class, $routeMap, $class);
+
+            // Class-level attributes
+            foreach ($reflection->getAttributes(RequiresFeatureAccess::class) as $attr) {
+                $instance = $attr->newInstance();
+                $routeMap[$class][] = ['feature' => $instance->feature, 'paymentRequired' => $instance->paymentRequired];
+            }
+
+            // Method-level attributes
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                foreach ($method->getAttributes(RequiresFeatureAccess::class) as $attr) {
+                    $instance = $attr->newInstance();
+                    $routeMap[$class][] = ['feature' => $instance->feature, 'paymentRequired' => $instance->paymentRequired];
+                }
+            }
         }
 
         $policyRefs = array_map(fn($id) => new Reference($id), $policyServiceIds);
@@ -42,13 +55,5 @@ final class FeatureAccessCompilerPass implements CompilerPassInterface
         $container->getDefinition(FeatureAccessMiddleware::class)
             ->setArgument('$routeMap', $routeMap)
             ->setArgument('$policies', $policyRefs);
-    }
-
-    private function scanForAttribute(\ReflectionClass $reflection, string $attrClass, array &$map, string $class): void
-    {
-        foreach ($reflection->getAttributes($attrClass) as $attr) {
-            $instance = $attr->newInstance();
-            $map[$class][] = ['feature' => $instance->feature, 'paymentRequired' => $instance->paymentRequired];
-        }
     }
 }

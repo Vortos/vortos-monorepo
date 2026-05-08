@@ -55,10 +55,14 @@ final class RedisScopedPermissionStore implements ScopedPermissionStoreInterface
     public function revokeAll(string $userId, string $scopeName, string $scopeId): void
     {
         $pattern = "scoped_perm:{$scopeName}:{$scopeId}:{$userId}:*";
-        $keys = $this->redis->keys($pattern);
-        if (!empty($keys)) {
-            $this->redis->del(...$keys);
-        }
+        $iterator = null;
+
+        do {
+            $keys = $this->redis->scan($iterator, $pattern, 100);
+            if ($keys !== false && !empty($keys)) {
+                $this->redis->del(...$keys);
+            }
+        } while ($iterator !== 0 && $iterator !== null);
     }
 
     private function key(string $scopeName, string $scopeId, string $userId, string $permission): string

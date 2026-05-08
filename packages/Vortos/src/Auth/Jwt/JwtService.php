@@ -12,25 +12,23 @@ use Vortos\Auth\Exception\TokenExpiredException;
 use Vortos\Auth\Exception\TokenInvalidException;
 use Vortos\Auth\Exception\TokenRevokedException;
 use Vortos\Auth\Identity\UserIdentity;
+use Vortos\Auth\Session\SessionEnforcer;
 
 /**
  * Generates, validates, and refreshes JWT token pairs.
- *
- * Uses PHP's built-in hash_hmac for HMAC-SHA256 signing — no external JWT library
- * required. The implementation is intentional: external JWT libraries add complexity
- * for a straightforward HS256 use case. RS256 (asymmetric) can be added later if needed.
  *
  * ## Token format
  *
  * Standard JWT: header.payload.signature (base64url encoded, dot-separated)
  *
  * Access token payload:
- *   iss   — issuer (app name)
- *   sub   — user ID
- *   iat   — issued at (Unix timestamp)
- *   exp   — expires at (Unix timestamp)
- *   roles — user roles array
- *   type  — 'access'
+ *   iss            — issuer (app name)
+ *   sub            — user ID
+ *   iat            — issued at (Unix timestamp)
+ *   exp            — expires at (Unix timestamp)
+ *   roles          — user roles array
+ *   authz_version  — authorization cache version
+ *   type           — 'access'
  *
  * Refresh token payload:
  *   iss   — issuer
@@ -45,15 +43,21 @@ use Vortos\Auth\Identity\UserIdentity;
  * Tokens are validated by:
  *   1. Signature verification (HMAC-SHA256 with secret key)
  *   2. Expiry check (exp claim vs current time)
- *   3. Revocation check (jti not in blacklist via TokenStorageInterface)
+ *   3. Issuer check (iss claim vs configured issuer)
+ *   4. Revocation check (jti not in blacklist via TokenStorageInterface)
  *
- * Never accept tokens without all three checks passing.
+ * ## Session limiting
+ *
+ * If SessionEnforcer is configured, issue() enforces concurrent session limits
+ * before storing the new refresh token. May throw SessionLimitExceededException
+ * if the policy rejects the new session (RejectNew action).
  */
 final class JwtService
 {
     public function __construct(
         private JwtConfig $config,
         private TokenStorageInterface $tokenStorage,
+        private ?SessionEnforcer $sessionEnforcer = null,
     ) {}
 
     /**
@@ -61,7 +65,7 @@ final class JwtService
      *
      * Call this after successful credential verification.
      *
-     * @throws \RuntimeException If token generation fails
+     * @throws \Vortos\Auth\Session\Exception\SessionLimitExceededException If session limit is exceeded with RejectNew policy.
      */
     public function issue(UserIdentityInterface $identity): JwtToken
     {
@@ -71,13 +75,13 @@ final class JwtService
         $jti = (string) new \Symfony\Component\Uid\UuidV7();
 
         $accessPayload = [
-            'iss'   => $this->config->issuer,
-            'sub'   => $identity->id(),
-            'iat'   => $now,
-            'exp'   => $accessExpiresAt,
-            'roles' => $identity->roles(),
+            'iss'           => $this->config->issuer,
+            'sub'           => $identity->id(),
+            'iat'           => $now,
+            'exp'           => $accessExpiresAt,
+            'roles'         => $identity->roles(),
             'authz_version' => $identity->getAttribute('authz_version', 0),
-            'type'  => 'access',
+            'type'          => 'access',
         ];
 
         $refreshPayload = [
@@ -89,8 +93,11 @@ final class JwtService
             'type' => 'refresh',
         ];
 
-        $accessToken = $this->encode($accessPayload);
-        $refreshToken = $this->encode($refreshPayload);
+        $accessToken = JWT::encode($accessPayload, $this->config->secret, 'HS256');
+        $refreshToken = JWT::encode($refreshPayload, $this->config->secret, 'HS256');
+
+        // Session enforcement — may throw SessionLimitExceededException
+        $this->sessionEnforcer?->enforceOnIssue($identity, $jti, $now, $this->config->refreshTokenTtl);
 
         // Store refresh token JTI so it can be revoked later
         $this->tokenStorage->store($jti, $identity->id(), $refreshExpiresAt);
@@ -106,9 +113,8 @@ final class JwtService
     /**
      * Validate an access token and return the user identity from its claims.
      *
-     * @throws TokenInvalidException  If signature is invalid or format is malformed
+     * @throws TokenInvalidException  If signature is invalid, format is malformed, or issuer is wrong
      * @throws TokenExpiredException  If token has expired
-     * @throws TokenRevokedException  If token has been revoked
      */
     public function validate(string $token): UserIdentityInterface
     {
@@ -124,6 +130,10 @@ final class JwtService
             throw new TokenInvalidException('Token is not an access token.');
         }
 
+        if (($payload['iss'] ?? '') !== $this->config->issuer) {
+            throw new TokenInvalidException('Token issuer is invalid.');
+        }
+
         return new UserIdentity(
             id: $payload['sub'],
             roles: $payload['roles'] ?? [],
@@ -134,8 +144,8 @@ final class JwtService
     /**
      * Use a refresh token to issue a new access + refresh token pair.
      *
-     * Validates the refresh token, revokes it, and issues a fresh pair.
-     * This is token rotation — the old refresh token cannot be reused.
+     * Validates the refresh token, revokes it, removes its session entry,
+     * and issues a fresh pair. The old refresh token cannot be reused.
      *
      * @throws TokenInvalidException  If refresh token is malformed
      * @throws TokenExpiredException  If refresh token has expired
@@ -155,6 +165,10 @@ final class JwtService
             throw new TokenInvalidException('Token is not a refresh token.');
         }
 
+        if (($payload['iss'] ?? '') !== $this->config->issuer) {
+            throw new TokenInvalidException('Token issuer is invalid.');
+        }
+
         $jti = $payload['jti'] ?? null;
 
         if ($jti === null || !$this->tokenStorage->isValid($jti)) {
@@ -162,6 +176,7 @@ final class JwtService
         }
 
         $this->tokenStorage->revoke($jti);
+        $this->sessionEnforcer?->removeSession($payload['sub'], $jti);
 
         return $this->issue($identity);
     }
@@ -172,11 +187,14 @@ final class JwtService
     public function revokeAll(string $userId): void
     {
         $this->tokenStorage->revokeAllForUser($userId);
+        $this->sessionEnforcer?->clearAllSessions($userId);
     }
 
     /**
      * Extract the user ID from a refresh token without full validation.
      * Used by RefreshTokenController to load the user before calling refresh().
+     *
+     * Does NOT check revocation — call refresh() for full validation.
      *
      * @throws TokenInvalidException If token is malformed
      * @throws TokenExpiredException If token has expired
@@ -195,22 +213,13 @@ final class JwtService
             throw new TokenInvalidException('Token is not a refresh token.');
         }
 
+        if (($payload['iss'] ?? '') !== $this->config->issuer) {
+            throw new TokenInvalidException('Token issuer is invalid.');
+        }
+
         return $payload['sub'];
     }
 
-    /**
-     * Encode a payload into a signed JWT string.
-     */
-    private function encode(array $payload): string
-    {
-        return JWT::encode($payload, $this->config->secret, 'HS256');
-    }
-
-    /**
-     * Decode and verify a JWT string. Returns the payload array.
-     *
-     * @throws TokenInvalidException If format is wrong or signature is invalid
-     */
     private function decode(string $token): array
     {
         return (array) JWT::decode($token, new Key($this->config->secret, 'HS256'));
@@ -232,25 +241,5 @@ final class JwtService
         );
 
         return $payload;
-    }
-
-    /**
-     * Sign a string with HMAC-SHA256 using the configured secret.
-     */
-    private function sign(string $data): string
-    {
-        return $this->base64UrlEncode(
-            hash_hmac('sha256', $data, $this->config->secret, true),
-        );
-    }
-
-    private function base64UrlEncode(string $data): string
-    {
-        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
-    }
-
-    private function base64UrlDecode(string $data): string
-    {
-        return base64_decode(strtr($data, '-_', '+/') . str_repeat('=', 3 - (3 + strlen($data)) % 4));
     }
 }

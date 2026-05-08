@@ -13,7 +13,7 @@ use Vortos\Auth\Identity\CurrentUserProvider;
 
 /**
  * Enforces #[RequiresFeatureAccess] on controllers.
- * Priority 4 — after auth (6) and authorization (5).
+ * Priority 1 — after ownership (2) and authorization (3).
  *
  * Returns 403 when denied.
  * Returns 402 (Payment Required) when paymentRequired: true.
@@ -34,7 +34,7 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
 
     public static function getSubscribedEvents(): array
     {
-        return [KernelEvents::REQUEST => ['onKernelRequest', 4]];
+        return [KernelEvents::REQUEST => ['onKernelRequest', 1]];
     }
 
     public function onKernelRequest(RequestEvent $event): void

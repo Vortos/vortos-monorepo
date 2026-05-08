@@ -27,7 +27,7 @@ final class RedisSessionStoreTest extends TestCase
     public function test_remove_session_removes_from_sorted_set(): void
     {
         $this->redis->expects($this->once())->method('zRem')
-            ->with('sessions:user-1', 'jti-abc');
+            ->with('vortos_auth:sessions:user-1', 'jti-abc');
         $this->store->removeSession('user-1', 'jti-abc');
     }
 
@@ -59,7 +59,7 @@ final class RedisSessionStoreTest extends TestCase
 
     public function test_clear_all_removes_key(): void
     {
-        $this->redis->expects($this->once())->method('del')->with('sessions:user-1');
+        $this->redis->expects($this->once())->method('del')->with('vortos_auth:sessions:user-1');
         $this->store->clearAll('user-1');
     }
 }

@@ -19,7 +19,6 @@ final class AuditCompilerPass implements CompilerPassInterface
         $routeMap = [];
         $storeServiceId = null;
 
-        // Discover AuditStoreInterface implementation
         foreach ($container->getDefinitions() as $serviceId => $definition) {
             $class = $definition->getClass();
             if (!$class || !class_exists($class)) continue;
@@ -36,9 +35,19 @@ final class AuditCompilerPass implements CompilerPassInterface
                 !$definition->hasTag('controller.service_arguments')) continue;
 
             $reflection = new \ReflectionClass($class);
+
+            // Class-level attributes
             foreach ($reflection->getAttributes(AuditLog::class) as $attr) {
                 $instance = $attr->newInstance();
                 $routeMap[$class][] = ['action' => $instance->action, 'include' => $instance->include];
+            }
+
+            // Method-level attributes
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                foreach ($method->getAttributes(AuditLog::class) as $attr) {
+                    $instance = $attr->newInstance();
+                    $routeMap[$class][] = ['action' => $instance->action, 'include' => $instance->include];
+                }
             }
         }
 

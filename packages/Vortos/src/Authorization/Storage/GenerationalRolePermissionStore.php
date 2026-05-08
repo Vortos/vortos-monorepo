@@ -27,21 +27,16 @@ final class GenerationalRolePermissionStore implements RolePermissionStoreInterf
 
     public function grant(string $role, string $permission): void
     {
-        $before = $this->inner->permissionsForRole($role);
         $this->inner->grant($role, $permission);
-
-        if (!in_array($permission, $before, true)) {
-            $this->generations->increment($role);
-        }
+        // Always increment — any grant mutates role permissions and must bust the cache.
+        // A read-before-write check to skip unchanged grants introduces a TOCTOU race and
+        // can silently leave stale caches when two concurrent grants race on the same role.
+        $this->generations->increment($role);
     }
 
     public function revoke(string $role, string $permission): void
     {
-        $before = $this->inner->permissionsForRole($role);
         $this->inner->revoke($role, $permission);
-
-        if (in_array($permission, $before, true)) {
-            $this->generations->increment($role);
-        }
+        $this->generations->increment($role);
     }
 }

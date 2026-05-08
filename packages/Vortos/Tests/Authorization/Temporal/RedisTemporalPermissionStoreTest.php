@@ -20,6 +20,9 @@ final class RedisTemporalPermissionStoreTest extends TestCase
     public function test_grant_sets_key_with_ttl(): void
     {
         $expiry = new \DateTimeImmutable('+1 hour');
+        $this->redis->method('ttl')->willReturn(-2); // index key does not exist
+        $this->redis->method('multi')->willReturnSelf();
+        $this->redis->method('exec')->willReturn([true, true, true]);
         $this->redis->expects($this->once())->method('setEx');
         $this->store->grant('user-1', 'beta.feature', $expiry);
     }
@@ -28,11 +31,39 @@ final class RedisTemporalPermissionStoreTest extends TestCase
     {
         $expiry = new \DateTimeImmutable('-1 hour');
         $this->redis->expects($this->never())->method('setEx');
+        $this->redis->expects($this->never())->method('multi');
+        $this->store->grant('user-1', 'beta.feature', $expiry);
+    }
+
+    public function test_grant_does_not_shrink_existing_index_ttl(): void
+    {
+        // Index has 86400s remaining; new grant is only 300s — expire must NOT be called
+        $expiry = new \DateTimeImmutable('+5 minutes');
+        $this->redis->method('ttl')->willReturn(86400);
+        $this->redis->method('multi')->willReturnSelf();
+        $this->redis->method('exec')->willReturn([true, true]);
+        // Only setEx + sAdd inside the pipeline, no expire call
+        $this->redis->expects($this->once())->method('setEx');
+        $this->redis->expects($this->once())->method('sAdd');
+        $this->redis->expects($this->never())->method('expire');
+        $this->store->grant('user-1', 'short.grant', $expiry);
+    }
+
+    public function test_grant_extends_index_ttl_when_new_grant_is_longer(): void
+    {
+        // Index has 60s remaining; new grant is 3600s — expire should be called
+        $expiry = new \DateTimeImmutable('+1 hour');
+        $this->redis->method('ttl')->willReturn(60);
+        $this->redis->method('multi')->willReturnSelf();
+        $this->redis->method('exec')->willReturn([true, true, true]);
+        $this->redis->expects($this->once())->method('expire');
         $this->store->grant('user-1', 'beta.feature', $expiry);
     }
 
     public function test_revoke_deletes_key(): void
     {
+        $this->redis->method('multi')->willReturnSelf();
+        $this->redis->method('exec')->willReturn([true, true]);
         $this->redis->expects($this->once())->method('del');
         $this->store->revoke('user-1', 'beta.feature');
     }
@@ -62,5 +93,18 @@ final class RedisTemporalPermissionStoreTest extends TestCase
     {
         $this->redis->method('get')->willReturn(false);
         $this->assertNull($this->store->getExpiry('user-1', 'beta.feature'));
+    }
+
+    public function test_active_grants_returns_only_valid_permissions(): void
+    {
+        $this->redis->method('sMembers')->willReturn(['perm.a', 'perm.b']);
+        // Pipeline: perm.a exists, perm.b does not
+        $this->redis->method('multi')->willReturnSelf();
+        $this->redis->method('exec')->willReturn([1, 0]);
+        $this->redis->expects($this->once())->method('sRem')
+            ->with('temporal_perms:user-1', 'perm.b');
+
+        $active = $this->store->activeGrantsForUser('user-1');
+        $this->assertSame(['perm.a'], $active);
     }
 }

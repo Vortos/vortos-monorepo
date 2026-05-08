@@ -67,6 +67,7 @@ final class AuthMiddlewareTest extends TestCase
         $this->middleware = new AuthMiddleware(
             $this->jwtService,
             $this->arrayAdapter,
+            [StubProtectedController::class],
         );
     }
 
@@ -271,7 +272,7 @@ final class AuthMiddlewareTest extends TestCase
         $identity = new UserIdentity('user-1', []);
         $token = $expiredService->issue($identity);
 
-        $middleware = new AuthMiddleware($expiredService, $this->arrayAdapter);
+        $middleware = new AuthMiddleware($expiredService, $this->arrayAdapter, [StubProtectedController::class]);
 
         $event = $this->makeEvent('/api/protected', StubProtectedController::class, [
             'Authorization' => 'Bearer ' . $token->accessToken,

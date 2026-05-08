@@ -22,6 +22,8 @@ use Vortos\Auth\RateLimit\Storage\RedisRateLimitStore;
 use Vortos\Auth\FeatureAccess\Middleware\FeatureAccessMiddleware;
 use Vortos\Auth\Audit\Middleware\AuditMiddleware;
 use Vortos\Auth\TwoFactor\Middleware\TwoFactorMiddleware;
+use Vortos\Auth\Session\Compiler\SessionCompilerPass;
+use Vortos\Auth\Session\SessionEnforcer;
 use Vortos\Auth\Session\Storage\RedisSessionStore;
 use Vortos\Auth\Storage\InMemoryTokenStorage;
 use Vortos\Auth\Storage\RedisTokenStorage;
@@ -75,9 +77,13 @@ final class AuthExtension extends Extension
 
         $container->setAlias(TokenStorageInterface::class, $resolved['token_storage'])->setPublic(false);
 
-        // JwtService
+        // JwtService — $sessionEnforcer is null by default; injected below when Redis is available
         $container->register(JwtService::class, JwtService::class)
-            ->setArguments([new Reference(JwtConfig::class), new Reference(TokenStorageInterface::class)])
+            ->setArguments([
+                new Reference(JwtConfig::class),
+                new Reference(TokenStorageInterface::class),
+                null, // $sessionEnforcer — wired below when Redis is available
+            ])
             ->setShared(true)->setPublic(true);
 
         // Password hasher
@@ -92,7 +98,11 @@ final class AuthExtension extends Extension
 
         // AuthMiddleware
         $container->register(AuthMiddleware::class, AuthMiddleware::class)
-            ->setArguments([new Reference(JwtService::class), new Reference(ArrayAdapter::class)])
+            ->setArguments([
+                new Reference(JwtService::class),
+                new Reference(ArrayAdapter::class),
+                [], // $protectedControllers — filled by AuthCompilerPass
+            ])
             ->setShared(true)->setPublic(true)
             ->addTag('kernel.event_subscriber');
 
@@ -113,6 +123,18 @@ final class AuthExtension extends Extension
             $container->register(RedisSessionStore::class, RedisSessionStore::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
                 ->setShared(true)->setPublic(true);
+
+            // SessionEnforcer — wires session limiting into JwtService
+            $container->register(SessionEnforcer::class, SessionEnforcer::class)
+                ->setArguments([
+                    new Reference(RedisSessionStore::class),
+                    new Reference(TokenStorageInterface::class),
+                    null, // $policy — filled by SessionCompilerPass
+                ])
+                ->setShared(true)->setPublic(true);
+
+            $container->getDefinition(JwtService::class)
+                ->setArgument('$sessionEnforcer', new Reference(SessionEnforcer::class));
 
             // LockoutManager
             $lockoutConfig = $config->getLockoutConfig() ?? new \Vortos\Auth\Lockout\LockoutConfig();

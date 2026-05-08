@@ -21,9 +21,15 @@ use Vortos\Cache\Contract\TaggedCacheInterface;
  * ## Tag invalidation
  *
  * setWithTags() stores the value AND adds the prefixed key to each tag's SET.
- * invalidateTags() fetches each tag's SET, deletes all listed keys, then deletes
- * the tag SET itself. All Redis operations use the native ext-redis pipeline
- * where possible for performance.
+ * invalidateTags() fetches each tag's SET members in a pipeline, deletes all listed
+ * keys and the tag SETs themselves in a second pipeline. Two round-trips total regardless
+ * of how many tags or keys are involved.
+ *
+ * ## Tag SET TTL
+ *
+ * The tag SET TTL is always at least as long as the value TTL plus one hour, with a
+ * minimum floor of 7 days. This prevents the tag SET from expiring before the values
+ * it references, which would make those values un-invalidatable.
  *
  * ## Key prefix
  *
@@ -50,7 +56,8 @@ final class RedisAdapter implements TaggedCacheInterface
     /**
      * Retrieve a cached value by key.
      *
-     * Returns $default if the key does not exist or has expired.
+     * Returns $default if the key does not exist, has expired, or if the stored
+     * data is corrupted and cannot be unserialized.
      */
     public function get(string $key, mixed $default = null): mixed
     {
@@ -60,7 +67,7 @@ final class RedisAdapter implements TaggedCacheInterface
             return $default;
         }
 
-        return unserialize($raw);
+        return $this->safeUnserialize($raw, $default);
     }
 
     /**
@@ -88,7 +95,8 @@ final class RedisAdapter implements TaggedCacheInterface
      */
     public function delete(string $key): bool
     {
-        return $this->redis->del($this->prefixedKey($key)) >= 0;
+        $result = $this->redis->del($this->prefixedKey($key));
+        return $result !== false;
     }
 
     /**
@@ -97,6 +105,7 @@ final class RedisAdapter implements TaggedCacheInterface
      * Uses SCAN with cursor iteration — safe on large keyspaces, never blocks Redis.
      * Only keys with this adapter's prefix are affected.
      * Redis system keys, Kafka offsets, and messaging idempotency keys are untouched.
+     * Returns false immediately if SCAN returns an error — does not loop indefinitely.
      */
     public function clear(): bool
     {
@@ -105,6 +114,10 @@ final class RedisAdapter implements TaggedCacheInterface
 
         do {
             $keys = $this->redis->scan($cursor, $pattern, 100);
+
+            if ($keys === false) {
+                return false;
+            }
 
             if (!empty($keys)) {
                 $this->redis->del(...$keys);
@@ -116,6 +129,8 @@ final class RedisAdapter implements TaggedCacheInterface
 
     /**
      * Retrieve multiple values by key.
+     *
+     * Uses a single mGet round-trip for all keys.
      *
      * @param iterable<string> $keys
      * @return iterable<string, mixed>
@@ -129,7 +144,7 @@ final class RedisAdapter implements TaggedCacheInterface
         $result = [];
         foreach ($keyArray as $i => $key) {
             $raw = $values[$i] ?? false;
-            $result[$key] = $raw !== false ? unserialize($raw) : $default;
+            $result[$key] = $raw !== false ? $this->safeUnserialize($raw, $default) : $default;
         }
 
         return $result;
@@ -138,21 +153,33 @@ final class RedisAdapter implements TaggedCacheInterface
     /**
      * Store multiple key-value pairs.
      *
+     * Uses a single pipeline round-trip for all keys — O(1) network cost regardless
+     * of how many keys are written.
+     *
      * @param iterable<string, mixed> $values
      */
     public function setMultiple(iterable $values, int|\DateInterval|null $ttl = null): bool
     {
         $seconds = $this->normalizeTtl($ttl);
-        $success = true;
+        $valueArray = is_array($values) ? $values : iterator_to_array($values);
 
-        foreach ($values as $key => $value) {
-            $result = $this->set($key, $value, $seconds);
-            if (!$result) {
-                $success = false;
-            }
+        if (empty($valueArray)) {
+            return true;
         }
 
-        return $success;
+        $this->redis->multi(\Redis::PIPELINE);
+        foreach ($valueArray as $key => $value) {
+            $prefixed = $this->prefixedKey($key);
+            $serialized = serialize($value);
+            if ($seconds > 0) {
+                $this->redis->setex($prefixed, $seconds, $serialized);
+            } else {
+                $this->redis->set($prefixed, $serialized);
+            }
+        }
+        $replies = $this->redis->exec();
+
+        return !in_array(false, (array) $replies, true);
     }
 
     /**
@@ -169,8 +196,9 @@ final class RedisAdapter implements TaggedCacheInterface
         }
 
         $prefixed = array_map(fn(string $k) => $this->prefixedKey($k), $keyArray);
+        $result = $this->redis->del(...$prefixed);
 
-        return $this->redis->del(...$prefixed) >= 0;
+        return $result !== false;
     }
 
     /**
@@ -184,13 +212,18 @@ final class RedisAdapter implements TaggedCacheInterface
     /**
      * Store a value with associated tags.
      *
-     * Writes the value to Redis AND adds the prefixed key to each tag's SET.
-     * The tag SET TTL is set to 7 days — generous enough to outlive most values.
+     * Writes the value to Redis AND adds the prefixed key to each tag's SET inside
+     * a single MULTI/EXEC transaction. Returns false if the transaction was aborted
+     * or any command failed.
+     *
+     * Tag SET TTL is always at least max(valueTtl + 3600, 7 days) — the tag SET
+     * will never expire before the value it indexes.
      */
     public function setWithTags(string $key, mixed $value, array $tags, ?int $ttl = null): bool
     {
         $seconds = $ttl ?? $this->defaultTtl;
         $prefixedKey = $this->prefixedKey($key);
+        $tagTtl = max($seconds + 3600, 86400 * 7);
 
         $this->redis->multi();
 
@@ -199,10 +232,14 @@ final class RedisAdapter implements TaggedCacheInterface
         foreach ($tags as $tag) {
             $tagKey = $this->tagKey($tag);
             $this->redis->sAdd($tagKey, $prefixedKey);
-            $this->redis->expire($tagKey, 86400 * 7); // 7 days
+            $this->redis->expire($tagKey, $tagTtl);
         }
 
-        $this->redis->exec();
+        $replies = $this->redis->exec();
+
+        if ($replies === null || in_array(false, (array) $replies, true)) {
+            return false;
+        }
 
         return true;
     }
@@ -210,21 +247,36 @@ final class RedisAdapter implements TaggedCacheInterface
     /**
      * Invalidate all cache keys associated with any of the given tags.
      *
-     * For each tag: fetches all keys in the tag's SET, deletes them,
-     * then deletes the tag SET itself.
+     * Two pipeline round-trips total regardless of tag/key count:
+     * Phase 1 — pipeline all sMembers calls to fetch tag member sets.
+     * Phase 2 — pipeline all DEL calls for value keys and tag keys.
      */
     public function invalidateTags(array $tags): bool
     {
-        foreach ($tags as $tag) {
-            $tagKey = $this->tagKey($tag);
-            $keys = $this->redis->sMembers($tagKey);
+        if (empty($tags)) {
+            return true;
+        }
 
-            if (!empty($keys)) {
-                $this->redis->del(...$keys);
+        $tagKeys = array_map(fn(string $t) => $this->tagKey($t), $tags);
+
+        // Phase 1: fetch all tag member sets in one pipeline round-trip
+        $this->redis->multi(\Redis::PIPELINE);
+        foreach ($tagKeys as $tagKey) {
+            $this->redis->sMembers($tagKey);
+        }
+        $memberSets = $this->redis->exec();
+
+        // Phase 2: delete all value keys and tag keys in one pipeline round-trip
+        $this->redis->multi(\Redis::PIPELINE);
+        foreach ((array) $memberSets as $members) {
+            if (!empty($members)) {
+                $this->redis->del(...$members);
             }
-
+        }
+        foreach ($tagKeys as $tagKey) {
             $this->redis->del($tagKey);
         }
+        $this->redis->exec();
 
         return true;
     }
@@ -249,8 +301,9 @@ final class RedisAdapter implements TaggedCacheInterface
      * Normalize TTL to integer seconds.
      *
      * null → defaultTtl
-     * int → use directly
-     * DateInterval → convert to seconds
+     * int  → use directly
+     * DateInterval → convert to seconds, clamped to minimum 1 to prevent
+     *                permanent storage when an expired interval is passed
      */
     private function normalizeTtl(int|\DateInterval|null $ttl): int
     {
@@ -259,9 +312,26 @@ final class RedisAdapter implements TaggedCacheInterface
         }
 
         if ($ttl instanceof \DateInterval) {
-            return (new \DateTimeImmutable())->add($ttl)->getTimestamp() - time();
+            $seconds = (new \DateTimeImmutable())->add($ttl)->getTimestamp() - time();
+            return max(1, $seconds);
         }
 
         return $ttl;
+    }
+
+    /**
+     * Unserialize a raw Redis string, returning $default if the data is corrupted.
+     *
+     * `b:0;` is the serialized form of false — must not be treated as a failure.
+     */
+    private function safeUnserialize(string $raw, mixed $default): mixed
+    {
+        $value = unserialize($raw);
+
+        if ($value === false && $raw !== 'b:0;') {
+            return $default;
+        }
+
+        return $value;
     }
 }

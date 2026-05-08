@@ -62,32 +62,27 @@ final class OutboxPoller implements OutboxPollerInterface
 
     public function markFailed(string $outboxId, string $reason): void
     {
-        $currentAttemptCount = (int) $this->connection->fetchOne(
-            "SELECT attempt_count FROM {$this->tableName} WHERE id = :id",
+        $now = new \DateTimeImmutable();
+        $maxAttempts = $this->maxAttempts;
+
+        $this->connection->executeStatement(
+            "UPDATE {$this->tableName}
+             SET
+                 attempt_count    = attempt_count + 1,
+                 failure_reason   = :reason,
+                 status           = CASE WHEN attempt_count + 1 >= :max THEN 'failed' ELSE 'pending' END,
+                 next_attempt_at  = CASE
+                     WHEN attempt_count + 1 >= :max THEN NULL
+                     ELSE :base_time::timestamp + make_interval(secs => LEAST(30 * POWER(2, attempt_count + 1)::int, 3600))
+                 END
+             WHERE id = :id",
             [
-                'id' => $outboxId
+                'reason'    => $reason,
+                'max'       => $maxAttempts,
+                'base_time' => $now->format('Y-m-d H:i:s'),
+                'id'        => $outboxId,
             ]
         );
-
-        $newAttemptCount = $currentAttemptCount + 1;
-
-        $delaySeconds = min(30 * (2 ** $newAttemptCount), 3600);
-
-        $nextAttemptAt = (new \DateTimeImmutable())->modify("+{$delaySeconds} seconds");
-
-        if($newAttemptCount >= $this->maxAttempts){
-            $status = 'failed';
-            $nextAttemptAt = null;
-        }else{
-            $status = 'pending';
-            }
-
-        $this->connection->update($this->tableName, [
-            'status'       => $status,
-            'attempt_count'       => $newAttemptCount,
-            'failure_reason'       => $reason,
-            'next_attempt_at' => $nextAttemptAt?->format('Y-m-d H:i:s')
-        ], ['id' => $outboxId]);
     }
 
     public function fetchFailed(int $limit = 50): array
@@ -96,7 +91,8 @@ final class OutboxPoller implements OutboxPollerInterface
             "SELECT * FROM {$this->tableName}
         WHERE status = 'failed'
         ORDER BY created_at ASC
-        LIMIT :limit",
+        LIMIT :limit
+        FOR UPDATE SKIP LOCKED",
             ['limit' => $limit],
             ['limit' => \Doctrine\DBAL\ParameterType::INTEGER]
         );

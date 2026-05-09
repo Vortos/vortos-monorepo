@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Command;
 
+use Vortos\Messaging\Contract\OutboxPollerInterface;
 use Vortos\Messaging\Runtime\OutboxRelayRunner;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -20,23 +21,51 @@ final class OutboxRelayCommand extends Command
 {
     public function __construct(
         private OutboxRelayRunner $runner,
-        private LoggerInterface $logger
-    ){
+        private OutboxPollerInterface $outboxPoller,
+        private LoggerInterface $logger,
+    ) {
         parent::__construct();
     }
 
-    public function configure():void
+    public function configure(): void
     {
         $this->addOption('batch-size', null, InputOption::VALUE_OPTIONAL, 'Messages per relay batch', 100)
             ->addOption('sleep-ms', null, InputOption::VALUE_OPTIONAL, 'Milliseconds to sleep when queue is empty', 500)
-            ->addOption('timeout', 't', InputOption::VALUE_OPTIONAL, 'Stop after N seconds (0 = run forever)', 0);
+            ->addOption('timeout', 't', InputOption::VALUE_OPTIONAL, 'Stop after N seconds (0 = run forever)', 0)
+            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'List pending messages without relaying them');
     }
 
     public function execute(InputInterface $input, OutputInterface $output): int
     {
         $batchSize = (int) $input->getOption('batch-size');
-        $sleepMs = (int) $input->getOption('sleep-ms');
-        $timeout = (int) $input->getOption('timeout');
+        $sleepMs   = (int) $input->getOption('sleep-ms');
+        $timeout   = (int) $input->getOption('timeout');
+        $dryRun    = (bool) $input->getOption('dry-run');
+
+        if ($dryRun) {
+            $messages = $this->outboxPoller->fetchPending($batchSize);
+
+            if (empty($messages)) {
+                $output->writeln('<info>No pending outbox messages.</info>');
+                return Command::SUCCESS;
+            }
+
+            $output->writeln(sprintf('<info>%d pending outbox message(s):</info>', count($messages)));
+            $output->writeln('');
+
+            foreach ($messages as $message) {
+                $output->writeln(sprintf(
+                    '  • [%s]  %s  →  %s',
+                    $message->id,
+                    $message->eventClass,
+                    $message->transportName,
+                ));
+            }
+
+            $output->writeln('');
+            $output->writeln('<comment>Dry run — no messages relayed.</comment>');
+            return Command::SUCCESS;
+        }
 
         if ($timeout > 0) {
             if (extension_loaded('pcntl')) {

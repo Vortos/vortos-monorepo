@@ -24,6 +24,7 @@ abstract class AbstractConsumerDefinition
     protected bool $asyncCommit = true;
     protected ?RetryPolicy $retryPolicy = null;
     protected string $dlqTransport = '';
+    protected ?int $idempotencyTtl = null;
 
     protected function __construct(string $transportName)
     {
@@ -88,6 +89,17 @@ abstract class AbstractConsumerDefinition
     public function getRetryPolicy():?RetryPolicy
     {
         return $this->retryPolicy;
+    }
+
+    /**
+     * Dedup window for idempotency keys in seconds.
+     * Overrides the global consumer_defaults.idempotency_ttl for this consumer only.
+     * Null means use the global default.
+     */
+    public function idempotencyTtl(int $seconds): static
+    {
+        $this->idempotencyTtl = $seconds;
+        return $this;
     }
 
     /**

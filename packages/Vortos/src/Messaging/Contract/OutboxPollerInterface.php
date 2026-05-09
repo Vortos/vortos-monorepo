@@ -40,5 +40,11 @@ interface OutboxPollerInterface
      *
      * @return OutboxMessage[]
      */
-    public function fetchFailed(int $limit = 50): array;
+    public function fetchFailed(int $limit = 50, ?string $transport = null): array;
+
+    /**
+     * Reset a permanently failed outbox message back to pending so the relay
+     * worker picks it up again. Resets attempt_count to 0 and clears next_attempt_at.
+     */
+    public function resetFailed(string $outboxId): void;
 }

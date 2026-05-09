@@ -104,12 +104,12 @@ final class MessagingExtension extends Extension
         $this->registerSerializers($container);
         $this->registerMiddlewares($container);
         $this->registerMiddlewareStack($container);
-        $this->registerOutbox($container);
-        $this->registerDeadLetterWriter($container);
+        $this->registerOutbox($container, $resolvedConfig['outbox']);
+        $this->registerDeadLetterWriter($container, $resolvedConfig['dlq']['table']);
         $this->registerInMemoryDriver($container);
         $this->registerKafkaDrivers($container);
         $this->registerEventBus($container);
-        $this->registerConsumerRunner($container);
+        $this->registerConsumerRunner($container, $resolvedConfig['consumer_defaults']['idempotency_ttl']);
         $this->registerCLICommands($container);
         $this->registerDefaultDriverInterfaces($container, $resolvedConfig['driver']);
         $this->registerHooks($container);
@@ -225,6 +225,7 @@ final class MessagingExtension extends Extension
         $commands = [
             \Vortos\Messaging\Command\ConsumeCommand::class,
             \Vortos\Messaging\Command\OutboxRelayCommand::class,
+            \Vortos\Messaging\Command\OutboxReplayCommand::class,
             \Vortos\Messaging\Command\SetupMessagingCommand::class,
             \Vortos\Messaging\Command\ListConsumersCommand::class,
             \Vortos\Messaging\Command\ListTransportsCommand::class,
@@ -239,7 +240,7 @@ final class MessagingExtension extends Extension
         }
     }
 
-    private function registerConsumerRunner(ContainerBuilder $container): void
+    private function registerConsumerRunner(ContainerBuilder $container, int $defaultIdempotencyTtl): void
     {
         $container->register(ConsumerLocator::class, ConsumerLocator::class)
             ->setAutowired(true)
@@ -257,6 +258,7 @@ final class MessagingExtension extends Extension
             ->setAutowired(true)
             ->setAutoconfigured(true)
             ->setArgument('$handlerLocator', new Reference('vortos.handler_locator'))
+            ->setArgument('$defaultIdempotencyTtl', $defaultIdempotencyTtl)
             ->setPublic(false);
     }
 
@@ -305,34 +307,35 @@ final class MessagingExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerDeadLetterWriter(ContainerBuilder $container): void
+    private function registerDeadLetterWriter(ContainerBuilder $container, string $dlqTable): void
     {
         $container->register(\Vortos\Messaging\DeadLetter\DeadLetterRepository::class, \Vortos\Messaging\DeadLetter\DeadLetterRepository::class)
             ->setAutowired(true)
+            ->setArgument('$table', $dlqTable)
             ->setPublic(false);
 
         $container->register(DeadLetterWriter::class, DeadLetterWriter::class)
             ->setAutowired(true)
-            ->setAutoconfigured(true)
+            ->setArgument('$table', $dlqTable)
             ->setPublic(false);
     }
 
-    private function registerOutbox(ContainerBuilder $container): void
+    private function registerOutbox(ContainerBuilder $container, array $outboxConfig): void
     {
         $container->register(OutboxWriter::class, OutboxWriter::class)
             ->setAutowired(true)
-            ->setAutoconfigured(true)
+            ->setArgument('$table', $outboxConfig['table'])
             ->setPublic(false);
-
-        // $container->register(Connection::class, Connection::class)
-        //     ->setFactory([new Reference(DoctrineConnectionRegistry::class), 'getConnection']);
 
         $container->setAlias(OutboxInterface::class, OutboxWriter::class)
             ->setPublic(false);
 
         $container->register(OutboxPoller::class, OutboxPoller::class)
             ->setAutowired(true)
-            ->setAutoconfigured(true)
+            ->setArgument('$tableName', $outboxConfig['table'])
+            ->setArgument('$maxAttempts', $outboxConfig['max_attempts'])
+            ->setArgument('$backoffBase', $outboxConfig['backoff_base'])
+            ->setArgument('$backoffCap', $outboxConfig['backoff_cap'])
             ->setPublic(false);
 
         $container->setAlias(OutboxPollerInterface::class, OutboxPoller::class)

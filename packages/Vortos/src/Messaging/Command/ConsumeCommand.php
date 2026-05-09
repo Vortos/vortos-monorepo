@@ -43,14 +43,16 @@ final class ConsumeCommand extends Command
     public function configure():void
     {
         $this->addArgument('consumer', InputArgument::REQUIRED, 'The consumer name to run')
-            ->addOption('timeout', 't', InputOption::VALUE_OPTIONAL, 'Stop after N seconds (0 = run forever)', 0);
+            ->addOption('timeout', 't', InputOption::VALUE_OPTIONAL, 'Stop after N seconds (0 = run forever)', 0)
+            ->addOption('max-messages', null, InputOption::VALUE_OPTIONAL, 'Stop after processing N messages (0 = unlimited)', 0);
     }
 
     public function execute(InputInterface $input, OutputInterface $output): int
     {
         $consumerName = $input->getArgument('consumer');
 
-        $timeout = (int) $input->getOption('timeout');
+        $timeout     = (int) $input->getOption('timeout');
+        $maxMessages = (int) $input->getOption('max-messages');
 
         if ($timeout > 0) {
             if (extension_loaded('pcntl')) {
@@ -70,7 +72,7 @@ final class ConsumeCommand extends Command
         }
 
         try {
-            $this->consumerRunner->run($consumerName);
+            $this->consumerRunner->run($consumerName, $maxMessages);
         } catch (\Throwable $e) {
             
             $this->logger->error(

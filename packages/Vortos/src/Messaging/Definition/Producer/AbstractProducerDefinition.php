@@ -18,7 +18,6 @@ abstract class AbstractProducerDefinition
 {
     protected string $transportName;
     protected bool $outboxEnabled = true;
-    protected string $outboxTable = 'outbox';
     protected array $publishedEvents = [];
     protected array $headers = [];
 
@@ -45,10 +44,9 @@ abstract class AbstractProducerDefinition
      * domain transaction and relayed to the broker asynchronously by the OutboxRelayWorker.
      * Disable only when you explicitly need synchronous direct-to-broker production.
      */
-    public function outbox(bool $enabled = true, string $table = 'outbox'): static
+    public function outbox(bool $enabled = true): static
     {
         $this->outboxEnabled = $enabled;
-        $this->outboxTable = $table;
         return $this;
     }
 

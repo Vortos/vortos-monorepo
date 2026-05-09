@@ -105,6 +105,7 @@ final class KafkaConsumerDefinition extends AbstractConsumerDefinition
             'batchSize' => $this->batchSize,
             'retry' => $this->retryPolicy?->toArray() ?? [],
             'dlq' => $this->dlqTransport,
+            'idempotencyTtl' => $this->idempotencyTtl,
             'inProcess' => $this->inProcess,
             'kafka' => [
                 'asyncCommit' => $this->asyncCommit,

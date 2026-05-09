@@ -71,7 +71,6 @@ final class KafkaProducerDefinition extends AbstractProducerDefinition
             'maxBatchBytes' => $this->maxBatchBytes,
             'outbox' => [
                 'enabled' => $this->outboxEnabled,
-                'table' => $this->outboxTable
             ],
             'headers' => $this->headers,
         ];

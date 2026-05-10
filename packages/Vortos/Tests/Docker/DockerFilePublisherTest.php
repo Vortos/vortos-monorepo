@@ -69,6 +69,32 @@ final class DockerFilePublisherTest extends TestCase
         }
     }
 
+    public function test_publish_can_remove_disabled_optional_services_from_compose(): void
+    {
+        $stubRoot = dirname(__DIR__, 2) . '/src/Docker/stubs';
+        $publisher = new DockerFilePublisher($stubRoot);
+
+        $publisher->publish('frankenphp', $this->projectDir, options: [
+            'services' => [
+                'read_db' => false,
+                'redis' => false,
+                'kafka' => false,
+                'worker' => false,
+            ],
+        ]);
+
+        $compose = (string) file_get_contents($this->projectDir . '/docker-compose.yaml');
+
+        $this->assertStringNotContainsString('  read_db:', $compose);
+        $this->assertStringNotContainsString('  redis:', $compose);
+        $this->assertStringNotContainsString('  kafka:', $compose);
+        $this->assertStringNotContainsString('  worker:', $compose);
+        $this->assertStringNotContainsString('read_db_data:', $compose);
+        $this->assertStringNotContainsString('redis_data:', $compose);
+        $this->assertStringContainsString('  write_db:', $compose);
+        $this->assertStringContainsString('  backend:', $compose);
+    }
+
     private function removeDirectory(string $dir): void
     {
         if (!is_dir($dir)) {

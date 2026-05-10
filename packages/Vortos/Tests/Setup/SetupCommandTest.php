@@ -211,6 +211,7 @@ final class SetupCommandTest extends TestCase
 
         $this->assertSame(0, $tester->getStatusCode());
         $this->assertStringContainsString('MCP client', $tester->getDisplay());
+        $this->assertStringNotContainsString('Wire MCP to your AI client', $tester->getDisplay());
         $this->assertSame('vortos:mcp:install', file_get_contents($this->projectDir . '/mcp-install-ran'));
     }
 
@@ -382,8 +383,18 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('VORTOS_READ_DB_DSN=', $env);
         $this->assertStringContainsString('VORTOS_CACHE_DSN=', $env);
         $this->assertStringContainsString('VORTOS_MESSAGING_DSN=', $env);
+        $this->assertStringContainsString('VORTOS_WRITE_DB_USER=', $env);
+        $this->assertStringContainsString('VORTOS_WRITE_DB_NAME=', $env);
         $this->assertStringContainsString('VORTOS_WRITE_DB_PASSWORD=', $env);
+        $this->assertStringContainsString('VORTOS_READ_DB_USER=', $env);
         $this->assertStringContainsString('VORTOS_READ_DB_PASSWORD=', $env);
+        $this->assertLessThan(
+            strpos($env, 'VORTOS_WRITE_DB_DSN='),
+            strpos($env, 'VORTOS_WRITE_DB_PASSWORD='),
+        );
+        $this->assertSame('postgres', $this->envValue($env, 'VORTOS_WRITE_DB_USER'));
+        $this->assertSame($this->expectedProjectName(), $this->envValue($env, 'VORTOS_WRITE_DB_NAME'));
+        $this->assertSame('root', $this->envValue($env, 'VORTOS_READ_DB_USER'));
 
         foreach ([
             'DATABASE_URL',
@@ -427,6 +438,42 @@ final class SetupCommandTest extends TestCase
 
         $this->assertFileDoesNotExist($this->projectDir . '/docker-compose.yaml');
         $this->assertFileDoesNotExist($this->projectDir . '/docker/php/Dockerfile');
+    }
+
+    public function test_custom_docker_profile_removes_unselected_optional_docker_services(): void
+    {
+        $command = new SetupCommand(
+            $this->projectDir,
+            new SetupStateStore($this->projectDir),
+            new EnvironmentFileWriter($this->projectDir),
+            new SetupEnvironmentChecker($this->projectDir),
+            new DockerFilePublisher(dirname(__DIR__, 2) . '/src/Docker/stubs'),
+        );
+
+        $application = new Application();
+        $application->add($command);
+        $tester = new CommandTester($application->find('vortos:setup'));
+        $tester->setInputs([
+            'custom',
+            '0',
+            '0',
+            '0',
+            '1',
+            '1',
+            '0',
+            'Continue',
+            'no',
+        ]);
+
+        $tester->execute([]);
+
+        $compose = (string) file_get_contents($this->projectDir . '/docker-compose.yaml');
+
+        $this->assertStringNotContainsString('  read_db:', $compose);
+        $this->assertStringNotContainsString('  redis:', $compose);
+        $this->assertStringNotContainsString('  kafka:', $compose);
+        $this->assertStringNotContainsString('  worker:', $compose);
+        $this->assertStringContainsString('  write_db:', $compose);
     }
 
     public function test_docker_publish_can_skip_existing_changed_files_from_setup(): void

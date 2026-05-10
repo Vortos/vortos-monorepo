@@ -28,6 +28,7 @@ final class DockerFilePublisher
         bool $dryRun = false,
         bool $backup = true,
         bool $overwrite = true,
+        array $options = [],
     ): DockerPublishResult {
         $source = realpath($this->stubRoot . DIRECTORY_SEPARATOR . $runtime);
 
@@ -57,7 +58,10 @@ final class DockerFilePublisher
                 continue;
             }
 
-            if (is_file($target) && hash_file('sha256', $item->getPathname()) === hash_file('sha256', $target)) {
+            $contents = (string) file_get_contents($item->getPathname());
+            $contents = $this->customizeContents($relativePath, $contents, $options);
+
+            if (is_file($target) && hash('sha256', $contents) === hash_file('sha256', $target)) {
                 $skipped[] = $relativePath;
                 continue;
             }
@@ -78,12 +82,55 @@ final class DockerFilePublisher
                     mkdir(dirname($target), 0755, true);
                 }
 
-                copy($item->getPathname(), $target);
+                file_put_contents($target, $contents);
             }
 
             $copied[] = $relativePath;
         }
 
         return new DockerPublishResult($copied, $skipped, $backedUp);
+    }
+
+    /** @param array<string, mixed> $options */
+    private function customizeContents(string $relativePath, string $contents, array $options): string
+    {
+        if (!in_array($relativePath, ['docker-compose.yaml', 'docker-compose.prod.yaml'], true)) {
+            return $contents;
+        }
+
+        foreach (($options['services'] ?? []) as $service => $enabled) {
+            if ($enabled) {
+                continue;
+            }
+
+            $contents = $this->removeComposeService($contents, (string) $service);
+            $contents = $this->removeComposeDependsOn($contents, (string) $service);
+            $contents = $this->removeComposeVolume($contents, (string) $service . '_data');
+        }
+
+        return $contents;
+    }
+
+    private function removeComposeService(string $compose, string $service): string
+    {
+        return (string) preg_replace(
+            '/(^|\n)  ' . preg_quote($service, '/') . ":\n.*?(?=\n  [A-Za-z0-9_-]+:|\nnetworks:|\nvolumes:|\z)/s",
+            '$1',
+            $compose,
+        );
+    }
+
+    private function removeComposeDependsOn(string $compose, string $service): string
+    {
+        return (string) preg_replace('/\n      - ' . preg_quote($service, '/') . '\b/', '', $compose);
+    }
+
+    private function removeComposeVolume(string $compose, string $volume): string
+    {
+        return (string) preg_replace(
+            '/(^|\n)  ' . preg_quote($volume, '/') . ":\n(?=\s*(?:  [A-Za-z0-9_-]+:|\z))/",
+            '$1',
+            $compose,
+        );
     }
 }

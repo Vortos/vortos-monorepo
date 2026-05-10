@@ -388,10 +388,19 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('VORTOS_WRITE_DB_PASSWORD=', $env);
         $this->assertStringContainsString('VORTOS_READ_DB_USER=', $env);
         $this->assertStringContainsString('VORTOS_READ_DB_PASSWORD=', $env);
-        $this->assertLessThan(
-            strpos($env, 'VORTOS_WRITE_DB_DSN='),
-            strpos($env, 'VORTOS_WRITE_DB_PASSWORD='),
-        );
+        $writeSection = $this->section($env, 'Write Database');
+        $readSection = $this->section($env, 'Read Database');
+
+        $this->assertStringContainsString('VORTOS_WRITE_DB_DRIVER=', $writeSection);
+        $this->assertStringContainsString('VORTOS_WRITE_DB_USER=', $writeSection);
+        $this->assertStringContainsString('VORTOS_WRITE_DB_PASSWORD=', $writeSection);
+        $this->assertStringContainsString('VORTOS_WRITE_DB_NAME=', $writeSection);
+        $this->assertStringContainsString('VORTOS_WRITE_DB_DSN=', $writeSection);
+        $this->assertStringContainsString('VORTOS_READ_DB_DRIVER=', $readSection);
+        $this->assertStringContainsString('VORTOS_READ_DB_USER=', $readSection);
+        $this->assertStringContainsString('VORTOS_READ_DB_PASSWORD=', $readSection);
+        $this->assertStringContainsString('VORTOS_READ_DB_DSN=', $readSection);
+        $this->assertStringContainsString('VORTOS_READ_DB_NAME=', $readSection);
         $this->assertSame('postgres', $this->envValue($env, 'VORTOS_WRITE_DB_USER'));
         $this->assertSame($this->expectedProjectName(), $this->envValue($env, 'VORTOS_WRITE_DB_NAME'));
         $this->assertSame('root', $this->envValue($env, 'VORTOS_READ_DB_USER'));
@@ -613,6 +622,14 @@ final class SetupCommandTest extends TestCase
         $name = (string) preg_replace('/[^a-z0-9]+/', '_', $name);
 
         return trim($name, '_');
+    }
+
+    private function section(string $env, string $section): string
+    {
+        $pattern = '/# ' . preg_quote($section, '/') . '\R# -+\R(?<body>.*?)(?=\R# -+\R# |\z)/s';
+        preg_match($pattern, $env, $match);
+
+        return $match['body'] ?? '';
     }
 
     private function removeDirectory(string $dir): void

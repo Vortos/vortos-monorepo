@@ -1,0 +1,29 @@
+{
+    "name": "vortos/vortos-security",
+    "description": "Vortos enterprise security — HTTP headers, CORS, CSRF, IP filtering, request signing, encryption, secrets, and data masking",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Security\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-http": "^1.0",
+        "vortos/vortos-logger": "^1.0",
+        "symfony/http-kernel": "^7.3"
+    },
+    "suggest": {
+        "vortos/vortos-metrics": "Required for security event counters (csrf_violations_total, ip_denied_total, etc.)",
+        "vortos/vortos-cache": "Required for Redis-backed secrets caching",
+        "aws/aws-sdk-php": "Required for AwsSsmSecretsProvider"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Security\\DependencyInjection\\SecurityPackage",
+            "order": 25
+        }
+    }
+}

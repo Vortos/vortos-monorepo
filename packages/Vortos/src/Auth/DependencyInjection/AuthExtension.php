@@ -27,6 +27,10 @@ use Vortos\Auth\Session\SessionEnforcer;
 use Vortos\Auth\Session\Storage\RedisSessionStore;
 use Vortos\Auth\Storage\InMemoryTokenStorage;
 use Vortos\Auth\Storage\RedisTokenStorage;
+use Vortos\Auth\ApiKey\ApiKeyService;
+use Vortos\Auth\ApiKey\Middleware\ApiKeyAuthMiddleware;
+use Vortos\Auth\ApiKey\Storage\ApiKeyStorageInterface;
+use Vortos\Auth\ApiKey\Storage\RedisApiKeyStorage;
 use Vortos\Cache\Adapter\ArrayAdapter;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
@@ -184,6 +188,26 @@ final class AuthExtension extends Extension
             ->setArguments([new Reference(CurrentUserProvider::class), null, []])
             ->setShared(true)->setPublic(true)
             ->addTag('kernel.event_subscriber');
+
+        // API Key authentication (M2M / server-to-server)
+        if ($container->hasDefinition(\Redis::class)) {
+            $container->register(RedisApiKeyStorage::class, RedisApiKeyStorage::class)
+                ->setArgument('$redis', new Reference(\Redis::class))
+                ->setShared(true)->setPublic(false);
+            $container->setAlias(ApiKeyStorageInterface::class, RedisApiKeyStorage::class)->setPublic(false);
+
+            $container->register(ApiKeyService::class, ApiKeyService::class)
+                ->setArgument('$storage', new Reference(ApiKeyStorageInterface::class))
+                ->setShared(true)->setPublic(true);
+
+            $container->register(ApiKeyAuthMiddleware::class, ApiKeyAuthMiddleware::class)
+                ->setArguments([
+                    new Reference(ApiKeyService::class),
+                    [], // routeMap — filled by ApiKeyCompilerPass
+                ])
+                ->addTag('kernel.event_subscriber')
+                ->setShared(true)->setPublic(true);
+        }
 
         $container->register('vortos.config_stub.auth', ConfigStub::class)
             ->setArguments(['auth', __DIR__ . '/../stubs/auth.php'])

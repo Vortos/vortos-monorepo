@@ -2,3 +2,6 @@
 var/cache
 var/log
 migrations/.vortos-published.json
+.env
+.env.bak.*
+.vortos-setup.json

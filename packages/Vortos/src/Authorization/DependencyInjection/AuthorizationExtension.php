@@ -239,7 +239,7 @@ final class AuthorizationExtension extends Extension
             ->setShared(true)->setPublic(true);
 
         // Redis-backed scoped + temporal stores
-        if (class_exists(\Redis::class)) {
+        if ($container->hasDefinition(\Redis::class)) {
             $container->register(RedisEmergencyDenyList::class, RedisEmergencyDenyList::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
                 ->setShared(true)
@@ -312,7 +312,7 @@ final class AuthorizationExtension extends Extension
         $container->getDefinition(PolicyEngine::class)
             ->setArgument('$scopedPermissions', new Reference(ScopedPermissionStoreInterface::class));
 
-        if (class_exists(\Redis::class)) {
+        if ($container->hasDefinition(\Redis::class)) {
             $container->register(RoleGenerationStore::class, RoleGenerationStore::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
                 ->setShared(true)
@@ -346,7 +346,7 @@ final class AuthorizationExtension extends Extension
 
         $innerResolver = DatabasePermissionResolver::class;
 
-        if (class_exists(\Redis::class)) {
+        if ($container->hasDefinition(\Redis::class)) {
             $container->register(CachedPermissionResolver::class, CachedPermissionResolver::class)
                 ->setArgument('$inner', new Reference(DatabasePermissionResolver::class))
                 ->setArgument('$redis', new Reference(\Redis::class))

@@ -25,6 +25,7 @@ return array(
     'Vortos\\Docker\\' => array($baseDir . '/packages/Vortos/src/Docker'),
     'Vortos\\Debug\\' => array($baseDir . '/packages/Vortos/src/Debug'),
     'Vortos\\Cqrs\\' => array($vendorDir . '/vortos/vortos-cqrs'),
+    'Vortos\\Config\\' => array($baseDir . '/packages/Vortos/src/Config'),
     'Vortos\\Cache\\' => array($vendorDir . '/vortos/vortos-cache'),
     'Vortos\\Authorization\\' => array($vendorDir . '/vortos/vortos-authorization'),
     'Vortos\\Auth\\' => array($vendorDir . '/vortos/vortos-auth'),

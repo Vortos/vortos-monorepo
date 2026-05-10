@@ -46,7 +46,7 @@ final class SetupCommandTest extends TestCase
         ]);
 
         $this->assertSame(0, $tester->getStatusCode());
-        $this->assertFileDoesNotExist($this->projectDir . '/.env.local');
+        $this->assertFileDoesNotExist($this->projectDir . '/.env');
         $this->assertFileDoesNotExist($this->projectDir . '/.vortos-setup.json');
     }
 
@@ -65,7 +65,7 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('Environment plan', $output);
         $this->assertStringContainsString('Setup plan (dry run)', $output);
         $this->assertStringContainsString('Written:', $output);
-        $this->assertStringContainsString('Do not commit .env.local or .vortos-setup.json.', $output);
+        $this->assertStringContainsString('Do not commit .env or .vortos-setup.json.', $output);
         $this->assertStringNotContainsString('Written   Updated   Unchanged', $output);
     }
 
@@ -78,7 +78,7 @@ final class SetupCommandTest extends TestCase
             '--no-interaction' => true,
         ]);
 
-        $env = (string) file_get_contents($this->projectDir . '/.env.local');
+        $env = (string) file_get_contents($this->projectDir . '/.env');
         $state = json_decode((string) file_get_contents($this->projectDir . '/.vortos-setup.json'), true);
 
         $this->assertSame('minimal', $state['profile']);
@@ -115,7 +115,7 @@ final class SetupCommandTest extends TestCase
 
         $this->assertSame(1, $tester->getStatusCode());
         $this->assertStringContainsString('Unknown setup profile "unknown".', $tester->getDisplay());
-        $this->assertFileDoesNotExist($this->projectDir . '/.env.local');
+        $this->assertFileDoesNotExist($this->projectDir . '/.env');
     }
 
     public function test_custom_profile_requires_interactive_mode(): void
@@ -128,7 +128,7 @@ final class SetupCommandTest extends TestCase
 
         $this->assertSame(1, $tester->getStatusCode());
         $this->assertStringContainsString('The custom profile requires interactive setup.', $tester->getDisplay());
-        $this->assertFileDoesNotExist($this->projectDir . '/.env.local');
+        $this->assertFileDoesNotExist($this->projectDir . '/.env');
     }
 
     public function test_setup_is_idempotent_and_preserves_generated_secrets(): void
@@ -140,7 +140,7 @@ final class SetupCommandTest extends TestCase
             '--no-interaction' => true,
         ]);
 
-        $firstEnv = (string) file_get_contents($this->projectDir . '/.env.local');
+        $firstEnv = (string) file_get_contents($this->projectDir . '/.env');
         $this->assertStringContainsString('VORTOS_CACHE_DRIVER=in-memory', $firstEnv);
         $this->assertFileExists($this->projectDir . '/.vortos-setup.json');
 
@@ -150,7 +150,7 @@ final class SetupCommandTest extends TestCase
             '--no-interaction' => true,
         ]);
 
-        $secondEnv = (string) file_get_contents($this->projectDir . '/.env.local');
+        $secondEnv = (string) file_get_contents($this->projectDir . '/.env');
         $this->assertSame($this->envValue($firstEnv, 'JWT_SECRET'), $this->envValue($secondEnv, 'JWT_SECRET'));
         $this->assertSame($this->envValue($firstEnv, 'HEALTH_TOKEN'), $this->envValue($secondEnv, 'HEALTH_TOKEN'));
         $this->assertSame($this->envValue($firstEnv, 'VORTOS_WRITE_DB_DSN'), $this->envValue($secondEnv, 'VORTOS_WRITE_DB_DSN'));
@@ -166,12 +166,10 @@ final class SetupCommandTest extends TestCase
             '--skip-docker-publish' => true,
         ]);
 
-        $env = (string) file_get_contents($this->projectDir . '/.env.local');
+        $env = (string) file_get_contents($this->projectDir . '/.env');
 
-        $this->assertStringContainsString('### Vortos setup', $env);
-        $this->assertStringContainsString('### Generated locally. Do not commit this file.', $env);
-        $this->assertStringContainsString('### Security', $env);
-        $this->assertStringContainsString('### Database', $env);
+        $this->assertStringContainsString('# Write Database', $env);
+        $this->assertStringContainsString('# Security', $env);
         $this->assertNotContains($this->envValue($env, 'VORTOS_WRITE_DB_PASSWORD'), ['12345', 'password', 'postgres', 'secret']);
         $this->assertNotContains($this->envValue($env, 'VORTOS_READ_DB_PASSWORD'), ['12345', 'password', 'postgres', 'secret']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $this->envValue($env, 'VORTOS_WRITE_DB_PASSWORD'));
@@ -186,7 +184,7 @@ final class SetupCommandTest extends TestCase
             '--no-interaction' => true,
         ]);
 
-        $firstEnv = (string) file_get_contents($this->projectDir . '/.env.local');
+        $firstEnv = (string) file_get_contents($this->projectDir . '/.env');
 
         $tester = $this->tester();
         $tester->execute([
@@ -195,7 +193,7 @@ final class SetupCommandTest extends TestCase
             '--no-interaction' => true,
         ]);
 
-        $secondEnv = (string) file_get_contents($this->projectDir . '/.env.local');
+        $secondEnv = (string) file_get_contents($this->projectDir . '/.env');
 
         $this->assertNotSame($this->envValue($firstEnv, 'JWT_SECRET'), $this->envValue($secondEnv, 'JWT_SECRET'));
         $this->assertNotSame($this->envValue($firstEnv, 'HEALTH_TOKEN'), $this->envValue($secondEnv, 'HEALTH_TOKEN'));
@@ -212,18 +210,17 @@ final class SetupCommandTest extends TestCase
             '--skip-docker-publish' => true,
         ]);
 
-        $local = (string) file_get_contents($this->projectDir . '/.env.local');
-        $base  = (string) file_get_contents($this->projectDir . '/.env');
+        $env = (string) file_get_contents($this->projectDir . '/.env');
         $projectName = $this->expectedProjectName();
 
-        $this->assertSame($projectName, $this->envValue($base, 'APP_NAME'));
-        $this->assertSame($projectName, $this->envValue($local, 'VORTOS_WRITE_DB_NAME'));
-        $this->assertSame('postgres', $this->envValue($local, 'VORTOS_WRITE_DB_DRIVER'));
-        $this->assertSame('mongo', $this->envValue($local, 'VORTOS_READ_DB_DRIVER'));
-        $this->assertSame($projectName, $this->envValue($local, 'VORTOS_READ_DB_NAME'));
-        $this->assertSame('dev_' . $projectName . '_', $this->envValue($local, 'VORTOS_CACHE_PREFIX'));
-        $this->assertStringContainsString('@write_db:5432/' . $projectName, $this->envValue($local, 'VORTOS_WRITE_DB_DSN'));
-        $this->assertStringContainsString('@read_db:27017', $this->envValue($local, 'VORTOS_READ_DB_DSN'));
+        $this->assertSame($projectName, $this->envValue($env, 'APP_NAME'));
+        $this->assertSame($projectName, $this->envValue($env, 'VORTOS_WRITE_DB_NAME'));
+        $this->assertSame('postgres', $this->envValue($env, 'VORTOS_WRITE_DB_DRIVER'));
+        $this->assertSame('mongo', $this->envValue($env, 'VORTOS_READ_DB_DRIVER'));
+        $this->assertSame($projectName, $this->envValue($env, 'VORTOS_READ_DB_NAME'));
+        $this->assertSame('dev_' . $projectName . '_', $this->envValue($env, 'VORTOS_CACHE_PREFIX'));
+        $this->assertStringContainsString('@write_db:5432/' . $projectName, $this->envValue($env, 'VORTOS_WRITE_DB_DSN'));
+        $this->assertStringContainsString('@read_db:27017', $this->envValue($env, 'VORTOS_READ_DB_DSN'));
     }
 
     public function test_setup_ignores_skeleton_app_name_placeholder(): void
@@ -236,12 +233,11 @@ final class SetupCommandTest extends TestCase
             '--no-interaction' => true,
         ]);
 
-        $base  = (string) file_get_contents($this->projectDir . '/.env');
-        $local = (string) file_get_contents($this->projectDir . '/.env.local');
+        $env = (string) file_get_contents($this->projectDir . '/.env');
         $projectName = $this->expectedProjectName();
 
-        $this->assertSame($projectName, $this->envValue($base, 'APP_NAME'));
-        $this->assertStringContainsString('/' . $projectName, $this->envValue($local, 'VORTOS_WRITE_DB_DSN'));
+        $this->assertSame($projectName, $this->envValue($env, 'APP_NAME'));
+        $this->assertStringContainsString('/' . $projectName, $this->envValue($env, 'VORTOS_WRITE_DB_DSN'));
     }
 
     public function test_existing_app_name_is_preserved_on_setup(): void
@@ -254,11 +250,10 @@ final class SetupCommandTest extends TestCase
             '--no-interaction' => true,
         ]);
 
-        $base  = (string) file_get_contents($this->projectDir . '/.env');
-        $local = (string) file_get_contents($this->projectDir . '/.env.local');
+        $env = (string) file_get_contents($this->projectDir . '/.env');
 
-        $this->assertSame('custom_app', $this->envValue($base, 'APP_NAME'));
-        $this->assertStringContainsString('/custom_app', $this->envValue($local, 'VORTOS_WRITE_DB_DSN'));
+        $this->assertSame('custom_app', $this->envValue($env, 'APP_NAME'));
+        $this->assertStringContainsString('/custom_app', $this->envValue($env, 'VORTOS_WRITE_DB_DSN'));
     }
 
     public function test_setup_writes_agnostic_app_env_without_legacy_service_helpers(): void
@@ -271,7 +266,7 @@ final class SetupCommandTest extends TestCase
             '--skip-docker-publish' => true,
         ]);
 
-        $env = (string) file_get_contents($this->projectDir . '/.env.local');
+        $env = (string) file_get_contents($this->projectDir . '/.env');
 
         $this->assertStringContainsString('VORTOS_WRITE_DB_DSN=', $env);
         $this->assertStringContainsString('VORTOS_READ_DB_DSN=', $env);
@@ -363,7 +358,7 @@ final class SetupCommandTest extends TestCase
 
         $this->assertSame(0, $tester->getStatusCode());
         $this->assertStringContainsString('Setup cancelled', $tester->getDisplay());
-        $this->assertFileDoesNotExist($this->projectDir . '/.env.local');
+        $this->assertFileDoesNotExist($this->projectDir . '/.env');
         $this->assertFileDoesNotExist($this->projectDir . '/.vortos-setup.json');
     }
 

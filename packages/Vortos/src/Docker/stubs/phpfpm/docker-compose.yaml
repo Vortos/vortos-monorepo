@@ -9,7 +9,6 @@ services:
       - vortos-net
     env_file:
       - ./.env
-      - ./.env.local
 
   nginx:
     build:
@@ -40,7 +39,6 @@ services:
       POSTGRES_DB:       ${VORTOS_WRITE_DB_NAME}
     env_file:
       - ./.env
-      - ./.env.local
 
   redis:
     image: redis:alpine
@@ -52,7 +50,6 @@ services:
       - 6379:6379
     env_file:
       - ./.env
-      - ./.env.local
 
   read_db:
     image: mongo:8.0
@@ -67,7 +64,6 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${VORTOS_READ_DB_PASSWORD}
     env_file:
       - ./.env
-      - ./.env.local
 
   kafka:
     image: apache/kafka:latest
@@ -102,7 +98,6 @@ services:
       - redis
     env_file:
       - ./.env
-      - ./.env.local
     networks:
       - vortos-net
     healthcheck:

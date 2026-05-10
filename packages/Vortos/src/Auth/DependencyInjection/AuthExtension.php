@@ -68,7 +68,7 @@ final class AuthExtension extends Extension
             ->setShared(true)->setPublic(false);
 
         // Token storage
-        if (extension_loaded('redis')) {
+        if ($container->hasDefinition(\Redis::class)) {
             $container->register(RedisTokenStorage::class, RedisTokenStorage::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
                 ->setShared(true)->setPublic(false);
@@ -108,8 +108,8 @@ final class AuthExtension extends Extension
             ->setShared(true)->setPublic(true)
             ->addTag('kernel.event_subscriber');
 
-        // Redis-backed stores (only when Redis available)
-        if (extension_loaded('redis')) {
+        // Redis-backed stores (only when CacheExtension registered the \Redis service)
+        if ($container->hasDefinition(\Redis::class)) {
             $container->register(RedisRateLimitStore::class, RedisRateLimitStore::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
                 ->setShared(true)->setPublic(false);

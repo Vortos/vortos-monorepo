@@ -50,6 +50,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Docker\\' => 14,
             'Vortos\\Debug\\' => 13,
             'Vortos\\Cqrs\\' => 12,
+            'Vortos\\Config\\' => 14,
             'Vortos\\Cache\\' => 13,
             'Vortos\\Authorization\\' => 21,
             'Vortos\\Auth\\' => 12,
@@ -223,6 +224,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Cqrs\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-cqrs',
+        ),
+        'Vortos\\Config\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Config',
         ),
         'Vortos\\Cache\\' =>
         array (

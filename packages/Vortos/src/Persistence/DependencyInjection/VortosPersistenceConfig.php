@@ -18,7 +18,7 @@ namespace Vortos\Persistence\DependencyInjection;
  *   };
  *
  * By default, framework setup writes VORTOS_WRITE_DB_DSN,
- * VORTOS_READ_DB_DSN, and VORTOS_READ_DB_NAME to .env.local.
+ * VORTOS_READ_DB_DSN, and VORTOS_READ_DB_NAME to .env.
  */
 final class VortosPersistenceConfig
 {

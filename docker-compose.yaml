@@ -20,7 +20,7 @@ services:
       - vortos-net
     env_file:
       - ./.env
-  
+
   write_db:
     image: postgres:18-alpine
     ports:
@@ -30,6 +30,10 @@ services:
       - ./docker/postgres/init:/docker-entrypoint-initdb.d
     networks:
       - vortos-net
+    environment:
+      POSTGRES_USER:     ${VORTOS_WRITE_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${VORTOS_WRITE_DB_PASSWORD}
+      POSTGRES_DB:       ${VORTOS_WRITE_DB_NAME}
     env_file:
       - ./.env
 
@@ -52,9 +56,12 @@ services:
       - read_db_data:/data/db
     ports:
       - 27017:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${VORTOS_READ_DB_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${VORTOS_READ_DB_PASSWORD}
     env_file:
       - ./.env
-  
+
   kafka:
     image: apache/kafka:latest
     environment:
@@ -73,26 +80,28 @@ services:
       KAFKA_HEAP_OPTS: "-Xmx256M -Xms256M"
     networks:
       - vortos-net
-  
+
   worker:
-      build:
-        context: .
-        dockerfile: ./docker/php/Dockerfile
-        target: worker
-      restart: always
-      volumes:
-        - ./:/var/www/html
-      depends_on:
-        - kafka
-        - write_db
-        - redis
-      networks:
-        - vortos-net
-      healthcheck:
-        test: ["CMD", "supervisorctl", "status"]
-        interval: 30s
-        timeout: 10s
-        retries: 3
+    build:
+      context: .
+      dockerfile: ./docker/php/Dockerfile
+      target: worker
+    restart: always
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      - kafka
+      - write_db
+      - redis
+    env_file:
+      - ./.env
+    networks:
+      - vortos-net
+    healthcheck:
+      test: ["CMD", "supervisorctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   vortos-net:

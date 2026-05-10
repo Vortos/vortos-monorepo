@@ -135,13 +135,9 @@ final class SetupCommand extends Command
         $this->renderChecks($io, $checks);
 
         $current = $this->envWriter->readKnownValues();
-        $this->envWriter->writeBase(
-            ['APP_NAME' => $this->resolvedProjectName($current)],
-            $dryRun,
-        );
-
-        $envResult = $this->envWriter->writeLocal(
-            $this->envValues($config, (bool) $input->getOption('regenerate-secrets')),
+        $envResult = $this->envWriter->write(
+            ['APP_NAME' => $this->resolvedProjectName($current)]
+            + $this->envValues($config, (bool) $input->getOption('regenerate-secrets')),
             $dryRun,
         );
         $this->renderEnvironmentResult($io, $envResult, $dryRun);
@@ -671,7 +667,7 @@ final class SetupCommand extends Command
             $io->writeln(sprintf('  Backup: <comment>%s</comment>', $this->relative($result['backup'])));
         }
 
-        $io->writeln('  <fg=gray>Commit .env and .env.example. Do not commit .env.local or .vortos-setup.json.</>');
+        $io->writeln('  <fg=gray>.env is gitignored. Commit .env.example as a template. Do not commit .env or .vortos-setup.json.</>');
     }
 
     private function renderDockerResult(SymfonyStyle $io, DockerPublishResult $result, bool $dryRun): void

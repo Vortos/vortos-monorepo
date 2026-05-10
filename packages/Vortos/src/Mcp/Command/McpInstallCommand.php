@@ -17,7 +17,7 @@ use Vortos\Mcp\Client\KnownClients;
 
 /**
  * Writes the Vortos MCP server entry into the user's AI client configuration.
- * The AI client will then auto-start `php bin/vortos vortos:mcp:serve` as a
+ * The AI client will then auto-start `php bin/console vortos:mcp:serve` as a
  * stdio process whenever the project is open.
  */
 #[AsCommand(
@@ -72,7 +72,7 @@ final class McpInstallCommand extends Command
                 $targets = $selected;
             } else {
                 $io->note(sprintf(
-                    'No supported AI client config was detected. Choose one explicitly: php bin/vortos vortos:mcp:install --client=%s',
+                    'No supported AI client config was detected. Choose one explicitly: php bin/console vortos:mcp:install --client=%s',
                     implode('|', $knownClients->names()),
                 ));
                 return Command::SUCCESS;
@@ -119,7 +119,7 @@ final class McpInstallCommand extends Command
         }
 
         $io->newLine();
-        $io->writeln('Run <info>php bin/vortos vortos:mcp:doctor</info> to verify the connection.');
+        $io->writeln('Run <info>php bin/console vortos:mcp:doctor</info> to verify the connection.');
         $io->writeln('Then open your AI client and ask: <comment>"Explain this Vortos project structure."</comment>');
 
         return Command::SUCCESS;

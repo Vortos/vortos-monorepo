@@ -161,7 +161,7 @@ final class McpInstallCommandTest extends TestCase
 
         $this->assertStringContainsString('[mcp_servers.vortos]', $config);
         $this->assertStringContainsString('command = "php"', $config);
-        $this->assertStringContainsString('args = ["' . $this->projectDir . '/bin/vortos", "vortos:mcp:serve"]', $config);
+        $this->assertStringContainsString('args = ["' . $this->projectDir . '/bin/console", "vortos:mcp:serve"]', $config);
         $this->assertFileDoesNotExist($this->projectDir . '/.codex/config.toml');
     }
 
@@ -176,7 +176,7 @@ final class McpInstallCommandTest extends TestCase
         $config = (string) file_get_contents($this->homeDir . '/.codex/config.toml');
 
         $this->assertStringContainsString(
-            'args = ["C:\\\\Users\\\\Ada Lovelace\\\\demo/bin/vortos", "vortos:mcp:serve"]',
+            'args = ["C:\\\\Users\\\\Ada Lovelace\\\\demo/bin/console", "vortos:mcp:serve"]',
             $config,
         );
     }

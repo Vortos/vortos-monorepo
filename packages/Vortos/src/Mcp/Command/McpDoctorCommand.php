@@ -46,7 +46,7 @@ final class McpDoctorCommand extends Command
                 ));
             } elseif ($status['detected']) {
                 $io->writeln(sprintf(
-                    '  <comment>!</comment>  %-20s <fg=gray>%s — not configured, run: php bin/vortos vortos:mcp:install --client=%s</>',
+                    '  <comment>!</comment>  %-20s <fg=gray>%s — not configured, run: php bin/console vortos:mcp:install --client=%s</>',
                     $status['name'],
                     $status['config_path'],
                     $id,
@@ -59,7 +59,7 @@ final class McpDoctorCommand extends Command
 
         // Server
         $io->section('MCP Server');
-        $consolePath = $this->projectDir . '/bin/vortos';
+        $consolePath = $this->projectDir . '/bin/console';
         $io->writeln(sprintf('  Command: <info>php %s vortos:mcp:serve</info>', $consolePath));
         $io->writeln('  Transport: stdio (AI clients start this automatically)');
 
@@ -85,7 +85,7 @@ final class McpDoctorCommand extends Command
         if ($allGood) {
             $io->success('MCP is ready. Open your AI client and ask: "Explain this Vortos project structure."');
         } else {
-            $io->note('Some clients are not configured. Run vortos:mcp:install to wire them.');
+            $io->note('Some clients are not configured. Run php bin/console vortos:mcp:install to wire them.');
         }
 
         return Command::SUCCESS;

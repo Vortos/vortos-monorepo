@@ -178,7 +178,7 @@ final class SetupCommandTest extends TestCase
         ]);
 
         $this->assertSame(0, $tester->getStatusCode());
-        $this->assertStringContainsString('php bin/vortos vortos:mcp:install', $tester->getDisplay());
+        $this->assertStringContainsString('php bin/console vortos:mcp:install', $tester->getDisplay());
     }
 
     public function test_interactive_setup_asks_whether_to_configure_mcp_client_now(): void
@@ -198,7 +198,7 @@ final class SetupCommandTest extends TestCase
     {
         mkdir($this->projectDir . '/bin', 0777, true);
         file_put_contents(
-            $this->projectDir . '/bin/vortos',
+            $this->projectDir . '/bin/console',
             "<?php\nfile_put_contents(__DIR__ . '/../mcp-install-ran', implode(' ', array_slice(\$argv, 1)));\n",
         );
 

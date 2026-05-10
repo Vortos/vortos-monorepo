@@ -36,7 +36,7 @@ final class ReadProjectConfigTool implements ToolInterface
         $configDir = $this->projectDir . '/config';
 
         if (!is_dir($configDir)) {
-            return "No config/ directory found at {$configDir}. Run `php bin/vortos vortos:config:publish` to publish config stubs.";
+            return "No config/ directory found at {$configDir}. Run `php bin/console vortos:config:publish` to publish config stubs.";
         }
 
         $filter = $arguments['file'] ?? null;
@@ -53,7 +53,7 @@ final class ReadProjectConfigTool implements ToolInterface
         }
 
         if (empty($files)) {
-            return "No config files found in config/. Run `php bin/vortos vortos:config:publish` to publish config stubs.";
+            return "No config files found in config/. Run `php bin/console vortos:config:publish` to publish config stubs.";
         }
 
         $output = "# Project Configuration\n\n";

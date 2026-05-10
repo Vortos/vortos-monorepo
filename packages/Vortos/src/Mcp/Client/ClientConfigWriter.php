@@ -26,7 +26,7 @@ final class ClientConfigWriter
             ? $client['global_config']
             : $projectDir . '/' . $client['project_config'];
 
-        $consolePath = $projectDir . '/bin/vortos';
+        $consolePath = $projectDir . '/bin/console';
         $entry       = [
             'type'    => 'stdio',
             'command' => 'php',

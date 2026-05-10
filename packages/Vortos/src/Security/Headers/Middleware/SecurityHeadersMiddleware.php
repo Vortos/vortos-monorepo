@@ -58,7 +58,7 @@ final class SecurityHeadersMiddleware implements EventSubscriberInterface
     private function buildHeaders(array $config): array
     {
         $headers = [];
-        $h       = $config['headers'];
+        $h       = $config;
 
         // Strict-Transport-Security
         if ($h['hsts']) {

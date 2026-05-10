@@ -109,6 +109,7 @@ return static function (ContainerConfigurator $configurator): void {
         '../src/PersistenceOrm/',
         '../src/FeatureFlags/',
         '../src/Security/',
+        '../src/Mcp/',
         ]);
 
     $services->set(ModulePathResolver::class)

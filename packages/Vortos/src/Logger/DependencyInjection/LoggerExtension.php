@@ -22,6 +22,8 @@ use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Vortos\Logger\Config\LogChannel;
 use Vortos\Logger\Processor\CorrelationIdProcessor;
+use Vortos\Config\DependencyInjection\ConfigExtension;
+use Vortos\Config\Stub\ConfigStub;
 use Vortos\Tracing\Contract\TracingInterface;
 
 /**
@@ -235,6 +237,11 @@ final class LoggerExtension extends Extension
         // Keep the legacy monolog.logger alias for any code that still uses it
         $container->setAlias('monolog.logger', 'vortos.logger.app')
             ->setPublic(true);
+
+        $container->register('vortos.config_stub.logging', ConfigStub::class)
+            ->setArguments(['logging', __DIR__ . '/../stubs/logging.php'])
+            ->addTag(ConfigExtension::STUB_TAG)
+            ->setPublic(false);
     }
 
     private function registerSentryHandler(ContainerBuilder $container, string $handlerId, string $dsn, Level $minLevel): void

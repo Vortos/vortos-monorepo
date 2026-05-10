@@ -60,6 +60,8 @@ use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Messenger\MessageBus;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
+use Vortos\Config\DependencyInjection\ConfigExtension;
+use Vortos\Config\Stub\ConfigStub;
 
 final class MessagingExtension extends Extension
 {
@@ -465,5 +467,10 @@ final class MessagingExtension extends Extension
                 $definition->setPublic(true);
             }
         );
+
+        $container->register('vortos.config_stub.messaging', ConfigStub::class)
+            ->setArguments(['messaging', __DIR__ . '/../stubs/messaging.php'])
+            ->addTag(ConfigExtension::STUB_TAG)
+            ->setPublic(false);
     }
 }

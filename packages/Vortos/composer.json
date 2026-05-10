@@ -9,8 +9,9 @@
         "vortos/vortos-foundation": "^1.0",
         "vortos/vortos-http": "^1.0",
         "vortos/vortos-logger": "^1.0",
-        "vortos/vortos-cache": "^1.0",
         "vortos/vortos-tracing": "^1.0",
+        "vortos/vortos-metrics": "^1.0",
+        "vortos/vortos-cache": "^1.0",
         "vortos/vortos-persistence": "^1.0",
         "vortos/vortos-messaging": "^1.0",
         "vortos/vortos-cqrs": "^1.0",
@@ -20,6 +21,7 @@
         "vortos/vortos-make": "^1.0",
         "vortos/vortos-debug": "^1.0",
         "vortos/vortos-feature-flags": "^1.0",
+        "vortos/vortos-config": "^1.0",
         "vortos/vortos-docker": "^1.0",
         "vortos/vortos-setup": "^1.0"
     },

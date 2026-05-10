@@ -16,6 +16,8 @@ use Vortos\Tracing\Sampling\AlwaysOffSampler;
 use Vortos\Tracing\Sampling\AlwaysOnSampler;
 use Vortos\Tracing\Sampling\RatioSampler;
 use Vortos\Tracing\Sampling\SamplerInterface;
+use Vortos\Config\DependencyInjection\ConfigExtension;
+use Vortos\Config\Stub\ConfigStub;
 
 final class TracingExtension extends Extension
 {
@@ -81,5 +83,10 @@ final class TracingExtension extends Extension
         // HttpExtension (order 20) sets a safe default of false before this runs.
         // This overrides it with the user-configured value.
         $container->setParameter('vortos.tracing.trust_remote_context', $config->getTrustRemoteContext());
+
+        $container->register('vortos.config_stub.tracing', ConfigStub::class)
+            ->setArguments(['tracing', __DIR__ . '/../stubs/tracing.php'])
+            ->addTag(ConfigExtension::STUB_TAG)
+            ->setPublic(false);
     }
 }

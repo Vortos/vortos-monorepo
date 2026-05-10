@@ -1,0 +1,22 @@
+{
+    "name": "vortos/vortos-config",
+    "description": "Vortos Config — publish annotated config stubs to your project",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Config\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "symfony/console": "^7.3"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Config\\DependencyInjection\\ConfigPackage",
+            "order": 115
+        }
+    }
+}

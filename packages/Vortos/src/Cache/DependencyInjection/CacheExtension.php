@@ -17,6 +17,8 @@ use Vortos\Cache\Command\CacheClearCommand;
 use Vortos\Cache\Command\CacheWarmupCommand;
 use Vortos\Cache\Contract\TaggedCacheInterface;
 use Vortos\Cache\Health\RedisHealthCheck;
+use Vortos\Config\DependencyInjection\ConfigExtension;
+use Vortos\Config\Stub\ConfigStub;
 
 /**
  * Wires all cache services.
@@ -135,5 +137,10 @@ final class CacheExtension extends Extension
             ->setArgument('$warmers', new TaggedIteratorArgument('vortos.cache_warmer'))
             ->setPublic(true)
             ->addTag('console.command');
+
+        $container->register('vortos.config_stub.cache', ConfigStub::class)
+            ->setArguments(['cache', __DIR__ . '/../stubs/cache.php'])
+            ->addTag(ConfigExtension::STUB_TAG)
+            ->setPublic(false);
     }
 }

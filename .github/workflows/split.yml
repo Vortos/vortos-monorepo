@@ -75,6 +75,10 @@ jobs:
             split_repository: 'vortos-feature-flags'
           - local_path: 'packages/Vortos/src/Setup'
             split_repository: 'vortos-setup'
+          - local_path: 'packages/Vortos/src/Metrics'
+            split_repository: 'vortos-metrics'
+          - local_path: 'packages/Vortos/src/Config'
+            split_repository: 'vortos-config'
 
     steps:
       - uses: actions/checkout@v4

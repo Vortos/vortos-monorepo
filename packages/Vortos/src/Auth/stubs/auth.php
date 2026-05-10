@@ -1,0 +1,62 @@
+<?php
+
+declare(strict_types=1);
+
+use Vortos\Auth\DependencyInjection\VortosAuthConfig;
+use Vortos\Auth\Lockout\LockoutConfig;
+use Vortos\Auth\Lockout\LockoutTrack;
+use Vortos\Auth\Storage\InMemoryTokenStorage;
+use Vortos\Auth\Storage\RedisTokenStorage;
+
+// Infrastructure driver is chosen via ENV — configure behaviour here.
+//
+// VORTOS_AUTH_*  env vars are not read here; the options below are the
+// canonical way to tune auth behaviour across environments.
+//
+// For per-environment overrides create config/{env}/auth.php — it is
+// loaded after this file and any value set there wins.
+
+return static function (VortosAuthConfig $config): void {
+    $config
+        // JWT signing secret — keep this out of source control.
+        // Set JWT_SECRET in .env.local or your secrets manager.
+        // Generate a safe value: bin2hex(random_bytes(32))
+        ->secret($_ENV['JWT_SECRET'] ?? '')
+
+        // Access token lifetime in seconds.
+        // Keep short — a stolen access token is valid for this long.
+        // 900 = 15 minutes (recommended for most APIs)
+        ->accessTokenTtl(900)
+
+        // Refresh token lifetime in seconds.
+        // 604800 = 7 days. Slide or shorten for higher-security contexts.
+        ->refreshTokenTtl(604800)
+
+        // Claim embedded in the JWT 'iss' field.
+        // Use your app name — useful when multiple services share a key.
+        ->issuer($_ENV['APP_NAME'] ?? 'vortos')
+
+        // Token storage backend.
+        //
+        // InMemoryTokenStorage — no persistence across requests (fine for testing).
+        // RedisTokenStorage    — persistent; required for forced logout and
+        //                        multi-process deployments (FrankenPHP workers).
+        //                        Requires Redis and vortos/vortos-cache.
+        ->tokenStorage(InMemoryTokenStorage::class)
+    ;
+
+    // Account lockout after repeated failed logins.
+    // Remove this block to disable lockout entirely.
+    // Requires Redis (RedisTokenStorage or vortos/vortos-cache).
+    //
+    // $config->lockout()
+    //     // Lock the account after this many consecutive failures.
+    //     ->maxAttempts(5)
+    //     // How long the account stays locked, in seconds. 900 = 15 min.
+    //     ->lockDurationSeconds(900)
+    //     // Track failures by email, IP address, or both.
+    //     ->trackBy(LockoutTrack::Email)
+    //     // Message shown to the user while locked out.
+    //     ->message('Account locked due to too many failed attempts. Try again later.')
+    // ;
+};

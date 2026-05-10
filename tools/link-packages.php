@@ -24,6 +24,7 @@ $packages = [
     'vortos-docker'            => 'Docker',
     'vortos-setup'             => 'Setup',
     'vortos-metrics'           => 'Metrics',
+    'vortos-config'           => 'Config',
 ];
 
 foreach ($packages as $vendorName => $srcName) {

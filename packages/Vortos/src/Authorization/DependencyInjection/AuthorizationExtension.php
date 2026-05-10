@@ -67,6 +67,8 @@ use Vortos\Authorization\Temporal\TemporalAuthorizationManager;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
 use Vortos\Authorization\Http\PermissionsController;
 use Vortos\Authorization\Voter\RoleVoter;
+use Vortos\Config\DependencyInjection\ConfigExtension;
+use Vortos\Config\Stub\ConfigStub;
 
 final class AuthorizationExtension extends Extension
 {
@@ -458,5 +460,10 @@ final class AuthorizationExtension extends Extension
                 $definition->setPublic(false);
             },
         );
+
+        $container->register('vortos.config_stub.authorization', ConfigStub::class)
+            ->setArguments(['authorization', __DIR__ . '/../stubs/authorization.php'])
+            ->addTag(ConfigExtension::STUB_TAG)
+            ->setPublic(false);
     }
 }

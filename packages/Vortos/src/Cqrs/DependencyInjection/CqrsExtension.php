@@ -27,6 +27,8 @@ use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\Tracing\Contract\TracingInterface;
 use Psr\SimpleCache\CacheInterface;
+use Vortos\Config\DependencyInjection\ConfigExtension;
+use Vortos\Config\Stub\ConfigStub;
 
 final class CqrsExtension extends Extension
 {
@@ -150,5 +152,10 @@ final class CqrsExtension extends Extension
                 $definition->setPublic(true);
             },
         );
+
+        $container->register('vortos.config_stub.cqrs', ConfigStub::class)
+            ->setArguments(['cqrs', __DIR__ . '/../stubs/cqrs.php'])
+            ->addTag(ConfigExtension::STUB_TAG)
+            ->setPublic(false);
     }
 }

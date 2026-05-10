@@ -28,6 +28,8 @@ use Vortos\Auth\Session\Storage\RedisSessionStore;
 use Vortos\Auth\Storage\InMemoryTokenStorage;
 use Vortos\Auth\Storage\RedisTokenStorage;
 use Vortos\Cache\Adapter\ArrayAdapter;
+use Vortos\Config\DependencyInjection\ConfigExtension;
+use Vortos\Config\Stub\ConfigStub;
 
 final class AuthExtension extends Extension
 {
@@ -182,5 +184,10 @@ final class AuthExtension extends Extension
             ->setArguments([new Reference(CurrentUserProvider::class), null, []])
             ->setShared(true)->setPublic(true)
             ->addTag('kernel.event_subscriber');
+
+        $container->register('vortos.config_stub.auth', ConfigStub::class)
+            ->setArguments(['auth', __DIR__ . '/../stubs/auth.php'])
+            ->addTag(ConfigExtension::STUB_TAG)
+            ->setPublic(false);
     }
 }

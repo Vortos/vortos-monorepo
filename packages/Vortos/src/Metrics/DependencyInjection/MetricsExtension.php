@@ -23,6 +23,8 @@ use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\Contract\MetricsInterface;
 use Vortos\Metrics\Http\MetricsController;
+use Vortos\Config\DependencyInjection\ConfigExtension;
+use Vortos\Config\Stub\ConfigStub;
 
 /**
  * Wires all metrics services.
@@ -242,5 +244,10 @@ final class MetricsExtension extends Extension
         // Cache and Persistence auto-instrumentation are applied by compiler passes
         // (CacheMetricsCompilerPass, PersistenceMetricsCompilerPass) registered in MetricsPackage.
         // The passes read 'vortos.metrics.disabled_modules' to know whether to skip.
+
+        $container->register('vortos.config_stub.metrics', ConfigStub::class)
+            ->setArguments(['metrics', __DIR__ . '/../stubs/metrics.php'])
+            ->addTag(ConfigExtension::STUB_TAG)
+            ->setPublic(false);
     }
 }

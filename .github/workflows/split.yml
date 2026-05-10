@@ -79,6 +79,8 @@ jobs:
             split_repository: 'vortos-metrics'
           - local_path: 'packages/Vortos/src/Config'
             split_repository: 'vortos-config'
+          - local_path: 'packages/Vortos/src/Security'
+            split_repository: 'vortos-security'
 
     steps:
       - uses: actions/checkout@v4

@@ -181,6 +181,39 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('php bin/vortos vortos:mcp:install', $tester->getDisplay());
     }
 
+    public function test_interactive_setup_asks_whether_to_configure_mcp_client_now(): void
+    {
+        $tester = $this->tester();
+        $tester->setInputs(['no']);
+
+        $tester->execute([
+            '--preset' => 'local',
+        ]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $this->assertStringContainsString('Configure MCP in an AI client now?', $tester->getDisplay());
+    }
+
+    public function test_interactive_setup_can_run_mcp_client_install_step(): void
+    {
+        mkdir($this->projectDir . '/bin', 0777, true);
+        file_put_contents(
+            $this->projectDir . '/bin/vortos',
+            "<?php\nfile_put_contents(__DIR__ . '/../mcp-install-ran', implode(' ', array_slice(\$argv, 1)));\n",
+        );
+
+        $tester = $this->tester();
+        $tester->setInputs(['yes']);
+
+        $tester->execute([
+            '--preset' => 'local',
+        ]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $this->assertStringContainsString('MCP client', $tester->getDisplay());
+        $this->assertSame('vortos:mcp:install', file_get_contents($this->projectDir . '/mcp-install-ran'));
+    }
+
     public function test_invalid_profile_returns_failure_without_writing_files(): void
     {
         $tester = $this->tester();

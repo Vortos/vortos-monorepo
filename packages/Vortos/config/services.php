@@ -47,6 +47,7 @@ return static function (ContainerConfigurator $configurator): void {
             '../src/Auth/FeatureAccess/Middleware/',
             '../src/Auth/Audit/Middleware/',
             '../src/Auth/TwoFactor/Middleware/',
+            '../src/Auth/ApiKey/',
         '../src/Messaging/Command/',
             // '../src/Auth/Controller/',
             // '../src/Auth/Contract/',
@@ -107,6 +108,7 @@ return static function (ContainerConfigurator $configurator): void {
         '../src/Debug/',
         '../src/PersistenceOrm/',
         '../src/FeatureFlags/',
+        '../src/Security/',
         ]);
 
     $services->set(ModulePathResolver::class)

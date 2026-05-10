@@ -116,7 +116,7 @@ final class EnvironmentFileWriter
                 copy($path, $backupPath);
             }
 
-            file_put_contents($path, implode(PHP_EOL, $lines) . PHP_EOL);
+            file_put_contents($path, implode("\n", $lines) . "\n");
         }
 
         return [

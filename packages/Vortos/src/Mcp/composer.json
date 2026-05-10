@@ -1,0 +1,22 @@
+{
+    "name": "vortos/vortos-mcp",
+    "description": "Vortos MCP server — AI context layer for Vortos projects",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Mcp\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "symfony/console": "^7.0",
+        "symfony/dependency-injection": "^7.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Mcp\\DependencyInjection\\McpPackage",
+            "order": 100
+        }
+    }
+}

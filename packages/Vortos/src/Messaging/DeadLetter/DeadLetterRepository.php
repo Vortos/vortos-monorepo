@@ -19,6 +19,7 @@ final class DeadLetterRepository
         ?string $transport = null,
         ?string $eventClass = null,
         ?string $id = null,
+        bool $orderDesc = false,
     ): array {
         $sql    = "SELECT * FROM {$this->table} WHERE status = 'failed'";
         $params = ['limit' => $limit];
@@ -39,7 +40,7 @@ final class DeadLetterRepository
             $params['event_class'] = $eventClass;
         }
 
-        $sql .= ' ORDER BY failed_at ASC LIMIT :limit';
+        $sql .= $orderDesc ? ' ORDER BY failed_at DESC LIMIT :limit' : ' ORDER BY failed_at ASC LIMIT :limit';
 
         return $this->connection->fetchAllAssociative($sql, $params, $types);
     }

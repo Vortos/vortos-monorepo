@@ -45,16 +45,22 @@ final class OutboxReplayCommand extends Command
         $this
             ->addOption('limit', 'l', InputOption::VALUE_OPTIONAL, 'Max messages to reset', 50)
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'List failed messages without resetting them')
-            ->addOption('transport', null, InputOption::VALUE_OPTIONAL, 'Filter by transport name');
+            ->addOption('transport', null, InputOption::VALUE_OPTIONAL, 'Filter by transport name')
+            ->addOption('event-class', null, InputOption::VALUE_OPTIONAL, 'Filter by event class (FQCN)')
+            ->addOption('id', null, InputOption::VALUE_OPTIONAL, 'Reset a single message by ID')
+            ->addOption('latest', null, InputOption::VALUE_NONE, 'Process most recently failed messages first (default: oldest first)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $limit     = (int) $input->getOption('limit');
-        $dryRun    = (bool) $input->getOption('dry-run');
-        $transport = $input->getOption('transport') ?: null;
+        $limit      = (int) $input->getOption('limit');
+        $dryRun     = (bool) $input->getOption('dry-run');
+        $transport  = $input->getOption('transport') ?: null;
+        $eventClass = $input->getOption('event-class') ?: null;
+        $id         = $input->getOption('id') ?: null;
+        $latest     = (bool) $input->getOption('latest');
 
-        $messages = $this->outboxPoller->fetchFailed($limit, $transport);
+        $messages = $this->outboxPoller->fetchFailed($limit, $transport, $eventClass, $id, $latest);
 
         if (empty($messages)) {
             $output->writeln('<info>No permanently failed outbox messages found.</info>');

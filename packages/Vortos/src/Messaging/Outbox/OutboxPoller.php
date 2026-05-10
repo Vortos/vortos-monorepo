@@ -80,18 +80,30 @@ final class OutboxPoller implements OutboxPollerInterface
         );
     }
 
-    public function fetchFailed(int $limit = 50, ?string $transport = null): array
+    public function fetchFailed(int $limit = 50, ?string $transport = null, ?string $eventClass = null, ?string $id = null, bool $orderDesc = false): array
     {
         $sql = "SELECT * FROM {$this->tableName} WHERE status = 'failed'";
         $params = ['limit' => $limit];
         $types  = ['limit' => \Doctrine\DBAL\ParameterType::INTEGER];
+
+        if ($id !== null) {
+            $sql .= ' AND id = :id';
+            $params['id'] = $id;
+        }
 
         if ($transport !== null) {
             $sql .= ' AND transport_name = :transport';
             $params['transport'] = $transport;
         }
 
-        $sql .= ' ORDER BY created_at ASC LIMIT :limit FOR UPDATE SKIP LOCKED';
+        if ($eventClass !== null) {
+            $sql .= ' AND event_class = :event_class';
+            $params['event_class'] = $eventClass;
+        }
+
+        $sql .= $orderDesc
+            ? ' ORDER BY created_at DESC LIMIT :limit FOR UPDATE SKIP LOCKED'
+            : ' ORDER BY created_at ASC LIMIT :limit FOR UPDATE SKIP LOCKED';
 
         $rows = $this->connection->fetchAllAssociative($sql, $params, $types);
 

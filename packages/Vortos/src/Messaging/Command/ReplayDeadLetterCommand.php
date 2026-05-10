@@ -48,7 +48,8 @@ final class ReplayDeadLetterCommand extends Command
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'List messages without replaying them')
             ->addOption('transport', null, InputOption::VALUE_OPTIONAL, 'Filter by transport name')
             ->addOption('event-class', null, InputOption::VALUE_OPTIONAL, 'Filter by event class (FQCN)')
-            ->addOption('id', null, InputOption::VALUE_OPTIONAL, 'Replay a single message by ID');
+            ->addOption('id', null, InputOption::VALUE_OPTIONAL, 'Replay a single message by ID')
+            ->addOption('latest', null, InputOption::VALUE_NONE, 'Process most recently failed messages first (default: oldest first)');
     }
 
     public function execute(InputInterface $input, OutputInterface $output): int
@@ -58,8 +59,9 @@ final class ReplayDeadLetterCommand extends Command
         $transport  = $input->getOption('transport') ?: null;
         $eventClass = $input->getOption('event-class') ?: null;
         $id         = $input->getOption('id') ?: null;
+        $latest     = (bool) $input->getOption('latest');
 
-        $rows = $this->repository->fetchFailed($limit, $transport, $eventClass, $id);
+        $rows = $this->repository->fetchFailed($limit, $transport, $eventClass, $id, $latest);
 
         if (empty($rows)) {
             $output->writeln('<info>No failed messages found.</info>');

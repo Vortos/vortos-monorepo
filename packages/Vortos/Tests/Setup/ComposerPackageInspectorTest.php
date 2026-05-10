@@ -51,6 +51,19 @@ final class ComposerPackageInspectorTest extends TestCase
         $this->assertSame("composer require 'vortos/vortos-docker' 'vortos/vortos-cache'", $command);
     }
 
+    public function test_require_command_can_ignore_platform_requirements(): void
+    {
+        $command = (new ComposerPackageInspector($this->projectDir))->requireCommand(
+            ['vortos/vortos-persistence-mongo'],
+            ['ext-mongodb'],
+        );
+
+        $this->assertSame(
+            "composer require --ignore-platform-req='ext-mongodb' 'vortos/vortos-persistence-mongo'",
+            $command,
+        );
+    }
+
     private function removeDirectory(string $dir): void
     {
         if (!is_dir($dir)) {

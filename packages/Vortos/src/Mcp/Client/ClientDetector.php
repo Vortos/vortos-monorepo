@@ -12,7 +12,7 @@ final class ClientDetector
     ) {}
 
     /**
-     * @return array<string, array{name: string, detected: bool, configured: bool, config_path: string}>
+     * @return array<string, array{name: string, detected: bool, configured: bool, config_path: string, global_config_path: string}>
      */
     public function detect(): array
     {
@@ -20,14 +20,21 @@ final class ClientDetector
 
         foreach ($this->knownClients->all() as $id => $client) {
             $projectConfig = $this->projectDir . '/' . $client['project_config'];
-            $detected      = file_exists($projectConfig) || file_exists(dirname($projectConfig));
-            $configured    = $this->hasVortosEntry($projectConfig);
+            $globalConfig  = $client['global_config'];
+            $detected      = file_exists($projectConfig)
+                || file_exists(dirname($projectConfig))
+                || file_exists($globalConfig)
+                || file_exists(dirname($globalConfig));
+            $configured    = ($client['format'] ?? 'json') === 'codex-toml'
+                ? $this->hasCodexVortosEntry($globalConfig)
+                : $this->hasVortosEntry($projectConfig);
 
             $results[$id] = [
-                'name'        => $client['name'],
-                'detected'    => $detected,
-                'configured'  => $configured,
-                'config_path' => $projectConfig,
+                'name'               => $client['name'],
+                'detected'           => $detected,
+                'configured'         => $configured,
+                'config_path'        => ($client['global_only'] ?? false) ? $globalConfig : $projectConfig,
+                'global_config_path' => $globalConfig,
             ];
         }
 
@@ -46,5 +53,14 @@ final class ClientDetector
         } catch (\JsonException) {
             return false;
         }
+    }
+
+    public function hasCodexVortosEntry(string $configPath): bool
+    {
+        if (!file_exists($configPath)) {
+            return false;
+        }
+
+        return preg_match('/(^|\n)\[mcp_servers\.vortos\]\n/', (string) file_get_contents($configPath)) === 1;
     }
 }

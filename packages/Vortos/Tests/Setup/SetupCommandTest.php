@@ -9,6 +9,7 @@ use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use Vortos\Docker\Service\DockerFilePublisher;
 use Vortos\Setup\Command\SetupCommand;
+use Vortos\Setup\Service\ComposerPackageInspector;
 use Vortos\Setup\Service\EnvironmentFileWriter;
 use Vortos\Setup\Service\SetupEnvironmentChecker;
 use Vortos\Setup\Service\SetupStateStore;
@@ -102,6 +103,82 @@ final class SetupCommandTest extends TestCase
         $this->assertSame('docker', $state['profile']);
         $this->assertSame('docker-frankenphp', $state['preset']);
         $this->assertTrue($state['docker']);
+        $this->assertTrue($state['mcp']);
+    }
+
+    public function test_docker_profile_ignores_platform_requirements_provided_by_docker_when_installing_packages(): void
+    {
+        $command = new SetupCommand(
+            $this->projectDir,
+            new SetupStateStore($this->projectDir),
+            new EnvironmentFileWriter($this->projectDir),
+            new SetupEnvironmentChecker($this->projectDir),
+            new DockerFilePublisher($this->stubRoot),
+            packageInspector: new ComposerPackageInspector($this->projectDir),
+        );
+
+        $application = new Application();
+        $application->add($command);
+        $tester = new CommandTester($application->find('vortos:setup'));
+
+        $tester->execute([
+            '--profile' => 'docker',
+            '--dry-run' => true,
+            '--skip-docker-publish' => true,
+            '--no-interaction' => true,
+        ]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $output = $tester->getDisplay();
+
+        $this->assertStringContainsString("--ignore-platform-req='ext-mongodb'", $output);
+        $this->assertStringContainsString("--ignore-platform-req='ext-redis'", $output);
+        $this->assertStringContainsString("--ignore-platform-req='ext-rdkafka'", $output);
+    }
+
+    public function test_mcp_can_be_disabled_for_docker_profile(): void
+    {
+        $command = new SetupCommand(
+            $this->projectDir,
+            new SetupStateStore($this->projectDir),
+            new EnvironmentFileWriter($this->projectDir),
+            new SetupEnvironmentChecker($this->projectDir),
+            new DockerFilePublisher($this->stubRoot),
+            packageInspector: new ComposerPackageInspector($this->projectDir),
+        );
+
+        $application = new Application();
+        $application->add($command);
+        $tester = new CommandTester($application->find('vortos:setup'));
+
+        $tester->execute([
+            '--profile' => 'docker',
+            '--no-mcp' => true,
+            '--dry-run' => true,
+            '--skip-docker-publish' => true,
+            '--no-interaction' => true,
+        ]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $output = $tester->getDisplay();
+
+        $this->assertStringContainsString('MCP:       no', $output);
+        $this->assertStringNotContainsString('vortos/vortos-mcp', $output);
+        $this->assertStringNotContainsString('vortos:mcp:install', $output);
+    }
+
+    public function test_mcp_next_step_is_shown_when_selected(): void
+    {
+        $tester = $this->tester();
+
+        $tester->execute([
+            '--profile' => 'docker',
+            '--skip-docker-publish' => true,
+            '--no-interaction' => true,
+        ]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $this->assertStringContainsString('php bin/vortos vortos:mcp:install', $tester->getDisplay());
     }
 
     public function test_invalid_profile_returns_failure_without_writing_files(): void
@@ -373,6 +450,7 @@ final class SetupCommandTest extends TestCase
             '0',
             '1',
             '1',
+            '1',
             'Continue',
         ]);
 
@@ -387,6 +465,7 @@ final class SetupCommandTest extends TestCase
         $this->assertFalse($state['mongo']);
         $this->assertSame('in-memory', $state['cache']);
         $this->assertSame('in-memory', $state['messaging']);
+        $this->assertFalse($state['mcp']);
     }
 
     public function test_interactive_custom_profile_asks_each_configurable_category(): void
@@ -397,6 +476,7 @@ final class SetupCommandTest extends TestCase
             '1',
             '0',
             '1',
+            '0',
             '0',
             '0',
             'Continue',
@@ -413,6 +493,7 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('Choose read database', $output);
         $this->assertStringContainsString('Choose cache', $output);
         $this->assertStringContainsString('Choose messaging', $output);
+        $this->assertStringContainsString('Install MCP server', $output);
         $this->assertSame('custom', $state['profile']);
         $this->assertSame('docker-phpfpm', $state['preset']);
         $this->assertSame('phpfpm', $state['runtime']);
@@ -420,6 +501,7 @@ final class SetupCommandTest extends TestCase
         $this->assertTrue($state['mongo']);
         $this->assertSame('redis', $state['cache']);
         $this->assertSame('kafka', $state['messaging']);
+        $this->assertTrue($state['mcp']);
     }
 
     private function tester(): CommandTester

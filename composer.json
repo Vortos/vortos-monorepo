@@ -57,7 +57,8 @@
       "Vortos\\Setup\\": "packages/Vortos/src/Setup/",
       "Vortos\\Metrics\\": "packages/Vortos/src/Metrics/",
       "Vortos\\Config\\": "packages/Vortos/src/Config/",
-      "Vortos\\Security\\": "packages/Vortos/src/Security/"
+      "Vortos\\Security\\": "packages/Vortos/src/Security/",
+      "Vortos\\Mcp\\": "packages/Vortos/src/Mcp/"
     }
   },
   "autoload-dev": {

@@ -22,7 +22,7 @@ final class ClientConfigWriter
             throw new \InvalidArgumentException("Unknown client: {$clientId}");
         }
 
-        $configPath = $global
+        $configPath = ($global || ($client['global_only'] ?? false))
             ? $client['global_config']
             : $projectDir . '/' . $client['project_config'];
 
@@ -32,6 +32,10 @@ final class ClientConfigWriter
             'command' => 'php',
             'args'    => [$consolePath, 'vortos:mcp:serve'],
         ];
+
+        if (($client['format'] ?? 'json') === 'codex-toml') {
+            return $this->writeCodexToml($configPath, $entry);
+        }
 
         $existing = [];
         if (file_exists($configPath)) {
@@ -61,5 +65,59 @@ final class ClientConfigWriter
         );
 
         return ['path' => $configPath, 'action' => $action];
+    }
+
+    /**
+     * @param array{command: string, args: string[]} $entry
+     * @return array{path: string, action: 'created'|'updated'|'unchanged'}
+     */
+    private function writeCodexToml(string $configPath, array $entry): array
+    {
+        $block = sprintf(
+            "[mcp_servers.vortos]\ncommand = %s\nargs = [%s]\n",
+            $this->tomlString($entry['command']),
+            implode(', ', array_map(fn(string $arg): string => $this->tomlString($arg), $entry['args'])),
+        );
+
+        $existing = file_exists($configPath) ? (string) file_get_contents($configPath) : '';
+        if ($this->codexMcpBlock($existing) === $block) {
+            return ['path' => $configPath, 'action' => 'unchanged'];
+        }
+
+        $updated = $this->withoutCodexMcpBlock($existing);
+        $updated = rtrim($updated);
+        $updated = ($updated === '' ? '' : $updated . "\n\n") . $block;
+
+        $dir = dirname($configPath);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        file_put_contents($configPath, $updated);
+
+        return ['path' => $configPath, 'action' => file_exists($configPath) && $existing !== '' ? 'updated' : 'created'];
+    }
+
+    private function codexMcpBlock(string $config): ?string
+    {
+        if (preg_match('/(^|\n)(\[mcp_servers\.vortos\]\n(?:[^\[]|\[(?!mcp_servers\.))*\n?)/', $config, $match) !== 1) {
+            return null;
+        }
+
+        return $match[2];
+    }
+
+    private function withoutCodexMcpBlock(string $config): string
+    {
+        return (string) preg_replace('/(^|\n)\[mcp_servers\.vortos\]\n(?:[^\[]|\[(?!mcp_servers\.))*\n?/', '$1', $config);
+    }
+
+    private function tomlString(string $value): string
+    {
+        return '"' . str_replace(
+            ["\\", "\"", "\n", "\r", "\t"],
+            ["\\\\", "\\\"", "\\n", "\\r", "\\t"],
+            $value,
+        ) . '"';
     }
 }

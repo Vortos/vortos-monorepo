@@ -6,12 +6,29 @@ namespace Vortos\Mcp\Client;
 
 final class KnownClients
 {
-    /** @return array<string, array{name: string, project_config: string, global_config: string}> */
+    /**
+     * @return array<string, array{
+     *     name: string,
+     *     project_config: string,
+     *     global_config: string,
+     *     mcp_key: string,
+     *     format?: 'json'|'codex-toml',
+     *     global_only?: bool
+     * }>
+     */
     public function all(): array
     {
         $home = $this->homeDir();
 
         return [
+            'codex' => [
+                'name'           => 'Codex',
+                'project_config' => '.codex/config.toml',
+                'global_config'  => $home . '/.codex/config.toml',
+                'mcp_key'        => 'mcp_servers',
+                'format'         => 'codex-toml',
+                'global_only'    => true,
+            ],
             'claude' => [
                 'name'           => 'Claude Code',
                 'project_config' => '.claude/settings.json',

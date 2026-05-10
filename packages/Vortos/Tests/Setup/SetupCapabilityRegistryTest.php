@@ -20,6 +20,13 @@ final class SetupCapabilityRegistryTest extends TestCase
         );
 
         $this->assertSame(['runtime.frankenphp', 'runtime.phpfpm', 'runtime.local'], $runtimeKeys);
+
+        $mcpKeys = array_map(
+            static fn($capability): string => $capability->key(),
+            $registry->byCategory('mcp'),
+        );
+
+        $this->assertSame(['mcp.enabled', 'mcp.disabled'], $mcpKeys);
     }
 
     public function test_capabilities_can_be_filtered_by_availability(): void
@@ -56,10 +63,10 @@ final class SetupCapabilityRegistryTest extends TestCase
         $registry = SetupCapabilityRegistry::builtIn();
 
         $missing = $registry->missingPackagesFor(
-            ['runtime.frankenphp', 'runtime.phpfpm', 'cache.redis'],
+            ['runtime.frankenphp', 'runtime.phpfpm', 'cache.redis', 'mcp.enabled'],
             ['vortos/vortos-cache'],
         );
 
-        $this->assertSame(['vortos/vortos-docker'], $missing);
+        $this->assertSame(['vortos/vortos-docker', 'vortos/vortos-mcp'], $missing);
     }
 }

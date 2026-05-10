@@ -278,7 +278,7 @@ return [
         'config'      => null,
         'commands'    => [
             'vortos:mcp:serve'   => 'Start the MCP server (stdio — AI clients auto-start this). Flags: --http, --port',
-            'vortos:mcp:install' => 'Write MCP config to AI client settings. Flags: --client=claude|cursor|windsurf|all, --global',
+            'vortos:mcp:install' => 'Write MCP config to AI client settings. Flags: --client=auto|codex|claude|cursor|windsurf|all, --global',
             'vortos:mcp:doctor'  => 'Show MCP server status, detected clients, and available tools',
         ],
     ],

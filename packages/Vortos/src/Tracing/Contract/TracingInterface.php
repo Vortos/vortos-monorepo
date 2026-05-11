@@ -38,6 +38,20 @@ interface TracingInterface
     public function extractContext(array $headers): void;
 
     /**
+     * Store low-cardinality cross-service baggage for the current trace.
+     *
+     * Never put secrets, tokens, email addresses, or free-form user input in baggage.
+     */
+    public function setBaggageItem(string $key, string $value): void;
+
+    public function baggageItem(string $key): ?string;
+
+    /**
+     * @return array<string, string>
+     */
+    public function baggage(): array;
+
+    /**
      * Returns the current trace/correlation ID from the active span context.
      * Returns null when no active span exists — CLI, tests, or before first request.
      * EventBus uses this to carry the HTTP request trace ID into dispatched events

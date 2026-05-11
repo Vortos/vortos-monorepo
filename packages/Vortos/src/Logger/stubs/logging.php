@@ -21,6 +21,15 @@ use Vortos\Logger\DependencyInjection\VortosLoggingConfig;
 // For per-environment overrides create config/{env}/logging.php.
 
 return static function (VortosLoggingConfig $config): void {
+    // Service metadata is attached to structured log records.
+    // Prefer immutable deployment values, not request/user data.
+    //
+    // $config->service(
+    //     name: $_ENV['OTEL_SERVICE_NAME'] ?? $_ENV['APP_NAME'] ?? 'vortos-app',
+    //     version: $_ENV['APP_VERSION'] ?? '',
+    //     environment: $_ENV['APP_ENV'] ?? 'prod',
+    // );
+
     // Silence high-volume channels that are useful in dev but noisy in prod.
     // Remove channels from this list to re-enable them.
     $config->disableChannel(
@@ -46,6 +55,27 @@ return static function (VortosLoggingConfig $config): void {
     //
     // $config->buffer(false); // disable if you need real-time log tailing
 
+    // Redact sensitive values from record context and extra fields.
+    // Default: enabled, with common auth/PII keys. Add project-specific keys here.
+    //
+    // $config->redaction(true, keys: ['card_number', 'billing_address']);
+
+    // Add ECS/OpenTelemetry-style fields: service.name, service.version,
+    // deployment.environment, event.dataset, log.logger.
+    // Default: enabled.
+    //
+    // $config->structured(false);
+
+    // Add bounded HTTP/user/tenant context without query strings or request bodies.
+    // Default: enabled. Disable only for extremely high-throughput workers.
+    //
+    // $config->requestContext(false);
+
+    // Introspection adds source file/class/function to log records.
+    // Default: enabled in dev, disabled outside dev to avoid path leakage and overhead.
+    //
+    // $config->introspection(false);
+
     // Inject the active trace ID into every log record as 'trace_id'.
     // Requires vortos/vortos-tracing. No-ops silently when tracing is disabled.
     // Default: enabled.
@@ -54,6 +84,7 @@ return static function (VortosLoggingConfig $config): void {
 
     // Route errors to Sentry.
     // Requires sentry/sentry in your composer.json.
+    // Missing packages fail at container compile time by default.
     //
     // $config->sentry(
     //     dsn: $_ENV['SENTRY_DSN'] ?? '',
@@ -61,6 +92,8 @@ return static function (VortosLoggingConfig $config): void {
     // );
 
     // Route critical alerts to a Slack webhook.
+    // This is a synchronous emergency sink; keep the level high and use a
+    // central log pipeline or queued alerting for primary production alert flow.
     //
     // $config->slack(
     //     webhook: $_ENV['SLACK_LOG_WEBHOOK'] ?? '',
@@ -68,9 +101,16 @@ return static function (VortosLoggingConfig $config): void {
     // );
 
     // Route errors to an email address.
+    // This is a synchronous emergency sink; prefer Sentry or log aggregation
+    // for normal production incident routing.
     //
     // $config->email(
     //     to: $_ENV['LOG_ALERT_EMAIL'] ?? '',
     //     minLevel: Level::Error,
     // );
+
+    // Set false only in local prototypes where optional alert packages may be
+    // absent. Production should keep fail-fast behaviour.
+    //
+    // $config->failOnMissingIntegrations(true);
 };

@@ -27,6 +27,18 @@ final class NoOpTracer implements TracingInterface
 
     public function extractContext(array $headers): void {}
 
+    public function setBaggageItem(string $key, string $value): void {}
+
+    public function baggageItem(string $key): ?string
+    {
+        return null;
+    }
+
+    public function baggage(): array
+    {
+        return [];
+    }
+
     public function currentCorrelationId(): ?string 
     {
         return null;

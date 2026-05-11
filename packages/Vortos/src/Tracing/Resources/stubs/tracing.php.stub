@@ -2,12 +2,28 @@
 
 declare(strict_types=1);
 
+use Vortos\Tracing\Config\TracingAdapter;
 use Vortos\Tracing\Config\TracingModule;
 use Vortos\Tracing\Config\TracingSampler;
 use Vortos\Tracing\DependencyInjection\VortosTracingConfig;
 
 return static function (VortosTracingConfig $config): void {
     // Defaults: AlwaysOn in dev, Ratio(0.1) in prod — override here if needed.
+
+    // NoOp is the default. OpenTelemetry requires the OTLP packages and collector.
+    // $config->adapter(TracingAdapter::OpenTelemetry);
+
+    // $config->service(
+    //     name: $_ENV['OTEL_SERVICE_NAME'] ?? $_ENV['APP_NAME'] ?? 'vortos-app',
+    //     version: $_ENV['APP_VERSION'] ?? '',
+    //     environment: $_ENV['APP_ENV'] ?? 'prod',
+    // );
+
+    // $config->otlp(
+    //     endpoint: $_ENV['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] ?? 'http://otel-collector:4318/v1/traces',
+    //     headers: [],
+    //     timeoutMs: 2000,
+    // );
 
     // Sample all traces in development:
     // $config->sampler(TracingSampler::AlwaysOn);
@@ -17,4 +33,8 @@ return static function (VortosTracingConfig $config): void {
 
     // Silence high-volume Cache and Persistence spans:
     // $config->disable(TracingModule::Cache, TracingModule::Persistence);
+
+    // Controller attributes:
+    // #[TraceWith(spanName: 'checkout.place_order', sampleRate: 1.0)]
+    // #[DisableTracing]
 };

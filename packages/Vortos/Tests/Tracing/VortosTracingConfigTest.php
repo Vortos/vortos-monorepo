@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Vortos\Tests\Tracing;
 
 use PHPUnit\Framework\TestCase;
+use Vortos\Tracing\Config\TracingAdapter;
 use Vortos\Tracing\Config\TracingModule;
 use Vortos\Tracing\Config\TracingSampler;
 use Vortos\Tracing\DependencyInjection\VortosTracingConfig;
@@ -15,6 +16,7 @@ final class VortosTracingConfigTest extends TestCase
         $config = new VortosTracingConfig();
         $this->assertSame(TracingSampler::Ratio, $config->getSampler());
         $this->assertSame(0.1, $config->getSamplerRate());
+        $this->assertSame(TracingAdapter::NoOp, $config->getAdapter());
     }
 
     public function test_default_no_disabled_modules(): void
@@ -45,6 +47,40 @@ final class VortosTracingConfigTest extends TestCase
         $this->assertSame(0.25, $config->getSamplerRate());
     }
 
+    public function test_sampler_rate_is_clamped(): void
+    {
+        $config = new VortosTracingConfig();
+        $config->sampler(TracingSampler::Ratio, rate: 99);
+        $this->assertSame(1.0, $config->getSamplerRate());
+
+        $config->sampler(TracingSampler::Ratio, rate: -1);
+        $this->assertSame(0.0, $config->getSamplerRate());
+    }
+
+    public function test_can_configure_opentelemetry_adapter_and_otlp(): void
+    {
+        $config = (new VortosTracingConfig())
+            ->adapter(TracingAdapter::OpenTelemetry)
+            ->service('checkout', '1.0.0', 'prod')
+            ->otlp('https://otel.example.test/v1/traces', headers: ['x-api-key' => 'secret'], timeoutMs: 500);
+
+        $otel = $config->getOpenTelemetryConfig();
+
+        $this->assertSame(TracingAdapter::OpenTelemetry, $config->getAdapter());
+        $this->assertSame('checkout', $otel['service_name']);
+        $this->assertSame('1.0.0', $otel['service_version']);
+        $this->assertSame('prod', $otel['deployment_environment']);
+        $this->assertSame('https://otel.example.test/v1/traces', $otel['endpoint']);
+        $this->assertSame(['x-api-key' => 'secret'], $otel['headers']);
+        $this->assertSame(500, $otel['timeout_ms']);
+    }
+
+    public function test_otlp_endpoint_must_be_absolute_http_url(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new VortosTracingConfig())->otlp('file:///tmp/traces');
+    }
+
     public function test_can_disable_single_module(): void
     {
         $config = new VortosTracingConfig();
@@ -73,6 +109,7 @@ final class VortosTracingConfigTest extends TestCase
     {
         $config = new VortosTracingConfig();
         $this->assertSame($config, $config->sampler(TracingSampler::AlwaysOn));
+        $this->assertSame($config, $config->adapter(TracingAdapter::NoOp));
         $this->assertSame($config, $config->disable(TracingModule::Cache));
         $this->assertSame($config, $config->enable(TracingModule::Cache));
     }

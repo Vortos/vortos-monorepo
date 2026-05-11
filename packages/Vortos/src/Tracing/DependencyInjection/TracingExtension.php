@@ -8,12 +8,15 @@ use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Tracing\Config\TracingSampler;
+use Vortos\Tracing\Config\TracingAdapter;
 use Vortos\Tracing\Contract\TracingInterface;
 use Vortos\Tracing\Decorator\ModuleAwareTracer;
 use Vortos\Tracing\Decorator\SamplingTracer;
 use Vortos\Tracing\NoOpTracer;
+use Vortos\Tracing\OpenTelemetry\OpenTelemetryTracerFactory;
 use Vortos\Tracing\Sampling\AlwaysOffSampler;
 use Vortos\Tracing\Sampling\AlwaysOnSampler;
+use Vortos\Tracing\Sampling\ParentBasedSampler;
 use Vortos\Tracing\Sampling\RatioSampler;
 use Vortos\Tracing\Sampling\SamplerInterface;
 use Vortos\Config\DependencyInjection\ConfigExtension;
@@ -47,23 +50,24 @@ final class TracingExtension extends Extension
             );
         }
 
-        // Register inner tracer (NoOp by default — swap to OTel when needed)
-        $container->register(NoOpTracer::class, NoOpTracer::class)
-            ->setPublic(false);
+        $innerTracerId = $this->registerInnerTracer($container, $config);
 
         // Register sampler
-        $sampler = match($config->getSampler()) {
+        $rootSampler = match($config->getSampler()) {
             TracingSampler::AlwaysOn  => new Definition(AlwaysOnSampler::class),
             TracingSampler::AlwaysOff => new Definition(AlwaysOffSampler::class),
             TracingSampler::Ratio     => (new Definition(RatioSampler::class))
                 ->setArguments([$config->getSamplerRate()]),
         };
-        $container->setDefinition(SamplerInterface::class, $sampler)->setPublic(false);
+        $container->setDefinition('vortos.tracing.root_sampler', $rootSampler)->setPublic(false);
+        $container->register(SamplerInterface::class, ParentBasedSampler::class)
+            ->setArgument('$rootSampler', new Reference('vortos.tracing.root_sampler'))
+            ->setPublic(false);
 
         // Register SamplingTracer decorator
         $container->register(SamplingTracer::class, SamplingTracer::class)
             ->setArguments([
-                new Reference(NoOpTracer::class),
+                new Reference($innerTracerId),
                 new Reference(SamplerInterface::class),
             ])
             ->setPublic(false);
@@ -88,5 +92,22 @@ final class TracingExtension extends Extension
             ->setArguments(['tracing', __DIR__ . '/../stubs/tracing.php'])
             ->addTag(ConfigExtension::STUB_TAG)
             ->setPublic(false);
+    }
+
+    private function registerInnerTracer(ContainerBuilder $container, VortosTracingConfig $config): string
+    {
+        if ($config->getAdapter() === TracingAdapter::OpenTelemetry) {
+            $container->register('vortos.tracing.opentelemetry', TracingInterface::class)
+                ->setFactory([OpenTelemetryTracerFactory::class, 'create'])
+                ->setArgument('$config', $config->getOpenTelemetryConfig())
+                ->setPublic(false);
+
+            return 'vortos.tracing.opentelemetry';
+        }
+
+        $container->register(NoOpTracer::class, NoOpTracer::class)
+            ->setPublic(false);
+
+        return NoOpTracer::class;
     }
 }

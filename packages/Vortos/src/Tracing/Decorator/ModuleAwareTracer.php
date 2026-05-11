@@ -37,6 +37,21 @@ final class ModuleAwareTracer implements TracingInterface
         $this->inner->extractContext($headers);
     }
 
+    public function setBaggageItem(string $key, string $value): void
+    {
+        $this->inner->setBaggageItem($key, $value);
+    }
+
+    public function baggageItem(string $key): ?string
+    {
+        return $this->inner->baggageItem($key);
+    }
+
+    public function baggage(): array
+    {
+        return $this->inner->baggage();
+    }
+
     public function currentCorrelationId(): ?string
     {
         return $this->inner->currentCorrelationId();

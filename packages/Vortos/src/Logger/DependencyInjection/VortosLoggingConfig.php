@@ -52,6 +52,17 @@ final class VortosLoggingConfig
     private int $maxFiles = 30;
     private bool $bufferEnabled = true;
     private bool $correlationIdEnabled = true;
+    private bool $introspectionEnabled;
+    private bool $redactionEnabled = true;
+    private bool $structuredEnabled = true;
+    private bool $requestContextEnabled = true;
+    private bool $failOnMissingIntegrations = true;
+    private string $serviceName = 'app';
+    private string $serviceVersion = '';
+    private string $deploymentEnvironment = '';
+
+    /** @var list<string> */
+    private array $redactionKeys = [];
 
     /** @var list<array{dsn: string, minLevel: Level}> */
     private array $sentryHandlers = [];
@@ -64,7 +75,12 @@ final class VortosLoggingConfig
 
     public function __construct(string $env = '')
     {
-        $this->rotationEnabled = ($env ?: ($_ENV['APP_ENV'] ?? 'prod')) === 'dev';
+        $environment = $env ?: ($_ENV['APP_ENV'] ?? 'prod');
+        $this->rotationEnabled = $environment === 'dev';
+        $this->introspectionEnabled = $environment === 'dev';
+        $this->deploymentEnvironment = $environment;
+        $this->serviceName = $_ENV['OTEL_SERVICE_NAME'] ?? $_ENV['APP_NAME'] ?? 'app';
+        $this->serviceVersion = $_ENV['APP_VERSION'] ?? '';
     }
 
     /**
@@ -136,6 +152,65 @@ final class VortosLoggingConfig
     }
 
     /**
+     * Include file/class/line information in log records.
+     *
+     * Default: enabled only in dev. Keep disabled in production to avoid
+     * unnecessary overhead and path disclosure.
+     */
+    public function introspection(bool $enabled = true): static
+    {
+        $this->introspectionEnabled = $enabled;
+        return $this;
+    }
+
+    /**
+     * Redact sensitive context/extra fields before records leave the process.
+     *
+     * @param list<string> $keys
+     */
+    public function redaction(bool $enabled = true, array $keys = []): static
+    {
+        $this->redactionEnabled = $enabled;
+        $this->redactionKeys = array_values($keys);
+        return $this;
+    }
+
+    /**
+     * Add ECS/OpenTelemetry-compatible service and event fields.
+     */
+    public function structured(bool $enabled = true): static
+    {
+        $this->structuredEnabled = $enabled;
+        return $this;
+    }
+
+    /**
+     * Add bounded HTTP/user/tenant context when those services are available.
+     */
+    public function requestContext(bool $enabled = true): static
+    {
+        $this->requestContextEnabled = $enabled;
+        return $this;
+    }
+
+    public function service(string $name, string $version = '', string $environment = ''): static
+    {
+        $this->serviceName = $name;
+        $this->serviceVersion = $version;
+        $this->deploymentEnvironment = $environment;
+        return $this;
+    }
+
+    /**
+     * When true, configured integrations must be installed or container build fails.
+     */
+    public function failOnMissingIntegrations(bool $enabled = true): static
+    {
+        $this->failOnMissingIntegrations = $enabled;
+        return $this;
+    }
+
+    /**
      * Route log records at or above $minLevel to Sentry.
      *
      * Requires sentry/sentry in your project's composer.json.
@@ -185,6 +260,15 @@ final class VortosLoggingConfig
             'max_files'            => $this->maxFiles,
             'buffer_enabled'       => $this->bufferEnabled,
             'correlation_id'       => $this->correlationIdEnabled,
+            'introspection'        => $this->introspectionEnabled,
+            'redaction'            => $this->redactionEnabled,
+            'redaction_keys'       => $this->redactionKeys,
+            'structured'           => $this->structuredEnabled,
+            'request_context'      => $this->requestContextEnabled,
+            'fail_on_missing_integrations' => $this->failOnMissingIntegrations,
+            'service_name'         => $this->serviceName,
+            'service_version'      => $this->serviceVersion,
+            'deployment_environment' => $this->deploymentEnvironment,
             'sentry_handlers'      => $this->sentryHandlers,
             'slack_handlers'       => $this->slackHandlers,
             'email_handlers'       => $this->emailHandlers,

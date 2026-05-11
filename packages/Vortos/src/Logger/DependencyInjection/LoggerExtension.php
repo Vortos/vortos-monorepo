@@ -15,13 +15,19 @@ use Monolog\Level;
 use Monolog\Logger;
 use Monolog\Processor\IntrospectionProcessor;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Logger\Config\LogChannel;
+use Vortos\Logger\EventListener\LogBufferFlushListener;
 use Vortos\Logger\Processor\CorrelationIdProcessor;
+use Vortos\Logger\Processor\RedactionProcessor;
+use Vortos\Logger\Processor\RequestContextProcessor;
+use Vortos\Logger\Processor\StructuredLogProcessor;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
 use Vortos\Tracing\Contract\TracingInterface;
@@ -101,9 +107,39 @@ final class LoggerExtension extends Extension
 
     private function registerProcessors(ContainerBuilder $container, array $resolved): void
     {
-        $container->register('vortos.logger.processor.introspection', IntrospectionProcessor::class)
-            ->setShared(true)
-            ->setPublic(false);
+        if ($resolved['introspection']) {
+            $container->register('vortos.logger.processor.introspection', IntrospectionProcessor::class)
+                ->setShared(true)
+                ->setPublic(false);
+        }
+
+        if ($resolved['redaction']) {
+            $container->register('vortos.logger.processor.redaction', RedactionProcessor::class)
+                ->setArguments([$resolved['redaction_keys']])
+                ->setShared(true)
+                ->setPublic(false);
+        }
+
+        if ($resolved['structured']) {
+            $container->register('vortos.logger.processor.structured', StructuredLogProcessor::class)
+                ->setArguments([
+                    $resolved['service_name'],
+                    $resolved['service_version'],
+                    $resolved['deployment_environment'],
+                ])
+                ->setShared(true)
+                ->setPublic(false);
+        }
+
+        if ($resolved['request_context']) {
+            $container->register('vortos.logger.processor.request_context', RequestContextProcessor::class)
+                ->setArguments([
+                    new Reference(RequestStack::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                    new Reference(CurrentUserProvider::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                ])
+                ->setShared(true)
+                ->setPublic(false);
+        }
 
         if ($resolved['correlation_id']) {
             $container->register('vortos.logger.processor.correlation_id', CorrelationIdProcessor::class)
@@ -147,6 +183,11 @@ final class LoggerExtension extends Extension
             $bufferedId = $handlerId . '.buffered';
             $container->register($bufferedId, BufferHandler::class)
                 ->setArguments([new Reference($handlerId), 500, Level::Debug, true])
+                ->setShared(true)
+                ->setPublic(false);
+            $container->register('vortos.logger.handler.flush_listener', LogBufferFlushListener::class)
+                ->setArgument('$handler', new Reference($bufferedId))
+                ->addTag('kernel.event_subscriber')
                 ->setShared(true)
                 ->setPublic(false);
             return $bufferedId;
@@ -198,11 +239,18 @@ final class LoggerExtension extends Extension
 
             $def->addMethodCall('pushHandler', [new Reference($filterHandlerId)]);
 
+            // Monolog unshifts processors; add redaction first so it runs last
+            // after all enrichment processors have added context.
+            if ($container->hasDefinition('vortos.logger.processor.redaction')) {
+                $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.redaction')]);
+            }
+
             // Alerting handlers — added at channel level, fire independently of base handler
             foreach ($resolved['sentry_handlers'] as $i => $sentry) {
                 $handlerId = $serviceId . '.sentry_' . $i;
-                $this->registerSentryHandler($container, $handlerId, $sentry['dsn'], $sentry['minLevel']);
-                $def->addMethodCall('pushHandler', [new Reference($handlerId)]);
+                if ($this->registerSentryHandler($container, $handlerId, $sentry['dsn'], $sentry['minLevel'], $resolved['fail_on_missing_integrations'])) {
+                    $def->addMethodCall('pushHandler', [new Reference($handlerId)]);
+                }
             }
 
             foreach ($resolved['slack_handlers'] as $i => $slack) {
@@ -223,11 +271,22 @@ final class LoggerExtension extends Extension
                 $def->addMethodCall('pushHandler', [new Reference($handlerId)]);
             }
 
-            $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.introspection')]);
+            if ($container->hasDefinition('vortos.logger.processor.introspection')) {
+                $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.introspection')]);
+            }
 
             if ($resolved['correlation_id'] && $container->hasDefinition('vortos.logger.processor.correlation_id')) {
                 $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.correlation_id')]);
             }
+
+            if ($container->hasDefinition('vortos.logger.processor.request_context')) {
+                $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.request_context')]);
+            }
+
+            if ($container->hasDefinition('vortos.logger.processor.structured')) {
+                $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.structured')]);
+            }
+
         }
 
         // Alias LoggerInterface to the App channel — userland default
@@ -244,12 +303,17 @@ final class LoggerExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerSentryHandler(ContainerBuilder $container, string $handlerId, string $dsn, Level $minLevel): void
+    private function registerSentryHandler(ContainerBuilder $container, string $handlerId, string $dsn, Level $minLevel, bool $failOnMissing): bool
     {
-        // SentryHandler requires sentry/sentry — registered only when class exists.
-        // If the library is absent the handler is silently skipped rather than crashing on boot.
         if (!class_exists(\Sentry\Monolog\Handler::class)) {
-            return;
+            if ($failOnMissing) {
+                throw new \RuntimeException(
+                    'vortos-logger: Sentry logging was configured but sentry/sentry is not installed. '
+                    . 'Install sentry/sentry or call failOnMissingIntegrations(false).',
+                );
+            }
+
+            return false;
         }
 
         $hubId = $handlerId . '_hub';
@@ -261,5 +325,7 @@ final class LoggerExtension extends Extension
             ->setArguments([new Reference($hubId), $minLevel])
             ->setShared(true)
             ->setPublic(false);
+
+        return true;
     }
 }

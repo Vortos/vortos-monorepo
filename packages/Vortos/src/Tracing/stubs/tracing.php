@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
+use Vortos\Tracing\Config\TracingAdapter;
 use Vortos\Tracing\Config\TracingModule;
 use Vortos\Tracing\Config\TracingSampler;
 use Vortos\Tracing\DependencyInjection\VortosTracingConfig;
 
-// Vortos ships a NoOp tracer — no overhead until you wire an OpenTelemetry
-// exporter. Sampling and module toggles below still apply once you do.
+// Vortos ships a NoOp tracer by default. Use it when a service is not connected
+// to a collector. Switch to OpenTelemetry only after OTLP is available.
 //
 // Environment defaults (when this file is absent):
 //   dev  → AlwaysOn sampler (trace every request)
@@ -17,7 +18,28 @@ use Vortos\Tracing\DependencyInjection\VortosTracingConfig;
 
 return static function (VortosTracingConfig $config): void {
     $config
+        // NoOp has no exporter work. OpenTelemetry requires:
+        // composer require open-telemetry/api open-telemetry/sdk open-telemetry/exporter-otlp
+        ->adapter(TracingAdapter::NoOp)
+
+        // Service metadata is sent to the collector when OpenTelemetry is enabled.
+        ->service(
+            name: $_ENV['OTEL_SERVICE_NAME'] ?? $_ENV['APP_NAME'] ?? 'vortos-app',
+            version: $_ENV['APP_VERSION'] ?? '',
+            environment: $_ENV['APP_ENV'] ?? 'prod',
+        )
+
+        // OTLP HTTP/protobuf exporter settings. The exporter uses a batch span
+        // processor so request paths do not synchronously export every span.
+        ->otlp(
+            endpoint: $_ENV['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] ?? 'http://otel-collector:4318/v1/traces',
+            headers: [],
+            timeoutMs: 2000,
+        )
+
         // Sampling strategy — controls what fraction of requests are traced.
+        // Sampling is parent-based and trace-level, so child spans follow the
+        // parent decision instead of creating partial broken traces.
         //
         // TracingSampler::AlwaysOn  — trace every request (dev / low-traffic)
         // TracingSampler::AlwaysOff — disable tracing entirely
@@ -40,4 +62,12 @@ return static function (VortosTracingConfig $config): void {
     //     TracingModule::Cache,        // suppress cache get/set spans
     //     TracingModule::Persistence,  // suppress DB query spans
     // );
+
+    // Controller attributes:
+    //
+    // #[TraceWith(spanName: 'checkout.place_order', sampleRate: 1.0)]
+    // #[DisableTracing]
+    //
+    // Baggage is propagated across HTTP/Kafka only for small, non-sensitive,
+    // low-cardinality values such as tenant id. Never put PII or secrets in it.
 };

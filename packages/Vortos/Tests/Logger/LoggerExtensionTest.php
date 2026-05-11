@@ -14,8 +14,12 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Vortos\Logger\Config\LogChannel;
+use Vortos\Logger\EventListener\LogBufferFlushListener;
 use Vortos\Logger\DependencyInjection\LoggerExtension;
 use Vortos\Logger\Processor\CorrelationIdProcessor;
+use Vortos\Logger\Processor\RedactionProcessor;
+use Vortos\Logger\Processor\RequestContextProcessor;
+use Vortos\Logger\Processor\StructuredLogProcessor;
 
 final class LoggerExtensionTest extends TestCase
 {
@@ -84,6 +88,46 @@ final class LoggerExtensionTest extends TestCase
         $this->assertTrue($container->hasDefinition('vortos.logger.handler.file.buffered'));
         $def = $container->getDefinition('vortos.logger.handler.file.buffered');
         $this->assertSame(BufferHandler::class, $def->getClass());
+        $this->assertSame(LogBufferFlushListener::class, $container->getDefinition('vortos.logger.handler.flush_listener')->getClass());
+    }
+
+    public function test_prod_does_not_register_introspection_by_default(): void
+    {
+        $container = $this->makeContainer('prod');
+        (new LoggerExtension())->load([], $container);
+
+        $this->assertFalse($container->hasDefinition('vortos.logger.processor.introspection'));
+    }
+
+    public function test_dev_registers_introspection_by_default(): void
+    {
+        $container = $this->makeContainer('dev');
+        (new LoggerExtension())->load([], $container);
+
+        $this->assertTrue($container->hasDefinition('vortos.logger.processor.introspection'));
+    }
+
+    public function test_enterprise_processors_are_registered_by_default(): void
+    {
+        $container = $this->makeContainer('prod');
+        (new LoggerExtension())->load([], $container);
+
+        $this->assertSame(RedactionProcessor::class, $container->getDefinition('vortos.logger.processor.redaction')->getClass());
+        $this->assertSame(StructuredLogProcessor::class, $container->getDefinition('vortos.logger.processor.structured')->getClass());
+        $this->assertSame(RequestContextProcessor::class, $container->getDefinition('vortos.logger.processor.request_context')->getClass());
+    }
+
+    public function test_sentry_configuration_fails_fast_when_package_missing(): void
+    {
+        if (class_exists(\Sentry\Monolog\Handler::class)) {
+            $this->markTestSkipped('sentry/sentry is installed.');
+        }
+
+        $this->writeLoggingConfig($this->tmpDir, 'sentry(\'https://key@sentry.io/123\')');
+        $container = $this->makeContainer('prod');
+
+        $this->expectException(\RuntimeException::class);
+        (new LoggerExtension())->load([], $container);
     }
 
     public function test_disabled_channel_gets_null_handler(): void

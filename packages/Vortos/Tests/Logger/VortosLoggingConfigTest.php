@@ -41,6 +41,11 @@ final class VortosLoggingConfigTest extends TestCase
         $this->assertSame(30, $arr['max_files']);
         $this->assertTrue($arr['buffer_enabled']);
         $this->assertTrue($arr['correlation_id']);
+        $this->assertFalse($arr['introspection']);
+        $this->assertTrue($arr['redaction']);
+        $this->assertTrue($arr['structured']);
+        $this->assertTrue($arr['request_context']);
+        $this->assertTrue($arr['fail_on_missing_integrations']);
         $this->assertEmpty($arr['sentry_handlers']);
         $this->assertEmpty($arr['slack_handlers']);
         $this->assertEmpty($arr['email_handlers']);
@@ -51,6 +56,7 @@ final class VortosLoggingConfigTest extends TestCase
         $_ENV['APP_ENV'] = 'dev';
         $config = new VortosLoggingConfig();
         $this->assertTrue($config->toArray()['rotation_enabled']);
+        $this->assertTrue($config->toArray()['introspection']);
     }
 
     public function test_can_set_channel_level(): void
@@ -103,6 +109,28 @@ final class VortosLoggingConfigTest extends TestCase
         $config->correlationId(false);
 
         $this->assertFalse($config->toArray()['correlation_id']);
+    }
+
+    public function test_can_configure_enterprise_processors(): void
+    {
+        $config = (new VortosLoggingConfig())
+            ->introspection(true)
+            ->redaction(true, ['secret'])
+            ->structured(false)
+            ->requestContext(false)
+            ->service('checkout', '1.2.3', 'prod')
+            ->failOnMissingIntegrations(false);
+
+        $arr = $config->toArray();
+
+        $this->assertTrue($arr['introspection']);
+        $this->assertSame(['secret'], $arr['redaction_keys']);
+        $this->assertFalse($arr['structured']);
+        $this->assertFalse($arr['request_context']);
+        $this->assertSame('checkout', $arr['service_name']);
+        $this->assertSame('1.2.3', $arr['service_version']);
+        $this->assertSame('prod', $arr['deployment_environment']);
+        $this->assertFalse($arr['fail_on_missing_integrations']);
     }
 
     public function test_sentry_handler_registered_when_dsn_provided(): void

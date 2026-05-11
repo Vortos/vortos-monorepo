@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Vortos\Http\EventListener;
 
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\HttpKernel\Event\ControllerEvent;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Tracing\Attribute\DisableTracing;
+use Vortos\Tracing\Attribute\TraceWith;
 use Vortos\Tracing\Contract\SpanInterface;
 use Vortos\Tracing\Contract\TracingInterface;
 
@@ -45,6 +48,7 @@ use Vortos\Tracing\Contract\TracingInterface;
 final class TracingMiddleware implements EventSubscriberInterface
 {
     private const SPAN_ATTRIBUTE = '_vortos_span';
+    private const START_ATTRIBUTE = '_vortos_trace_start';
 
     public function __construct(
         private readonly TracingInterface $tracer,
@@ -55,6 +59,7 @@ final class TracingMiddleware implements EventSubscriberInterface
     {
         return [
             KernelEvents::REQUEST   => ['onRequest', 255],
+            KernelEvents::CONTROLLER => ['onController', 0],
             KernelEvents::RESPONSE  => ['onResponse', 0],
             KernelEvents::EXCEPTION => ['onException', 0],
         ];
@@ -75,8 +80,26 @@ final class TracingMiddleware implements EventSubscriberInterface
             $this->tracer->extractContext($request->headers->all());
         }
 
+        $request->attributes->set(self::START_ATTRIBUTE, hrtime(true));
+    }
+
+    public function onController(ControllerEvent $event): void
+    {
+        if (!$event->isMainRequest()) {
+            return;
+        }
+
+        $request = $event->getRequest();
+        $controller = $event->getController();
+        $traceWith = $this->traceWith($controller);
+
+        if ($this->hasAttribute($controller, DisableTracing::class)) {
+            return;
+        }
+
+        $name = $traceWith?->spanName !== '' ? $traceWith->spanName : 'http.' . $request->getMethod();
         $span = $this->tracer->startSpan(
-            'http.' . $request->getMethod(),
+            $name,
             [
                 'http.method' => $request->getMethod(),
                 // Path only — query string omitted to prevent token/PII leakage into traces.
@@ -84,6 +107,7 @@ final class TracingMiddleware implements EventSubscriberInterface
                 'http.route'  => $request->attributes->get('_route', 'unknown'),
                 'http.scheme' => $request->getScheme(),
                 'http.host'   => $request->getHost(),
+                'vortos.trace.sample_rate' => $traceWith?->sampleRate,
             ],
         );
 
@@ -106,6 +130,10 @@ final class TracingMiddleware implements EventSubscriberInterface
         $status   = $response->getStatusCode();
 
         $span->addAttribute('http.status_code', $status);
+        $start = $event->getRequest()->attributes->get(self::START_ATTRIBUTE);
+        if (is_int($start)) {
+            $span->addAttribute('http.server.duration_ms', (hrtime(true) - $start) / 1_000_000);
+        }
         $span->setStatus($status >= 500 ? 'error' : 'ok');
 
         $headers = [];
@@ -132,5 +160,38 @@ final class TracingMiddleware implements EventSubscriberInterface
         $span->recordException($event->getThrowable());
         $span->setStatus('error');
         $span->end();
+    }
+
+    private function hasAttribute(mixed $controller, string $attributeClass): bool
+    {
+        return $this->controllerAttribute($controller, $attributeClass) !== null;
+    }
+
+    private function traceWith(mixed $controller): ?TraceWith
+    {
+        $attribute = $this->controllerAttribute($controller, TraceWith::class);
+        return $attribute instanceof TraceWith ? $attribute : null;
+    }
+
+    private function controllerAttribute(mixed $controller, string $attributeClass): ?object
+    {
+        if (is_array($controller) && isset($controller[0], $controller[1])) {
+            $class = is_object($controller[0]) ? $controller[0]::class : (string) $controller[0];
+            $method = (string) $controller[1];
+        } elseif (is_object($controller) && method_exists($controller, '__invoke')) {
+            $class = $controller::class;
+            $method = '__invoke';
+        } else {
+            return null;
+        }
+
+        $methodReflection = new \ReflectionMethod($class, $method);
+        $methodAttributes = $methodReflection->getAttributes($attributeClass);
+        if ($methodAttributes !== []) {
+            return $methodAttributes[0]->newInstance();
+        }
+
+        $classAttributes = (new \ReflectionClass($class))->getAttributes($attributeClass);
+        return $classAttributes !== [] ? $classAttributes[0]->newInstance() : null;
     }
 }

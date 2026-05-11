@@ -15,7 +15,8 @@
     },
     "suggest": {
         "open-telemetry/api": "Required for OpenTelemetryTracer",
-        "open-telemetry/sdk": "Required for OpenTelemetry SDK instrumentation"
+        "open-telemetry/sdk": "Required for OpenTelemetry SDK instrumentation",
+        "open-telemetry/exporter-otlp": "Required for OTLP trace export"
     },
     "extra": {
         "vortos": {

@@ -5,6 +5,7 @@ namespace Vortos\Tests\Tracing;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Tracing\Decorator\SamplingTracer;
+use Vortos\Tracing\Decorator\SamplingSpan;
 use Vortos\Tracing\NoOpSpan;
 use Vortos\Tracing\NoOpTracer;
 use Vortos\Tracing\Sampling\AlwaysOffSampler;
@@ -16,7 +17,8 @@ final class SamplingTracerTest extends TestCase
     {
         $tracer = new SamplingTracer(new NoOpTracer(), new AlwaysOffSampler());
         $span = $tracer->startSpan('test.span');
-        $this->assertInstanceOf(NoOpSpan::class, $span);
+        $this->assertInstanceOf(SamplingSpan::class, $span);
+        $span->end();
     }
 
     public function test_delegates_to_inner_when_sampler_says_yes(): void

@@ -8,6 +8,13 @@ use Vortos\Logger\DependencyInjection\VortosLoggingConfig;
 return static function (VortosLoggingConfig $config): void {
     // Defaults are env-driven — override here when needed.
 
+    // Attach service metadata to structured logs:
+    // $config->service(
+    //     name: $_ENV['OTEL_SERVICE_NAME'] ?? $_ENV['APP_NAME'] ?? 'vortos-app',
+    //     version: $_ENV['APP_VERSION'] ?? '',
+    //     environment: $_ENV['APP_ENV'] ?? 'prod',
+    // );
+
     // Silence high-volume framework channels in production:
     // $config->disableChannel(LogChannel::Cache, LogChannel::Query);
 
@@ -17,12 +24,19 @@ return static function (VortosLoggingConfig $config): void {
     // Disable request-end buffer flush:
     // $config->buffer(false);
 
+    // Enterprise-safe defaults:
+    // $config->redaction(true, keys: ['card_number', 'billing_address']);
+    // $config->structured(true);
+    // $config->requestContext(true);
+    // $config->introspection(false); // default false outside dev
+
     // Route errors to Sentry (requires sentry/sentry):
     // $config->sentry(dsn: $_ENV['SENTRY_DSN'] ?? '');
+    // $config->failOnMissingIntegrations(true);
 
-    // Route critical alerts to Slack:
+    // Route critical alerts to Slack. This is synchronous; keep level high.
     // $config->slack(webhook: $_ENV['SLACK_ALERT_WEBHOOK'] ?? '');
 
-    // Route errors to email:
+    // Route errors to email. Prefer Sentry/log aggregation for primary alerting.
     // $config->email(to: $_ENV['ALERT_EMAIL'] ?? '');
 };

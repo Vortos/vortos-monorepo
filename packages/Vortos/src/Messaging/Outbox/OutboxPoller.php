@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Outbox;
 
+use DateTimeInterface;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\ParameterType;
 use Vortos\Messaging\Contract\OutboxPollerInterface;
 
 /**
@@ -42,7 +44,7 @@ final class OutboxPoller implements OutboxPollerInterface
                 'now'   => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
                 'limit' => $limit,
             ],
-            ['limit' => \Doctrine\DBAL\ParameterType::INTEGER]
+            ['limit' => ParameterType::INTEGER]
         );
 
         return array_map(fn(array $row) => OutboxMessage::fromDatabaseRow($row), $rows);
@@ -80,11 +82,18 @@ final class OutboxPoller implements OutboxPollerInterface
         );
     }
 
-    public function fetchFailed(int $limit = 50, ?string $transport = null, ?string $eventClass = null, ?string $id = null, bool $orderDesc = false): array
-    {
+    public function fetchFailed(
+        int $limit = 50,
+        ?string $transport = null,
+        ?string $eventClass = null,
+        ?string $id = null,
+        bool $orderDesc = false,
+        ?DateTimeInterface $createdFrom = null,
+        ?DateTimeInterface $createdTo = null,
+    ): array {
         $sql = "SELECT * FROM {$this->tableName} WHERE status = 'failed'";
         $params = ['limit' => $limit];
-        $types  = ['limit' => \Doctrine\DBAL\ParameterType::INTEGER];
+        $types  = ['limit' => ParameterType::INTEGER];
 
         if ($id !== null) {
             $sql .= ' AND id = :id';
@@ -99,6 +108,16 @@ final class OutboxPoller implements OutboxPollerInterface
         if ($eventClass !== null) {
             $sql .= ' AND event_class = :event_class';
             $params['event_class'] = $eventClass;
+        }
+
+        if ($createdFrom !== null) {
+            $sql .= ' AND created_at >= :created_from';
+            $params['created_from'] = $createdFrom->format('Y-m-d H:i:s');
+        }
+
+        if ($createdTo !== null) {
+            $sql .= ' AND created_at <= :created_to';
+            $params['created_to'] = $createdTo->format('Y-m-d H:i:s');
         }
 
         $sql .= $orderDesc

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Command;
 
+use InvalidArgumentException;
 use Vortos\Messaging\Contract\ProducerInterface;
 use Vortos\Messaging\DeadLetter\DeadLetterRepository;
 use Vortos\Messaging\Serializer\SerializerLocator;
@@ -49,7 +50,9 @@ final class ReplayDeadLetterCommand extends Command
             ->addOption('transport', null, InputOption::VALUE_OPTIONAL, 'Filter by transport name')
             ->addOption('event-class', null, InputOption::VALUE_OPTIONAL, 'Filter by event class (FQCN)')
             ->addOption('id', null, InputOption::VALUE_OPTIONAL, 'Replay a single message by ID')
-            ->addOption('latest', null, InputOption::VALUE_NONE, 'Process most recently failed messages first (default: oldest first)');
+            ->addOption('latest', null, InputOption::VALUE_NONE, 'Process most recently failed messages first (default: oldest first)')
+            ->addOption('failed-from', null, InputOption::VALUE_OPTIONAL, 'Filter messages failed at or after this timestamp')
+            ->addOption('failed-to', null, InputOption::VALUE_OPTIONAL, 'Filter messages failed at or before this timestamp');
     }
 
     public function execute(InputInterface $input, OutputInterface $output): int
@@ -61,7 +64,19 @@ final class ReplayDeadLetterCommand extends Command
         $id         = $input->getOption('id') ?: null;
         $latest     = (bool) $input->getOption('latest');
 
-        $rows = $this->repository->fetchFailed($limit, $transport, $eventClass, $id, $latest);
+        try {
+            $failedRange = ReplayTimestampRange::fromOptions(
+                $input->getOption('failed-from') ?: null,
+                $input->getOption('failed-to') ?: null,
+                '--failed-from',
+                '--failed-to',
+            );
+        } catch (InvalidArgumentException $e) {
+            $output->writeln(sprintf('<error>%s</error>', $e->getMessage()));
+            return Command::INVALID;
+        }
+
+        $rows = $this->repository->fetchFailed($limit, $transport, $eventClass, $id, $latest, $failedRange->from, $failedRange->to);
 
         if (empty($rows)) {
             $output->writeln('<info>No failed messages found.</info>');

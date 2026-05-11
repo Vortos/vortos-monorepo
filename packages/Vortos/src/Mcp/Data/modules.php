@@ -59,8 +59,8 @@ return [
         'commands' => [
             'vortos:consume'          => 'Start the Kafka consumer worker process',
             'vortos:outbox:relay'     => 'Start the outbox relay worker (polls and produces to Kafka)',
-            'vortos:outbox:replay'    => 'Reset permanently failed outbox rows back to pending. Flags: --latest --limit --transport --event-class --id --dry-run',
-            'vortos:dlq:replay'       => 'Replay dead-lettered consumer messages back to Kafka. Flags: --latest --limit --transport --event-class --id --dry-run',
+            'vortos:outbox:replay'    => 'Reset permanently failed outbox rows back to pending. Flags: --latest --limit --transport --event-class --id --created-from --created-to --dry-run',
+            'vortos:dlq:replay'       => 'Replay dead-lettered consumer messages back to Kafka. Flags: --latest --limit --transport --event-class --id --failed-from --failed-to --dry-run',
             'vortos:consumers:list'   => 'List all registered consumers',
             'vortos:transports:list'  => 'List all registered transports',
             'vortos:setup:messaging'  => 'Publish outbox and DLQ migration files',

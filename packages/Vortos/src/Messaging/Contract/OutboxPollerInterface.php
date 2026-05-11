@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Contract;
 
+use DateTimeInterface;
+
 /**
  * Polling and state management contract for the transactional outbox.
  *
@@ -40,7 +42,15 @@ interface OutboxPollerInterface
      *
      * @return OutboxMessage[]
      */
-    public function fetchFailed(int $limit = 50, ?string $transport = null, ?string $eventClass = null, ?string $id = null, bool $orderDesc = false): array;
+    public function fetchFailed(
+        int $limit = 50,
+        ?string $transport = null,
+        ?string $eventClass = null,
+        ?string $id = null,
+        bool $orderDesc = false,
+        ?DateTimeInterface $createdFrom = null,
+        ?DateTimeInterface $createdTo = null,
+    ): array;
 
     /**
      * Reset a permanently failed outbox message back to pending so the relay

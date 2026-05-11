@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\DeadLetter;
 
+use DateTimeInterface;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\ParameterType;
 
@@ -20,6 +21,8 @@ final class DeadLetterRepository
         ?string $eventClass = null,
         ?string $id = null,
         bool $orderDesc = false,
+        ?DateTimeInterface $failedFrom = null,
+        ?DateTimeInterface $failedTo = null,
     ): array {
         $sql    = "SELECT * FROM {$this->table} WHERE status = 'failed'";
         $params = ['limit' => $limit];
@@ -38,6 +41,16 @@ final class DeadLetterRepository
         if ($eventClass !== null) {
             $sql .= ' AND event_class = :event_class';
             $params['event_class'] = $eventClass;
+        }
+
+        if ($failedFrom !== null) {
+            $sql .= ' AND failed_at >= :failed_from';
+            $params['failed_from'] = $failedFrom->format('Y-m-d H:i:s');
+        }
+
+        if ($failedTo !== null) {
+            $sql .= ' AND failed_at <= :failed_to';
+            $params['failed_to'] = $failedTo->format('Y-m-d H:i:s');
         }
 
         $sql .= $orderDesc ? ' ORDER BY failed_at DESC LIMIT :limit' : ' ORDER BY failed_at ASC LIMIT :limit';

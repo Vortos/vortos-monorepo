@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Command;
 
+use InvalidArgumentException;
 use Vortos\Messaging\Contract\OutboxPollerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -48,7 +49,9 @@ final class OutboxReplayCommand extends Command
             ->addOption('transport', null, InputOption::VALUE_OPTIONAL, 'Filter by transport name')
             ->addOption('event-class', null, InputOption::VALUE_OPTIONAL, 'Filter by event class (FQCN)')
             ->addOption('id', null, InputOption::VALUE_OPTIONAL, 'Reset a single message by ID')
-            ->addOption('latest', null, InputOption::VALUE_NONE, 'Process most recently failed messages first (default: oldest first)');
+            ->addOption('latest', null, InputOption::VALUE_NONE, 'Process most recently failed messages first (default: oldest first)')
+            ->addOption('created-from', null, InputOption::VALUE_OPTIONAL, 'Filter rows created at or after this timestamp')
+            ->addOption('created-to', null, InputOption::VALUE_OPTIONAL, 'Filter rows created at or before this timestamp');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -60,7 +63,19 @@ final class OutboxReplayCommand extends Command
         $id         = $input->getOption('id') ?: null;
         $latest     = (bool) $input->getOption('latest');
 
-        $messages = $this->outboxPoller->fetchFailed($limit, $transport, $eventClass, $id, $latest);
+        try {
+            $createdRange = ReplayTimestampRange::fromOptions(
+                $input->getOption('created-from') ?: null,
+                $input->getOption('created-to') ?: null,
+                '--created-from',
+                '--created-to',
+            );
+        } catch (InvalidArgumentException $e) {
+            $output->writeln(sprintf('<error>%s</error>', $e->getMessage()));
+            return Command::INVALID;
+        }
+
+        $messages = $this->outboxPoller->fetchFailed($limit, $transport, $eventClass, $id, $latest, $createdRange->from, $createdRange->to);
 
         if (empty($messages)) {
             $output->writeln('<info>No permanently failed outbox messages found.</info>');

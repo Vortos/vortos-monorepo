@@ -8,6 +8,8 @@ use Vortos\Metrics\Contract\CounterInterface;
 use Vortos\Metrics\Contract\GaugeInterface;
 use Vortos\Metrics\Contract\HistogramInterface;
 use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Definition\MetricDefinitionRegistry;
+use Vortos\Metrics\Definition\MetricType;
 use Vortos\Metrics\Instrument\StatsDCounter;
 use Vortos\Metrics\Instrument\StatsDGauge;
 use Vortos\Metrics\Instrument\StatsDHistogram;
@@ -43,6 +45,7 @@ final class StatsDMetrics implements MetricsInterface
     private string $buffer = '';
 
     public function __construct(
+        private readonly MetricDefinitionRegistry $definitions,
         private readonly string $host = '127.0.0.1',
         private readonly int $port = 8125,
         private readonly string $namespace = 'vortos',
@@ -54,17 +57,26 @@ final class StatsDMetrics implements MetricsInterface
 
     public function counter(string $name, array $labels = []): CounterInterface
     {
-        return new StatsDCounter($this->metricName($name), $labels, $this->send(...), $this->sampleRate);
+        $definition = $this->definitions->requireType($name, MetricType::Counter);
+        $orderedLabels = $this->definitions->validateLabels($definition, $labels);
+
+        return new StatsDCounter($this->metricName($name), $orderedLabels, $this->send(...), $this->sampleRate);
     }
 
     public function gauge(string $name, array $labels = []): GaugeInterface
     {
-        return new StatsDGauge($this->metricName($name), $labels, $this->send(...));
+        $definition = $this->definitions->requireType($name, MetricType::Gauge);
+        $orderedLabels = $this->definitions->validateLabels($definition, $labels);
+
+        return new StatsDGauge($this->metricName($name), $orderedLabels, $this->send(...));
     }
 
-    public function histogram(string $name, array $buckets = [], array $labels = []): HistogramInterface
+    public function histogram(string $name, array $labels = []): HistogramInterface
     {
-        return new StatsDHistogram($this->metricName($name), $labels, $this->send(...), $this->sampleRate);
+        $definition = $this->definitions->requireType($name, MetricType::Histogram);
+        $orderedLabels = $this->definitions->validateLabels($definition, $labels);
+
+        return new StatsDHistogram($this->metricName($name), $orderedLabels, $this->send(...), $this->sampleRate);
     }
 
     public function flush(): void

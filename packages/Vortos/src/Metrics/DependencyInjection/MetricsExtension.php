@@ -17,11 +17,21 @@ use Vortos\Metrics\Adapter\NoOpMetrics;
 use Vortos\Metrics\Adapter\PrometheusMetrics;
 use Vortos\Metrics\Adapter\StatsDFlushListener;
 use Vortos\Metrics\Adapter\StatsDMetrics;
+use Vortos\Metrics\AutoInstrumentation\CacheMetricDefinitions;
+use Vortos\Metrics\AutoInstrumentation\CqrsMetricDefinitions;
+use Vortos\Metrics\AutoInstrumentation\HttpMetricDefinitions;
 use Vortos\Metrics\AutoInstrumentation\HttpMetricsListener;
+use Vortos\Metrics\AutoInstrumentation\MessagingMetricDefinitions;
 use Vortos\Metrics\AutoInstrumentation\MessagingMetricsDecorator;
+use Vortos\Metrics\AutoInstrumentation\PersistenceMetricDefinitions;
+use Vortos\Metrics\AutoInstrumentation\SecurityMetricDefinitions;
 use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Definition\MetricDefinition;
+use Vortos\Metrics\Definition\MetricDefinitionProviderInterface;
+use Vortos\Metrics\Definition\MetricDefinitionRegistryFactory;
+use Vortos\Metrics\Definition\MetricDefinitionRegistry;
 use Vortos\Metrics\Http\MetricsController;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
@@ -38,6 +48,7 @@ use Vortos\Config\Stub\ConfigStub;
  *   PrometheusMetrics         — registered when adapter = Prometheus
  *   StatsDMetrics             — registered when adapter = StatsD
  *   CollectorRegistry         — registered when adapter = Prometheus
+ *   MetricDefinitionRegistry  — validates names, types, labels, help, and buckets
  *   MetricsController         — registered with vortos.api.controller tag when Prometheus active
  *   HttpMetricsListener       — registered when MetricsModule::Http is enabled
  *   CqrsMetricsDecorator      — decorates CommandBusInterface when MetricsModule::Cqrs is enabled
@@ -98,8 +109,15 @@ final class MetricsExtension extends Extension
         );
         $container->setParameter('vortos.metrics.disabled_modules', $disabledModuleValues);
 
+        $container->register(MetricDefinitionRegistry::class, MetricDefinitionRegistry::class)
+            ->setFactory([MetricDefinitionRegistryFactory::class, 'create'])
+            ->setArgument('$definitions', $this->buildMetricDefinitions($resolved))
+            ->setShared(true)
+            ->setPublic(false);
+
         // Always register NoOp — fallback and test injection target
         $container->register(NoOpMetrics::class, NoOpMetrics::class)
+            ->setArgument('$definitions', new Reference(MetricDefinitionRegistry::class))
             ->setShared(true)
             ->setPublic(false);
 
@@ -151,6 +169,7 @@ final class MetricsExtension extends Extension
         $container->register(PrometheusMetrics::class, PrometheusMetrics::class)
             ->setArguments([
                 new Reference(CollectorRegistry::class),
+                new Reference(MetricDefinitionRegistry::class),
                 $resolved['namespace'],
             ])
             ->setShared(true)
@@ -193,6 +212,7 @@ final class MetricsExtension extends Extension
     {
         $container->register(StatsDMetrics::class, StatsDMetrics::class)
             ->setArguments([
+                new Reference(MetricDefinitionRegistry::class),
                 $resolved['statsd_host'],
                 $resolved['statsd_port'],
                 $resolved['namespace'],
@@ -249,5 +269,33 @@ final class MetricsExtension extends Extension
             ->setArguments(['metrics', __DIR__ . '/../stubs/metrics.php'])
             ->addTag(ConfigExtension::STUB_TAG)
             ->setPublic(false);
+    }
+
+    /**
+     * @return list<array{type: string, name: string, help: string, label_names: list<string>, buckets: list<float|int>}>
+     */
+    private function buildMetricDefinitions(array $resolved): array
+    {
+        $providers = [
+            new CacheMetricDefinitions(),
+            new CqrsMetricDefinitions(),
+            new HttpMetricDefinitions(),
+            new MessagingMetricDefinitions(),
+            new PersistenceMetricDefinitions(),
+            new SecurityMetricDefinitions(),
+        ];
+
+        $definitions = [];
+        foreach ($providers as $provider) {
+            /** @var MetricDefinitionProviderInterface $provider */
+            array_push($definitions, ...$provider->definitions());
+        }
+
+        array_push($definitions, ...$resolved['metric_definitions']);
+
+        return array_map(
+            static fn (MetricDefinition $definition): array => $definition->toArray(),
+            $definitions,
+        );
     }
 }

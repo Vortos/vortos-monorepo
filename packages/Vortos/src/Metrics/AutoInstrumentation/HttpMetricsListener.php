@@ -31,8 +31,6 @@ use Vortos\Metrics\Contract\MetricsInterface;
  */
 final class HttpMetricsListener implements EventSubscriberInterface
 {
-    private const DURATION_BUCKETS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
-
     public function __construct(private readonly MetricsInterface $metrics) {}
 
     public static function getSubscribedEvents(): array
@@ -74,7 +72,7 @@ final class HttpMetricsListener implements EventSubscriberInterface
         if ($start !== null) {
             $durationMs = (hrtime(true) - $start) / 1_000_000;
 
-            $this->metrics->histogram('http_request_duration_ms', self::DURATION_BUCKETS, [
+            $this->metrics->histogram('http_request_duration_ms', [
                 'method' => $method,
                 'route'  => $route,
             ])->observe($durationMs);

@@ -23,8 +23,6 @@ use Vortos\Metrics\Contract\MetricsInterface;
  */
 final class MessagingMetricsDecorator implements EventBusInterface
 {
-    private const DURATION_BUCKETS = [1, 5, 10, 25, 50, 100, 250, 500, 1000];
-
     public function __construct(
         private readonly EventBusInterface $inner,
         private readonly MetricsInterface $metrics,
@@ -44,7 +42,7 @@ final class MessagingMetricsDecorator implements EventBusInterface
             throw $e;
         } finally {
             $durationMs = (hrtime(true) - $start) / 1_000_000;
-            $this->metrics->histogram('messaging_event_duration_ms', self::DURATION_BUCKETS, [
+            $this->metrics->histogram('messaging_event_duration_ms', [
                 'event' => $eventName,
             ])->observe($durationMs);
         }

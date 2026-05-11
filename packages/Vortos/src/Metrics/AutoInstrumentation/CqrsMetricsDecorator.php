@@ -24,8 +24,6 @@ use Vortos\Metrics\Contract\MetricsInterface;
  */
 final class CqrsMetricsDecorator implements CommandBusInterface
 {
-    private const DURATION_BUCKETS = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500];
-
     public function __construct(
         private readonly CommandBusInterface $inner,
         private readonly MetricsInterface $metrics,
@@ -45,7 +43,7 @@ final class CqrsMetricsDecorator implements CommandBusInterface
             throw $e;
         } finally {
             $durationMs = (hrtime(true) - $start) / 1_000_000;
-            $this->metrics->histogram('cqrs_command_duration_ms', self::DURATION_BUCKETS, [
+            $this->metrics->histogram('cqrs_command_duration_ms', [
                 'command' => $commandName,
             ])->observe($durationMs);
         }

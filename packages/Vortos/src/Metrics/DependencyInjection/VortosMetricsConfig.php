@@ -6,6 +6,7 @@ namespace Vortos\Metrics\DependencyInjection;
 
 use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
+use Vortos\Metrics\Definition\MetricDefinition;
 
 /**
  * Fluent configuration object for vortos-metrics.
@@ -38,6 +39,12 @@ use Vortos\Metrics\Config\MetricsModule;
  *
  * Default is NoOp — zero overhead, no configuration required.
  * Switch to Prometheus or StatsD when you need actual metrics.
+ *
+ * ## Application metrics
+ *
+ * Use counter(), gauge(), or histogram() to declare application-owned metrics.
+ * Runtime calls through MetricsInterface must use a declared name and exactly
+ * the declared labels. Histogram buckets are configured here, not per call.
  */
 final class VortosMetricsConfig
 {
@@ -46,6 +53,9 @@ final class VortosMetricsConfig
 
     /** @var list<MetricsModule> */
     private array $disabledModules = [];
+
+    /** @var list<MetricDefinition> */
+    private array $metricDefinitions = [];
 
     // Prometheus-specific
     private string $prometheusStorage = 'memory';
@@ -76,6 +86,10 @@ final class VortosMetricsConfig
      */
     public function namespace(string $ns): static
     {
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $ns)) {
+            throw new \InvalidArgumentException(sprintf('Invalid metrics namespace "%s".', $ns));
+        }
+
         $this->namespace = $ns;
         return $this;
     }
@@ -83,14 +97,54 @@ final class VortosMetricsConfig
     /**
      * Disable auto-instrumentation for specific framework modules.
      *
-     * Useful for high-volume modules (Cache, Persistence) that generate
-     * many metrics with potentially large cardinality.
+     * Useful when you want to replace a framework module metric with custom
+     * lower-cardinality instrumentation.
      */
     public function disableModule(MetricsModule ...$modules): static
     {
         foreach ($modules as $module) {
             $this->disabledModules[] = $module;
         }
+        return $this;
+    }
+
+    /**
+     * Register an application-owned counter metric.
+     *
+     * Labels are names only. Values are provided at observation time and must
+     * exactly match this list.
+     *
+     * @param list<string> $labelNames
+     */
+    public function counter(string $name, string $help, array $labelNames = []): static
+    {
+        return $this->metric(MetricDefinition::counter($name, $help, $labelNames));
+    }
+
+    /**
+     * Register an application-owned gauge metric.
+     *
+     * @param list<string> $labelNames
+     */
+    public function gauge(string $name, string $help, array $labelNames = []): static
+    {
+        return $this->metric(MetricDefinition::gauge($name, $help, $labelNames));
+    }
+
+    /**
+     * Register an application-owned histogram metric.
+     *
+     * @param list<string> $labelNames
+     * @param list<float|int> $buckets
+     */
+    public function histogram(string $name, string $help, array $labelNames, array $buckets): static
+    {
+        return $this->metric(MetricDefinition::histogram($name, $help, $labelNames, $buckets));
+    }
+
+    public function metric(MetricDefinition $definition): static
+    {
+        $this->metricDefinitions[] = $definition;
         return $this;
     }
 
@@ -195,6 +249,7 @@ final class VortosMetricsConfig
             'adapter'                    => $this->adapter,
             'namespace'                  => $this->namespace,
             'disabled_modules'           => $this->disabledModules,
+            'metric_definitions'         => $this->metricDefinitions,
             'prometheus_storage'         => $this->prometheusStorage,
             'prometheus_redis_prefix'    => $this->prometheusRedisPrefix,
             'prometheus_redis_host'      => $this->prometheusRedisHost,

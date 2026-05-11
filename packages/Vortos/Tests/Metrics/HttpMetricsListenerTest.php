@@ -52,7 +52,7 @@ final class HttpMetricsListenerTest extends TestCase
 
         $this->metrics->expects($this->once())
             ->method('histogram')
-            ->with('http_request_duration_ms', $this->isArray(), $this->arrayHasKey('method'))
+            ->with('http_request_duration_ms', $this->arrayHasKey('method'))
             ->willReturn($histogram);
 
         $counter->expects($this->once())->method('increment');

@@ -26,6 +26,26 @@ use Vortos\Metrics\DependencyInjection\VortosMetricsConfig;
  *       ->statsDHost($_ENV['STATSD_HOST'] ?? '127.0.0.1')
  *       ->statsDPort((int) ($_ENV['STATSD_PORT'] ?? 8125));
  *
+ * ## Application metrics
+ *
+ *   Metrics are strict. Declare the type, HELP text, labels, and histogram
+ *   buckets here before recording the metric in code:
+ *
+ *   $config
+ *       ->counter('orders_created_total', 'Total orders created by sales channel.', ['channel'])
+ *       ->histogram(
+ *           'checkout_duration_ms',
+ *           'Checkout duration in milliseconds by checkout variant.',
+ *           ['variant'],
+ *           [10, 25, 50, 100, 250, 500, 1000, 2500],
+ *       );
+ *
+ *   Runtime calls must pass exactly the declared labels:
+ *   $metrics->counter('orders_created_total', ['channel' => 'web'])->increment();
+ *
+ *   Keep labels low-cardinality. Do not use user IDs, emails, request IDs,
+ *   raw URLs, order IDs, or other unbounded values as labels.
+ *
  * ## Disabling noisy modules
  *
  *   $config->disableModule(MetricsModule::Cache);       // too many cache ops
@@ -42,6 +62,15 @@ return static function (VortosMetricsConfig $config): void {
     // $config->statsDHost($_ENV['STATSD_HOST'] ?? '127.0.0.1');
     // $config->statsDPort((int) ($_ENV['STATSD_PORT'] ?? 8125));
     // $config->statsDSampleRate(1.0);
+
+    // $config
+    //     ->counter('orders_created_total', 'Total orders created by sales channel.', ['channel'])
+    //     ->histogram(
+    //         'checkout_duration_ms',
+    //         'Checkout duration in milliseconds by checkout variant.',
+    //         ['variant'],
+    //         [10, 25, 50, 100, 250, 500, 1000, 2500],
+    //     );
 
     // $config->disableModule(MetricsModule::Cache, MetricsModule::Persistence);
 };

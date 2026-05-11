@@ -15,8 +15,6 @@ use Vortos\Metrics\Contract\MetricsInterface;
  */
 final class PersistenceMetricsConnection extends AbstractConnectionMiddleware
 {
-    private const DURATION_BUCKETS = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500];
-
     public function __construct(
         DriverConnection $wrappedConnection,
         private readonly MetricsInterface $metrics,
@@ -54,6 +52,6 @@ final class PersistenceMetricsConnection extends AbstractConnectionMiddleware
         $durationMs = (hrtime(true) - $start) / 1_000_000;
 
         $this->metrics->counter('db_queries_total', ['driver' => 'dbal', 'operation' => $operation])->increment();
-        $this->metrics->histogram('db_query_duration_ms', self::DURATION_BUCKETS, ['driver' => 'dbal'])->observe($durationMs);
+        $this->metrics->histogram('db_query_duration_ms', ['driver' => 'dbal'])->observe($durationMs);
     }
 }

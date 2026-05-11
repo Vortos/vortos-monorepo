@@ -31,6 +31,12 @@ final class VortosMetricsConfigTest extends TestCase
         $this->assertSame([], $array['disabled_modules']);
     }
 
+    public function test_default_metric_definitions_is_empty(): void
+    {
+        $array = (new VortosMetricsConfig())->toArray();
+        $this->assertSame([], $array['metric_definitions']);
+    }
+
     public function test_adapter_sets_adapter(): void
     {
         $config = (new VortosMetricsConfig())->adapter(MetricsAdapter::Prometheus);
@@ -41,6 +47,12 @@ final class VortosMetricsConfigTest extends TestCase
     {
         $config = (new VortosMetricsConfig())->namespace('myapp');
         $this->assertSame('myapp', $config->toArray()['namespace']);
+    }
+
+    public function test_namespace_must_be_portable(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new VortosMetricsConfig())->namespace('bad namespace');
     }
 
     public function test_disable_module_adds_to_list(): void
@@ -100,11 +112,26 @@ final class VortosMetricsConfigTest extends TestCase
         $this->assertSame(0.0, $config->toArray()['statsd_sample_rate']);
     }
 
+    public function test_application_metric_definitions_are_registered(): void
+    {
+        $config = (new VortosMetricsConfig())
+            ->counter('orders_total', 'Total orders.', ['channel'])
+            ->gauge('cart_items', 'Current cart item count.', ['tenant'])
+            ->histogram('checkout_duration_ms', 'Checkout duration.', ['variant'], [10, 50, 100]);
+
+        $definitions = $config->toArray()['metric_definitions'];
+
+        $this->assertCount(3, $definitions);
+        $this->assertSame('orders_total', $definitions[0]->name);
+        $this->assertSame(['variant'], $definitions[2]->labelNames);
+    }
+
     public function test_fluent_interface_returns_same_instance(): void
     {
         $config = new VortosMetricsConfig();
         $this->assertSame($config, $config->adapter(MetricsAdapter::StatsD));
         $this->assertSame($config, $config->namespace('x'));
         $this->assertSame($config, $config->statsDHost('host'));
+        $this->assertSame($config, $config->counter('fluent_total', 'Fluent counter.'));
     }
 }

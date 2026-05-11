@@ -16,7 +16,7 @@
         "symfony/http-kernel": "^7.3"
     },
     "suggest": {
-        "vortos/vortos-metrics": "Required for security event counters (csrf_violations_total, ip_denied_total, etc.)",
+        "vortos/vortos-metrics": "Required for the security_events_total counter.",
         "vortos/vortos-cache": "Required for Redis-backed secrets caching",
         "aws/aws-sdk-php": "Required for AwsSsmSecretsProvider"
     },

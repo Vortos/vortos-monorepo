@@ -13,6 +13,21 @@ return static function (VortosMetricsConfig $config): void {
         ->prometheusEndpoint('/metrics')
         ->prometheusEndpointToken($_ENV['METRICS_TOKEN'] ?? '');
 
-    // Uncomment to disable noisy high-cardinality modules:
+    // Application metrics are strict: declare type, HELP text, labels, and buckets here.
+    // Runtime code must pass exactly the declared labels.
+    //
+    // $config
+    //     ->counter('orders_created_total', 'Total orders created by sales channel.', ['channel'])
+    //     ->histogram(
+    //         'checkout_duration_ms',
+    //         'Checkout duration in milliseconds by checkout variant.',
+    //         ['variant'],
+    //         [10, 25, 50, 100, 250, 500, 1000, 2500],
+    //     );
+    //
+    // Keep labels low-cardinality: route/status/command/variant are safe.
+    // Do not use user IDs, emails, request IDs, raw URLs, or order IDs as labels.
+
+    // Uncomment to disable framework auto-instrumentation for specific modules:
     // $config->disableModule(MetricsModule::Cache, MetricsModule::Persistence);
 };

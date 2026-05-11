@@ -23,12 +23,9 @@ use Vortos\Security\Contract\SecurityEventInterface;
  * Logger and Metrics are both injected as nullable — when the Logger or Metrics
  * module is not installed (or is NoOp), dispatching events is a zero-overhead no-op.
  *
- * ## Security event metric names
+ * ## Security event metric
  *
- *   security_csrf_violations_total
- *   security_ip_denied_total
- *   security_signature_failures_total
- *   security_suspicious_requests_total
+ *   security_events_total{event}
  */
 final class SecurityEventDispatcher
 {
@@ -82,16 +79,8 @@ final class SecurityEventDispatcher
             return;
         }
 
-        $metricName = match ($event->eventName()) {
-            'security.csrf_violation'     => 'security_csrf_violations_total',
-            'security.ip_denied'          => 'security_ip_denied_total',
-            'security.signature_invalid'  => 'security_signature_failures_total',
-            'security.suspicious_request' => 'security_suspicious_requests_total',
-            default                       => null,
-        };
-
-        if ($metricName !== null) {
-            $this->metrics->counter($metricName)->increment();
+        if (str_starts_with($event->eventName(), 'security.')) {
+            $this->metrics->counter('security_events_total', ['event' => $event->eventName()])->increment();
         }
     }
 }

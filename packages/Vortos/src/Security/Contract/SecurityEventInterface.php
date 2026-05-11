@@ -9,6 +9,6 @@ interface SecurityEventInterface
     /** Machine-readable event name for metrics and log context. */
     public function eventName(): string;
 
-    /** Returns a map of contextual data for logging and metrics labels. */
+    /** Returns contextual data for logging and security observers. */
     public function context(): array;
 }

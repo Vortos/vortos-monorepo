@@ -15,6 +15,12 @@ namespace Vortos\Metrics\Contract;
  * Default implementation is NoOpMetrics — zero overhead, no dependencies.
  * Replace with PrometheusMetrics or StatsDMetrics via VortosMetricsConfig.
  *
+ * ## Metric definitions
+ *
+ *   Every metric must be declared before observation. The definition owns the
+ *   type, help text, allowed label names, and histogram buckets. This keeps
+ *   Prometheus HELP output complete and prevents accidental label drift.
+ *
  * ## Label conventions (Prometheus-style)
  *
  *   Labels must be known at instrument creation time.
@@ -39,7 +45,7 @@ interface MetricsInterface
      * Return a Counter instrument with the given name and label values.
      *
      * Counters only go up. Call increment() on the returned instrument.
-     * Labels must match those declared when the counter was first registered.
+     * Labels must exactly match the metric definition.
      */
     public function counter(string $name, array $labels = []): CounterInterface;
 
@@ -54,8 +60,7 @@ interface MetricsInterface
      * Return a Histogram instrument with the given name and label values.
      *
      * Histograms track value distributions. Call observe() with measured values.
-     * $buckets defines the upper bounds of each bucket in ascending order.
-     * Default buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000] (milliseconds).
+     * Buckets are read from the metric definition.
      */
-    public function histogram(string $name, array $buckets = [], array $labels = []): HistogramInterface;
+    public function histogram(string $name, array $labels = []): HistogramInterface;
 }

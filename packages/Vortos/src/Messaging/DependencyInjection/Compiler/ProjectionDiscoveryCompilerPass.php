@@ -10,6 +10,9 @@ use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Vortos\Cqrs\Attribute\AsProjectionHandler;
 use Vortos\Domain\Event\DomainEventInterface;
+use Vortos\Messaging\Attribute\Header\CorrelationId;
+use Vortos\Messaging\Attribute\Header\MessageId;
+use Vortos\Messaging\Attribute\Header\Timestamp;
 
 /**
  * Discovers all classes tagged with #[AsProjectionHandler] and registers
@@ -103,9 +106,7 @@ final class ProjectionDiscoveryCompilerPass implements CompilerPassInterface
                     'version'      => $tag['version'] ?? null,
                     'eventClass'   => $eventClass,
                     'isProjection' => true,
-                    'parameters'   => [
-                        ['type' => 'event', 'eventClass' => $eventClass],
-                    ],
+                    'parameters'   => $this->resolveHandlerParameters($reflClass->getMethod($method)),
                 ];
 
                 $handlers = $container->getParameter('vortos.handlers');
@@ -123,5 +124,44 @@ final class ProjectionDiscoveryCompilerPass implements CompilerPassInterface
         //     }
         //     $container->getDefinition('vortos.handler_locator')->setArguments([$currentArgs]);
         // }
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function resolveHandlerParameters(\ReflectionMethod $method): array
+    {
+        $parameters = [];
+
+        foreach ($method->getParameters() as $param) {
+            foreach ([MessageId::class, CorrelationId::class, Timestamp::class] as $attrClass) {
+                if ($param->getAttributes($attrClass) !== []) {
+                    $parameters[] = [
+                        'type' => 'header',
+                        'attribute' => $attrClass,
+                        'paramType' => $param->getType()?->getName() ?? 'string',
+                    ];
+                    continue 2;
+                }
+            }
+
+            $type = $param->getType();
+
+            if (!$type instanceof ReflectionNamedType || $type->isBuiltin()) {
+                continue;
+            }
+
+            $typeName = $type->getName();
+            $reflEventClass = new ReflectionClass($typeName);
+
+            if ($reflEventClass->implementsInterface(DomainEventInterface::class)) {
+                $parameters[] = [
+                    'type' => 'event',
+                    'eventClass' => $typeName,
+                ];
+            }
+        }
+
+        return $parameters;
     }
 }

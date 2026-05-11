@@ -17,7 +17,7 @@ use Vortos\Security\Event\SecurityEventDispatcher;
 /**
  * CSRF protection using the double-submit cookie pattern.
  *
- * Priority 85 on REQUEST — after CORS (95) and IP filter (90), before auth (6).
+ * Priority 20 on REQUEST — after routing (32), before auth (6).
  * Priority 85 on RESPONSE — issues the initial CSRF cookie on the first response.
  *
  * Routes in $skipControllers (built by CsrfCompilerPass from #[SkipCsrf]) bypass
@@ -42,7 +42,7 @@ final class CsrfMiddleware implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            KernelEvents::REQUEST  => ['onKernelRequest', 85],
+            KernelEvents::REQUEST  => ['onKernelRequest', 20],
             KernelEvents::RESPONSE => ['onKernelResponse', 85],
         ];
     }

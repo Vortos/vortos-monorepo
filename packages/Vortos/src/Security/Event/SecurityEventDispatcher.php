@@ -91,7 +91,7 @@ final class SecurityEventDispatcher
         };
 
         if ($metricName !== null) {
-            $this->metrics->increment($metricName);
+            $this->metrics->counter($metricName)->increment();
         }
     }
 }

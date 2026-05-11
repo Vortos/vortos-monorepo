@@ -32,6 +32,7 @@ use Vortos\Auth\ApiKey\Middleware\ApiKeyAuthMiddleware;
 use Vortos\Auth\ApiKey\Storage\ApiKeyStorageInterface;
 use Vortos\Auth\ApiKey\Storage\RedisApiKeyStorage;
 use Vortos\Cache\Adapter\ArrayAdapter;
+use Vortos\Cache\Adapter\RedisConnectionFactory;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
 
@@ -60,6 +61,11 @@ final class AuthExtension extends Extension
         }
 
         $resolved = $this->processConfiguration(new Configuration(), [$config->toArray()]);
+        $usesRedis = $resolved['token_storage'] === RedisTokenStorage::class;
+
+        if ($usesRedis) {
+            $this->ensureRedisService($container, $env);
+        }
 
         // JwtConfig
         $container->register(JwtConfig::class, JwtConfig::class)
@@ -72,7 +78,7 @@ final class AuthExtension extends Extension
             ->setShared(true)->setPublic(false);
 
         // Token storage
-        if ($container->hasDefinition(\Redis::class)) {
+        if ($this->hasRedisService($container)) {
             $container->register(RedisTokenStorage::class, RedisTokenStorage::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
                 ->setShared(true)->setPublic(false);
@@ -112,8 +118,8 @@ final class AuthExtension extends Extension
             ->setShared(true)->setPublic(true)
             ->addTag('kernel.event_subscriber');
 
-        // Redis-backed stores (only when CacheExtension registered the \Redis service)
-        if ($container->hasDefinition(\Redis::class)) {
+        // Redis-backed stores (when cache or auth registered the \Redis service)
+        if ($this->hasRedisService($container)) {
             $container->register(RedisRateLimitStore::class, RedisRateLimitStore::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
                 ->setShared(true)->setPublic(false);
@@ -190,7 +196,7 @@ final class AuthExtension extends Extension
             ->addTag('kernel.event_subscriber');
 
         // API Key authentication (M2M / server-to-server)
-        if ($container->hasDefinition(\Redis::class)) {
+        if ($this->hasRedisService($container)) {
             $container->register(RedisApiKeyStorage::class, RedisApiKeyStorage::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
                 ->setShared(true)->setPublic(false);
@@ -213,5 +219,39 @@ final class AuthExtension extends Extension
             ->setArguments(['auth', __DIR__ . '/../stubs/auth.php'])
             ->addTag(ConfigExtension::STUB_TAG)
             ->setPublic(false);
+    }
+
+    private function ensureRedisService(ContainerBuilder $container, string $env): void
+    {
+        if ($this->hasRedisService($container)) {
+            return;
+        }
+
+        if (!class_exists(\Redis::class)) {
+            throw new \RuntimeException('RedisTokenStorage requires the ext-redis PHP extension.');
+        }
+
+        if (!class_exists(RedisConnectionFactory::class)) {
+            throw new \RuntimeException('RedisTokenStorage requires vortos-cache RedisConnectionFactory to create the Redis connection.');
+        }
+
+        $dsn = $_ENV['VORTOS_AUTH_REDIS_DSN']
+            ?? $_ENV['VORTOS_CACHE_DSN']
+            ?? ($env === 'prod' ? null : 'redis://127.0.0.1:6379');
+
+        if ($dsn === null || $dsn === '') {
+            throw new \RuntimeException('RedisTokenStorage requires VORTOS_AUTH_REDIS_DSN or VORTOS_CACHE_DSN.');
+        }
+
+        $container->register(\Redis::class, \Redis::class)
+            ->setFactory([RedisConnectionFactory::class, 'fromDsn'])
+            ->setArguments([$dsn])
+            ->setShared(true)
+            ->setPublic(false);
+    }
+
+    private function hasRedisService(ContainerBuilder $container): bool
+    {
+        return $container->hasDefinition(\Redis::class) || $container->hasAlias(\Redis::class);
     }
 }

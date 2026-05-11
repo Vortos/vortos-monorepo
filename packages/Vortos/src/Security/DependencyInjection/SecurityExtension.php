@@ -47,8 +47,8 @@ use Vortos\Security\Signing\SignatureVerifier;
  *   100  SecurityHeadersMiddleware  — adds security headers to every response
  *    95  CorsMiddleware             — preflight handling before auth
  *    90  IpFilterMiddleware         — reject blocked IPs before auth
- *    85  CsrfMiddleware             — CSRF token validation before auth
  *    75  RequestSignatureMiddleware — webhook HMAC validation before auth
+ *    20  CsrfMiddleware             — CSRF token validation after routing, before auth
  *     7  RateLimitMiddleware (IP)   — (Auth module)
  *     6  AuthMiddleware             — (Auth module)
  *     5  TwoFactorMiddleware        — (Auth module)

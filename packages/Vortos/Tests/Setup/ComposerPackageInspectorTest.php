@@ -64,6 +64,21 @@ final class ComposerPackageInspectorTest extends TestCase
         );
     }
 
+    public function test_plugin_allow_commands_are_reported_for_otlp_packages(): void
+    {
+        $commands = (new ComposerPackageInspector($this->projectDir))->pluginAllowCommandsFor([
+            'open-telemetry/api',
+            'open-telemetry/sdk',
+            'open-telemetry/exporter-otlp',
+            'guzzlehttp/guzzle',
+        ]);
+
+        $this->assertSame([
+            'composer config allow-plugins.php-http/discovery true',
+            'composer config allow-plugins.tbachert/spi true',
+        ], $commands);
+    }
+
     private function removeDirectory(string $dir): void
     {
         if (!is_dir($dir)) {

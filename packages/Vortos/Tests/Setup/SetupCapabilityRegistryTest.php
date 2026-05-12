@@ -27,6 +27,13 @@ final class SetupCapabilityRegistryTest extends TestCase
         );
 
         $this->assertSame(['mcp.enabled', 'mcp.disabled'], $mcpKeys);
+
+        $observabilityKeys = array_map(
+            static fn($capability): string => $capability->key(),
+            $registry->byCategory('observability'),
+        );
+
+        $this->assertSame(['observability.normal', 'observability.otlp'], $observabilityKeys);
     }
 
     public function test_capabilities_can_be_filtered_by_availability(): void
@@ -63,10 +70,17 @@ final class SetupCapabilityRegistryTest extends TestCase
         $registry = SetupCapabilityRegistry::builtIn();
 
         $missing = $registry->missingPackagesFor(
-            ['runtime.frankenphp', 'runtime.phpfpm', 'cache.redis', 'mcp.enabled'],
+            ['runtime.frankenphp', 'runtime.phpfpm', 'cache.redis', 'observability.otlp', 'mcp.enabled'],
             ['vortos/vortos-cache'],
         );
 
-        $this->assertSame(['vortos/vortos-docker', 'vortos/vortos-mcp'], $missing);
+        $this->assertSame([
+            'vortos/vortos-docker',
+            'open-telemetry/api',
+            'open-telemetry/sdk',
+            'open-telemetry/exporter-otlp',
+            'guzzlehttp/guzzle',
+            'vortos/vortos-mcp',
+        ], $missing);
     }
 }

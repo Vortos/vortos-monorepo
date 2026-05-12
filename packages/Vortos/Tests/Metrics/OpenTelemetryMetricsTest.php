@@ -16,6 +16,10 @@ final class OpenTelemetryMetricsTest extends TestCase
 {
     public function test_instrument_cache_is_bounded_by_metric_name_across_flushes(): void
     {
+        if (!class_exists(MeterProvider::class) || !class_exists(ExportingReader::class) || !class_exists(NoopMetricExporter::class)) {
+            $this->markTestSkipped('OpenTelemetry SDK is not installed.');
+        }
+
         $provider = MeterProvider::builder()
             ->addReader(new ExportingReader(new NoopMetricExporter()))
             ->build();

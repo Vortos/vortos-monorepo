@@ -105,6 +105,23 @@ final class SetupExtension extends Extension
             'category' => 'messaging',
             'packages' => ['vortos/vortos-messaging'],
         ],
+        'vortos.setup_capability.observability.normal' => [
+            'key' => 'observability.normal',
+            'label' => 'Normal metrics/tracing',
+            'category' => 'observability',
+            'packages' => [],
+        ],
+        'vortos.setup_capability.observability.otlp' => [
+            'key' => 'observability.otlp',
+            'label' => 'OpenTelemetry OTLP export',
+            'category' => 'observability',
+            'packages' => [
+                'open-telemetry/api',
+                'open-telemetry/sdk',
+                'open-telemetry/exporter-otlp',
+                'guzzlehttp/guzzle',
+            ],
+        ],
         'vortos.setup_capability.mcp.enabled' => [
             'key' => 'mcp.enabled',
             'label' => 'Install Vortos MCP server',

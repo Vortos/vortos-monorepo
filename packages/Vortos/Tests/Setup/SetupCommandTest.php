@@ -167,6 +167,70 @@ final class SetupCommandTest extends TestCase
         $this->assertStringNotContainsString('vortos:mcp:install', $output);
     }
 
+    public function test_otlp_option_installs_exporter_packages_after_allowing_composer_plugins(): void
+    {
+        $command = new SetupCommand(
+            $this->projectDir,
+            new SetupStateStore($this->projectDir),
+            new EnvironmentFileWriter($this->projectDir),
+            new SetupEnvironmentChecker($this->projectDir),
+            new DockerFilePublisher($this->stubRoot),
+            packageInspector: new ComposerPackageInspector($this->projectDir),
+        );
+
+        $application = new Application();
+        $application->add($command);
+        $tester = new CommandTester($application->find('vortos:setup'));
+
+        $tester->execute([
+            '--preset' => 'minimal',
+            '--otlp' => true,
+            '--dry-run' => true,
+            '--no-interaction' => true,
+        ]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $output = $tester->getDisplay();
+
+        $this->assertStringContainsString('Observability: otlp', $output);
+        $this->assertStringContainsString('composer config allow-plugins.php-http/discovery true', $output);
+        $this->assertStringContainsString('composer config allow-plugins.tbachert/spi true', $output);
+        $this->assertStringContainsString("'open-telemetry/api'", $output);
+        $this->assertStringContainsString("'open-telemetry/sdk'", $output);
+        $this->assertStringContainsString("'open-telemetry/exporter-otlp'", $output);
+        $this->assertStringContainsString("'guzzlehttp/guzzle'", $output);
+    }
+
+    public function test_no_otlp_option_keeps_normal_observability(): void
+    {
+        $command = new SetupCommand(
+            $this->projectDir,
+            new SetupStateStore($this->projectDir),
+            new EnvironmentFileWriter($this->projectDir),
+            new SetupEnvironmentChecker($this->projectDir),
+            new DockerFilePublisher($this->stubRoot),
+            packageInspector: new ComposerPackageInspector($this->projectDir),
+        );
+
+        $application = new Application();
+        $application->add($command);
+        $tester = new CommandTester($application->find('vortos:setup'));
+
+        $tester->execute([
+            '--preset' => 'minimal',
+            '--no-otlp' => true,
+            '--dry-run' => true,
+            '--no-interaction' => true,
+        ]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $output = $tester->getDisplay();
+
+        $this->assertStringContainsString('Observability: normal', $output);
+        $this->assertStringNotContainsString('open-telemetry/exporter-otlp', $output);
+        $this->assertStringNotContainsString('allow-plugins.php-http/discovery', $output);
+    }
+
     public function test_mcp_next_step_is_shown_when_selected(): void
     {
         $tester = $this->tester();
@@ -470,6 +534,7 @@ final class SetupCommandTest extends TestCase
             '1',
             '1',
             '0',
+            '0',
             'Continue',
             'no',
         ]);
@@ -539,6 +604,7 @@ final class SetupCommandTest extends TestCase
             '0',
             '1',
             '1',
+            '0',
             '1',
             'Continue',
         ]);
@@ -568,6 +634,7 @@ final class SetupCommandTest extends TestCase
             '0',
             '0',
             '0',
+            '0',
             'Continue',
         ]);
 
@@ -582,6 +649,7 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('Choose read database', $output);
         $this->assertStringContainsString('Choose cache', $output);
         $this->assertStringContainsString('Choose messaging', $output);
+        $this->assertStringContainsString('Choose observability', $output);
         $this->assertStringContainsString('Install MCP server', $output);
         $this->assertSame('custom', $state['profile']);
         $this->assertSame('docker-phpfpm', $state['preset']);
@@ -590,6 +658,7 @@ final class SetupCommandTest extends TestCase
         $this->assertTrue($state['mongo']);
         $this->assertSame('redis', $state['cache']);
         $this->assertSame('kafka', $state['messaging']);
+        $this->assertSame('normal', $state['observability']);
         $this->assertTrue($state['mcp']);
     }
 

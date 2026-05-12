@@ -19,6 +19,7 @@ final class RedisQuotaStoreTest extends TestCase
         }
 
         $this->redis = $this->createMock(\Redis::class);
+        $this->redis->method('time')->willReturn([1717200000, 0]);
         $this->store = new RedisQuotaStore($this->redis);
     }
 
@@ -67,5 +68,59 @@ final class RedisQuotaStoreTest extends TestCase
     {
         $this->redis->expects($this->once())->method('incrBy')->with($this->anything(), 5)->willReturn(5);
         $this->store->increment('user-1', 'exports', QuotaPeriod::Monthly, 5);
+    }
+
+    public function test_consume_returns_allowed_result(): void
+    {
+        $resetAt = QuotaPeriod::Monthly->getResetAtTimestampAt(1717200000);
+
+        $this->redis->expects($this->once())
+            ->method('eval')
+            ->with(
+                $this->isType('string'),
+                $this->callback(function (array $args) use ($resetAt): bool {
+                    return $args[0] === 'quota:organization:org-1:checkout.orders:2024-06'
+                        && $args[1] === 2
+                        && $args[2] === 100
+                        && $args[3] === $resetAt - 1717200000
+                        && $args[4] === $resetAt;
+                }),
+                1,
+            )
+            ->willReturn([1, 42, 58, $resetAt]);
+
+        $result = $this->store->consume(
+            bucket: 'organization',
+            subjectId: 'org-1',
+            quota: 'checkout.orders',
+            period: QuotaPeriod::Monthly,
+            limit: 100,
+            cost: 2,
+        );
+
+        $this->assertTrue($result->allowed);
+        $this->assertSame(42, $result->current);
+        $this->assertSame(58, $result->remaining);
+        $this->assertSame($resetAt, $result->resetAt);
+    }
+
+    public function test_consume_returns_blocked_result(): void
+    {
+        $resetAt = QuotaPeriod::Daily->getResetAtTimestampAt(1717200000);
+
+        $this->redis->method('eval')->willReturn([0, 100, 0, $resetAt]);
+
+        $result = $this->store->consume(
+            bucket: 'user',
+            subjectId: 'user-1',
+            quota: 'exports',
+            period: QuotaPeriod::Daily,
+            limit: 100,
+        );
+
+        $this->assertFalse($result->allowed);
+        $this->assertSame(100, $result->current);
+        $this->assertSame(0, $result->remaining);
+        $this->assertSame($resetAt, $result->resetAt);
     }
 }

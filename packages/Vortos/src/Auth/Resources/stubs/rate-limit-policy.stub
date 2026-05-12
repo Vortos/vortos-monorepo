@@ -1,0 +1,17 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Application\Policy;
+
+use Vortos\Auth\Contract\UserIdentityInterface;
+use Vortos\Auth\RateLimit\Contract\RateLimitPolicyInterface;
+use Vortos\Auth\RateLimit\RateLimitRule;
+
+final class {{ClassName}}RateLimitPolicy implements RateLimitPolicyInterface
+{
+    public function getLimit(UserIdentityInterface $identity): RateLimitRule
+    {
+        return new RateLimitRule(limit: 100, windowSeconds: 60);
+    }
+}

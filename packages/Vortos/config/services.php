@@ -110,6 +110,7 @@ return static function (ContainerConfigurator $configurator): void {
         '../src/FeatureFlags/',
         '../src/Security/',
         '../src/Mcp/',
+        '../src/Observability/',
         ]);
 
     $services->set(ModulePathResolver::class)

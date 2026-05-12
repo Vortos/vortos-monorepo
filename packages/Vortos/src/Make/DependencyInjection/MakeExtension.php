@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Foundation\Module\ModulePathResolver;
+use Vortos\Make\Command\MakeAuthorizationPolicyCommand;
 use Vortos\Make\Command\MakeConsumerCommand;
 use Vortos\Make\Command\MakeContextCommand;
 use Vortos\Make\Command\MakeCqrsCommandCommand;
@@ -15,13 +16,17 @@ use Vortos\Make\Command\MakeControllerCommand;
 use Vortos\Make\Command\MakeDomainEventCommand;
 use Vortos\Make\Command\MakeDomainExceptionCommand;
 use Vortos\Make\Command\MakeEntityCommand;
+use Vortos\Make\Command\MakeFeaturePolicyCommand;
 use Vortos\Make\Command\MakeHookCommand;
 use Vortos\Make\Command\MakeMessagingConfigCommand;
 use Vortos\Make\Command\MakeMiddlewareCommand;
-use Vortos\Make\Command\MakePolicyCommand;
+use Vortos\Make\Command\MakeOwnershipPolicyCommand;
 use Vortos\Make\Command\MakeProjectionHandlerCommand;
+use Vortos\Make\Command\MakeQuotaPolicyCommand;
 use Vortos\Make\Command\MakeQueryCommand;
+use Vortos\Make\Command\MakeRateLimitPolicyCommand;
 use Vortos\Make\Command\MakeReadRepositoryCommand;
+use Vortos\Make\Command\MakeSessionPolicyCommand;
 use Vortos\Make\Command\MakeValueObjectCommand;
 use Vortos\Make\Command\MakeWriteRepositoryCommand;
 use Vortos\Make\Engine\GeneratorEngine;
@@ -69,7 +74,12 @@ final class MakeExtension extends Extension
             MakeControllerCommand::class,
             MakeWriteRepositoryCommand::class,
             MakeReadRepositoryCommand::class,
-            MakePolicyCommand::class,
+            MakeAuthorizationPolicyCommand::class,
+            MakeOwnershipPolicyCommand::class,
+            MakeFeaturePolicyCommand::class,
+            MakeRateLimitPolicyCommand::class,
+            MakeQuotaPolicyCommand::class,
+            MakeSessionPolicyCommand::class,
         ];
 
         foreach ($commands as $class) {

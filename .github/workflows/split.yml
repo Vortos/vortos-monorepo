@@ -83,6 +83,8 @@ jobs:
             split_repository: 'vortos-security'
           - local_path: 'packages/Vortos/src/Mcp'
             split_repository: 'vortos-mcp'
+          - local_path: 'packages/Vortos/src/Observability'
+            split_repository: 'vortos-observability'
 
     steps:
       - uses: actions/checkout@v4

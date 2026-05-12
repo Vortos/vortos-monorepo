@@ -1,0 +1,22 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Application\Policy;
+
+use Vortos\Auth\Contract\UserIdentityInterface;
+use Vortos\Auth\Session\Contract\SessionPolicyInterface;
+use Vortos\Auth\Session\SessionLimitAction;
+
+final class {{ClassName}}SessionPolicy implements SessionPolicyInterface
+{
+    public function getMaxSessions(UserIdentityInterface $identity): int
+    {
+        return 1;
+    }
+
+    public function onLimitExceeded(UserIdentityInterface $identity): SessionLimitAction
+    {
+        return SessionLimitAction::InvalidateOldest;
+    }
+}

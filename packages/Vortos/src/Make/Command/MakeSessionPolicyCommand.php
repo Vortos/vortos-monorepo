@@ -13,10 +13,10 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Make\Engine\GeneratorEngine;
 
 #[AsCommand(
-    name: 'vortos:make:policy',
-    description: 'Generate an authorization policy',
+    name: 'vortos:make:session-policy',
+    description: 'Generate a session limit policy',
 )]
-final class MakePolicyCommand extends Command
+final class MakeSessionPolicyCommand extends Command
 {
     public function __construct(private readonly GeneratorEngine $engine)
     {
@@ -26,16 +26,14 @@ final class MakePolicyCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('name', InputArgument::REQUIRED, 'Policy name without "Policy" suffix (e.g. Athlete)')
-            ->addOption('context', 'c', InputOption::VALUE_REQUIRED, 'Domain context folder (e.g. Athlete)')
-            ->addOption('resource', 'r', InputOption::VALUE_REQUIRED, 'Resource slug used in #[AsPolicy] (e.g. athletes)');
+            ->addArgument('name', InputArgument::REQUIRED, 'Policy name without "Policy" suffix (e.g. Subscription)')
+            ->addOption('context', 'c', InputOption::VALUE_REQUIRED, 'Domain context folder (e.g. Billing)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $name     = (string) $input->getArgument('name');
-        $context  = (string) $input->getOption('context');
-        $resource = (string) ($input->getOption('resource') ?: strtolower($name) . 's');
+        $name    = (string) $input->getArgument('name');
+        $context = (string) $input->getOption('context');
 
         if ($context === '') {
             $output->writeln('<error>--context is required. Example: --context=User</error>');
@@ -45,15 +43,14 @@ final class MakePolicyCommand extends Command
         $vars = [
             'Namespace' => "App\\{$context}",
             'ClassName' => $name,
-            'Resource'  => $resource,
         ];
 
-        $output->writeln("<info>vortos:make:policy</info> {$name} --context={$context}");
+        $output->writeln("<info>vortos:make:session-policy</info> {$name} --context={$context}");
         $output->writeln('');
 
         $this->engine->write(
-            "{$context}/Application/Policy/{$name}Policy.php",
-            $this->engine->render('policy', $vars),
+            "{$context}/Application/Policy/{$name}SessionPolicy.php",
+            $this->engine->render('session-policy', $vars),
             $output,
         );
 

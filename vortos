@@ -174,7 +174,12 @@ function showHelp(): void
     echo $b('make:messaging-config -c Ctx',     'Kafka transport/producer/consumer config');
     echo $b('make:middleware Name -c Ctx',      'Consumer middleware');
     echo $b('make:hook Name -c Ctx --type=*',   'Messaging lifecycle hook');
-    echo $b('make:policy Name -c Ctx',          'Authorization policy');
+    echo $b('make:authorization-policy Name -c Ctx', 'Resource authorization policy');
+    echo $b('make:ownership-policy Name -c Ctx','Ownership policy');
+    echo $b('make:feature-policy Name -c Ctx',  'Feature access policy');
+    echo $b('make:rate-limit-policy Name -c Ctx', 'Rate limit policy');
+    echo $b('make:quota-policy Name -c Ctx',    'Quota policy');
+    echo $b('make:session-policy Name -c Ctx',  'Session limit policy');
     echo PHP_EOL;
 
     echo bold('Migrations') . PHP_EOL;

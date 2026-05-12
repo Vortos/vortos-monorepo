@@ -1,0 +1,22 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure\Policy;
+
+use Symfony\Component\HttpFoundation\Request;
+use Vortos\Auth\Contract\UserIdentityInterface;
+use Vortos\Authorization\Ownership\Contract\OwnershipPolicyInterface;
+
+final class {{ClassName}}OwnershipPolicy implements OwnershipPolicyInterface
+{
+    public function isOwner(UserIdentityInterface $identity, string $resourceId): bool
+    {
+        return $identity->id() === $resourceId;
+    }
+
+    public function getResourceIdFrom(Request $request): string
+    {
+        return (string) $request->attributes->get('id', '');
+    }
+}

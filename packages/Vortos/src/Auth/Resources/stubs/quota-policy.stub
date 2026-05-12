@@ -1,0 +1,20 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Application\Policy;
+
+use Vortos\Auth\Contract\UserIdentityInterface;
+use Vortos\Auth\Quota\Contract\QuotaPolicyInterface;
+use Vortos\Auth\Quota\QuotaPeriod;
+use Vortos\Auth\Quota\QuotaRule;
+
+final class {{ClassName}}QuotaPolicy implements QuotaPolicyInterface
+{
+    public function getQuota(UserIdentityInterface $identity, string $quota): QuotaRule
+    {
+        return match ($quota) {
+            default => new QuotaRule(limit: 1000, period: QuotaPeriod::Monthly),
+        };
+    }
+}

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Vortos\Auth\DependencyInjection\VortosAuthConfig;
 use Vortos\Auth\Lockout\LockoutConfig;
 use Vortos\Auth\Lockout\LockoutTrack;
+use Vortos\Auth\Quota\QuotaFailureMode;
 use Vortos\Auth\Storage\InMemoryTokenStorage;
 use Vortos\Auth\Storage\RedisTokenStorage;
 
@@ -43,6 +44,14 @@ return static function (VortosAuthConfig $config): void {
         //                        multi-process deployments (FrankenPHP workers).
         //                        Requires Redis and vortos/vortos-cache.
         ->tokenStorage(InMemoryTokenStorage::class)
+
+        // Quota/rate-limit response behavior.
+        // fail_closed is safest for cost-sensitive quotas; use fail_open in
+        // local/dev if availability is more important than enforcement.
+        ->quotaFailureMode(QuotaFailureMode::FailClosed)
+        ->quotaHeaders(true)
+        ->rateLimitHeaders(true)
+        ->problemDetails(true)
     ;
 
     // Account lockout after repeated failed logins.

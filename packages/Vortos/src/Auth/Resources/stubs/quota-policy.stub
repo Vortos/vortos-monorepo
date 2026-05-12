@@ -11,9 +11,9 @@ use Vortos\Auth\Quota\QuotaRule;
 
 final class {{ClassName}}QuotaPolicy implements QuotaPolicyInterface
 {
-    public function getQuota(UserIdentityInterface $identity, string $quota): QuotaRule
+    public function getQuota(UserIdentityInterface $identity, string $quota, string $bucket): QuotaRule
     {
-        return match ($quota) {
+        return match ([$quota, $bucket]) {
             default => new QuotaRule(limit: 1000, period: QuotaPeriod::Monthly),
         };
     }

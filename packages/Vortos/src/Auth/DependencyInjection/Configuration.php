@@ -4,6 +4,7 @@ namespace Vortos\Auth\DependencyInjection;
 
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
+use Vortos\Auth\Quota\QuotaFailureMode;
 use Vortos\Auth\Storage\InMemoryTokenStorage;
 
 final class Configuration implements ConfigurationInterface
@@ -33,6 +34,23 @@ final class Configuration implements ConfigurationInterface
                 ->scalarNode('token_storage')
                     ->defaultValue(InMemoryTokenStorage::class)
                     ->info('FQCN of TokenStorageInterface implementation')
+                ->end()
+                ->enumNode('quota_failure_mode')
+                    ->values([QuotaFailureMode::FailClosed->value, QuotaFailureMode::FailOpen->value])
+                    ->defaultValue(QuotaFailureMode::FailClosed->value)
+                    ->info('Quota behavior when Redis is unavailable.')
+                ->end()
+                ->booleanNode('quota_headers')
+                    ->defaultTrue()
+                    ->info('Emit X-Quota-* headers on quota-protected responses.')
+                ->end()
+                ->booleanNode('rate_limit_headers')
+                    ->defaultTrue()
+                    ->info('Emit X-RateLimit-* headers on rate-limited responses.')
+                ->end()
+                ->booleanNode('problem_details')
+                    ->defaultTrue()
+                    ->info('Emit RFC 7807-style application/problem+json responses for auth policy failures.')
                 ->end()
             ->end();
 

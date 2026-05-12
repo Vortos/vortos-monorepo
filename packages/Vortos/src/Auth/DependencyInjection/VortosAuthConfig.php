@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Vortos\Auth\DependencyInjection;
 
 use Vortos\Auth\Lockout\LockoutConfig;
+use Vortos\Auth\Quota\QuotaFailureMode;
 use Vortos\Auth\Storage\InMemoryTokenStorage;
 
 final class VortosAuthConfig
@@ -14,6 +15,10 @@ final class VortosAuthConfig
     private string $issuer = 'vortos';
     private string $tokenStorage = InMemoryTokenStorage::class;
     private ?LockoutConfig $lockoutConfig = null;
+    private QuotaFailureMode $quotaFailureMode = QuotaFailureMode::FailClosed;
+    private bool $quotaHeaders = true;
+    private bool $rateLimitHeaders = true;
+    private bool $problemDetails = true;
 
     public function secret(string $secret): static
     {
@@ -58,6 +63,30 @@ final class VortosAuthConfig
         return $this->lockoutConfig;
     }
 
+    public function quotaFailureMode(QuotaFailureMode $mode): static
+    {
+        $this->quotaFailureMode = $mode;
+        return $this;
+    }
+
+    public function quotaHeaders(bool $enabled): static
+    {
+        $this->quotaHeaders = $enabled;
+        return $this;
+    }
+
+    public function rateLimitHeaders(bool $enabled): static
+    {
+        $this->rateLimitHeaders = $enabled;
+        return $this;
+    }
+
+    public function problemDetails(bool $enabled): static
+    {
+        $this->problemDetails = $enabled;
+        return $this;
+    }
+
     public function toArray(): array
     {
         return [
@@ -66,6 +95,10 @@ final class VortosAuthConfig
             'refresh_token_ttl'           => $this->refreshTokenTtl,
             'issuer'                      => $this->issuer,
             'token_storage'               => $this->tokenStorage,
+            'quota_failure_mode'          => $this->quotaFailureMode->value,
+            'quota_headers'               => $this->quotaHeaders,
+            'rate_limit_headers'          => $this->rateLimitHeaders,
+            'problem_details'             => $this->problemDetails,
         ];
     }
 }

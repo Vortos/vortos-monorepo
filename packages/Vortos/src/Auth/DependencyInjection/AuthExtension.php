@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Vortos\Auth\DependencyInjection;
 
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Auth\Contract\PasswordHasherInterface;
@@ -16,6 +17,9 @@ use Vortos\Auth\Lockout\LockoutManager;
 use Vortos\Auth\Lockout\Storage\RedisLockoutStore;
 use Vortos\Auth\Middleware\AuthMiddleware;
 use Vortos\Auth\Quota\Middleware\QuotaMiddleware;
+use Vortos\Auth\Quota\QuotaFailureMode;
+use Vortos\Auth\Quota\Resolver\GlobalQuotaResolver;
+use Vortos\Auth\Quota\Resolver\UserQuotaResolver;
 use Vortos\Auth\Quota\Storage\RedisQuotaStore;
 use Vortos\Auth\RateLimit\Middleware\RateLimitMiddleware;
 use Vortos\Auth\RateLimit\Storage\RedisRateLimitStore;
@@ -35,6 +39,8 @@ use Vortos\Cache\Adapter\ArrayAdapter;
 use Vortos\Cache\Adapter\RedisConnectionFactory;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
+use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Tracing\Contract\TracingInterface;
 
 final class AuthExtension extends Extension
 {
@@ -120,6 +126,11 @@ final class AuthExtension extends Extension
 
         // Redis-backed stores (when cache or auth registered the \Redis service)
         if ($this->hasRedisService($container)) {
+            $container->register(UserQuotaResolver::class, UserQuotaResolver::class)
+                ->setShared(true)->setPublic(false);
+            $container->register(GlobalQuotaResolver::class, GlobalQuotaResolver::class)
+                ->setShared(true)->setPublic(false);
+
             $container->register(RedisRateLimitStore::class, RedisRateLimitStore::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
                 ->setShared(true)->setPublic(false);
@@ -161,6 +172,11 @@ final class AuthExtension extends Extension
                     new Reference(RedisRateLimitStore::class),
                     [], // routeMap — filled by RateLimitCompilerPass
                     [], // policies — filled by RateLimitCompilerPass
+                    $resolved['rate_limit_headers'],
+                    $resolved['problem_details'],
+                    new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                    new Reference('vortos.logger.security', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                    new Reference(TracingInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 ])
                 ->setShared(true)->setPublic(true)
                 ->addTag('kernel.event_subscriber');
@@ -172,6 +188,13 @@ final class AuthExtension extends Extension
                     new Reference(RedisQuotaStore::class),
                     [],
                     [],
+                    [],
+                    QuotaFailureMode::from($resolved['quota_failure_mode']),
+                    $resolved['quota_headers'],
+                    $resolved['problem_details'],
+                    new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                    new Reference('vortos.logger.security', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                    new Reference(TracingInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 ])
                 ->setShared(true)->setPublic(true)
                 ->addTag('kernel.event_subscriber');
@@ -179,7 +202,15 @@ final class AuthExtension extends Extension
 
         // Feature access middleware (no Redis required)
         $container->register(FeatureAccessMiddleware::class, FeatureAccessMiddleware::class)
-            ->setArguments([new Reference(CurrentUserProvider::class), [], []])
+            ->setArguments([
+                new Reference(CurrentUserProvider::class),
+                [],
+                [],
+                $resolved['problem_details'],
+                new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                new Reference('vortos.logger.security', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                new Reference(TracingInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            ])
             ->setShared(true)->setPublic(true)
             ->addTag('kernel.event_subscriber');
 

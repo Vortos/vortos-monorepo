@@ -196,7 +196,7 @@ return [
     ],
 
     'make' => [
-        'description' => 'Code generator — 21 vortos:make:* commands scaffold DDD/CQRS artifacts from stubs.',
+        'description' => 'Code generator — 22 vortos:make:* commands scaffold DDD/CQRS artifacts from stubs.',
         'provides'    => ['GeneratorEngine — reads stubs from module Resources/stubs/ or app root stubs/ (user overrides)'],
         'config'      => null,
         'commands'    => [
@@ -220,6 +220,7 @@ return [
             'vortos:make:feature-policy'      => 'Generate a feature access policy class',
             'vortos:make:rate-limit-policy'   => 'Generate a rate limit policy class',
             'vortos:make:quota-policy'        => 'Generate a quota policy class',
+            'vortos:make:quota-resolver'      => 'Generate a quota subject resolver class',
             'vortos:make:session-policy'      => 'Generate a session limit policy class',
         ],
     ],

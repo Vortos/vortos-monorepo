@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Vortos\Auth\RateLimit\Middleware;
 
+use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -14,6 +15,8 @@ use Vortos\Auth\RateLimit\Attribute\RateLimit;
 use Vortos\Auth\RateLimit\Contract\RateLimitPolicyInterface;
 use Vortos\Auth\RateLimit\RateLimitScope;
 use Vortos\Auth\RateLimit\Storage\RedisRateLimitStore;
+use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Tracing\Contract\TracingInterface;
 
 /**
  * Enforces #[RateLimit] on controllers.
@@ -46,6 +49,11 @@ final class RateLimitMiddleware implements EventSubscriberInterface
         private RedisRateLimitStore $store,
         private array $routeMap,
         private array $policies,
+        private bool $headersEnabled = true,
+        private bool $problemDetailsEnabled = true,
+        private ?MetricsInterface $metrics = null,
+        private ?LoggerInterface $logger = null,
+        private ?TracingInterface $tracer = null,
     ) {}
 
     public static function getSubscribedEvents(): array
@@ -84,6 +92,7 @@ final class RateLimitMiddleware implements EventSubscriberInterface
 
         $rl = $event->getRequest()->attributes->get('_rate_limit_headers');
         if ($rl === null) return;
+        if (!$this->headersEnabled) return;
 
         $response = $event->getResponse();
         $response->headers->set('X-RateLimit-Limit', (string) $rl['limit']);
@@ -124,14 +133,41 @@ final class RateLimitMiddleware implements EventSubscriberInterface
 
             if ($current > $limit->limit) {
                 $retryAfter = $this->store->getTtl($key);
-                $event->setResponse(new JsonResponse(
-                    [
-                        'error'   => 'Too Many Requests',
-                        'message' => 'Rate limit exceeded. Please slow down.',
-                        'limit'   => $limit->limit,
-                        'window'  => $limit->windowSeconds,
-                    ],
+                $resetAt = time() + $retryAfter;
+                $request->attributes->set('_rate_limit_headers', [
+                    'limit' => $limit->limit,
+                    'remaining' => 0,
+                    'reset' => $resetAt,
+                ]);
+
+                $this->metrics?->counter('rate_limit_blocked_total', [
+                    'policy' => str_replace('\\', '.', $policyClass),
+                    'scope' => $scope->value,
+                    'controller' => str_replace('\\', '.', $controller),
+                ])->increment();
+                $this->logger?->warning('rate_limit.exceeded', [
+                    'policy' => $policyClass,
+                    'scope' => $scope->value,
+                    'limit' => $limit->limit,
+                    'window_seconds' => $limit->windowSeconds,
+                    'retry_after' => $retryAfter,
+                ]);
+                $this->trace('vortos.rate_limit.allowed', false);
+
+                $event->setResponse($this->problemResponse(
+                    $event,
                     Response::HTTP_TOO_MANY_REQUESTS,
+                    'https://docs.vortos.dev/errors/rate-limit-exceeded',
+                    'Rate Limit Exceeded',
+                    sprintf('Too many requests. Please retry after %d seconds.', $retryAfter),
+                    [
+                        'policy' => $policyClass,
+                        'scope' => $scope->value,
+                        'limit' => $limit->limit,
+                        'remaining' => 0,
+                        'reset_at' => $resetAt,
+                        'retry_after' => $retryAfter,
+                    ],
                     ['Retry-After' => $retryAfter],
                 ));
                 return;
@@ -147,6 +183,12 @@ final class RateLimitMiddleware implements EventSubscriberInterface
                     'reset'     => time() + $this->store->getTtl($key),
                 ]);
             }
+
+            $this->metrics?->counter('rate_limit_allowed_total', [
+                'policy' => str_replace('\\', '.', $policyClass),
+                'scope' => $scope->value,
+                'controller' => str_replace('\\', '.', $controller),
+            ])->increment();
         }
     }
 
@@ -156,5 +198,47 @@ final class RateLimitMiddleware implements EventSubscriberInterface
         if (is_array($controller)) return is_object($controller[0]) ? get_class($controller[0]) : $controller[0];
         if (is_object($controller)) return get_class($controller);
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $extensions
+     * @param array<string, int|string> $headers
+     */
+    private function problemResponse(
+        RequestEvent $event,
+        int $status,
+        string $type,
+        string $title,
+        string $detail,
+        array $extensions = [],
+        array $headers = [],
+    ): JsonResponse {
+        if (!$this->problemDetailsEnabled) {
+            return new JsonResponse(['error' => $title, 'message' => $detail] + $extensions, $status, $headers);
+        }
+
+        return new JsonResponse(
+            [
+                'type' => $type,
+                'title' => $title,
+                'status' => $status,
+                'detail' => $detail,
+                'instance' => $event->getRequest()->getPathInfo(),
+                'extensions' => $extensions,
+            ] + $extensions,
+            $status,
+            ['Content-Type' => 'application/problem+json'] + $headers,
+        );
+    }
+
+    private function trace(string $key, mixed $value): void
+    {
+        if ($this->tracer === null) {
+            return;
+        }
+
+        $span = $this->tracer->startSpan('vortos.rate_limit');
+        $span->addAttribute($key, $value);
+        $span->end();
     }
 }

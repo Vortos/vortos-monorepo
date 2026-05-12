@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Vortos\Auth\FeatureAccess\Middleware;
 
+use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -10,6 +11,8 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Auth\FeatureAccess\Contract\FeatureAccessPolicyInterface;
 use Vortos\Auth\Identity\CurrentUserProvider;
+use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Tracing\Contract\TracingInterface;
 
 /**
  * Enforces #[RequiresFeatureAccess] on controllers.
@@ -30,6 +33,10 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
         private CurrentUserProvider $currentUser,
         private array $routeMap,
         private array $policies,
+        private bool $problemDetailsEnabled = true,
+        private ?MetricsInterface $metrics = null,
+        private ?LoggerInterface $logger = null,
+        private ?TracingInterface $tracer = null,
     ) {}
 
     public static function getSubscribedEvents(): array
@@ -56,18 +63,41 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
                         ? Response::HTTP_PAYMENT_REQUIRED
                         : Response::HTTP_FORBIDDEN;
 
-                    $event->setResponse(new JsonResponse(
-                        [
-                            'error'   => $rule['paymentRequired'] ? 'Payment Required' : 'Forbidden',
-                            'message' => $rule['paymentRequired']
-                                ? 'This feature requires an active subscription.'
-                                : 'Your plan does not include access to this feature.',
-                            'feature' => $rule['feature'],
-                        ],
+                    $this->metrics?->counter('feature_access_denied_total', [
+                        'feature' => $rule['feature'],
+                        'policy' => str_replace('\\', '.', $policy::class),
+                        'controller' => str_replace('\\', '.', $controller),
+                    ])->increment();
+                    $this->logger?->warning('feature_access.denied', [
+                        'feature' => $rule['feature'],
+                        'policy' => $policy::class,
+                        'payment_required' => $rule['paymentRequired'],
+                    ]);
+                    $this->trace('vortos.feature_access.allowed', false);
+
+                    $event->setResponse($this->problemResponse(
+                        $event,
                         $status,
+                        $rule['paymentRequired']
+                            ? 'https://docs.vortos.dev/errors/payment-required'
+                            : 'https://docs.vortos.dev/errors/feature-access-denied',
+                        $rule['paymentRequired'] ? 'Payment Required' : 'Forbidden',
+                        $rule['paymentRequired']
+                            ? 'This feature requires an active subscription.'
+                            : 'Your plan does not include access to this feature.',
+                        [
+                            'feature' => $rule['feature'],
+                            'payment_required' => $rule['paymentRequired'],
+                        ],
                     ));
                     return;
                 }
+
+                $this->metrics?->counter('feature_access_allowed_total', [
+                    'feature' => $rule['feature'],
+                    'policy' => str_replace('\\', '.', $policy::class),
+                    'controller' => str_replace('\\', '.', $controller),
+                ])->increment();
             }
         }
     }
@@ -78,5 +108,45 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
         if (is_array($controller)) return is_object($controller[0]) ? get_class($controller[0]) : $controller[0];
         if (is_object($controller)) return get_class($controller);
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $extensions
+     */
+    private function problemResponse(
+        RequestEvent $event,
+        int $status,
+        string $type,
+        string $title,
+        string $detail,
+        array $extensions = [],
+    ): JsonResponse {
+        if (!$this->problemDetailsEnabled) {
+            return new JsonResponse(['error' => $title, 'message' => $detail] + $extensions, $status);
+        }
+
+        return new JsonResponse(
+            [
+                'type' => $type,
+                'title' => $title,
+                'status' => $status,
+                'detail' => $detail,
+                'instance' => $event->getRequest()->getPathInfo(),
+                'extensions' => $extensions,
+            ] + $extensions,
+            $status,
+            ['Content-Type' => 'application/problem+json'],
+        );
+    }
+
+    private function trace(string $key, mixed $value): void
+    {
+        if ($this->tracer === null) {
+            return;
+        }
+
+        $span = $this->tracer->startSpan('vortos.feature_access');
+        $span->addAttribute($key, $value);
+        $span->end();
     }
 }

@@ -1,0 +1,25 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure\Quota;
+
+use Vortos\Auth\Contract\UserIdentityInterface;
+use Vortos\Auth\Quota\Contract\QuotaSubjectResolverInterface;
+
+final class {{ClassName}}QuotaResolver implements QuotaSubjectResolverInterface
+{
+    public function bucket(): string
+    {
+        return '{{Bucket}}';
+    }
+
+    public function resolve(UserIdentityInterface $identity): ?string
+    {
+        $subjectId = $identity->getAttribute('{{AttributeKey}}');
+
+        return is_scalar($subjectId) && (string) $subjectId !== ''
+            ? (string) $subjectId
+            : null;
+    }
+}

@@ -12,5 +12,5 @@ use Vortos\Auth\Quota\QuotaRule;
  */
 interface QuotaPolicyInterface
 {
-    public function getQuota(UserIdentityInterface $identity, string $quota): QuotaRule;
+    public function getQuota(UserIdentityInterface $identity, string $quota, string $bucket): QuotaRule;
 }

@@ -52,6 +52,7 @@ final class RateLimitCompilerPass implements CompilerPassInterface
                     if (!empty($methodAttrs)) {
                         foreach ($methodAttrs as $attr) {
                             $instance = $attr->newInstance();
+                            $this->validatePolicy($instance->policy, $policyServiceIds);
                             $routeMap[$class][] = [
                                 'policy' => $instance->policy,
                                 'per'    => $instance->per,
@@ -64,6 +65,7 @@ final class RateLimitCompilerPass implements CompilerPassInterface
 
             foreach ($attrs as $attr) {
                 $instance = $attr->newInstance();
+                $this->validatePolicy($instance->policy, $policyServiceIds);
                 $routeMap[$class][] = [
                     'policy' => $instance->policy,
                     'per'    => $instance->per,
@@ -80,5 +82,27 @@ final class RateLimitCompilerPass implements CompilerPassInterface
         $container->getDefinition(RateLimitMiddleware::class)
             ->setArgument('$routeMap', $routeMap)
             ->setArgument('$policies', $policyRefs);
+    }
+
+    /**
+     * @param array<string, string> $policyServiceIds
+     */
+    private function validatePolicy(string $policyClass, array $policyServiceIds): void
+    {
+        if (!class_exists($policyClass)) {
+            throw new \InvalidArgumentException(sprintf('Rate limit policy "%s" does not exist.', $policyClass));
+        }
+
+        if (!is_a($policyClass, RateLimitPolicyInterface::class, true)) {
+            throw new \InvalidArgumentException(sprintf(
+                'Rate limit policy "%s" must implement %s.',
+                $policyClass,
+                RateLimitPolicyInterface::class,
+            ));
+        }
+
+        if (!isset($policyServiceIds[$policyClass])) {
+            throw new \InvalidArgumentException(sprintf('Rate limit policy "%s" is not registered as a service.', $policyClass));
+        }
     }
 }

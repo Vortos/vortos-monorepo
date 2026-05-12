@@ -14,6 +14,10 @@ final class RedisQuotaStoreTest extends TestCase
 
     protected function setUp(): void
     {
+        if (!class_exists(\Redis::class)) {
+            $this->markTestSkipped('ext-redis is not installed.');
+        }
+
         $this->redis = $this->createMock(\Redis::class);
         $this->store = new RedisQuotaStore($this->redis);
     }

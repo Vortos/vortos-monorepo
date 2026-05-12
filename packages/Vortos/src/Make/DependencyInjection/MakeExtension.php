@@ -23,6 +23,7 @@ use Vortos\Make\Command\MakeMiddlewareCommand;
 use Vortos\Make\Command\MakeOwnershipPolicyCommand;
 use Vortos\Make\Command\MakeProjectionHandlerCommand;
 use Vortos\Make\Command\MakeQuotaPolicyCommand;
+use Vortos\Make\Command\MakeQuotaResolverCommand;
 use Vortos\Make\Command\MakeQueryCommand;
 use Vortos\Make\Command\MakeRateLimitPolicyCommand;
 use Vortos\Make\Command\MakeReadRepositoryCommand;
@@ -79,6 +80,7 @@ final class MakeExtension extends Extension
             MakeFeaturePolicyCommand::class,
             MakeRateLimitPolicyCommand::class,
             MakeQuotaPolicyCommand::class,
+            MakeQuotaResolverCommand::class,
             MakeSessionPolicyCommand::class,
         ];
 

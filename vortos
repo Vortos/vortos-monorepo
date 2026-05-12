@@ -40,6 +40,16 @@ function quiet(string $cmd): string
     return $cmd . ' 2>' . nullDevice();
 }
 
+function phpBinary(): string
+{
+    return PHP_BINARY !== '' ? escapeshellarg(PHP_BINARY) : 'php';
+}
+
+function consoleCommand(string $command, string $args = ''): string
+{
+    return trim(phpBinary() . ' bin/console ' . $command . ' ' . $args);
+}
+
 function isDockerRunning(): bool
 {
     exec(quiet('docker compose ps --status running -q ' . CONTAINER), $out, $code);
@@ -130,12 +140,188 @@ function warn(string $msg): void
     echo yellow('⚠') . ' ' . $msg . PHP_EOL;
 }
 
+function commandLine(string $cmd, string $desc): string
+{
+    return '  ' . str_pad(green($cmd), 42) . dim($desc) . PHP_EOL;
+}
+
+/**
+ * @return array<string, array{description: string, commands: array<string, string>}>
+ */
+function commandSections(): array
+{
+    return [
+        'Environment' => [
+            'description' => 'Project runtime and local tooling',
+            'commands' => [
+                'setup'          => 'Configure Docker/local development setup',
+                'up'             => 'Start the Docker environment',
+                'down'           => 'Stop the Docker environment',
+                'restart'        => 'Restart the Docker environment',
+                'logs [service]' => 'Tail Docker logs',
+                'bash'           => 'Open a shell in the backend container',
+                'status'         => 'Show running container status',
+                'docker [args]'  => 'Run any docker compose command',
+            ],
+        ],
+        'Tools' => [
+            'description' => 'Local developer commands',
+            'commands' => [
+                'composer [args]' => 'Run Composer in Docker or locally',
+                'test [args]'     => 'Run PHPUnit in Docker or locally',
+                'list [section]'  => 'Show this grouped command list',
+                'list --raw'      => 'Show the full console command list',
+            ],
+        ],
+        'Scaffolding' => [
+            'description' => 'DDD/CQRS generators',
+            'commands' => [
+                'make:context Name'                    => 'Scaffold a full bounded context',
+                'make:entity Name -c Ctx'              => 'Entity + EntityId + RepositoryInterface',
+                'make:command Name -c Ctx'             => 'CQRS command + handler',
+                'make:query Name -c Ctx'               => 'CQRS query + handler',
+                'make:consumer Name -c Ctx'            => 'Kafka event handler',
+                'make:domain-event Name -c Ctx'        => 'Domain event',
+                'make:domain-exception Name -c Ctx'    => 'Domain exception',
+                'make:value-object Name -c Ctx'        => 'Value object',
+                'make:controller Name -c Ctx'          => 'HTTP controller + request',
+                'make:write-repository Agg -c Ctx'     => 'Postgres write repository',
+                'make:read-repository Agg -c Ctx'      => 'Mongo read repository',
+                'make:projection-handler Name -c Ctx'  => 'Kafka projection handler',
+                'make:messaging-config -c Ctx'         => 'Kafka transport/producer/consumer config',
+                'make:middleware Name -c Ctx'          => 'Consumer middleware',
+                'make:hook Name -c Ctx --type=*'       => 'Messaging lifecycle hook',
+                'make:authorization-policy Name -c Ctx'=> 'Resource authorization policy',
+                'make:ownership-policy Name -c Ctx'    => 'Ownership policy',
+                'make:feature-policy Name -c Ctx'      => 'Feature access policy',
+                'make:rate-limit-policy Name -c Ctx'   => 'Rate limit policy',
+                'make:quota-policy Name -c Ctx'        => 'Quota policy',
+                'make:quota-resolver Name -c Ctx'      => 'Quota subject resolver',
+                'make:session-policy Name -c Ctx'      => 'Session limit policy',
+            ],
+        ],
+        'Database' => [
+            'description' => 'Schema, migrations, and persistence setup',
+            'commands' => [
+                'migrate'              => 'Run all pending migrations',
+                'migrate:publish'      => 'Publish module SQL stubs as migration classes',
+                'migrate:status'       => 'Show migration state',
+                'migrate:make Name'    => 'Generate an empty migration class',
+                'migrate:rollback'     => 'Rollback executed migrations',
+                'migrate:fresh'        => 'Drop all tables and re-run migrations',
+                'migrate:baseline'     => 'Mark all migrations as executed',
+                'migrate:adopt'        => 'Adopt an existing verified schema',
+                'setup:persistence'    => 'Verify persistence connections and indexes',
+                'orm:diff'             => 'Generate migration from ORM entity diff',
+                'orm:schema'           => 'Generate or apply ORM database schema',
+            ],
+        ],
+        'Messaging' => [
+            'description' => 'Consumers, transports, outbox, and DLQ',
+            'commands' => [
+                'consume'              => 'Start a named consumer worker',
+                'consumers:list'       => 'List registered consumers and handlers',
+                'transports:list'      => 'List registered transports and producers',
+                'setup:messaging'      => 'Publish outbox and dead letter migrations',
+                'outbox:relay'         => 'Run the outbox relay worker',
+                'outbox:replay'        => 'Reset failed outbox messages',
+                'dlq:replay'           => 'Replay permanently failed messages',
+            ],
+        ],
+        'Auth & Security' => [
+            'description' => 'Authorization, roles, permissions, and feature flags',
+            'commands' => [
+                'auth:can'                     => 'Check whether a user can perform a permission',
+                'auth:explain'                 => 'Explain an authorization decision',
+                'auth:permissions'             => 'List registered permissions',
+                'auth:roles'                   => 'Show runtime roles for a user',
+                'auth:seed'                    => 'Seed default authorization grants',
+                'auth:user-role:assign'        => 'Assign a runtime role to a user',
+                'auth:user-role:remove'        => 'Remove a runtime role from a user',
+                'auth:role-permission:grant'   => 'Grant a permission to a runtime role',
+                'auth:role-permission:revoke'  => 'Revoke a permission from a runtime role',
+                'flags:list'                   => 'List feature flags',
+                'flags:create'                 => 'Create a feature flag',
+                'flags:enable'                 => 'Enable a feature flag',
+                'flags:disable'                => 'Disable a feature flag',
+                'flags:add-rule'               => 'Add a targeting rule',
+                'flags:delete'                 => 'Delete a feature flag',
+            ],
+        ],
+        'Operations' => [
+            'description' => 'Runtime maintenance and observability',
+            'commands' => [
+                'cache:clear'             => 'Clear cache or invalidate tags',
+                'cache:warmup'            => 'Run registered cache warmers',
+                'metrics:collect'         => 'Collect operational gauges',
+                'observability:list'      => 'List observability template stacks',
+                'observability:publish'   => 'Publish observability templates',
+            ],
+        ],
+        'Debug & Integration' => [
+            'description' => 'Diagnostics, config publishing, Docker, and MCP',
+            'commands' => [
+                'debug:container'   => 'List registered container services',
+                'debug:routes'      => 'List registered routes',
+                'config:publish'    => 'Publish config stubs',
+                'docker:publish'    => 'Publish Docker files',
+                'mcp:doctor'        => 'Show MCP server status',
+                'mcp:install'       => 'Wire MCP into an AI client',
+                'mcp:serve'         => 'Start the MCP server',
+                'help [command]'    => 'Show command help',
+            ],
+        ],
+    ];
+}
+
+function normalizeSectionName(string $name): string
+{
+    return strtolower((string) preg_replace('/[^a-z0-9]+/i', '-', trim($name)));
+}
+
+function showCommandList(?string $sectionFilter = null): int
+{
+    $sections = commandSections();
+    $filter = $sectionFilter !== null ? normalizeSectionName($sectionFilter) : null;
+    $matched = false;
+
+    echo PHP_EOL;
+    echo bold('Vortos Commands') . '  ' . dim('php vortos <command> [options]') . PHP_EOL;
+    echo dim('Use "php vortos list --raw" for the full console command list.') . PHP_EOL;
+    echo PHP_EOL;
+
+    foreach ($sections as $section => $data) {
+        $sectionKey = normalizeSectionName($section);
+
+        if ($filter !== null && $filter !== $sectionKey) {
+            continue;
+        }
+
+        $matched = true;
+        echo bold($section) . '  ' . dim($data['description']) . PHP_EOL;
+
+        foreach ($data['commands'] as $cmd => $desc) {
+            echo commandLine($cmd, $desc);
+        }
+
+        echo PHP_EOL;
+    }
+
+    if (!$matched && $filter !== null) {
+        $available = implode(', ', array_map(normalizeSectionName(...), array_keys($sections)));
+        fwrite(STDERR, red('Error:') . ' Unknown command section "' . $sectionFilter . '".' . PHP_EOL);
+        fwrite(STDERR, dim('Available sections: ' . $available) . PHP_EOL);
+        return 1;
+    }
+
+    return 0;
+}
+
 // ─── Help ────────────────────────────────────────────────────────────────────
 
 function showHelp(): void
 {
-    $b = fn(string $cmd, string $desc) =>
-        '  ' . str_pad(green($cmd), 38) . dim($desc) . PHP_EOL;
+    $b = commandLine(...);
 
     echo PHP_EOL;
     echo bold('Vortos CLI') . '  ' . dim('php vortos [command] [options]') . PHP_EOL;
@@ -155,7 +341,7 @@ function showHelp(): void
     echo bold('Tools') . PHP_EOL;
     echo $b('composer [args]', 'Run Composer (docker or local)');
     echo $b('test [args]',     'Run PHPUnit (docker or local)');
-    echo $b('list',            'List all available console commands');
+    echo $b('list [section]',  'Show grouped command list');
     echo PHP_EOL;
 
     echo bold('Scaffold  ' . dim('(php vortos make:* -c Context)')) . PHP_EOL;
@@ -179,6 +365,7 @@ function showHelp(): void
     echo $b('make:feature-policy Name -c Ctx',  'Feature access policy');
     echo $b('make:rate-limit-policy Name -c Ctx', 'Rate limit policy');
     echo $b('make:quota-policy Name -c Ctx',    'Quota policy');
+    echo $b('make:quota-resolver Name -c Ctx',  'Quota subject resolver');
     echo $b('make:session-policy Name -c Ctx',  'Session limit policy');
     echo PHP_EOL;
 
@@ -210,7 +397,7 @@ $command = $args[0] ?? null;
 $rest    = array_slice($args, 1);
 $restStr = implode(' ', array_map('escapeshellarg', $rest));
 
-if ($command === null || in_array($command, ['--help', '-h', 'help'], true)) {
+if ($command === null || in_array($command, ['--help', '-h'], true) || ($command === 'help' && $rest === [])) {
     showHelp();
     exit(0);
 }
@@ -269,9 +456,31 @@ switch ($command) {
         $cmd = 'vendor/bin/phpunit ' . $restStr;
         exit($docker ? docker($cmd) : local($cmd));
 
+    case 'help':
+        $target = (string) ($rest[0] ?? '');
+        $target = str_starts_with($target, 'vortos:') || in_array($target, ['completion', 'help', 'list'], true)
+            ? $target
+            : 'vortos:' . $target;
+        $dockerCmd = 'php bin/console help ' . escapeshellarg($target) . ' --ansi';
+        $localCmd = consoleCommand('help', escapeshellarg($target) . ' --ansi');
+        exit($docker ? docker($dockerCmd) : local($localCmd));
+
+    case 'completion':
+        $dockerCmd = trim('php bin/console completion ' . $restStr);
+        $localCmd = consoleCommand('completion', $restStr);
+        exit($docker ? docker($dockerCmd) : local($localCmd));
+
     case 'list':
-        $cmd = 'php bin/console list --ansi';
-        exit($docker ? docker($cmd) : local($cmd));
+        if (in_array('--raw', $rest, true)) {
+            $rawRest = array_values(array_filter($rest, fn(string $arg): bool => $arg !== '--raw'));
+            $rawRestStr = implode(' ', array_map('escapeshellarg', $rawRest));
+            $dockerCmd = trim('php bin/console list ' . $rawRestStr . ' --ansi');
+            $localCmd = consoleCommand('list', trim($rawRestStr . ' --ansi'));
+            exit($docker ? docker($dockerCmd) : local($localCmd));
+        }
+
+        $section = $rest[0] ?? null;
+        exit(showCommandList($section));
 
     default:
         // Normalise: strip any leading "vortos:" then re-add it once.
@@ -280,12 +489,13 @@ switch ($command) {
         //   php vortos vortos:make:entity User → vortos:make:entity
         $console = 'vortos:' . (str_starts_with($command, 'vortos:') ? substr($command, 7) : $command);
         $ansi    = str_contains($restStr, '--no-ansi') ? '' : '--ansi';
-        $cmd     = 'php bin/console ' . escapeshellarg($console) . ' ' . $restStr . ' ' . $ansi;
+        $dockerCmd = 'php bin/console ' . escapeshellarg($console) . ' ' . $restStr . ' ' . $ansi;
+        $localCmd = consoleCommand(escapeshellarg($console), trim($restStr . ' ' . $ansi));
 
         if ($docker) {
-            $exitCode = docker($cmd);
+            $exitCode = docker($dockerCmd);
         } elseif (PHP_BINARY !== '') {
-            $exitCode = local(PHP_BINARY . ' bin/console ' . escapeshellarg($console) . ' ' . $restStr . ' ' . $ansi);
+            $exitCode = local($localCmd);
         } else {
             abort('PHP not found locally and Docker is not running.');
         }

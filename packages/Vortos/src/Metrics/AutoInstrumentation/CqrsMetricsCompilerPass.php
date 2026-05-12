@@ -8,7 +8,7 @@ use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Cqrs\Command\CommandBusInterface;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
 /**
  * Decorates CommandBusInterface with CqrsMetricsDecorator.
@@ -24,7 +24,7 @@ final class CqrsMetricsCompilerPass implements CompilerPassInterface
 {
     public function process(ContainerBuilder $container): void
     {
-        if (!$container->hasAlias(MetricsInterface::class) && !$container->hasDefinition(MetricsInterface::class)) {
+        if (!$container->hasDefinition(FrameworkTelemetry::class)) {
             return;
         }
 
@@ -44,7 +44,7 @@ final class CqrsMetricsCompilerPass implements CompilerPassInterface
             ->setDecoratedService(CommandBusInterface::class)
             ->setArguments([
                 new Reference(CqrsMetricsDecorator::class . '.inner'),
-                new Reference(MetricsInterface::class),
+                new Reference(FrameworkTelemetry::class),
             ])
             ->setShared(true)
             ->setPublic(false);

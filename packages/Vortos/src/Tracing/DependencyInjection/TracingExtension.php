@@ -13,6 +13,7 @@ use Vortos\Tracing\Contract\TracingInterface;
 use Vortos\Tracing\Decorator\ModuleAwareTracer;
 use Vortos\Tracing\Decorator\SamplingTracer;
 use Vortos\Tracing\NoOpTracer;
+use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Tracing\OpenTelemetry\OpenTelemetryTracerFactory;
 use Vortos\Tracing\Sampling\AlwaysOffSampler;
 use Vortos\Tracing\Sampling\AlwaysOnSampler;
@@ -51,6 +52,11 @@ final class TracingExtension extends Extension
         }
 
         $innerTracerId = $this->registerInnerTracer($container, $config);
+        $disabledModules = array_map(
+            static fn(ObservabilityModule $module): string => $module->value,
+            $config->getDisabledModules(),
+        );
+        $container->setParameter('vortos.tracing.disabled_modules', array_values(array_unique($disabledModules)));
 
         // Register sampler
         $rootSampler = match($config->getSampler()) {
@@ -76,7 +82,7 @@ final class TracingExtension extends Extension
         $container->register(ModuleAwareTracer::class, ModuleAwareTracer::class)
             ->setArguments([
                 new Reference(SamplingTracer::class),
-                $config->getDisabledModules(),
+                $disabledModules,
             ])
             ->setPublic(false);
 

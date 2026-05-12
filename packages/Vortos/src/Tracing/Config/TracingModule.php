@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Vortos\Tracing\Config;
 
+use Vortos\Observability\Config\ObservabilityModule;
+
 enum TracingModule: string
 {
     case Http        = 'http';
@@ -15,4 +17,9 @@ enum TracingModule: string
     case RateLimit   = 'rate_limit';
     case Quota       = 'quota';
     case Audit       = 'audit';
+
+    public function observabilityModule(): ObservabilityModule
+    {
+        return ObservabilityModule::fromLegacy($this->value);
+    }
 }

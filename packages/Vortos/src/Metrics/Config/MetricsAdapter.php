@@ -9,4 +9,5 @@ enum MetricsAdapter: string
     case NoOp       = 'noop';
     case Prometheus = 'prometheus';
     case StatsD     = 'statsd';
+    case OpenTelemetry = 'opentelemetry';
 }

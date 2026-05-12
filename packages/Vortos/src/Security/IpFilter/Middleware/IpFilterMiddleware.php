@@ -12,6 +12,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Security\Event\IpDeniedEvent;
 use Vortos\Security\Event\SecurityEventDispatcher;
 use Vortos\Security\IpFilter\IpResolver;
+use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 
 /**
  * Enforces IP allowlist/denylist at priority 90 — before auth.
@@ -94,6 +95,8 @@ final class IpFilterMiddleware implements EventSubscriberInterface
     private function deny(RequestEvent $event, string $ip): void
     {
         $this->events->dispatch(new IpDeniedEvent($ip, $event->getRequest()->getPathInfo()));
+        $event->getRequest()->attributes->set(TelemetryRequestAttributes::DROP_TRACE, true);
+        $event->getRequest()->attributes->set(TelemetryRequestAttributes::BLOCKED_REASON, 'ip_filter');
 
         $event->setResponse(new JsonResponse(
             ['error' => 'Forbidden', 'message' => 'Access denied.'],

@@ -51,7 +51,7 @@ final class EventBus implements EventBusInterface
         private array $eventProducerMap,
         private HookRunner $hookRunner,
         private LoggerInterface $logger,
-        private TracingInterface $tracer,
+        private ?TracingInterface $tracer,
         private ConsumerRegistry $consumerRegistry,
     ) {
         $this->inProcessEventClasses = $this->buildInProcessEventClassIndex();
@@ -64,7 +64,7 @@ final class EventBus implements EventBusInterface
 
             $eventId = (new UuidV7())->toRfc4122();
 
-            $correlationId = $this->tracer->currentCorrelationId() ?? (new UuidV7())->toRfc4122();
+            $correlationId = $this->tracer?->currentCorrelationId() ?? (new UuidV7())->toRfc4122();
 
             $eventIdStamp = new EventIdStamp($eventId);
             $timestampStamp = new TimestampStamp(new DateTimeImmutable());

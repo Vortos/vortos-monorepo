@@ -9,6 +9,7 @@ use ReflectionMethod;
 use Reflector;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
@@ -23,6 +24,7 @@ use Vortos\Cqrs\Command\Idempotency\RedisCommandIdempotencyStore;
 use Vortos\Cqrs\Query\QueryBus;
 use Vortos\Cqrs\Query\QueryBusInterface;
 use Vortos\Cqrs\Validation\VortosValidator;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\Tracing\Contract\TracingInterface;
@@ -115,6 +117,9 @@ final class CqrsExtension extends Extension
 
         $container->register(QueryBus::class, QueryBus::class)
             ->setArgument('$handlerLocator', new Reference('vortos.query_handler_locator'))
+            ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$tracer', new Reference(TracingInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
 
         $container->setAlias(QueryBusInterface::class, QueryBus::class)

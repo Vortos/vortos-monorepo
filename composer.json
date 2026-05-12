@@ -36,7 +36,10 @@
     "symfony/property-access": "^8.0",
     "psr/simple-cache": "^3.0",
     "firebase/php-jwt": "^7.0",
-    "symfony/validator": "^7.0"
+    "symfony/validator": "^7.0",
+    "open-telemetry/sdk": "^1.0",
+    "open-telemetry/exporter-otlp": "^1.0",
+    "guzzlehttp/guzzle": "^7.0"
   },
   "require-dev": {
     "vortos/vortos-make": "@dev",

@@ -6,6 +6,7 @@ namespace Vortos\Messaging\Middleware\Core;
 
 use Vortos\Messaging\Bus\Stamp\CorrelationIdStamp;
 use Vortos\Messaging\Middleware\MiddlewareInterface;
+use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Tracing\Contract\TracingInterface;
 use Symfony\Component\Messenger\Envelope;
 use Throwable;
@@ -31,7 +32,10 @@ final class TracingMiddleware implements MiddlewareInterface
         $span = $this->tracer->startSpan(
             $eventClass,
             [
-                'correlation_id' => $correlationStamp?->correlationId ?? 'none'
+                'messaging.operation' => 'process',
+                'messaging.message.type' => $eventClass,
+                'correlation_id' => $correlationStamp?->correlationId ?? 'none',
+                'vortos.module' => ObservabilityModule::Messaging,
             ]
         );
 

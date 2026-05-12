@@ -25,7 +25,7 @@ final class KafkaConsumerFactory
         private ConsumerRegistry $consumerRegistry,
         private TransportRegistry $transportRegistry,
         private LoggerInterface $logger,
-        private TracingInterface $tracer
+        private ?TracingInterface $tracer = null
     ) {}
 
     public function create(string $consumerName): KafkaConsumer

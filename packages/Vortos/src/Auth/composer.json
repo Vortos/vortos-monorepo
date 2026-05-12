@@ -13,6 +13,8 @@
         "vortos/vortos-domain": "^1.0",
         "vortos/vortos-cache": "^1.0",
         "vortos/vortos-http": "^1.0",
+        "vortos/vortos-metrics": "^1.0",
+        "vortos/vortos-observability": "^1.0",
         "symfony/http-kernel": "^7.3",
         "firebase/php-jwt": "^7.0"
     },

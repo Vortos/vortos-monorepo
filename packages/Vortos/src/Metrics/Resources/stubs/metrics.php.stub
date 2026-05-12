@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 use Vortos\Metrics\Config\MetricsAdapter;
-use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\DependencyInjection\VortosMetricsConfig;
+use Vortos\Observability\Config\ObservabilityModule;
 
 return static function (VortosMetricsConfig $config): void {
     $config
@@ -35,10 +35,25 @@ return static function (VortosMetricsConfig $config): void {
     //   dlq_backlog_size{transport,event}
     //   dlq_oldest_failed_age_seconds{transport}
     //
-    // Prometheus refreshes these during /metrics scrapes. For StatsD, schedule:
+    // Prometheus refreshes these during /metrics scrapes. For push backends, schedule:
     //
     //   php bin/console vortos:metrics:collect
 
+    // OTLP push configuration:
+    //
+    // $config
+    //     ->adapter(MetricsAdapter::OpenTelemetry)
+    //     ->service('app', version: $_ENV['APP_VERSION'] ?? '', environment: $_ENV['APP_ENV'] ?? 'prod')
+    //     ->otlp(
+    //         $_ENV['OTEL_EXPORTER_OTLP_METRICS_ENDPOINT'] ?? 'http://otel-collector:4318/v1/metrics',
+    //         headers: [],
+    //         timeoutMs: 200,
+    //     );
+    //
+    // Vendor helpers:
+    //   $config->newRelicOtlp($_ENV['NEW_RELIC_LICENSE_KEY'] ?? '');
+    //   $config->datadogOtlp($_ENV['DD_API_KEY'] ?? '', site: 'datadoghq.com');
+
     // Uncomment to disable framework auto-instrumentation for specific modules:
-    // $config->disableModule(MetricsModule::Cache, MetricsModule::Persistence);
+    // $config->disableModule(ObservabilityModule::Cache, ObservabilityModule::Persistence);
 };

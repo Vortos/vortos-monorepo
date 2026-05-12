@@ -15,7 +15,13 @@ use Vortos\Auth\RateLimit\Attribute\RateLimit;
 use Vortos\Auth\RateLimit\Contract\RateLimitPolicyInterface;
 use Vortos\Auth\RateLimit\RateLimitScope;
 use Vortos\Auth\RateLimit\Storage\RedisRateLimitStore;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
+use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 use Vortos\Tracing\Contract\TracingInterface;
 
 /**
@@ -51,7 +57,7 @@ final class RateLimitMiddleware implements EventSubscriberInterface
         private array $policies,
         private bool $headersEnabled = true,
         private bool $problemDetailsEnabled = true,
-        private ?MetricsInterface $metrics = null,
+        private ?FrameworkTelemetry $telemetry = null,
         private ?LoggerInterface $logger = null,
         private ?TracingInterface $tracer = null,
     ) {}
@@ -139,12 +145,11 @@ final class RateLimitMiddleware implements EventSubscriberInterface
                     'remaining' => 0,
                     'reset' => $resetAt,
                 ]);
+                $request->attributes->set(TelemetryRequestAttributes::DROP_TRACE, true);
+                $request->attributes->set(TelemetryRequestAttributes::BLOCKED_REASON, 'rate_limit');
 
-                $this->metrics?->counter('rate_limit_blocked_total', [
-                    'policy' => str_replace('\\', '.', $policyClass),
-                    'scope' => $scope->value,
-                    'controller' => str_replace('\\', '.', $controller),
-                ])->increment();
+                $labels = $this->rateLimitLabels($policyClass, $scope, $controller);
+                $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::RateLimitBlockedTotal, $labels);
                 $this->logger?->warning('rate_limit.exceeded', [
                     'policy' => $policyClass,
                     'scope' => $scope->value,
@@ -184,12 +189,17 @@ final class RateLimitMiddleware implements EventSubscriberInterface
                 ]);
             }
 
-            $this->metrics?->counter('rate_limit_allowed_total', [
-                'policy' => str_replace('\\', '.', $policyClass),
-                'scope' => $scope->value,
-                'controller' => str_replace('\\', '.', $controller),
-            ])->increment();
+            $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::RateLimitAllowedTotal, $this->rateLimitLabels($policyClass, $scope, $controller));
         }
+    }
+
+    private function rateLimitLabels(string $policyClass, RateLimitScope $scope, string $controller): FrameworkMetricLabels
+    {
+        return FrameworkMetricLabels::of(
+            MetricLabelValue::of(MetricLabel::Policy, str_replace('\\', '.', $policyClass)),
+            MetricLabelValue::of(MetricLabel::Scope, $scope->value),
+            MetricLabelValue::of(MetricLabel::Controller, str_replace('\\', '.', $controller)),
+        );
     }
 
     private function extractControllerClass(mixed $controller): ?string
@@ -237,7 +247,9 @@ final class RateLimitMiddleware implements EventSubscriberInterface
             return;
         }
 
-        $span = $this->tracer->startSpan('vortos.rate_limit');
+        $span = $this->tracer->startSpan('vortos.rate_limit', [
+            'vortos.module' => ObservabilityModule::Auth,
+        ]);
         $span->addAttribute($key, $value);
         $span->end();
     }

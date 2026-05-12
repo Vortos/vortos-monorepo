@@ -12,6 +12,7 @@ use Vortos\Authorization\Contract\AuthorizationAuditStoreInterface;
 use Vortos\Authorization\Contract\PermissionRegistryInterface;
 use Vortos\Authorization\Contract\RolePermissionStoreInterface;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
+use Vortos\Observability\Telemetry\TelemetryLabels;
 
 final class RolePermissionAdminService
 {
@@ -39,7 +40,7 @@ final class RolePermissionAdminService
         $this->assertReasonWhenDangerous($permission, $reason);
 
         $span = $this->tracer?->adminMutation('authorization.admin.role_permission.grant', [
-            'authorization.actor_user_id_hash' => hash('sha256', $actorUserId),
+            'authorization.actor_user_id_hash' => TelemetryLabels::userHash($actorUserId),
             'authorization.role' => $role,
             'authorization.permission' => $permission,
         ]);
@@ -82,7 +83,7 @@ final class RolePermissionAdminService
         $this->assertReasonWhenDangerous($permission, $reason);
 
         $span = $this->tracer?->adminMutation('authorization.admin.role_permission.revoke', [
-            'authorization.actor_user_id_hash' => hash('sha256', $actorUserId),
+            'authorization.actor_user_id_hash' => TelemetryLabels::userHash($actorUserId),
             'authorization.role' => $role,
             'authorization.permission' => $permission,
         ]);

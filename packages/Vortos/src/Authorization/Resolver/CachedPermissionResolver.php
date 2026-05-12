@@ -8,6 +8,7 @@ use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Authorization\Contract\PermissionResolverInterface;
 use Vortos\Authorization\Permission\ResolvedPermissions;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
+use Vortos\Observability\Telemetry\TelemetryLabels;
 
 final class CachedPermissionResolver implements PermissionResolverInterface
 {
@@ -36,7 +37,7 @@ final class CachedPermissionResolver implements PermissionResolverInterface
 
         if ($cached !== null && $this->isFresh($cached)) {
             $span = $this->tracer?->resolver('authorization.resolver.cache_hit', [
-                'authorization.user_id_hash' => hash('sha256', $identity->id()),
+                'authorization.user_id_hash' => TelemetryLabels::userHash($identity->id()),
             ]);
             $span?->setStatus('ok');
             $span?->end();
@@ -45,7 +46,7 @@ final class CachedPermissionResolver implements PermissionResolverInterface
         }
 
         $span = $this->tracer?->resolver('authorization.resolver.cache_miss', [
-            'authorization.user_id_hash' => hash('sha256', $identity->id()),
+            'authorization.user_id_hash' => TelemetryLabels::userHash($identity->id()),
         ]);
 
         try {

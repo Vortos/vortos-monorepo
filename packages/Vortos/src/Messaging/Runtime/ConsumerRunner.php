@@ -22,11 +22,19 @@ use Vortos\Messaging\Retry\RetryDecider;
 use Vortos\Messaging\Retry\RetryPolicy;
 use Vortos\Messaging\Serializer\SerializerLocator;
 use Vortos\Messaging\ValueObject\ReceivedMessage;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
+use Vortos\Observability\Telemetry\TelemetryLabels;
 use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Uid\UuidV7;
+use Vortos\Tracing\Contract\TracingInterface;
 
 /**
  * Orchestrates the full message processing pipeline for a named consumer.
@@ -58,6 +66,8 @@ final class ConsumerRunner
         private RetryDecider $retryDecider,
         private ConsumerRegistry $consumerRegistry,
         private int $defaultIdempotencyTtl = 86400,
+        private ?FrameworkTelemetry $telemetry = null,
+        private ?TracingInterface $tracer = null,
     ) {}
 
     public function run(string $consumerName, int $maxMessages = 0): void
@@ -85,7 +95,17 @@ final class ConsumerRunner
 
     private function handleMessage(string $consumerName, ReceivedMessage $message, ConsumerInterface $consumer): void
     {
+        $start = hrtime(true);
         $eventClass = $message->headers['event_class'] ?? null;
+        $eventName = $eventClass !== null ? TelemetryLabels::classShortName($eventClass) : 'unknown';
+        $consumerLabel = TelemetryLabels::safe($consumerName);
+        $span = $this->tracer?->startSpan('messaging.consume', [
+            'vortos.module' => ObservabilityModule::Messaging,
+            'messaging.operation' => 'process',
+            'messaging.destination.name' => TelemetryLabels::safe($message->transportName),
+            'messaging.consumer.name' => $consumerLabel,
+            'messaging.message.type' => $eventName,
+        ]);
 
         if ($eventClass === null) {
             $this->logger->warning(
@@ -93,6 +113,9 @@ final class ConsumerRunner
             );
 
             $consumer->reject($message, false);
+            $this->recordMessage($consumerLabel, $eventName, 'rejected', $start);
+            $span?->setStatus('error');
+            $span?->end();
 
             return;
         }
@@ -109,6 +132,9 @@ final class ConsumerRunner
             );
 
             $consumer->acknowledge($message);
+            $this->recordMessage($consumerLabel, $eventName, 'ignored', $start);
+            $span?->setStatus('ok');
+            $span?->end();
 
             return;
         }
@@ -129,6 +155,10 @@ final class ConsumerRunner
             );
 
             $consumer->reject($message, false);
+            $this->recordMessage($consumerLabel, $eventName, 'deserialize_failed', $start);
+            $span?->recordException($e);
+            $span?->setStatus('error');
+            $span?->end();
 
             return;
         }
@@ -157,9 +187,15 @@ final class ConsumerRunner
 
         if ($allSucceeded) {
             $consumer->acknowledge($message);
+            $this->recordMessage($consumerLabel, $eventName, 'acknowledged', $start);
+            $span?->setStatus('ok');
         } else {
             $consumer->reject($message, false);
+            $this->recordMessage($consumerLabel, $eventName, 'dead_lettered', $start);
+            $span?->setStatus('error');
         }
+
+        $span?->end();
     }
 
     private function processHandler(string $consumerName, array $descriptor, Envelope $envelope, ReceivedMessage $message): bool
@@ -224,6 +260,14 @@ final class ConsumerRunner
 
                     return true;
                 } catch (\Throwable $e) {
+                    $this->telemetry?->increment(
+                        ObservabilityModule::Messaging,
+                        FrameworkMetric::MessagingMessageRetriesTotal,
+                        FrameworkMetricLabels::of(
+                            MetricLabelValue::of(MetricLabel::Consumer, $consumerName),
+                            MetricLabelValue::of(MetricLabel::Event, TelemetryLabels::classShortName($message->headers['event_class'] ?? 'unknown')),
+                        ),
+                    );
                     $attempt++;
                     $lastException = $e;
                 }
@@ -253,6 +297,22 @@ final class ConsumerRunner
 
             return false;
         }
+    }
+
+    private function recordMessage(string $consumer, string $event, string $result, int $start): void
+    {
+        $resultLabels = FrameworkMetricLabels::of(
+            MetricLabelValue::of(MetricLabel::Consumer, $consumer),
+            MetricLabelValue::of(MetricLabel::Event, $event),
+            MetricLabelValue::of(MetricLabel::Result, $result),
+        );
+        $durationLabels = FrameworkMetricLabels::of(
+            MetricLabelValue::of(MetricLabel::Consumer, $consumer),
+            MetricLabelValue::of(MetricLabel::Event, $event),
+        );
+
+        $this->telemetry?->increment(ObservabilityModule::Messaging, FrameworkMetric::MessagingMessagesConsumedTotal, $resultLabels);
+        $this->telemetry?->observe(ObservabilityModule::Messaging, FrameworkMetric::MessagingMessageDurationMs, $durationLabels, (hrtime(true) - $start) / 1_000_000);
     }
 
     private function resolveArguments(array $descriptor, Envelope $envelope): array

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Metrics\Adapter;
 
 use Vortos\Metrics\Contract\CounterInterface;
+use Vortos\Metrics\Contract\FlushableMetricsInterface;
 use Vortos\Metrics\Contract\GaugeInterface;
 use Vortos\Metrics\Contract\HistogramInterface;
 use Vortos\Metrics\Contract\MetricsInterface;
@@ -36,7 +37,7 @@ use Vortos\Metrics\Instrument\StatsDHistogram;
  *
  * Uses Datadog DogStatsD tag extension: |#key:value,key:value
  */
-final class StatsDMetrics implements MetricsInterface
+final class StatsDMetrics implements MetricsInterface, FlushableMetricsInterface
 {
     private const UDP_MTU = 1400;
 

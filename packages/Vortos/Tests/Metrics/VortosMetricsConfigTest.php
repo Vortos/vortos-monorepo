@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\DependencyInjection\VortosMetricsConfig;
+use Vortos\Observability\Config\ObservabilityModule;
 
 final class VortosMetricsConfigTest extends TestCase
 {
@@ -59,8 +60,8 @@ final class VortosMetricsConfigTest extends TestCase
     {
         $config = (new VortosMetricsConfig())->disableModule(MetricsModule::Cache, MetricsModule::Persistence);
         $disabled = $config->toArray()['disabled_modules'];
-        $this->assertContains(MetricsModule::Cache, $disabled);
-        $this->assertContains(MetricsModule::Persistence, $disabled);
+        $this->assertContains(ObservabilityModule::Cache, $disabled);
+        $this->assertContains(ObservabilityModule::Persistence, $disabled);
     }
 
     public function test_prometheus_storage_defaults_to_memory(): void
@@ -110,6 +111,35 @@ final class VortosMetricsConfigTest extends TestCase
 
         $config = (new VortosMetricsConfig())->statsDSampleRate(-0.5);
         $this->assertSame(0.0, $config->toArray()['statsd_sample_rate']);
+    }
+
+    public function test_otlp_config_sets_endpoint_headers_service_and_brutal_timeout(): void
+    {
+        $config = (new VortosMetricsConfig())
+            ->adapter(MetricsAdapter::OpenTelemetry)
+            ->service('checkout-api', '1.2.3', 'prod')
+            ->otlp('http://otel-collector:4318/v1/metrics', ['api-key' => 'secret'], 5000);
+
+        $array = $config->toArray();
+
+        $this->assertSame(MetricsAdapter::OpenTelemetry, $array['adapter']);
+        $this->assertSame('checkout-api', $array['otlp_service_name']);
+        $this->assertSame('1.2.3', $array['otlp_service_version']);
+        $this->assertSame('prod', $array['otlp_deployment_environment']);
+        $this->assertSame('http://otel-collector:4318/v1/metrics', $array['otlp_endpoint']);
+        $this->assertSame(['api-key' => 'secret'], $array['otlp_headers']);
+        $this->assertSame(1000, $array['otlp_timeout_ms']);
+    }
+
+    public function test_vendor_otlp_helpers_only_set_endpoint_and_headers(): void
+    {
+        $newRelic = (new VortosMetricsConfig())->newRelicOtlp('nr-key')->toArray();
+        $datadog = (new VortosMetricsConfig())->datadogOtlp('dd-key', 'datadoghq.eu')->toArray();
+
+        $this->assertSame('https://otlp.nr-data.net:4318/v1/metrics', $newRelic['otlp_endpoint']);
+        $this->assertSame(['api-key' => 'nr-key'], $newRelic['otlp_headers']);
+        $this->assertSame('https://otlp.datadoghq.eu/v1/metrics', $datadog['otlp_endpoint']);
+        $this->assertSame(['DD-API-KEY' => 'dd-key'], $datadog['otlp_headers']);
     }
 
     public function test_application_metric_definitions_are_registered(): void

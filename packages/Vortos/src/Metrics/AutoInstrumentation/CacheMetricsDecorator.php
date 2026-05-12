@@ -5,7 +5,13 @@ declare(strict_types=1);
 namespace Vortos\Metrics\AutoInstrumentation;
 
 use Vortos\Cache\Contract\TaggedCacheInterface;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricOperation;
+use Vortos\Observability\Telemetry\MetricResult;
+use Vortos\Observability\Telemetry\MetricLabelValue;
 
 /**
  * Decorates TaggedCacheInterface to record per-operation cache metrics.
@@ -27,47 +33,41 @@ final class CacheMetricsDecorator implements TaggedCacheInterface
 {
     public function __construct(
         private readonly TaggedCacheInterface $inner,
-        private readonly MetricsInterface $metrics,
+        private readonly FrameworkTelemetry $telemetry,
     ) {}
 
     public function get(string $key, mixed $default = null): mixed
     {
         $value = $this->inner->get($key, $default);
-        $this->metrics->counter('cache_operations_total', [
-            'operation' => 'get',
-            'result'    => $value !== $default ? 'hit' : 'miss',
-        ])->increment();
+        $this->record(MetricOperation::Get, $value !== $default ? MetricResult::Hit : MetricResult::Miss);
         return $value;
     }
 
     public function set(string $key, mixed $value, null|int|\DateInterval $ttl = null): bool
     {
         $result = $this->inner->set($key, $value, $ttl);
-        $this->metrics->counter('cache_operations_total', ['operation' => 'set', 'result' => 'ok'])->increment();
+        $this->record(MetricOperation::Set, MetricResult::Ok);
         return $result;
     }
 
     public function delete(string $key): bool
     {
         $result = $this->inner->delete($key);
-        $this->metrics->counter('cache_operations_total', ['operation' => 'delete', 'result' => 'ok'])->increment();
+        $this->record(MetricOperation::Delete, MetricResult::Ok);
         return $result;
     }
 
     public function clear(): bool
     {
         $result = $this->inner->clear();
-        $this->metrics->counter('cache_operations_total', ['operation' => 'clear', 'result' => 'ok'])->increment();
+        $this->record(MetricOperation::Clear, MetricResult::Ok);
         return $result;
     }
 
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
         foreach ($this->inner->getMultiple($keys, $default) as $key => $value) {
-            $this->metrics->counter('cache_operations_total', [
-                'operation' => 'get',
-                'result'    => $value !== $default ? 'hit' : 'miss',
-            ])->increment();
+            $this->record(MetricOperation::Get, $value !== $default ? MetricResult::Hit : MetricResult::Miss);
             yield $key => $value;
         }
     }
@@ -85,7 +85,7 @@ final class CacheMetricsDecorator implements TaggedCacheInterface
         $result = $this->inner->setMultiple($counted, $ttl);
 
         if ($count > 0) {
-            $this->metrics->counter('cache_operations_total', ['operation' => 'set', 'result' => 'ok'])->increment($count);
+            $this->record(MetricOperation::Set, MetricResult::Ok, (float) $count);
         }
 
         return $result;
@@ -104,7 +104,7 @@ final class CacheMetricsDecorator implements TaggedCacheInterface
         $result = $this->inner->deleteMultiple($counted);
 
         if ($count > 0) {
-            $this->metrics->counter('cache_operations_total', ['operation' => 'delete', 'result' => 'ok'])->increment($count);
+            $this->record(MetricOperation::Delete, MetricResult::Ok, (float) $count);
         }
 
         return $result;
@@ -113,21 +113,34 @@ final class CacheMetricsDecorator implements TaggedCacheInterface
     public function has(string $key): bool
     {
         $result = $this->inner->has($key);
-        $this->metrics->counter('cache_operations_total', ['operation' => 'has', 'result' => $result ? 'hit' : 'miss'])->increment();
+        $this->record(MetricOperation::Has, $result ? MetricResult::Hit : MetricResult::Miss);
         return $result;
     }
 
     public function setWithTags(string $key, mixed $value, array $tags, ?int $ttl = null): bool
     {
         $result = $this->inner->setWithTags($key, $value, $tags, $ttl);
-        $this->metrics->counter('cache_operations_total', ['operation' => 'set', 'result' => 'ok'])->increment();
+        $this->record(MetricOperation::Set, MetricResult::Ok);
         return $result;
     }
 
     public function invalidateTags(array $tags): bool
     {
         $result = $this->inner->invalidateTags($tags);
-        $this->metrics->counter('cache_operations_total', ['operation' => 'delete', 'result' => 'ok'])->increment();
+        $this->record(MetricOperation::Delete, MetricResult::Ok);
         return $result;
+    }
+
+    private function record(MetricOperation $operation, MetricResult $result, float $by = 1.0): void
+    {
+        $this->telemetry->increment(
+            ObservabilityModule::Cache,
+            FrameworkMetric::CacheOperationsTotal,
+            FrameworkMetricLabels::of(
+                MetricLabelValue::operation($operation),
+                MetricLabelValue::result($result),
+            ),
+            $by,
+        );
     }
 }

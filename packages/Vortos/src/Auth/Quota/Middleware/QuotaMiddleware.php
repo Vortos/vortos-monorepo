@@ -19,7 +19,12 @@ use Vortos\Auth\Quota\QuotaConsumeResult;
 use Vortos\Auth\Quota\QuotaFailureMode;
 use Vortos\Auth\Quota\QuotaRule;
 use Vortos\Auth\Quota\Storage\RedisQuotaStore;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
 use Vortos\Tracing\Contract\TracingInterface;
 
 /**
@@ -46,7 +51,7 @@ final class QuotaMiddleware implements EventSubscriberInterface
         private QuotaFailureMode $failureMode = QuotaFailureMode::FailClosed,
         private bool $headersEnabled = true,
         private bool $problemDetailsEnabled = true,
-        private ?MetricsInterface $metrics = null,
+        private ?FrameworkTelemetry $telemetry = null,
         private ?LoggerInterface $logger = null,
         private ?TracingInterface $tracer = null,
     ) {}
@@ -175,12 +180,8 @@ final class QuotaMiddleware implements EventSubscriberInterface
             $this->setQuotaHeaders($event, $rule['quota'], $mostRestrictive, $result);
 
             if (!$result->allowed) {
-                $this->metrics?->counter('quota_blocked_total', [
-                    'quota' => $rule['quota'],
-                    'bucket' => $bucket,
-                    'period' => $mostRestrictive->period->value,
-                    'controller' => str_replace('\\', '.', $controller),
-                ])->increment();
+                $labels = $this->quotaLabels($rule['quota'], $bucket, $mostRestrictive->period->value, $controller);
+                $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::QuotaBlockedTotal, $labels);
                 $this->logger?->warning('quota.exceeded', [
                     'quota' => $rule['quota'],
                     'bucket' => $bucket,
@@ -214,19 +215,20 @@ final class QuotaMiddleware implements EventSubscriberInterface
                 return;
             }
 
-            $this->metrics?->counter('quota_allowed_total', [
-                'quota' => $rule['quota'],
-                'bucket' => $bucket,
-                'period' => $mostRestrictive->period->value,
-                'controller' => str_replace('\\', '.', $controller),
-            ])->increment();
-            $this->metrics?->counter('quota_consumed_total', [
-                'quota' => $rule['quota'],
-                'bucket' => $bucket,
-                'period' => $mostRestrictive->period->value,
-                'controller' => str_replace('\\', '.', $controller),
-            ])->increment($rule['cost']);
+            $labels = $this->quotaLabels($rule['quota'], $bucket, $mostRestrictive->period->value, $controller);
+            $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::QuotaAllowedTotal, $labels);
+            $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::QuotaConsumedTotal, $labels, $rule['cost']);
         }
+    }
+
+    private function quotaLabels(string $quota, string $bucket, string $period, string $controller): FrameworkMetricLabels
+    {
+        return FrameworkMetricLabels::of(
+            MetricLabelValue::of(MetricLabel::Quota, $quota),
+            MetricLabelValue::of(MetricLabel::Bucket, $bucket),
+            MetricLabelValue::of(MetricLabel::Period, $period),
+            MetricLabelValue::of(MetricLabel::Controller, str_replace('\\', '.', $controller)),
+        );
     }
 
     /**
@@ -301,7 +303,9 @@ final class QuotaMiddleware implements EventSubscriberInterface
             return;
         }
 
-        $span = $this->tracer->startSpan('vortos.quota');
+        $span = $this->tracer->startSpan('vortos.quota', [
+            'vortos.module' => ObservabilityModule::Auth,
+        ]);
         $span->addAttribute($key, $value);
         $span->end();
     }

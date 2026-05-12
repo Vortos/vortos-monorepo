@@ -32,7 +32,7 @@ final class KafkaConsumer implements ConsumerInterface
         private array $topics,
         private bool $asyncCommit,
         private LoggerInterface $logger,
-        private TracingInterface $tracer
+        private ?TracingInterface $tracer
     ) {}
     
     public function consume(string $consumerName, callable $handler): void
@@ -45,7 +45,7 @@ final class KafkaConsumer implements ConsumerInterface
             $rdMessage = $this->rdConsumer->consume(500);
 
             if ($rdMessage->err === RD_KAFKA_RESP_ERR_NO_ERROR) {
-                $this->tracer->extractContext($rdMessage->headers ?? []);
+                $this->tracer?->extractContext($rdMessage->headers ?? []);
           
                 $handler(
                     KafkaMessage::fromRdKafkaMessage($rdMessage)

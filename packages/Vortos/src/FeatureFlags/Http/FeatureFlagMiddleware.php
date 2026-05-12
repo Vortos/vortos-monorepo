@@ -10,6 +10,15 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\FeatureFlags\Exception\FeatureNotAvailableException;
 use Vortos\FeatureFlags\FlagRegistryInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
+use Vortos\Observability\Telemetry\MetricResult;
+use Vortos\Observability\Telemetry\TelemetryLabels;
+use Vortos\Tracing\Contract\TracingInterface;
 
 /**
  * Enforces #[RequiresFlag] on controllers.
@@ -26,6 +35,8 @@ final class FeatureFlagMiddleware implements EventSubscriberInterface
         private readonly FlagContextResolverInterface $contextResolver,
         private readonly array $flagMap = [],
         private readonly ?LoggerInterface $logger = null,
+        private readonly ?FrameworkTelemetry $telemetry = null,
+        private readonly ?TracingInterface $tracer = null,
     ) {}
 
     public static function getSubscribedEvents(): array
@@ -60,9 +71,43 @@ final class FeatureFlagMiddleware implements EventSubscriberInterface
         }
 
         $context = $this->contextResolver->resolve($request);
+        $controllerLabel = TelemetryLabels::dottedClass($class);
+        $flagLabel = TelemetryLabels::safe($flagName);
+        $span = $this->tracer?->startSpan('feature_flag.evaluate', [
+            'vortos.module' => ObservabilityModule::FeatureFlags,
+            'vortos.feature_flag.name' => $flagLabel,
+            'code.namespace' => $class,
+            'code.function' => $method,
+        ]);
 
-        if (!$this->registry->isEnabled($flagName, $context)) {
-            throw new FeatureNotAvailableException($flagName);
+        try {
+            $enabled = $this->registry->isEnabled($flagName, $context);
+            $result = $enabled ? 'enabled' : 'disabled';
+            $this->telemetry?->increment(
+                ObservabilityModule::FeatureFlags,
+                FrameworkMetric::FeatureFlagEvaluationsTotal,
+                FrameworkMetricLabels::of(
+                    MetricLabelValue::of(MetricLabel::Flag, $flagLabel),
+                    MetricLabelValue::result($enabled ? MetricResult::Enabled : MetricResult::Disabled),
+                    MetricLabelValue::of(MetricLabel::Controller, $controllerLabel),
+                ),
+            );
+            $span?->addAttribute('vortos.feature_flag.result', $result);
+            $span?->setStatus($enabled ? 'ok' : 'error');
+
+            if (!$enabled) {
+                $this->logger?->warning('feature_flag.denied', [
+                    'flag' => $flagLabel,
+                    'controller' => $controllerLabel,
+                ]);
+                throw new FeatureNotAvailableException($flagName);
+            }
+        } catch (\Throwable $e) {
+            $span?->recordException($e);
+            $span?->setStatus('error');
+            throw $e;
+        } finally {
+            $span?->end();
         }
     }
 

@@ -18,6 +18,7 @@ use Vortos\Authorization\Scope\Contract\ScopedPermissionStoreInterface;
 use Vortos\Authorization\Scope\Contract\ScopeMode;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
 use Vortos\Authorization\Voter\RoleVoter;
+use Vortos\Observability\Telemetry\TelemetryLabels;
 
 /**
  * Central authorization engine.
@@ -180,7 +181,7 @@ final class PolicyEngine
     ): AuthorizationDecision {
         $span = $this->tracer?->decision('authorization.decision', [
             'authorization.permission' => $permission,
-            'authorization.user_id_hash' => $identity->isAuthenticated() ? hash('sha256', $identity->id()) : null,
+            'authorization.user_id_hash' => $identity->isAuthenticated() ? TelemetryLabels::userHash($identity->id()) : null,
             'authorization.scoped' => $scopes !== null,
             'authorization.critical' => !$allowBreakGlassBypass,
         ]);

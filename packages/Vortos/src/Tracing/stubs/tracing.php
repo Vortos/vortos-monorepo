@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 use Vortos\Tracing\Config\TracingAdapter;
-use Vortos\Tracing\Config\TracingModule;
 use Vortos\Tracing\Config\TracingSampler;
 use Vortos\Tracing\DependencyInjection\VortosTracingConfig;
+use Vortos\Observability\Config\ObservabilityModule;
 
 // Vortos ships a NoOp tracer by default. Use it when a service is not connected
 // to a collector. Switch to OpenTelemetry only after OTLP is available.
@@ -59,8 +59,9 @@ return static function (VortosTracingConfig $config): void {
     // Useful to reduce span noise for high-frequency modules.
     //
     // $config->disable(
-    //     TracingModule::Cache,        // suppress cache get/set spans
-    //     TracingModule::Persistence,  // suppress DB query spans
+    //     ObservabilityModule::Cache,        // suppress cache get/set spans
+    //     ObservabilityModule::Persistence,  // suppress DB query spans
+    //     ObservabilityModule::Messaging,    // suppress event/consumer spans
     // );
 
     // Controller attributes:

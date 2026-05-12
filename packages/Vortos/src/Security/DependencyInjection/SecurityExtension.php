@@ -11,7 +11,7 @@ use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Vortos\Security\Contract\EncryptionInterface;
 use Vortos\Security\Contract\SecretsInterface;
 use Vortos\Security\Cors\Middleware\CorsMiddleware;
@@ -109,7 +109,7 @@ final class SecurityExtension extends Extension
     {
         $container->register(SecurityEventDispatcher::class, SecurityEventDispatcher::class)
             ->setArgument('$logger', new Reference('vortos.logger.security', ContainerInterface::NULL_ON_INVALID_REFERENCE))
-            ->setArgument('$metrics', new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setShared(true)
             ->setPublic(true);
     }

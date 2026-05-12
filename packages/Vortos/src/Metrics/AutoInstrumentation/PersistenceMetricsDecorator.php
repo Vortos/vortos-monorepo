@@ -6,7 +6,7 @@ namespace Vortos\Metrics\AutoInstrumentation;
 
 use Doctrine\DBAL\Driver;
 use Doctrine\DBAL\Driver\Middleware;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
 /**
  * DBAL Middleware that records per-query persistence metrics.
@@ -25,10 +25,10 @@ use Vortos\Metrics\Contract\MetricsInterface;
  */
 final class PersistenceMetricsDecorator implements Middleware
 {
-    public function __construct(private readonly MetricsInterface $metrics) {}
+    public function __construct(private readonly FrameworkTelemetry $telemetry) {}
 
     public function wrap(Driver $driver): Driver
     {
-        return new PersistenceMetricsDriver($driver, $this->metrics);
+        return new PersistenceMetricsDriver($driver, $this->telemetry);
     }
 }

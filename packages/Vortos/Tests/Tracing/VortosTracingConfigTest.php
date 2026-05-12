@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Vortos\Tests\Tracing;
 
 use PHPUnit\Framework\TestCase;
+use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Tracing\Config\TracingAdapter;
 use Vortos\Tracing\Config\TracingModule;
 use Vortos\Tracing\Config\TracingSampler;
@@ -85,15 +86,15 @@ final class VortosTracingConfigTest extends TestCase
     {
         $config = new VortosTracingConfig();
         $config->disable(TracingModule::Cache);
-        $this->assertContains(TracingModule::Cache, $config->getDisabledModules());
+        $this->assertContains(ObservabilityModule::Cache, $config->getDisabledModules());
     }
 
     public function test_can_disable_multiple_modules(): void
     {
         $config = new VortosTracingConfig();
         $config->disable(TracingModule::Cache, TracingModule::Auth);
-        $this->assertContains(TracingModule::Cache, $config->getDisabledModules());
-        $this->assertContains(TracingModule::Auth, $config->getDisabledModules());
+        $this->assertContains(ObservabilityModule::Cache, $config->getDisabledModules());
+        $this->assertContains(ObservabilityModule::Auth, $config->getDisabledModules());
     }
 
     public function test_can_re_enable_disabled_module(): void
@@ -101,8 +102,8 @@ final class VortosTracingConfigTest extends TestCase
         $config = new VortosTracingConfig();
         $config->disable(TracingModule::Cache, TracingModule::Auth);
         $config->enable(TracingModule::Cache);
-        $this->assertNotContains(TracingModule::Cache, $config->getDisabledModules());
-        $this->assertContains(TracingModule::Auth, $config->getDisabledModules());
+        $this->assertNotContains(ObservabilityModule::Cache, $config->getDisabledModules());
+        $this->assertContains(ObservabilityModule::Auth, $config->getDisabledModules());
     }
 
     public function test_fluent_interface_returns_same_instance(): void

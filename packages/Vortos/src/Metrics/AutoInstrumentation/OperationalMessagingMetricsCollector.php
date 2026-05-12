@@ -6,7 +6,12 @@ namespace Vortos\Metrics\AutoInstrumentation;
 
 use Doctrine\DBAL\Connection;
 use Vortos\Metrics\Contract\MetricsCollectorInterface;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
 
 /**
  * Collects outbox and dead-letter queue backlog gauges.
@@ -28,7 +33,7 @@ final class OperationalMessagingMetricsCollector implements MetricsCollectorInte
 
     public function __construct(
         private readonly Connection $connection,
-        private readonly MetricsInterface $metrics,
+        private readonly FrameworkTelemetry $telemetry,
         private readonly string $outboxTable = 'vortos_outbox',
         private readonly string $deadLetterTable = 'vortos_failed_messages',
     ) {
@@ -64,7 +69,7 @@ final class OperationalMessagingMetricsCollector implements MetricsCollectorInte
                 'status' => $this->label((string) $row['status']),
             ];
             $current[$this->labelKey($labels)] = $labels;
-            $this->metrics->gauge('outbox_backlog_size', $labels)->set((float) $row['backlog']);
+            $this->telemetry->setGauge(ObservabilityModule::Messaging, FrameworkMetric::OutboxBacklogSize, $this->labels($labels), (float) $row['backlog']);
         }
 
         $this->zeroMissing('outbox_backlog_size', $this->previousOutboxBacklogLabels, $current);
@@ -92,7 +97,7 @@ final class OperationalMessagingMetricsCollector implements MetricsCollectorInte
                 'transport' => $this->label((string) $row['transport_name']),
             ];
             $current[$this->labelKey($labels)] = $labels;
-            $this->metrics->gauge('outbox_oldest_pending_age_seconds', $labels)->set((float) max(0, $now - $oldest));
+            $this->telemetry->setGauge(ObservabilityModule::Messaging, FrameworkMetric::OutboxOldestPendingAgeSeconds, $this->labels($labels), (float) max(0, $now - $oldest));
         }
 
         $this->zeroMissing('outbox_oldest_pending_age_seconds', $this->previousOutboxAgeLabels, $current);
@@ -115,7 +120,7 @@ final class OperationalMessagingMetricsCollector implements MetricsCollectorInte
                 'event' => $this->eventLabel((string) $row['event_class']),
             ];
             $current[$this->labelKey($labels)] = $labels;
-            $this->metrics->gauge('dlq_backlog_size', $labels)->set((float) $row['backlog']);
+            $this->telemetry->setGauge(ObservabilityModule::Messaging, FrameworkMetric::DlqBacklogSize, $this->labels($labels), (float) $row['backlog']);
         }
 
         $this->zeroMissing('dlq_backlog_size', $this->previousDlqBacklogLabels, $current);
@@ -143,7 +148,7 @@ final class OperationalMessagingMetricsCollector implements MetricsCollectorInte
                 'transport' => $this->label((string) $row['transport_name']),
             ];
             $current[$this->labelKey($labels)] = $labels;
-            $this->metrics->gauge('dlq_oldest_failed_age_seconds', $labels)->set((float) max(0, $now - $oldest));
+            $this->telemetry->setGauge(ObservabilityModule::Messaging, FrameworkMetric::DlqOldestFailedAgeSeconds, $this->labels($labels), (float) max(0, $now - $oldest));
         }
 
         $this->zeroMissing('dlq_oldest_failed_age_seconds', $this->previousDlqAgeLabels, $current);
@@ -157,7 +162,7 @@ final class OperationalMessagingMetricsCollector implements MetricsCollectorInte
             return 'unknown';
         }
 
-        return strlen($value) <= 128 ? $value : substr(hash('sha256', $value), 0, 16);
+        return strlen($value) <= 128 ? $value : substr(hash('xxh128', $value), 0, 16);
     }
 
     private function eventLabel(string $eventClass): string
@@ -179,9 +184,26 @@ final class OperationalMessagingMetricsCollector implements MetricsCollectorInte
     {
         foreach ($previous as $key => $labels) {
             if (!isset($current[$key])) {
-                $this->metrics->gauge($metric, $labels)->set(0.0);
+                $frameworkMetric = FrameworkMetric::tryFrom($metric);
+                if ($frameworkMetric !== null) {
+                    $this->telemetry->setGauge(ObservabilityModule::Messaging, $frameworkMetric, $this->labels($labels), 0.0);
+                }
             }
         }
+    }
+
+    /** @param array<string, string> $labels */
+    private function labels(array $labels): FrameworkMetricLabels
+    {
+        $values = [];
+        foreach ($labels as $key => $value) {
+            $label = MetricLabel::tryFrom($key);
+            if ($label !== null) {
+                $values[] = MetricLabelValue::of($label, $value);
+            }
+        }
+
+        return FrameworkMetricLabels::of(...$values);
     }
 
     /**
@@ -190,7 +212,7 @@ final class OperationalMessagingMetricsCollector implements MetricsCollectorInte
     private function labelKey(array $labels): string
     {
         ksort($labels);
-        return hash('sha256', json_encode($labels, JSON_THROW_ON_ERROR));
+        return hash('xxh128', json_encode($labels, JSON_THROW_ON_ERROR));
     }
 
     private function assertSafeIdentifier(string $identifier): void

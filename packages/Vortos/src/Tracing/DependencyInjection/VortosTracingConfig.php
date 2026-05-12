@@ -6,6 +6,7 @@ namespace Vortos\Tracing\DependencyInjection;
 use Vortos\Tracing\Config\TracingModule;
 use Vortos\Tracing\Config\TracingAdapter;
 use Vortos\Tracing\Config\TracingSampler;
+use Vortos\Observability\Config\ObservabilityModule;
 
 final class VortosTracingConfig
 {
@@ -75,16 +76,25 @@ final class VortosTracingConfig
         return $this->adapter;
     }
 
-    public function disable(TracingModule ...$modules): static
+    public function disable(TracingModule|ObservabilityModule ...$modules): static
     {
         foreach ($modules as $module) {
-            $this->disabledModules[] = $module;
+            $this->disabledModules[] = $module instanceof TracingModule
+                ? $module->observabilityModule()
+                : $module;
         }
         return $this;
     }
 
-    public function enable(TracingModule ...$modules): static
+    public function enable(TracingModule|ObservabilityModule ...$modules): static
     {
+        $modules = array_map(
+            static fn (TracingModule|ObservabilityModule $module): ObservabilityModule => $module instanceof TracingModule
+                ? $module->observabilityModule()
+                : $module,
+            $modules,
+        );
+
         $this->disabledModules = array_filter(
             $this->disabledModules,
             fn($m) => !in_array($m, $modules, true)

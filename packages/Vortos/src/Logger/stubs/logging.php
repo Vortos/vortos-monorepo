@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Monolog\Level;
 use Vortos\Logger\Config\LogChannel;
 use Vortos\Logger\DependencyInjection\VortosLoggingConfig;
+use Vortos\Observability\Config\ObservabilityModule;
 
 // This file configures the Vortos logger behaviour.
 // The log destination (stderr vs file) and base level are environment-driven.
@@ -17,6 +18,7 @@ use Vortos\Logger\DependencyInjection\VortosLoggingConfig;
 //   Cache     — Redis get/set/delete (high volume in prod)
 //   Security  — auth failures, token validation, authz denials
 //   Query     — slow DB queries and DBAL/Mongo operations
+//   Tooling   — local CLI/developer tooling commands
 //
 // For per-environment overrides create config/{env}/logging.php.
 
@@ -36,6 +38,15 @@ return static function (VortosLoggingConfig $config): void {
         // LogChannel::Cache,   // uncomment to silence cache get/set logs
         // LogChannel::Query,   // uncomment to silence DB query logs
     );
+
+    // Or disable framework logs by observability module. Runtime modules map to
+    // their safest framework channel; the App channel is never disabled.
+    //
+    // $config->disableModule(
+    //     ObservabilityModule::Cache,
+    //     ObservabilityModule::Persistence,
+    //     ObservabilityModule::Make,
+    // );
 
     // Per-channel minimum log level override.
     // By default: DEBUG in dev, ERROR for framework channels in prod.

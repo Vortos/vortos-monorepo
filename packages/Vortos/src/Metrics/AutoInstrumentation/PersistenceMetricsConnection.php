@@ -8,7 +8,13 @@ use Doctrine\DBAL\Driver\Connection as DriverConnection;
 use Doctrine\DBAL\Driver\Middleware\AbstractConnectionMiddleware;
 use Doctrine\DBAL\Driver\Result;
 use Doctrine\DBAL\Driver\Statement;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
+use Vortos\Observability\Telemetry\MetricOperation;
 
 /**
  * @internal Used only by PersistenceMetricsDriver
@@ -17,7 +23,7 @@ final class PersistenceMetricsConnection extends AbstractConnectionMiddleware
 {
     public function __construct(
         DriverConnection $wrappedConnection,
-        private readonly MetricsInterface $metrics,
+        private readonly FrameworkTelemetry $telemetry,
     ) {
         parent::__construct($wrappedConnection);
     }
@@ -44,14 +50,20 @@ final class PersistenceMetricsConnection extends AbstractConnectionMiddleware
 
     public function prepare(string $sql): Statement
     {
-        return new PersistenceMetricsStatement(parent::prepare($sql), $this->metrics);
+        return new PersistenceMetricsStatement(parent::prepare($sql), $this->telemetry);
     }
 
     private function record(string $operation, int $start): void
     {
         $durationMs = (hrtime(true) - $start) / 1_000_000;
 
-        $this->metrics->counter('db_queries_total', ['driver' => 'dbal', 'operation' => $operation])->increment();
-        $this->metrics->histogram('db_query_duration_ms', ['driver' => 'dbal'])->observe($durationMs);
+        $labels = FrameworkMetricLabels::of(
+            MetricLabelValue::of(MetricLabel::Driver, 'dbal'),
+            MetricLabelValue::operation($operation === 'query' ? MetricOperation::Query : MetricOperation::Execute),
+        );
+        $durationLabels = FrameworkMetricLabels::of(MetricLabelValue::of(MetricLabel::Driver, 'dbal'));
+
+        $this->telemetry->increment(ObservabilityModule::Persistence, FrameworkMetric::DbQueriesTotal, $labels);
+        $this->telemetry->observe(ObservabilityModule::Persistence, FrameworkMetric::DbQueryDurationMs, $durationLabels, $durationMs);
     }
 }

@@ -13,10 +13,10 @@
         "vortos/vortos-foundation": "^1.0",
         "vortos/vortos-http": "^1.0",
         "vortos/vortos-logger": "^1.0",
+        "vortos/vortos-metrics": "^1.0",
         "symfony/http-kernel": "^7.3"
     },
     "suggest": {
-        "vortos/vortos-metrics": "Required for the security_events_total counter.",
         "vortos/vortos-cache": "Required for Redis-backed secrets caching",
         "aws/aws-sdk-php": "Required for AwsSsmSecretsProvider"
     },

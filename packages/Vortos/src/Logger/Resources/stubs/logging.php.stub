@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Vortos\Logger\Config\LogChannel;
 use Vortos\Logger\DependencyInjection\VortosLoggingConfig;
+use Vortos\Observability\Config\ObservabilityModule;
 
 return static function (VortosLoggingConfig $config): void {
     // Defaults are env-driven — override here when needed.
@@ -17,6 +18,7 @@ return static function (VortosLoggingConfig $config): void {
 
     // Silence high-volume framework channels in production:
     // $config->disableChannel(LogChannel::Cache, LogChannel::Query);
+    // $config->disableModule(ObservabilityModule::Cache, ObservabilityModule::Persistence, ObservabilityModule::Make);
 
     // Limit log file retention (dev only):
     // $config->rotation(true, maxFiles: 14);

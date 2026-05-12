@@ -9,7 +9,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Vortos\Metrics\Adapter\StatsDMetrics;
+use Vortos\Metrics\Contract\FlushableMetricsInterface;
 use Vortos\Metrics\Contract\MetricsCollectorInterface;
 use Vortos\Metrics\Contract\MetricsInterface;
 
@@ -39,7 +39,7 @@ final class CollectMetricsCommand extends Command
             $count++;
         }
 
-        if ($this->metrics instanceof StatsDMetrics) {
+        if ($this->metrics instanceof FlushableMetricsInterface) {
             $this->metrics->flush();
         }
 
@@ -48,4 +48,3 @@ final class CollectMetricsCommand extends Command
         return Command::SUCCESS;
     }
 }
-

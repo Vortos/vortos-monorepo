@@ -12,6 +12,7 @@ use Vortos\Authorization\Permission\ResolvedPermissions;
 use Vortos\Authorization\Temporal\Contract\TemporalPermissionStoreInterface;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
 use Vortos\Authorization\Voter\RoleVoter;
+use Vortos\Observability\Telemetry\TelemetryLabels;
 
 final class DatabasePermissionResolver implements PermissionResolverInterface
 {
@@ -27,7 +28,7 @@ final class DatabasePermissionResolver implements PermissionResolverInterface
     public function resolve(UserIdentityInterface $identity): ResolvedPermissions
     {
         $span = $this->tracer?->resolver('authorization.resolver.database', [
-            'authorization.user_id_hash' => $identity->isAuthenticated() ? hash('sha256', $identity->id()) : null,
+            'authorization.user_id_hash' => $identity->isAuthenticated() ? TelemetryLabels::userHash($identity->id()) : null,
         ]);
 
         try {

@@ -22,7 +22,7 @@ final class KafkaProducerFactory
     public function __construct(
         private SerializerLocator $serializerLocator,
         private TransportRegistry $transportRegistry,
-        private TracingInterface $tracer
+        private ?TracingInterface $tracer = null
     ) {}
 
     public function create(string $transportName): KafkaProducer

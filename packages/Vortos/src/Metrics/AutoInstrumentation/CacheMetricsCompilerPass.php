@@ -9,7 +9,7 @@ use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Cache\Contract\TaggedCacheInterface;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
 /**
  * Wraps the active cache adapter with CacheMetricsDecorator when metrics are enabled.
@@ -24,7 +24,7 @@ final class CacheMetricsCompilerPass implements CompilerPassInterface
 {
     public function process(ContainerBuilder $container): void
     {
-        if (!$container->hasAlias(MetricsInterface::class) && !$container->hasDefinition(MetricsInterface::class)) {
+        if (!$container->hasDefinition(FrameworkTelemetry::class)) {
             return;
         }
 
@@ -45,7 +45,7 @@ final class CacheMetricsCompilerPass implements CompilerPassInterface
         $container->register(CacheMetricsDecorator::class, CacheMetricsDecorator::class)
             ->setArguments([
                 new Reference($innerServiceId),
-                new Reference(MetricsInterface::class),
+                new Reference(FrameworkTelemetry::class),
             ])
             ->setShared(true)
             ->setPublic(false);

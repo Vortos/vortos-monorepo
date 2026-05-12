@@ -10,12 +10,15 @@ use Prometheus\Storage\InMemory;
 use Prometheus\Storage\Redis;
 use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Metrics\Command\CollectMetricsCommand;
 use Vortos\Metrics\Adapter\NoOpMetrics;
+use Vortos\Metrics\Adapter\OpenTelemetryFlushListener;
+use Vortos\Metrics\Adapter\OpenTelemetryMetrics;
 use Vortos\Metrics\Adapter\PrometheusMetrics;
 use Vortos\Metrics\Adapter\StatsDFlushListener;
 use Vortos\Metrics\Adapter\StatsDMetrics;
@@ -30,11 +33,15 @@ use Vortos\Metrics\AutoInstrumentation\SecurityMetricDefinitions;
 use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Decorator\ModuleAwareMetrics;
 use Vortos\Metrics\Definition\MetricDefinition;
 use Vortos\Metrics\Definition\MetricDefinitionProviderInterface;
 use Vortos\Metrics\Definition\MetricDefinitionRegistryFactory;
 use Vortos\Metrics\Definition\MetricDefinitionRegistry;
 use Vortos\Metrics\Http\MetricsController;
+use Vortos\Metrics\OpenTelemetry\OpenTelemetryMetricsFactory;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
 
@@ -49,6 +56,7 @@ use Vortos\Config\Stub\ConfigStub;
  *   NoOpMetrics               — always registered (zero-overhead fallback)
  *   PrometheusMetrics         — registered when adapter = Prometheus
  *   StatsDMetrics             — registered when adapter = StatsD
+ *   OpenTelemetryMetrics      — registered when adapter = OpenTelemetry
  *   CollectorRegistry         — registered when adapter = Prometheus
  *   MetricDefinitionRegistry  — validates names, types, labels, help, and buckets
  *   MetricsController         — registered with vortos.api.controller tag when Prometheus active
@@ -105,10 +113,7 @@ final class MetricsExtension extends Extension
         $resolved = $config->toArray();
 
         // Store disabled modules as a parameter so compiler passes can read it
-        $disabledModuleValues = array_map(
-            static fn (MetricsModule $m) => $m->value,
-            $resolved['disabled_modules'],
-        );
+        $disabledModuleValues = $this->moduleValues($resolved['disabled_modules']);
         $container->setParameter('vortos.metrics.disabled_modules', $disabledModuleValues);
 
         $container->register(MetricDefinitionRegistry::class, MetricDefinitionRegistry::class)
@@ -129,8 +134,28 @@ final class MetricsExtension extends Extension
         match ($adapter) {
             MetricsAdapter::Prometheus => $this->registerPrometheus($container, $resolved),
             MetricsAdapter::StatsD     => $this->registerStatsD($container, $resolved),
+            MetricsAdapter::OpenTelemetry => $this->registerOpenTelemetry($container, $resolved),
             MetricsAdapter::NoOp       => $this->registerNoOp($container),
         };
+
+        $container->register(ModuleAwareMetrics::class, ModuleAwareMetrics::class)
+            ->setArguments([
+                new Reference('vortos.metrics.inner'),
+                $disabledModuleValues,
+            ])
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(MetricsInterface::class, ModuleAwareMetrics::class)
+            ->setPublic(true);
+
+        $container->register(FrameworkTelemetry::class, FrameworkTelemetry::class)
+            ->setArguments([
+                new Reference(MetricsInterface::class),
+                $disabledModuleValues,
+            ])
+            ->setShared(true)
+            ->setPublic(false);
 
         $this->registerAutoInstrumentation($container, $resolved);
         $this->registerCollectorCommand($container);
@@ -138,8 +163,8 @@ final class MetricsExtension extends Extension
 
     private function registerNoOp(ContainerBuilder $container): void
     {
-        $container->setAlias(MetricsInterface::class, NoOpMetrics::class)
-            ->setPublic(true);
+        $container->setAlias('vortos.metrics.inner', NoOpMetrics::class)
+            ->setPublic(false);
     }
 
     private function registerPrometheus(ContainerBuilder $container, array $resolved): void
@@ -178,8 +203,8 @@ final class MetricsExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        $container->setAlias(MetricsInterface::class, PrometheusMetrics::class)
-            ->setPublic(true);
+        $container->setAlias('vortos.metrics.inner', PrometheusMetrics::class)
+            ->setPublic(false);
 
         // Register the /metrics scrape endpoint
         $container->register(MetricsController::class, MetricsController::class)
@@ -236,8 +261,8 @@ final class MetricsExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        $container->setAlias(MetricsInterface::class, StatsDMetrics::class)
-            ->setPublic(true);
+        $container->setAlias('vortos.metrics.inner', StatsDMetrics::class)
+            ->setPublic(false);
 
         // Flush the StatsD buffer after each response (critical in FrankenPHP worker mode).
         $container->register(StatsDFlushListener::class, StatsDFlushListener::class)
@@ -246,16 +271,42 @@ final class MetricsExtension extends Extension
             ->setPublic(false);
     }
 
+    private function registerOpenTelemetry(ContainerBuilder $container, array $resolved): void
+    {
+        $container->register(OpenTelemetryMetrics::class, OpenTelemetryMetrics::class)
+            ->setFactory([OpenTelemetryMetricsFactory::class, 'create'])
+            ->setArguments([
+                [
+                    'service_name' => $resolved['otlp_service_name'],
+                    'service_version' => $resolved['otlp_service_version'],
+                    'deployment_environment' => $resolved['otlp_deployment_environment'],
+                    'endpoint' => $resolved['otlp_endpoint'],
+                    'headers' => $resolved['otlp_headers'],
+                    'timeout_ms' => $resolved['otlp_timeout_ms'],
+                    'namespace' => $resolved['namespace'],
+                ],
+                new Reference(MetricDefinitionRegistry::class),
+                new Reference('vortos.logger.metrics', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            ])
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias('vortos.metrics.inner', OpenTelemetryMetrics::class)
+            ->setPublic(false);
+
+        $container->register(OpenTelemetryFlushListener::class, OpenTelemetryFlushListener::class)
+            ->setArgument('$metrics', new Reference(OpenTelemetryMetrics::class))
+            ->addTag('kernel.event_subscriber')
+            ->setPublic(false);
+    }
+
     private function registerAutoInstrumentation(ContainerBuilder $container, array $resolved): void
     {
-        $disabled = array_map(
-            static fn (MetricsModule $m) => $m->value,
-            $resolved['disabled_modules'],
-        );
+        $disabled = $this->moduleValues($resolved['disabled_modules']);
 
-        if (!in_array(MetricsModule::Http->value, $disabled, true)) {
+        if (!in_array(ObservabilityModule::Http->value, $disabled, true)) {
             $container->register(HttpMetricsListener::class, HttpMetricsListener::class)
-                ->setArgument('$metrics', new Reference(MetricsInterface::class))
+                ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class))
                 ->addTag('kernel.event_subscriber')
                 ->setPublic(false);
         }
@@ -263,14 +314,14 @@ final class MetricsExtension extends Extension
         // Cqrs decoration is handled by CqrsMetricsCompilerPass — CqrsPackage (order 90)
         // loads after MetricsPackage (order 55), so CommandBusInterface is not yet defined here.
 
-        if (!in_array(MetricsModule::Messaging->value, $disabled, true)
+        if (!in_array(ObservabilityModule::Messaging->value, $disabled, true)
             && ($container->hasAlias(EventBusInterface::class) || $container->hasDefinition(EventBusInterface::class))
         ) {
             $container->register(MessagingMetricsDecorator::class, MessagingMetricsDecorator::class)
                 ->setDecoratedService(EventBusInterface::class)
                 ->setArguments([
                     new Reference(MessagingMetricsDecorator::class . '.inner'),
-                    new Reference(MetricsInterface::class),
+                    new Reference(FrameworkTelemetry::class),
                 ])
                 ->setShared(true)
                 ->setPublic(false);
@@ -284,6 +335,26 @@ final class MetricsExtension extends Extension
             ->setArguments(['metrics', __DIR__ . '/../stubs/metrics.php'])
             ->addTag(ConfigExtension::STUB_TAG)
             ->setPublic(false);
+    }
+
+    /**
+     * @param list<MetricsModule|ObservabilityModule|string> $modules
+     * @return list<string>
+     */
+    private function moduleValues(array $modules): array
+    {
+        $values = [];
+        foreach ($modules as $module) {
+            if ($module instanceof MetricsModule) {
+                $values[] = $module->observabilityModule()->value;
+            } elseif ($module instanceof ObservabilityModule) {
+                $values[] = $module->value;
+            } else {
+                $values[] = ObservabilityModule::fromLegacy((string) $module)->value;
+            }
+        }
+
+        return array_values(array_unique($values));
     }
 
     /**

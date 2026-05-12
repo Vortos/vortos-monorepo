@@ -31,7 +31,7 @@ final class KafkaProducer implements ProducerInterface
         private Producer $rdProducer,
         private SerializerLocator $serializerLocator,
         private TransportRegistry $transportRegistry,
-        private TracingInterface $tracer,
+        private ?TracingInterface $tracer,
         private string $defaultSerializer = 'json'
     ) {}
 
@@ -86,7 +86,7 @@ final class KafkaProducer implements ProducerInterface
                 $headers
             );
 
-            $this->tracer->injectHeaders($finalHeaders);
+            $this->tracer?->injectHeaders($finalHeaders);
 
             $topic->producev(RD_KAFKA_PARTITION_UA, 0, $payload, null, $finalHeaders);
         } catch (\RdKafka\Exception | Throwable $e) {

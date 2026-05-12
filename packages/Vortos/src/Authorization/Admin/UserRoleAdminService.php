@@ -12,6 +12,7 @@ use Vortos\Authorization\Contract\AuthorizationCacheInvalidatorInterface;
 use Vortos\Authorization\Contract\AuthorizationVersionStoreInterface;
 use Vortos\Authorization\Contract\UserRoleStoreInterface;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
+use Vortos\Observability\Telemetry\TelemetryLabels;
 
 final class UserRoleAdminService
 {
@@ -37,8 +38,8 @@ final class UserRoleAdminService
         array $metadata = [],
     ): void {
         $span = $this->tracer?->adminMutation('authorization.admin.user_role.assign', [
-            'authorization.actor_user_id_hash' => hash('sha256', $actorUserId),
-            'authorization.target_user_id_hash' => hash('sha256', $targetUserId),
+            'authorization.actor_user_id_hash' => TelemetryLabels::userHash($actorUserId),
+            'authorization.target_user_id_hash' => TelemetryLabels::userHash($targetUserId),
             'authorization.role' => $role,
         ]);
 
@@ -79,8 +80,8 @@ final class UserRoleAdminService
         array $metadata = [],
     ): void {
         $span = $this->tracer?->adminMutation('authorization.admin.user_role.remove', [
-            'authorization.actor_user_id_hash' => hash('sha256', $actorUserId),
-            'authorization.target_user_id_hash' => hash('sha256', $targetUserId),
+            'authorization.actor_user_id_hash' => TelemetryLabels::userHash($actorUserId),
+            'authorization.target_user_id_hash' => TelemetryLabels::userHash($targetUserId),
             'authorization.role' => $role,
         ]);
 

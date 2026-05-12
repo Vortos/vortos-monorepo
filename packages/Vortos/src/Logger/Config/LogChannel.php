@@ -13,4 +13,5 @@ enum LogChannel: string
     case Cache     = 'cache';
     case Security  = 'security';
     case Query     = 'query';
+    case Tooling   = 'tooling';
 }

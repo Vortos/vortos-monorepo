@@ -11,6 +11,7 @@ use Vortos\Metrics\Contract\CounterInterface;
 use Vortos\Metrics\Contract\GaugeInterface;
 use Vortos\Metrics\Contract\HistogramInterface;
 use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
 final class OperationalMessagingMetricsCollectorTest extends TestCase
 {
@@ -37,7 +38,7 @@ final class OperationalMessagingMetricsCollectorTest extends TestCase
                 ],
             );
 
-        $collector = new OperationalMessagingMetricsCollector($connection, $metrics);
+        $collector = new OperationalMessagingMetricsCollector($connection, new FrameworkTelemetry($metrics));
         $collector->collect();
 
         $this->assertSame(
@@ -80,7 +81,7 @@ final class OperationalMessagingMetricsCollectorTest extends TestCase
                 [],
             );
 
-        $collector = new OperationalMessagingMetricsCollector($connection, $metrics);
+        $collector = new OperationalMessagingMetricsCollector($connection, new FrameworkTelemetry($metrics));
         $collector->collect();
         $collector->collect();
 
@@ -108,7 +109,7 @@ final class OperationalMessagingMetricsCollectorTest extends TestCase
 
         new OperationalMessagingMetricsCollector(
             $this->createMock(Connection::class),
-            new RecordingMetrics(),
+            new FrameworkTelemetry(new RecordingMetrics()),
             'vortos_outbox; DROP TABLE users',
         );
     }

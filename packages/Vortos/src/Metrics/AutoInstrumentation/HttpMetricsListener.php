@@ -8,7 +8,13 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
+use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 
 /**
  * Records HTTP request metrics automatically.
@@ -31,7 +37,7 @@ use Vortos\Metrics\Contract\MetricsInterface;
  */
 final class HttpMetricsListener implements EventSubscriberInterface
 {
-    public function __construct(private readonly MetricsInterface $metrics) {}
+    public function __construct(private readonly FrameworkTelemetry $telemetry) {}
 
     public static function getSubscribedEvents(): array
     {
@@ -62,20 +68,35 @@ final class HttpMetricsListener implements EventSubscriberInterface
         $method = $request->getMethod();
         $route  = $request->attributes->get('_route', 'unknown');
         $status = (string) $event->getResponse()->getStatusCode();
+        $blockedReason = $request->attributes->get(TelemetryRequestAttributes::BLOCKED_REASON);
 
-        $this->metrics->counter('http_requests_total', [
-            'method' => $method,
-            'route'  => $route,
-            'status' => $status,
-        ])->increment();
+        $requestLabels = FrameworkMetricLabels::of(
+            MetricLabelValue::of(MetricLabel::Method, $method),
+            MetricLabelValue::of(MetricLabel::Route, $route),
+            MetricLabelValue::of(MetricLabel::Status, $status),
+        );
+        $durationLabels = FrameworkMetricLabels::of(
+            MetricLabelValue::of(MetricLabel::Method, $method),
+            MetricLabelValue::of(MetricLabel::Route, $route),
+        );
+
+        $this->telemetry->increment(ObservabilityModule::Http, FrameworkMetric::HttpRequestsTotal, $requestLabels);
+
+        if (is_string($blockedReason) || $status === '404') {
+            $this->telemetry->increment(
+                ObservabilityModule::Http,
+                FrameworkMetric::HttpBlockedTotal,
+                FrameworkMetricLabels::of(
+                    MetricLabelValue::of(MetricLabel::Reason, is_string($blockedReason) ? $blockedReason : 'not_found'),
+                    MetricLabelValue::of(MetricLabel::Status, $status),
+                ),
+            );
+        }
 
         if ($start !== null) {
             $durationMs = (hrtime(true) - $start) / 1_000_000;
 
-            $this->metrics->histogram('http_request_duration_ms', [
-                'method' => $method,
-                'route'  => $route,
-            ])->observe($durationMs);
+            $this->telemetry->observe(ObservabilityModule::Http, FrameworkMetric::HttpRequestDurationMs, $durationLabels, $durationMs);
         }
     }
 }

@@ -8,7 +8,7 @@ use Doctrine\DBAL\Configuration;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
 /**
  * Injects PersistenceMetricsDecorator into the DBAL middleware stack.
@@ -25,7 +25,7 @@ final class PersistenceMetricsCompilerPass implements CompilerPassInterface
 {
     public function process(ContainerBuilder $container): void
     {
-        if (!$container->hasAlias(MetricsInterface::class) && !$container->hasDefinition(MetricsInterface::class)) {
+        if (!$container->hasDefinition(FrameworkTelemetry::class)) {
             return;
         }
 
@@ -43,7 +43,7 @@ final class PersistenceMetricsCompilerPass implements CompilerPassInterface
 
         // Register the metrics middleware
         $container->register(PersistenceMetricsDecorator::class, PersistenceMetricsDecorator::class)
-            ->setArgument('$metrics', new Reference(MetricsInterface::class))
+            ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class))
             ->setShared(true)
             ->setPublic(false);
 

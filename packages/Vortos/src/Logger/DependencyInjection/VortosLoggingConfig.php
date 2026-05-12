@@ -6,6 +6,7 @@ namespace Vortos\Logger\DependencyInjection;
 
 use Monolog\Level;
 use Vortos\Logger\Config\LogChannel;
+use Vortos\Observability\Config\ObservabilityModule;
 
 /**
  * Fluent configuration object for vortos-logger.
@@ -33,6 +34,7 @@ use Vortos\Logger\Config\LogChannel;
  *   Cache     — Redis get/set/delete (high volume — consider disabling in prod)
  *   Security  — auth failures, token validation, authz denials
  *   Query     — slow DB queries, DBAL/Mongo operations
+ *   Tooling   — local CLI/developer tooling commands
  *
  * ## Alerting handlers
  *
@@ -47,6 +49,9 @@ final class VortosLoggingConfig
 
     /** @var list<string> disabled channel names */
     private array $disabledChannels = [];
+
+    /** @var list<string> disabled module names */
+    private array $disabledModules = [];
 
     private bool $rotationEnabled;
     private int $maxFiles = 30;
@@ -109,6 +114,20 @@ final class VortosLoggingConfig
                 $this->disabledChannels[] = $channel->value;
             }
         }
+        return $this;
+    }
+
+    public function disableModule(ObservabilityModule ...$modules): static
+    {
+        foreach ($modules as $module) {
+            $this->disabledModules[] = $module->value;
+
+            $channel = $this->channelForModule($module);
+            if ($channel !== null && $channel !== LogChannel::App) {
+                $this->disabledChannels[] = $channel->value;
+            }
+        }
+
         return $this;
     }
 
@@ -256,6 +275,7 @@ final class VortosLoggingConfig
         return [
             'channel_levels'       => $this->channelLevels,
             'disabled_channels'    => $this->disabledChannels,
+            'disabled_modules'     => array_values(array_unique($this->disabledModules)),
             'rotation_enabled'     => $this->rotationEnabled,
             'max_files'            => $this->maxFiles,
             'buffer_enabled'       => $this->bufferEnabled,
@@ -273,5 +293,32 @@ final class VortosLoggingConfig
             'slack_handlers'       => $this->slackHandlers,
             'email_handlers'       => $this->emailHandlers,
         ];
+    }
+
+    private function channelForModule(ObservabilityModule $module): ?LogChannel
+    {
+        return match ($module) {
+            ObservabilityModule::Http => LogChannel::Http,
+            ObservabilityModule::Cqrs => LogChannel::Cqrs,
+            ObservabilityModule::Messaging => LogChannel::Messaging,
+            ObservabilityModule::Cache => LogChannel::Cache,
+            ObservabilityModule::Security,
+            ObservabilityModule::Auth,
+            ObservabilityModule::Authorization,
+            ObservabilityModule::FeatureFlags => LogChannel::Security,
+            ObservabilityModule::Persistence,
+            ObservabilityModule::PersistenceDbal,
+            ObservabilityModule::PersistenceMongo,
+            ObservabilityModule::PersistenceOrm => LogChannel::Query,
+            ObservabilityModule::Config,
+            ObservabilityModule::Debug,
+            ObservabilityModule::Docker,
+            ObservabilityModule::Make,
+            ObservabilityModule::Mcp,
+            ObservabilityModule::Migration,
+            ObservabilityModule::Observability,
+            ObservabilityModule::Setup => LogChannel::Tooling,
+            default => null,
+        };
     }
 }

@@ -52,6 +52,11 @@ final class SecurityMetricDefinitions implements MetricDefinitionProviderInterfa
                 'Total requests denied by feature access enforcement.',
                 ['feature', 'policy', 'controller'],
             ),
+            MetricDefinition::counter(
+                'feature_flag_evaluations_total',
+                'Total feature flag evaluations grouped by flag and result.',
+                ['flag', 'result', 'controller'],
+            ),
         ];
     }
 }

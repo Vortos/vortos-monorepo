@@ -8,10 +8,13 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Vortos\Metrics\Command\CollectMetricsCommand;
 use Vortos\Metrics\Adapter\NoOpMetrics;
+use Vortos\Metrics\Adapter\OpenTelemetryFlushListener;
+use Vortos\Metrics\Adapter\OpenTelemetryMetrics;
 use Vortos\Metrics\AutoInstrumentation\HttpMetricsListener;
 use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Decorator\ModuleAwareMetrics;
 use Vortos\Metrics\DependencyInjection\MetricsExtension;
 use Vortos\Metrics\DependencyInjection\VortosMetricsConfig;
 
@@ -37,7 +40,8 @@ final class MetricsExtensionTest extends TestCase
 
         $this->assertTrue($container->has(NoOpMetrics::class));
         $this->assertTrue($container->hasAlias(MetricsInterface::class));
-        $this->assertSame(NoOpMetrics::class, (string) $container->getAlias(MetricsInterface::class));
+        $this->assertSame(ModuleAwareMetrics::class, (string) $container->getAlias(MetricsInterface::class));
+        $this->assertSame(NoOpMetrics::class, (string) $container->getAlias('vortos.metrics.inner'));
     }
 
     public function test_config_file_is_loaded(): void
@@ -99,6 +103,18 @@ final class MetricsExtensionTest extends TestCase
 
         $this->assertTrue($container->hasDefinition(CollectMetricsCommand::class));
         $this->assertArrayHasKey('console.command', $container->getDefinition(CollectMetricsCommand::class)->getTags());
+    }
+
+    public function test_opentelemetry_adapter_registers_sdk_bridge_and_flush_listener(): void
+    {
+        $this->writeConfig('adapter(MetricsAdapter::OpenTelemetry)->otlpCollector(timeoutMs: 200)');
+        $container = $this->makeContainer();
+        (new MetricsExtension())->load([], $container);
+
+        $this->assertTrue($container->hasDefinition(OpenTelemetryMetrics::class));
+        $this->assertSame(OpenTelemetryMetrics::class, (string) $container->getAlias('vortos.metrics.inner'));
+        $this->assertTrue($container->hasDefinition(OpenTelemetryFlushListener::class));
+        $this->assertArrayHasKey('kernel.event_subscriber', $container->getDefinition(OpenTelemetryFlushListener::class)->getTags());
     }
 
     private function makeContainer(string $env = 'prod'): ContainerBuilder

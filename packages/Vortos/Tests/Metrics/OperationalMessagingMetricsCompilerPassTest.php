@@ -11,6 +11,7 @@ use Vortos\Metrics\Adapter\NoOpMetrics;
 use Vortos\Metrics\AutoInstrumentation\OperationalMessagingMetricsCollector;
 use Vortos\Metrics\AutoInstrumentation\OperationalMessagingMetricsCompilerPass;
 use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
 final class OperationalMessagingMetricsCompilerPassTest extends TestCase
 {
@@ -19,6 +20,7 @@ final class OperationalMessagingMetricsCompilerPassTest extends TestCase
         $container = new ContainerBuilder();
         $container->register(NoOpMetrics::class, NoOpMetrics::class);
         $container->setAlias(MetricsInterface::class, NoOpMetrics::class);
+        $container->register(FrameworkTelemetry::class, FrameworkTelemetry::class);
         $container->register(Connection::class, Connection::class);
         $container->setParameter('vortos.metrics.disabled_modules', []);
         $container->setParameter('vortos.messaging.outbox_table', 'custom_outbox');
@@ -38,6 +40,7 @@ final class OperationalMessagingMetricsCompilerPassTest extends TestCase
         $container = new ContainerBuilder();
         $container->register(NoOpMetrics::class, NoOpMetrics::class);
         $container->setAlias(MetricsInterface::class, NoOpMetrics::class);
+        $container->register(FrameworkTelemetry::class, FrameworkTelemetry::class);
         $container->register(Connection::class, Connection::class);
         $container->setParameter('vortos.metrics.disabled_modules', ['messaging']);
 

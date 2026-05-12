@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 use Vortos\Metrics\Config\MetricsAdapter;
-use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\DependencyInjection\VortosMetricsConfig;
+use Vortos\Observability\Config\ObservabilityModule;
 
 // Default adapter is NoOp — zero overhead, no configuration required.
-// Switch to Prometheus or StatsD when you need actual metrics.
+// Switch to Prometheus, StatsD, or OpenTelemetry OTLP when you need actual metrics.
 //
 // For per-environment overrides create config/{env}/metrics.php.
 
@@ -18,6 +18,7 @@ return static function (VortosMetricsConfig $config): void {
         // MetricsAdapter::NoOp       — silently discards all metrics (default, zero cost)
         // MetricsAdapter::Prometheus — exposes a /metrics scrape endpoint
         // MetricsAdapter::StatsD     — pushes metrics to a StatsD agent
+        // MetricsAdapter::OpenTelemetry — pushes OTLP metrics to an OTel Collector/vendor
         ->adapter(MetricsAdapter::NoOp)
 
         // Prefix applied to all metric names: {namespace}_{metric_name}.
@@ -29,8 +30,9 @@ return static function (VortosMetricsConfig $config): void {
     // lower-cardinality instrumentation.
     //
     // $config->disableModule(
-    //     MetricsModule::Cache,
-    //     MetricsModule::Persistence,
+    //     ObservabilityModule::Cache,
+    //     ObservabilityModule::Persistence,
+    //     ObservabilityModule::Auth,
     // );
 
     // Application metrics must be declared before they are recorded.
@@ -93,4 +95,30 @@ return static function (VortosMetricsConfig $config): void {
     //     ->statsDPort(8125)
     //     ->statsDSampleRate(1.0) // 1.0 = send every metric; lower to reduce traffic
     // ;
+
+    // OpenTelemetry OTLP push — only relevant when adapter = OpenTelemetry.
+    //
+    // Vortos uses the official OpenTelemetry PHP SDK/exporter. Flush is lifecycle-driven:
+    // forceFlush() runs on request/command terminate, and shutdown() is reserved for
+    // process exit so FrankenPHP workers keep recording after the first request.
+    //
+    // Keep timeoutMs low. Monitoring must never hold a PHP worker hostage.
+    //
+    // $config
+    //     ->adapter(MetricsAdapter::OpenTelemetry)
+    //     ->service(
+    //         $_ENV['OTEL_SERVICE_NAME'] ?? 'app',
+    //         version: $_ENV['APP_VERSION'] ?? '',
+    //         environment: $_ENV['APP_ENV'] ?? 'prod',
+    //     )
+    //     ->otlp(
+    //         $_ENV['OTEL_EXPORTER_OTLP_METRICS_ENDPOINT'] ?? 'http://otel-collector:4318/v1/metrics',
+    //         headers: [],
+    //         timeoutMs: 200,
+    //     )
+    // ;
+    //
+    // Vendor helpers are endpoint/header shortcuts only:
+    //   $config->newRelicOtlp($_ENV['NEW_RELIC_LICENSE_KEY'] ?? '');
+    //   $config->datadogOtlp($_ENV['DD_API_KEY'] ?? '', site: 'datadoghq.com');
 };

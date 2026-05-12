@@ -6,7 +6,12 @@ namespace Vortos\Metrics\AutoInstrumentation;
 
 use Vortos\Domain\Event\DomainEventInterface;
 use Vortos\Messaging\Contract\EventBusInterface;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
 
 /**
  * Decorates EventBusInterface to record per-event metrics.
@@ -25,7 +30,7 @@ final class MessagingMetricsDecorator implements EventBusInterface
 {
     public function __construct(
         private readonly EventBusInterface $inner,
-        private readonly MetricsInterface $metrics,
+        private readonly FrameworkTelemetry $telemetry,
     ) {}
 
     public function dispatch(DomainEventInterface $event): void
@@ -33,18 +38,17 @@ final class MessagingMetricsDecorator implements EventBusInterface
         $eventName = substr(strrchr(get_class($event), '\\') ?: get_class($event), 1);
         $start     = hrtime(true);
 
-        $this->metrics->counter('messaging_events_dispatched_total', ['event' => $eventName])->increment();
+        $labels = FrameworkMetricLabels::of(MetricLabelValue::of(MetricLabel::Event, $eventName));
+        $this->telemetry->increment(ObservabilityModule::Messaging, FrameworkMetric::MessagingEventsDispatchedTotal, $labels);
 
         try {
             $this->inner->dispatch($event);
         } catch (\Throwable $e) {
-            $this->metrics->counter('messaging_event_failures_total', ['event' => $eventName])->increment();
+            $this->telemetry->increment(ObservabilityModule::Messaging, FrameworkMetric::MessagingEventFailuresTotal, $labels);
             throw $e;
         } finally {
             $durationMs = (hrtime(true) - $start) / 1_000_000;
-            $this->metrics->histogram('messaging_event_duration_ms', [
-                'event' => $eventName,
-            ])->observe($durationMs);
+            $this->telemetry->observe(ObservabilityModule::Messaging, FrameworkMetric::MessagingEventDurationMs, $labels, $durationMs);
         }
     }
 

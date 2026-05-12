@@ -7,7 +7,13 @@ namespace Vortos\Metrics\AutoInstrumentation;
 use Doctrine\DBAL\Driver\Middleware\AbstractStatementMiddleware;
 use Doctrine\DBAL\Driver\Result;
 use Doctrine\DBAL\Driver\Statement;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
+use Vortos\Observability\Telemetry\MetricOperation;
 
 /**
  * @internal Used only by PersistenceMetricsConnection
@@ -16,7 +22,7 @@ final class PersistenceMetricsStatement extends AbstractStatementMiddleware
 {
     public function __construct(
         Statement $wrappedStatement,
-        private readonly MetricsInterface $metrics,
+        private readonly FrameworkTelemetry $telemetry,
     ) {
         parent::__construct($wrappedStatement);
     }
@@ -28,8 +34,20 @@ final class PersistenceMetricsStatement extends AbstractStatementMiddleware
             return parent::execute();
         } finally {
             $durationMs = (hrtime(true) - $start) / 1_000_000;
-            $this->metrics->counter('db_queries_total', ['driver' => 'dbal', 'operation' => 'execute'])->increment();
-            $this->metrics->histogram('db_query_duration_ms', ['driver' => 'dbal'])->observe($durationMs);
+            $this->telemetry->increment(
+                ObservabilityModule::Persistence,
+                FrameworkMetric::DbQueriesTotal,
+                FrameworkMetricLabels::of(
+                    MetricLabelValue::of(MetricLabel::Driver, 'dbal'),
+                    MetricLabelValue::operation(MetricOperation::Execute),
+                ),
+            );
+            $this->telemetry->observe(
+                ObservabilityModule::Persistence,
+                FrameworkMetric::DbQueryDurationMs,
+                FrameworkMetricLabels::of(MetricLabelValue::of(MetricLabel::Driver, 'dbal')),
+                $durationMs,
+            );
         }
     }
 }

@@ -7,6 +7,7 @@ namespace Vortos\Metrics\DependencyInjection;
 use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\Definition\MetricDefinition;
+use Vortos\Observability\Config\ObservabilityModule;
 
 /**
  * Fluent configuration object for vortos-metrics.
@@ -51,7 +52,7 @@ final class VortosMetricsConfig
     private MetricsAdapter $adapter = MetricsAdapter::NoOp;
     private string $namespace = 'vortos';
 
-    /** @var list<MetricsModule> */
+    /** @var list<ObservabilityModule> */
     private array $disabledModules = [];
 
     /** @var list<MetricDefinition> */
@@ -71,6 +72,25 @@ final class VortosMetricsConfig
     private string $statsDHost = '127.0.0.1';
     private int $statsDPort = 8125;
     private float $statsDSampleRate = 1.0;
+
+    // OpenTelemetry OTLP-specific
+    private string $serviceName = 'app';
+    private string $serviceVersion = '';
+    private string $deploymentEnvironment = 'prod';
+    private string $otlpEndpoint = 'http://localhost:4318/v1/metrics';
+    /** @var array<string, string> */
+    private array $otlpHeaders = [];
+    private int $otlpTimeoutMs = 200;
+
+    public function __construct()
+    {
+        $this->serviceName = $_ENV['OTEL_SERVICE_NAME'] ?? $_ENV['APP_NAME'] ?? 'app';
+        $this->serviceVersion = $_ENV['APP_VERSION'] ?? '';
+        $this->deploymentEnvironment = $_ENV['APP_ENV'] ?? 'prod';
+        $this->otlpEndpoint = $_ENV['OTEL_EXPORTER_OTLP_METRICS_ENDPOINT']
+            ?? $_ENV['OTEL_EXPORTER_OTLP_ENDPOINT']
+            ?? $this->otlpEndpoint;
+    }
 
     public function adapter(MetricsAdapter $adapter): static
     {
@@ -100,10 +120,12 @@ final class VortosMetricsConfig
      * Useful when you want to replace a framework module metric with custom
      * lower-cardinality instrumentation.
      */
-    public function disableModule(MetricsModule ...$modules): static
+    public function disableModule(MetricsModule|ObservabilityModule ...$modules): static
     {
         foreach ($modules as $module) {
-            $this->disabledModules[] = $module;
+            $this->disabledModules[] = $module instanceof MetricsModule
+                ? $module->observabilityModule()
+                : $module;
         }
         return $this;
     }
@@ -242,6 +264,43 @@ final class VortosMetricsConfig
         return $this;
     }
 
+    public function service(string $name, string $version = '', string $environment = ''): static
+    {
+        $this->serviceName = $name;
+        $this->serviceVersion = $version;
+        $this->deploymentEnvironment = $environment !== '' ? $environment : $this->deploymentEnvironment;
+        return $this;
+    }
+
+    /** @param array<string, string> $headers */
+    public function otlp(string $endpoint, array $headers = [], int $timeoutMs = 200): static
+    {
+        if (!str_starts_with($endpoint, 'http://') && !str_starts_with($endpoint, 'https://')) {
+            throw new \InvalidArgumentException('OTLP metrics endpoint must be an absolute http(s) URL.');
+        }
+
+        $this->otlpEndpoint = $endpoint;
+        $this->otlpHeaders = $headers;
+        $this->otlpTimeoutMs = max(50, min(1000, $timeoutMs));
+        return $this;
+    }
+
+    /** @param array<string, string> $headers */
+    public function otlpCollector(string $endpoint = 'http://otel-collector:4318/v1/metrics', array $headers = [], int $timeoutMs = 200): static
+    {
+        return $this->otlp($endpoint, $headers, $timeoutMs);
+    }
+
+    public function newRelicOtlp(string $licenseKey, string $endpoint = 'https://otlp.nr-data.net:4318/v1/metrics', int $timeoutMs = 200): static
+    {
+        return $this->otlp($endpoint, ['api-key' => $licenseKey], $timeoutMs);
+    }
+
+    public function datadogOtlp(string $apiKey, string $site = 'datadoghq.com', int $timeoutMs = 200): static
+    {
+        return $this->otlp('https://otlp.' . $site . '/v1/metrics', ['DD-API-KEY' => $apiKey], $timeoutMs);
+    }
+
     /** @internal Used by MetricsExtension */
     public function toArray(): array
     {
@@ -261,6 +320,12 @@ final class VortosMetricsConfig
             'statsd_host'                => $this->statsDHost,
             'statsd_port'                => $this->statsDPort,
             'statsd_sample_rate'         => $this->statsDSampleRate,
+            'otlp_service_name'          => $this->serviceName,
+            'otlp_service_version'       => $this->serviceVersion,
+            'otlp_deployment_environment' => $this->deploymentEnvironment,
+            'otlp_endpoint'              => $this->otlpEndpoint,
+            'otlp_headers'               => $this->otlpHeaders,
+            'otlp_timeout_ms'            => $this->otlpTimeoutMs,
         ];
     }
 }

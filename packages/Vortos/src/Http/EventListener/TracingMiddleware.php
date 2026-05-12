@@ -10,6 +10,8 @@ use Symfony\Component\HttpKernel\Event\ExceptionEvent;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 use Vortos\Tracing\Attribute\DisableTracing;
 use Vortos\Tracing\Attribute\TraceWith;
 use Vortos\Tracing\Contract\SpanInterface;
@@ -90,6 +92,10 @@ final class TracingMiddleware implements EventSubscriberInterface
         }
 
         $request = $event->getRequest();
+        if ($request->attributes->get(TelemetryRequestAttributes::DROP_TRACE) === true) {
+            return;
+        }
+
         $controller = $event->getController();
         $traceWith = $this->traceWith($controller);
 
@@ -97,7 +103,9 @@ final class TracingMiddleware implements EventSubscriberInterface
             return;
         }
 
-        $name = $traceWith?->spanName !== '' ? $traceWith->spanName : 'http.' . $request->getMethod();
+        $name = $traceWith !== null && $traceWith->spanName !== ''
+            ? $traceWith->spanName
+            : 'http.' . $request->getMethod();
         $span = $this->tracer->startSpan(
             $name,
             [
@@ -107,6 +115,7 @@ final class TracingMiddleware implements EventSubscriberInterface
                 'http.route'  => $request->attributes->get('_route', 'unknown'),
                 'http.scheme' => $request->getScheme(),
                 'http.host'   => $request->getHost(),
+                'vortos.module' => ObservabilityModule::Http,
                 'vortos.trace.sample_rate' => $traceWith?->sampleRate,
             ],
         );
@@ -128,6 +137,12 @@ final class TracingMiddleware implements EventSubscriberInterface
 
         $response = $event->getResponse();
         $status   = $response->getStatusCode();
+        if ($event->getRequest()->attributes->get(TelemetryRequestAttributes::DROP_TRACE) === true || $status === 404) {
+            $span->addAttribute('vortos.trace.dropped', true);
+            $span->setStatus('ok');
+            $span->end();
+            return;
+        }
 
         $span->addAttribute('http.status_code', $status);
         $start = $event->getRequest()->attributes->get(self::START_ATTRIBUTE);

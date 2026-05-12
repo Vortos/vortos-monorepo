@@ -30,6 +30,22 @@ final class MessagingMetricDefinitions implements MetricDefinitionProviderInterf
                 ['event'],
                 self::DURATION_BUCKETS_MS,
             ),
+            MetricDefinition::counter(
+                'messaging_messages_consumed_total',
+                'Total messages consumed by consumer, event, and result.',
+                ['consumer', 'event', 'result'],
+            ),
+            MetricDefinition::counter(
+                'messaging_message_retries_total',
+                'Total message handler retries by consumer and event.',
+                ['consumer', 'event'],
+            ),
+            MetricDefinition::histogram(
+                'messaging_message_duration_ms',
+                'Message processing duration in milliseconds by consumer and event.',
+                ['consumer', 'event'],
+                self::DURATION_BUCKETS_MS,
+            ),
             MetricDefinition::gauge(
                 'outbox_backlog_size',
                 'Current number of outbox messages grouped by transport and status.',

@@ -8,13 +8,13 @@ use Doctrine\DBAL\Connection;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
 final class OperationalMessagingMetricsCompilerPass implements CompilerPassInterface
 {
     public function process(ContainerBuilder $container): void
     {
-        if (!$container->hasAlias(MetricsInterface::class) && !$container->hasDefinition(MetricsInterface::class)) {
+        if (!$container->hasDefinition(FrameworkTelemetry::class)) {
             return;
         }
 
@@ -40,7 +40,7 @@ final class OperationalMessagingMetricsCompilerPass implements CompilerPassInter
         $container->register(OperationalMessagingMetricsCollector::class, OperationalMessagingMetricsCollector::class)
             ->setArguments([
                 new Reference(Connection::class),
-                new Reference(MetricsInterface::class),
+                new Reference(FrameworkTelemetry::class),
                 $outboxTable,
                 $deadLetterTable,
             ])
@@ -48,4 +48,3 @@ final class OperationalMessagingMetricsCompilerPass implements CompilerPassInter
             ->setPublic(false);
     }
 }
-

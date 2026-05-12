@@ -9,6 +9,7 @@ use Vortos\Messaging\Contract\ProducerInterface;
 use Vortos\Messaging\Serializer\SerializerLocator;
 use Vortos\Tracing\Contract\TracingInterface;
 use Psr\Log\LoggerInterface;
+use Vortos\Observability\Config\ObservabilityModule;
 
 /**
  * Relays pending outbox messages to the broker.
@@ -27,7 +28,7 @@ final class OutboxRelayWorker
         private ProducerInterface $producer,
         private SerializerLocator $serializerLocator,
         private LoggerInterface $logger,
-        private TracingInterface $tracer
+        private ?TracingInterface $tracer = null
     ){
     }
 
@@ -38,10 +39,12 @@ final class OutboxRelayWorker
 
         foreach($messages as $outboxMessage){
 
-            $span = $this->tracer->startSpan('outbox.relay', [
+            $span = $this->tracer?->startSpan('outbox.relay', [
                 'outbox_id'   => $outboxMessage->id,
                 'event_class' => $outboxMessage->eventClass,
                 'transport'   => $outboxMessage->transportName,
+                'messaging.operation' => 'publish',
+                'vortos.module' => ObservabilityModule::Messaging,
             ]);
 
             try {
@@ -68,7 +71,7 @@ final class OutboxRelayWorker
 
                 $this->poller->markFailed($outboxMessage->id, $e->getMessage());
             } finally {
-                $span->end();
+                $span?->end();
             }
         }
 

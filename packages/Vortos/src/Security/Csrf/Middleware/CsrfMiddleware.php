@@ -13,6 +13,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Security\Csrf\CsrfTokenService;
 use Vortos\Security\Event\CsrfViolationEvent;
 use Vortos\Security\Event\SecurityEventDispatcher;
+use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 
 /**
  * CSRF protection using the double-submit cookie pattern.
@@ -70,6 +71,8 @@ final class CsrfMiddleware implements EventSubscriberInterface
                 $request->getPathInfo(),
                 $request->getMethod(),
             ));
+            $request->attributes->set(TelemetryRequestAttributes::DROP_TRACE, true);
+            $request->attributes->set(TelemetryRequestAttributes::BLOCKED_REASON, 'csrf');
 
             $event->setResponse(new JsonResponse(
                 [

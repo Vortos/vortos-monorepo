@@ -30,6 +30,22 @@ final class CqrsMetricDefinitions implements MetricDefinitionProviderInterface
                 ['command'],
                 self::DURATION_BUCKETS_MS,
             ),
+            MetricDefinition::counter(
+                'cqrs_queries_total',
+                'Total CQRS queries dispatched by query class.',
+                ['query'],
+            ),
+            MetricDefinition::counter(
+                'cqrs_query_failures_total',
+                'Total CQRS query failures by query class.',
+                ['query'],
+            ),
+            MetricDefinition::histogram(
+                'cqrs_query_duration_ms',
+                'CQRS query handling duration in milliseconds by query class.',
+                ['query'],
+                self::DURATION_BUCKETS_MS,
+            ),
         ];
     }
 }

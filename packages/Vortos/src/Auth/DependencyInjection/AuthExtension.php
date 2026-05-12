@@ -39,7 +39,7 @@ use Vortos\Cache\Adapter\ArrayAdapter;
 use Vortos\Cache\Adapter\RedisConnectionFactory;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Vortos\Tracing\Contract\TracingInterface;
 
 final class AuthExtension extends Extension
@@ -174,7 +174,7 @@ final class AuthExtension extends Extension
                     [], // policies — filled by RateLimitCompilerPass
                     $resolved['rate_limit_headers'],
                     $resolved['problem_details'],
-                    new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                    new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                     new Reference('vortos.logger.security', ContainerInterface::NULL_ON_INVALID_REFERENCE),
                     new Reference(TracingInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 ])
@@ -192,7 +192,7 @@ final class AuthExtension extends Extension
                     QuotaFailureMode::from($resolved['quota_failure_mode']),
                     $resolved['quota_headers'],
                     $resolved['problem_details'],
-                    new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                    new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                     new Reference('vortos.logger.security', ContainerInterface::NULL_ON_INVALID_REFERENCE),
                     new Reference(TracingInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 ])
@@ -207,7 +207,7 @@ final class AuthExtension extends Extension
                 [],
                 [],
                 $resolved['problem_details'],
-                new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 new Reference('vortos.logger.security', ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 new Reference(TracingInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
             ])

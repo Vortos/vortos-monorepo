@@ -10,6 +10,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 
 /**
  * Handles CORS (Cross-Origin Resource Sharing).
@@ -69,6 +70,8 @@ final class CorsMiddleware implements EventSubscriberInterface
         $config = $this->resolveConfig($request);
 
         if (!$this->isOriginAllowed($origin, $config['origins'])) {
+            $request->attributes->set(TelemetryRequestAttributes::DROP_TRACE, true);
+            $request->attributes->set(TelemetryRequestAttributes::BLOCKED_REASON, 'cors');
             $event->setResponse(new Response('', Response::HTTP_FORBIDDEN));
             return;
         }

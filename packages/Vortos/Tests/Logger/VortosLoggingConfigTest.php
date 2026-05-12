@@ -8,6 +8,7 @@ use Monolog\Level;
 use PHPUnit\Framework\TestCase;
 use Vortos\Logger\Config\LogChannel;
 use Vortos\Logger\DependencyInjection\VortosLoggingConfig;
+use Vortos\Observability\Config\ObservabilityModule;
 
 final class VortosLoggingConfigTest extends TestCase
 {
@@ -74,6 +75,16 @@ final class VortosLoggingConfigTest extends TestCase
 
         $disabled = $config->toArray()['disabled_channels'];
         $this->assertContains(LogChannel::Cache->value, $disabled);
+        $this->assertContains(LogChannel::Query->value, $disabled);
+    }
+
+    public function test_can_disable_framework_module_logs(): void
+    {
+        $config = new VortosLoggingConfig();
+        $config->disableModule(ObservabilityModule::Make, ObservabilityModule::Persistence);
+
+        $disabled = $config->toArray()['disabled_channels'];
+        $this->assertContains(LogChannel::Tooling->value, $disabled);
         $this->assertContains(LogChannel::Query->value, $disabled);
     }
 

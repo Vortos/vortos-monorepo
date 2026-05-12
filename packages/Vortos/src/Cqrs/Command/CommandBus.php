@@ -13,6 +13,7 @@ use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Command\CommandInterface;
 use Vortos\Messaging\Contract\EventBusInterface;
+use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\Tracing\Contract\TracingInterface;
 
@@ -48,7 +49,7 @@ final class CommandBus implements CommandBusInterface
         private EventBusInterface $eventBus,
         private CommandIdempotencyStoreInterface $idempotencyStore,
         private LoggerInterface $logger,
-        private TracingInterface $tracer,
+        private ?TracingInterface $tracer = null,
         private array $idempotencyStrategies = [],
         private ?VortosValidator $validator = null,
     ) {}
@@ -62,8 +63,9 @@ final class CommandBus implements CommandBusInterface
             throw new CommandHandlerNotFoundException($commandClass);
         }
 
-        $span = $this->tracer->startSpan('cqrs.command.' . $shortName, [
+        $span = $this->tracer?->startSpan('cqrs.command.' . $shortName, [
             'command.class' => $commandClass,
+            'vortos.module' => ObservabilityModule::Cqrs,
         ]);
 
         try {
@@ -74,7 +76,7 @@ final class CommandBus implements CommandBusInterface
             $idempotencyKey = $this->resolveIdempotencyKey($command);
 
             if ($idempotencyKey !== null && $this->idempotencyStore->wasProcessed($idempotencyKey)) {
-                $span->setStatus('ok');
+                $span?->setStatus('ok');
                 return;
             }
 
@@ -102,13 +104,13 @@ final class CommandBus implements CommandBusInterface
                 'key'      => $idempotencyKey,
             ]);
 
-            $span->setStatus('ok');
+            $span?->setStatus('ok');
         } catch (\Throwable $e) {
-            $span->recordException($e);
-            $span->setStatus('error');
+            $span?->recordException($e);
+            $span?->setStatus('error');
             throw $e;
         } finally {
-            $span->end();
+            $span?->end();
         }
     }
 

@@ -6,7 +6,12 @@ namespace Vortos\Security\Event;
 
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
 use Vortos\Security\Contract\SecurityEventInterface;
 
 /**
@@ -34,7 +39,7 @@ final class SecurityEventDispatcher
 
     public function __construct(
         private readonly ?LoggerInterface  $logger,
-        private readonly ?MetricsInterface $metrics,
+        private readonly ?FrameworkTelemetry $telemetry,
     ) {}
 
     public function dispatch(SecurityEventInterface $event): void
@@ -75,12 +80,16 @@ final class SecurityEventDispatcher
 
     private function count(SecurityEventInterface $event): void
     {
-        if ($this->metrics === null) {
+        if ($this->telemetry === null) {
             return;
         }
 
         if (str_starts_with($event->eventName(), 'security.')) {
-            $this->metrics->counter('security_events_total', ['event' => $event->eventName()])->increment();
+            $this->telemetry->increment(
+                ObservabilityModule::Security,
+                FrameworkMetric::SecurityEventsTotal,
+                FrameworkMetricLabels::of(MetricLabelValue::of(MetricLabel::Event, $event->eventName())),
+            );
         }
     }
 }

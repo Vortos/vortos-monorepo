@@ -12,6 +12,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Security\Event\SecurityEventDispatcher;
 use Vortos\Security\Event\SignatureInvalidEvent;
 use Vortos\Security\Signing\SignatureVerifier;
+use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 
 /**
  * Enforces #[RequiresSignature] on webhook endpoints.
@@ -75,6 +76,8 @@ final class RequestSignatureMiddleware implements EventSubscriberInterface
                 $request->getPathInfo(),
                 $rule['header'],
             ));
+            $request->attributes->set(TelemetryRequestAttributes::DROP_TRACE, true);
+            $request->attributes->set(TelemetryRequestAttributes::BLOCKED_REASON, 'signature');
 
             $event->setResponse(new JsonResponse(
                 ['error' => 'Invalid or missing request signature.'],

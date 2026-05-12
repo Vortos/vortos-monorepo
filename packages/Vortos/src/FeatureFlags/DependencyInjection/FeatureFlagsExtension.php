@@ -28,6 +28,8 @@ use Vortos\FeatureFlags\Http\FlagsController;
 use Vortos\FeatureFlags\Storage\DatabaseFlagStorage;
 use Vortos\FeatureFlags\Storage\FlagStorageInterface;
 use Vortos\FeatureFlags\Storage\RedisCachingStorage;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Tracing\Contract\TracingInterface;
 
 final class FeatureFlagsExtension extends Extension
 {
@@ -82,6 +84,8 @@ final class FeatureFlagsExtension extends Extension
             ->setArgument('$contextResolver', new Reference(FlagContextResolverInterface::class))
             ->setArgument('$flagMap', [])
             ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$tracer', new Reference(TracingInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag('kernel.event_subscriber')
             ->setPublic(false);
 

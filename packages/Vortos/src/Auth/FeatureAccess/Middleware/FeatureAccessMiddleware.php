@@ -11,7 +11,12 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Auth\FeatureAccess\Contract\FeatureAccessPolicyInterface;
 use Vortos\Auth\Identity\CurrentUserProvider;
-use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
 use Vortos\Tracing\Contract\TracingInterface;
 
 /**
@@ -34,7 +39,7 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
         private array $routeMap,
         private array $policies,
         private bool $problemDetailsEnabled = true,
-        private ?MetricsInterface $metrics = null,
+        private ?FrameworkTelemetry $telemetry = null,
         private ?LoggerInterface $logger = null,
         private ?TracingInterface $tracer = null,
     ) {}
@@ -63,11 +68,11 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
                         ? Response::HTTP_PAYMENT_REQUIRED
                         : Response::HTTP_FORBIDDEN;
 
-                    $this->metrics?->counter('feature_access_denied_total', [
-                        'feature' => $rule['feature'],
-                        'policy' => str_replace('\\', '.', $policy::class),
-                        'controller' => str_replace('\\', '.', $controller),
-                    ])->increment();
+                    $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::FeatureAccessDeniedTotal, FrameworkMetricLabels::of(
+                        MetricLabelValue::of(MetricLabel::Feature, $rule['feature']),
+                        MetricLabelValue::of(MetricLabel::Policy, str_replace('\\', '.', $policy::class)),
+                        MetricLabelValue::of(MetricLabel::Controller, str_replace('\\', '.', $controller)),
+                    ));
                     $this->logger?->warning('feature_access.denied', [
                         'feature' => $rule['feature'],
                         'policy' => $policy::class,
@@ -93,11 +98,11 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
                     return;
                 }
 
-                $this->metrics?->counter('feature_access_allowed_total', [
-                    'feature' => $rule['feature'],
-                    'policy' => str_replace('\\', '.', $policy::class),
-                    'controller' => str_replace('\\', '.', $controller),
-                ])->increment();
+                $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::FeatureAccessAllowedTotal, FrameworkMetricLabels::of(
+                    MetricLabelValue::of(MetricLabel::Feature, $rule['feature']),
+                    MetricLabelValue::of(MetricLabel::Policy, str_replace('\\', '.', $policy::class)),
+                    MetricLabelValue::of(MetricLabel::Controller, str_replace('\\', '.', $controller)),
+                ));
             }
         }
     }
@@ -145,7 +150,9 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
             return;
         }
 
-        $span = $this->tracer->startSpan('vortos.feature_access');
+        $span = $this->tracer->startSpan('vortos.feature_access', [
+            'vortos.module' => ObservabilityModule::Auth,
+        ]);
         $span->addAttribute($key, $value);
         $span->end();
     }

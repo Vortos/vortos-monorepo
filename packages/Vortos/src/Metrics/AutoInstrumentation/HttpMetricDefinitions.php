@@ -25,6 +25,11 @@ final class HttpMetricDefinitions implements MetricDefinitionProviderInterface
                 ['method', 'route'],
                 self::DURATION_BUCKETS_MS,
             ),
+            MetricDefinition::counter(
+                'http_blocked_total',
+                'HTTP requests dropped from tracing because they were blocked or low-value noise.',
+                ['reason', 'status'],
+            ),
         ];
     }
 }

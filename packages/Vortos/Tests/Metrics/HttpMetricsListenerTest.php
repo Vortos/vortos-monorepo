@@ -16,6 +16,8 @@ use Vortos\Metrics\AutoInstrumentation\HttpMetricsListener;
 use Vortos\Metrics\Contract\CounterInterface;
 use Vortos\Metrics\Contract\HistogramInterface;
 use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 
 final class HttpMetricsListenerTest extends TestCase
 {
@@ -25,7 +27,7 @@ final class HttpMetricsListenerTest extends TestCase
     protected function setUp(): void
     {
         $this->metrics  = $this->createMock(MetricsInterface::class);
-        $this->listener = new HttpMetricsListener($this->metrics);
+        $this->listener = new HttpMetricsListener(new FrameworkTelemetry($this->metrics));
     }
 
     public function test_subscribes_to_request_and_response_events(): void
@@ -78,6 +80,30 @@ final class HttpMetricsListenerTest extends TestCase
         $this->listener->onRequest($requestEvent);
 
         $responseEvent = new ResponseEvent($kernel, $request, HttpKernelInterface::SUB_REQUEST, $response);
+        $this->listener->onResponse($responseEvent);
+    }
+
+    public function test_blocked_request_records_cheap_blocked_counter(): void
+    {
+        $kernel  = $this->createMock(HttpKernelInterface::class);
+        $request = Request::create('/api/test', 'GET');
+        $request->attributes->set(TelemetryRequestAttributes::BLOCKED_REASON, 'rate_limit');
+        $response = new Response('', 429);
+        $counter = $this->createMock(CounterInterface::class);
+
+        $this->metrics->expects($this->exactly(2))
+            ->method('counter')
+            ->willReturnCallback(function (string $name, array $labels) use ($counter): CounterInterface {
+                if ($name === 'http_blocked_total') {
+                    $this->assertSame(['reason' => 'rate_limit', 'status' => '429'], $labels);
+                }
+
+                return $counter;
+            });
+        $this->metrics->expects($this->never())->method('histogram');
+        $counter->expects($this->exactly(2))->method('increment');
+
+        $responseEvent = new ResponseEvent($kernel, $request, HttpKernelInterface::MAIN_REQUEST, $response);
         $this->listener->onResponse($responseEvent);
     }
 }

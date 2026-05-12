@@ -15,15 +15,26 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'b6b991a57620e2fb6b2f66f03fe9ddc2' => __DIR__ . '/..' . '/symfony/string/Resources/functions.php',
         '606a39d89246991a373564698c2d8383' => __DIR__ . '/..' . '/symfony/polyfill-php85/bootstrap.php',
         '667aeda72477189d0494fecd327c3641' => __DIR__ . '/..' . '/symfony/var-dumper/Resources/functions/dump.php',
-        '2203a247e6fda86070a5e4e07aed533a' => __DIR__ . '/..' . '/symfony/clock/Resources/now.php',
         '5897ea0ac4cccf14d323035e65887801' => __DIR__ . '/..' . '/symfony/polyfill-php82/bootstrap.php',
+        '2203a247e6fda86070a5e4e07aed533a' => __DIR__ . '/..' . '/symfony/clock/Resources/now.php',
+        '8e92226780215d0ec758aa7b73e0ede9' => __DIR__ . '/..' . '/open-telemetry/context/fiber/initialize_fiber_handler.php',
+        'c7b4a5d8b94d270f0f9a84f81e1dd63d' => __DIR__ . '/..' . '/open-telemetry/api/Trace/functions.php',
         '3a37ebac017bc098e9a86b35401e7a68' => __DIR__ . '/..' . '/mongodb/mongodb/src/functions.php',
+        '7b11c4dc42b3b3023073cb14e519683c' => __DIR__ . '/..' . '/ralouphie/getallheaders/src/getallheaders.php',
+        'e39a8b23c42d4e1452234d762b03835a' => __DIR__ . '/..' . '/ramsey/uuid/src/functions.php',
         '9d2b9fc6db0f153a0a149fefb182415e' => __DIR__ . '/..' . '/symfony/polyfill-php84/bootstrap.php',
         '6124b4c8570aa390c21fafd04a26c69f' => __DIR__ . '/..' . '/myclabs/deep-copy/src/DeepCopy/deep_copy.php',
-        '8e92226780215d0ec758aa7b73e0ede9' => __DIR__ . '/..' . '/open-telemetry/context/fiber/initialize_fiber_handler.php',
+        'c695cb998ba36e4bafc3d028efc7d113' => __DIR__ . '/..' . '/open-telemetry/sdk/Common/Util/functions.php',
+        'd991bdbfe253499825156f17c4a721db' => __DIR__ . '/..' . '/open-telemetry/sdk/Logs/Exporter/_register.php',
+        '01d424d2624f29a2eef00b09eb00935e' => __DIR__ . '/..' . '/open-telemetry/sdk/Metrics/MetricExporter/_register.php',
+        '063d0a0034c5e2149209c15208de47e4' => __DIR__ . '/..' . '/open-telemetry/sdk/Propagation/_register.php',
+        '2cc49ecec7e065b3a5423e964c0275e6' => __DIR__ . '/..' . '/open-telemetry/sdk/Trace/SpanExporter/_register.php',
+        '062120a429d7568eacd495a8c34fcf09' => __DIR__ . '/..' . '/open-telemetry/sdk/Common/Dev/Compatibility/_load.php',
+        '88e3b63cfb48eb8ea316a8a85a5f5c5f' => __DIR__ . '/..' . '/open-telemetry/sdk/_autoload.php',
         '662a729f963d39afe703c9d9b7ab4a8c' => __DIR__ . '/..' . '/symfony/polyfill-php83/bootstrap.php',
         '09f6b20656683369174dd6fa83b7e5fb' => __DIR__ . '/..' . '/symfony/polyfill-uuid/bootstrap.php',
-        'c7b4a5d8b94d270f0f9a84f81e1dd63d' => __DIR__ . '/..' . '/open-telemetry/api/Trace/functions.php',
+        '37a3dc5111fe8f707ab4c132ef1dbc62' => __DIR__ . '/..' . '/guzzlehttp/guzzle/src/functions_include.php',
+        '157bbd0180425c7142fbaf1b1646bec3' => __DIR__ . '/..' . '/open-telemetry/exporter-otlp/_register.php',
         '9b38cf48e83f5d8f60375221cd213eee' => __DIR__ . '/..' . '/phpstan/phpstan/bootstrap.php',
         'ec07570ca5a812141189b1fa81503674' => __DIR__ . '/..' . '/phpunit/phpunit/src/Framework/Assert/Functions.php',
     );
@@ -100,6 +111,11 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Symfony\\Component\\Clock\\' => 24,
             'Symfony\\Component\\Cache\\' => 24,
         ),
+        'R' =>
+        array (
+            'Ramsey\\Uuid\\' => 12,
+            'Ramsey\\Collection\\' => 18,
+        ),
         'P' =>
         array (
             'Psr\\SimpleCache\\' => 16,
@@ -114,8 +130,17 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         ),
         'O' =>
         array (
+            'Opentelemetry\\Proto\\' => 20,
+            'OpenTelemetry\\SemConv\\' => 22,
+            'OpenTelemetry\\SDK\\' => 18,
+            'OpenTelemetry\\Contrib\\Otlp\\' => 27,
             'OpenTelemetry\\Context\\' => 22,
             'OpenTelemetry\\API\\' => 18,
+        ),
+        'N' =>
+        array (
+            'Nyholm\\Psr7Server\\' => 18,
+            'Nevay\\SPI\\' => 10,
         ),
         'M' =>
         array (
@@ -125,6 +150,19 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'K' =>
         array (
             'Koco\\Kafka\\' => 11,
+        ),
+        'H' =>
+        array (
+            'Http\\Discovery\\' => 15,
+        ),
+        'G' =>
+        array (
+            'GuzzleHttp\\Psr7\\' => 16,
+            'GuzzleHttp\\Promise\\' => 19,
+            'GuzzleHttp\\' => 11,
+            'Google\\Protobuf\\' => 16,
+            'GPBMetadata\\Opentelemetry\\' => 26,
+            'GPBMetadata\\Google\\Protobuf\\' => 28,
         ),
         'F' =>
         array (
@@ -143,6 +181,14 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Doctrine\\Common\\Collections\\' => 28,
             'Doctrine\\Common\\' => 16,
             'DeepCopy\\' => 9,
+        ),
+        'C' =>
+        array (
+            'Composer\\Semver\\' => 16,
+        ),
+        'B' =>
+        array (
+            'Brick\\Math\\' => 11,
         ),
         'A' =>
         array (
@@ -412,6 +458,14 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/..' . '/symfony/cache',
         ),
+        'Ramsey\\Uuid\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/ramsey/uuid/src',
+        ),
+        'Ramsey\\Collection\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/ramsey/collection/src',
+        ),
         'Psr\\SimpleCache\\' =>
         array (
             0 => __DIR__ . '/..' . '/psr/simple-cache/src',
@@ -449,6 +503,22 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/..' . '/nikic/php-parser/lib/PhpParser',
         ),
+        'Opentelemetry\\Proto\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/open-telemetry/gen-otlp-protobuf/Opentelemetry/Proto',
+        ),
+        'OpenTelemetry\\SemConv\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/open-telemetry/sem-conv',
+        ),
+        'OpenTelemetry\\SDK\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/open-telemetry/sdk',
+        ),
+        'OpenTelemetry\\Contrib\\Otlp\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/open-telemetry/exporter-otlp',
+        ),
         'OpenTelemetry\\Context\\' =>
         array (
             0 => __DIR__ . '/..' . '/open-telemetry/context',
@@ -456,6 +526,14 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'OpenTelemetry\\API\\' =>
         array (
             0 => __DIR__ . '/..' . '/open-telemetry/api',
+        ),
+        'Nyholm\\Psr7Server\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/nyholm/psr7-server/src',
+        ),
+        'Nevay\\SPI\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/tbachert/spi/src',
         ),
         'Monolog\\' =>
         array (
@@ -468,6 +546,34 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Koco\\Kafka\\' =>
         array (
             0 => __DIR__ . '/..' . '/koco/messenger-kafka/src',
+        ),
+        'Http\\Discovery\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/php-http/discovery/src',
+        ),
+        'GuzzleHttp\\Psr7\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/guzzlehttp/psr7/src',
+        ),
+        'GuzzleHttp\\Promise\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/guzzlehttp/promises/src',
+        ),
+        'GuzzleHttp\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/guzzlehttp/guzzle/src',
+        ),
+        'Google\\Protobuf\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/google/protobuf/src/Google/Protobuf',
+        ),
+        'GPBMetadata\\Opentelemetry\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/open-telemetry/gen-otlp-protobuf/GPBMetadata/Opentelemetry',
+        ),
+        'GPBMetadata\\Google\\Protobuf\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/google/protobuf/src/GPBMetadata/Google/Protobuf',
         ),
         'Firebase\\JWT\\' =>
         array (
@@ -516,6 +622,14 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'DeepCopy\\' =>
         array (
             0 => __DIR__ . '/..' . '/myclabs/deep-copy/src/DeepCopy',
+        ),
+        'Composer\\Semver\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/composer/semver/src',
+        ),
+        'Brick\\Math\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/brick/math/src',
         ),
         'App\\Migrations\\' =>
         array (

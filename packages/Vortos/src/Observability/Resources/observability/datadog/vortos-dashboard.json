@@ -1,0 +1,55 @@
+{
+  "title": "Vortos Overview",
+  "description": "Starter Datadog dashboard for Vortos metrics, logs, and traces.",
+  "layout_type": "ordered",
+  "widgets": [
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "HTTP request rate",
+        "requests": [
+          {
+            "q": "sum:vortos.http.requests.total{*}.as_rate() by {method,route}",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "HTTP errors",
+        "requests": [
+          {
+            "q": "sum:vortos.http.requests.total{status:5*}.as_rate() by {route}",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "CQRS command duration",
+        "requests": [
+          {
+            "q": "p95:vortos.cqrs.command.duration.ms{*} by {command}",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "query_value",
+        "title": "Security denials",
+        "requests": [
+          {
+            "q": "sum:vortos.security.events.total{result:denied}.as_count()"
+          }
+        ]
+      }
+    }
+  ]
+}
+

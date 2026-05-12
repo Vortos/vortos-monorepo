@@ -39,9 +39,11 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\PersistenceOrm\\' => 22,
             'Vortos\\PersistenceMongo\\' => 24,
             'Vortos\\PersistenceDbal\\' => 23,
+            'Vortos\\Observability\\' => 21,
             'Vortos\\Migration\\' => 17,
             'Vortos\\Metrics\\' => 15,
             'Vortos\\Messaging\\' => 17,
+            'Vortos\\Mcp\\' => 11,
             'Vortos\\Make\\' => 12,
             'Vortos\\Logger\\' => 14,
             'Vortos\\Http\\' => 12,
@@ -182,6 +184,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-persistence-dbal',
         ),
+        'Vortos\\Observability\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Observability',
+        ),
         'Vortos\\Migration\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Migration',
@@ -193,6 +199,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Messaging\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-messaging',
+        ),
+        'Vortos\\Mcp\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Mcp',
         ),
         'Vortos\\Make\\' =>
         array (

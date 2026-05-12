@@ -268,6 +268,24 @@ return [
         'commands' => [],
     ],
 
+    'observability' => [
+        'description' => 'Publishable observability templates for Prometheus, Grafana, Alertmanager, Datadog, and New Relic. No runtime exporters or network calls.',
+        'provides' => [
+            'Template registry' => 'Lists available stacks and files.',
+            'Template publisher' => 'Copies starter assets into the application observability/ directory.',
+            'Prometheus assets' => 'Recording rules and alert rules for Vortos metrics.',
+            'Grafana assets' => 'Dashboard JSON for HTTP, CQRS, messaging, cache, persistence, and security metrics.',
+            'Alertmanager assets' => 'Routing and receiver example for Vortos labels.',
+            'Datadog assets' => 'Dashboard and monitor examples for StatsD metrics, JSON logs, and OTLP traces.',
+            'New Relic assets' => 'Dashboard and alert examples for metrics, logs, and OTLP traces.',
+        ],
+        'config' => null,
+        'commands' => [
+            'vortos:observability:list' => 'List available observability template stacks',
+            'vortos:observability:publish' => 'Publish templates with --stack, --force, and --dry-run',
+        ],
+    ],
+
     'foundation' => [
         'description' => 'Health checks and worker mode service resetter.',
         'provides'    => [

@@ -24,6 +24,7 @@ $packages = [
     'vortos-docker'            => 'Docker',
     'vortos-setup'             => 'Setup',
     'vortos-metrics'           => 'Metrics',
+    'vortos-observability'     => 'Observability',
     'vortos-config'           => 'Config',
     'vortos-mcp'           => 'Mcp',
 ];

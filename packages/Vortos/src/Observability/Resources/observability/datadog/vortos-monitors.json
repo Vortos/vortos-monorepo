@@ -1,0 +1,24 @@
+[
+  {
+    "name": "Vortos high HTTP 5xx rate",
+    "type": "query alert",
+    "query": "sum(last_10m):sum:vortos.http.requests.total{status:5*}.as_rate() / clamp_min(sum:vortos.http.requests.total{*}.as_rate(), 1) > 0.05",
+    "message": "Vortos HTTP 5xx rate is above 5%. Review service logs and traces.",
+    "tags": ["service:vortos", "severity:page"]
+  },
+  {
+    "name": "Vortos CQRS command p95 latency high",
+    "type": "query alert",
+    "query": "avg(last_10m):p95:vortos.cqrs.command.duration.ms{*} by {command} > 500",
+    "message": "Vortos CQRS command latency is high.",
+    "tags": ["service:vortos", "severity:ticket"]
+  },
+  {
+    "name": "Vortos security denials spike",
+    "type": "query alert",
+    "query": "sum(last_10m):sum:vortos.security.events.total{result:denied}.as_rate() > 5",
+    "message": "Security denials are elevated. Check auth and authorization logs.",
+    "tags": ["service:vortos", "severity:page"]
+  }
+]
+

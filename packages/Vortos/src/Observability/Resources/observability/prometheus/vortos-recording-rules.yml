@@ -1,0 +1,37 @@
+groups:
+  - name: vortos-recording-rules
+    interval: 30s
+    rules:
+      - record: vortos:http_request_error_rate5m
+        expr: |
+          sum(rate(vortos_http_requests_total{status=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(vortos_http_requests_total[5m])), 1)
+
+      - record: vortos:http_request_duration:p95_5m
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, route, method) (rate(vortos_http_request_duration_ms_bucket[5m]))
+          )
+
+      - record: vortos:cqrs_command_duration:p95_5m
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, command) (rate(vortos_cqrs_command_duration_ms_bucket[5m]))
+          )
+
+      - record: vortos:messaging_error_rate5m
+        expr: |
+          sum(rate(vortos_messaging_messages_total{result="error"}[5m]))
+          /
+          clamp_min(sum(rate(vortos_messaging_messages_total[5m])), 1)
+
+      - record: vortos:db_query_duration:p95_5m
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, operation) (rate(vortos_persistence_query_duration_ms_bucket[5m]))
+          )
+

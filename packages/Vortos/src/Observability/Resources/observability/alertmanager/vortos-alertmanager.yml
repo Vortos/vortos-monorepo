@@ -1,0 +1,41 @@
+route:
+  group_by: ["alertname", "service", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: default
+  routes:
+    - matchers:
+        - service="vortos"
+        - severity="page"
+      receiver: oncall
+      repeat_interval: 1h
+    - matchers:
+        - service="vortos"
+        - severity="ticket"
+      receiver: ticket
+      repeat_interval: 8h
+
+receivers:
+  - name: default
+    webhook_configs:
+      - url: https://example.invalid/alertmanager/default
+        send_resolved: true
+
+  - name: oncall
+    webhook_configs:
+      - url: https://example.invalid/alertmanager/oncall
+        send_resolved: true
+
+  - name: ticket
+    webhook_configs:
+      - url: https://example.invalid/alertmanager/ticket
+        send_resolved: true
+
+inhibit_rules:
+  - source_matchers:
+      - severity="page"
+    target_matchers:
+      - severity="ticket"
+    equal: ["alertname", "service"]
+

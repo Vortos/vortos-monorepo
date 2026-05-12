@@ -1,0 +1,73 @@
+groups:
+  - name: vortos-alert-rules
+    rules:
+      - alert: VortosHighHttpErrorRate
+        expr: vortos:http_request_error_rate5m > 0.05
+        for: 10m
+        labels:
+          severity: page
+          service: vortos
+        annotations:
+          summary: Vortos HTTP 5xx rate is above 5%
+          description: The HTTP 5xx rate has been above 5% for 10 minutes.
+
+      - alert: VortosHighHttpLatency
+        expr: vortos:http_request_duration:p95_5m > 1000
+        for: 10m
+        labels:
+          severity: ticket
+          service: vortos
+        annotations:
+          summary: Vortos HTTP p95 latency is high
+          description: HTTP p95 latency is above 1000 ms for route {{ $labels.route }}.
+
+      - alert: VortosCqrsCommandLatencyHigh
+        expr: vortos:cqrs_command_duration:p95_5m > 500
+        for: 10m
+        labels:
+          severity: ticket
+          service: vortos
+        annotations:
+          summary: Vortos CQRS command latency is high
+          description: Command {{ $labels.command }} p95 latency is above 500 ms.
+
+      - alert: VortosMessagingErrorRateHigh
+        expr: vortos:messaging_error_rate5m > 0.02
+        for: 10m
+        labels:
+          severity: page
+          service: vortos
+        annotations:
+          summary: Vortos messaging error rate is high
+          description: Messaging error rate is above 2% for 10 minutes.
+
+      - alert: VortosDeadLetterMessagesPresent
+        expr: sum(vortos_messaging_dead_letter_messages_total) > 0
+        for: 5m
+        labels:
+          severity: page
+          service: vortos
+        annotations:
+          summary: Vortos dead-letter messages are present
+          description: One or more messages were sent to the dead-letter path.
+
+      - alert: VortosPersistenceLatencyHigh
+        expr: vortos:db_query_duration:p95_5m > 250
+        for: 15m
+        labels:
+          severity: ticket
+          service: vortos
+        annotations:
+          summary: Vortos persistence query latency is high
+          description: Persistence query p95 latency is above 250 ms.
+
+      - alert: VortosSecurityFailuresSpike
+        expr: sum(rate(vortos_security_events_total{result="denied"}[5m])) > 5
+        for: 10m
+        labels:
+          severity: page
+          service: vortos
+        annotations:
+          summary: Vortos security denial rate is elevated
+          description: Security denials are above 5 per second for 10 minutes.
+

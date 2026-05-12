@@ -24,7 +24,8 @@
         "vortos/vortos-config": "^1.0",
         "vortos/vortos-docker": "^1.0",
         "vortos/vortos-setup": "^1.0",
-        "vortos/vortos-security": "^1.0"
+        "vortos/vortos-security": "^1.0",
+        "vortos/vortos-observability": "^1.0"
     },
     "suggest": {
         "vortos/vortos-persistence-dbal": "DBAL write repository — choose this or persistence-orm, not both",

@@ -1,0 +1,49 @@
+{
+  "name": "Vortos Overview",
+  "description": "Starter New Relic dashboard for Vortos logs, metrics, and traces.",
+  "permissions": "PUBLIC_READ_WRITE",
+  "pages": [
+    {
+      "name": "Overview",
+      "widgets": [
+        {
+          "title": "HTTP request rate",
+          "layout": { "column": 1, "row": 1, "width": 6, "height": 3 },
+          "visualization": { "id": "viz.line" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "query": "SELECT rate(sum(vortos_http_requests_total), 1 minute) FROM Metric FACET method, route TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "HTTP 5xx count",
+          "layout": { "column": 7, "row": 1, "width": 6, "height": 3 },
+          "visualization": { "id": "viz.line" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "query": "SELECT rate(sum(vortos_http_requests_total), 1 minute) FROM Metric WHERE status LIKE '5%' FACET route TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Application error logs",
+          "layout": { "column": 1, "row": 4, "width": 12, "height": 3 },
+          "visualization": { "id": "viz.table" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "query": "SELECT timestamp, message, trace_id, service.name FROM Log WHERE level IN ('ERROR', 'CRITICAL') LIMIT 100"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+

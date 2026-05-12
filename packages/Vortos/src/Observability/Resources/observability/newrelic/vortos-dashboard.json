@@ -31,8 +31,32 @@
           }
         },
         {
+          "title": "Outbox backlog",
+          "layout": { "column": 1, "row": 7, "width": 6, "height": 3 },
+          "visualization": { "id": "viz.line" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "query": "SELECT sum(vortos_outbox_backlog_size) FROM Metric FACET transport, status TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "DLQ backlog",
+          "layout": { "column": 7, "row": 7, "width": 6, "height": 3 },
+          "visualization": { "id": "viz.line" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "query": "SELECT sum(vortos_dlq_backlog_size) FROM Metric FACET transport, event TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
           "title": "Application error logs",
-          "layout": { "column": 1, "row": 4, "width": 12, "height": 3 },
+          "layout": { "column": 1, "row": 10, "width": 12, "height": 3 },
           "visualization": { "id": "viz.table" },
           "rawConfiguration": {
             "nrqlQueries": [
@@ -46,4 +70,3 @@
     }
   ]
 }
-

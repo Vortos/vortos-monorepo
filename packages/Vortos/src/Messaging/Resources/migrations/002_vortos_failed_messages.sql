@@ -15,3 +15,11 @@ CREATE TABLE IF NOT EXISTS vortos_failed_messages (
 CREATE INDEX IF NOT EXISTS idx_vortos_failed_messages_status
     ON vortos_failed_messages (status, failed_at)
     WHERE status = 'failed';
+
+CREATE INDEX IF NOT EXISTS idx_vortos_failed_messages_status_transport_event
+    ON vortos_failed_messages (status, transport_name, event_class)
+    WHERE status = 'failed';
+
+CREATE INDEX IF NOT EXISTS idx_vortos_failed_messages_transport_failed_at
+    ON vortos_failed_messages (transport_name, failed_at)
+    WHERE status = 'failed';

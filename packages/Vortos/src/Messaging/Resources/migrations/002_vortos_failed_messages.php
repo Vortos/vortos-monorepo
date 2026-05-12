@@ -39,5 +39,11 @@ return new class extends AbstractModuleSchemaProvider {
         $failed->addIndex(['status', 'failed_at'], 'idx_vortos_failed_messages_status', [], [
             'where' => "status = 'failed'",
         ]);
+        $failed->addIndex(['status', 'transport_name', 'event_class'], 'idx_vortos_failed_messages_status_transport_event', [], [
+            'where' => "status = 'failed'",
+        ]);
+        $failed->addIndex(['transport_name', 'failed_at'], 'idx_vortos_failed_messages_transport_failed_at', [], [
+            'where' => "status = 'failed'",
+        ]);
     }
 };

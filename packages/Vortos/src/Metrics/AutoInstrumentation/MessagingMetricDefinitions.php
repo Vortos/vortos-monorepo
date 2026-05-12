@@ -30,6 +30,26 @@ final class MessagingMetricDefinitions implements MetricDefinitionProviderInterf
                 ['event'],
                 self::DURATION_BUCKETS_MS,
             ),
+            MetricDefinition::gauge(
+                'outbox_backlog_size',
+                'Current number of outbox messages grouped by transport and status.',
+                ['transport', 'status'],
+            ),
+            MetricDefinition::gauge(
+                'outbox_oldest_pending_age_seconds',
+                'Age in seconds of the oldest pending outbox message by transport.',
+                ['transport'],
+            ),
+            MetricDefinition::gauge(
+                'dlq_backlog_size',
+                'Current number of failed dead-letter messages grouped by transport and event.',
+                ['transport', 'event'],
+            ),
+            MetricDefinition::gauge(
+                'dlq_oldest_failed_age_seconds',
+                'Age in seconds of the oldest failed dead-letter message by transport.',
+                ['transport'],
+            ),
         ];
     }
 }

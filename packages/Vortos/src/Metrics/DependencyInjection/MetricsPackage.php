@@ -10,6 +10,7 @@ use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\Metrics\AutoInstrumentation\CacheMetricsCompilerPass;
 use Vortos\Metrics\AutoInstrumentation\CqrsMetricsCompilerPass;
+use Vortos\Metrics\AutoInstrumentation\OperationalMessagingMetricsCompilerPass;
 use Vortos\Metrics\AutoInstrumentation\PersistenceMetricsCompilerPass;
 
 /**
@@ -60,6 +61,12 @@ final class MetricsPackage implements PackageInterface
 
         $container->addCompilerPass(
             new PersistenceMetricsCompilerPass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            -10,
+        );
+
+        $container->addCompilerPass(
+            new OperationalMessagingMetricsCompilerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
             -10,
         );

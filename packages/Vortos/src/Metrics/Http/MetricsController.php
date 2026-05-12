@@ -10,6 +10,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Vortos\Http\Attribute\ApiController;
+use Vortos\Metrics\Contract\MetricsCollectorInterface;
 
 /**
  * Exposes Prometheus metrics at GET /metrics.
@@ -41,6 +42,7 @@ final class MetricsController
     public function __construct(
         private readonly CollectorRegistry $registry,
         private readonly string $token = '',
+        private readonly iterable $collectors = [],
     ) {}
 
     public function __invoke(Request $request): Response
@@ -49,6 +51,12 @@ final class MetricsController
             return new Response('Unauthorized', Response::HTTP_UNAUTHORIZED, [
                 'WWW-Authenticate' => 'Bearer realm="metrics"',
             ]);
+        }
+
+        foreach ($this->collectors as $collector) {
+            if ($collector instanceof MetricsCollectorInterface) {
+                $collector->collect();
+            }
         }
 
         $renderer = new RenderTextFormat();

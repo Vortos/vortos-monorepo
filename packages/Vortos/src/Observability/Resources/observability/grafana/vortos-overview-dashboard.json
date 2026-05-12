@@ -108,6 +108,32 @@
     {
       "id": 7,
       "type": "timeseries",
+      "title": "Outbox backlog",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "targets": [
+        {
+          "expr": "sum by (transport, status) (vortos_outbox_backlog_size)",
+          "legendFormat": "{{transport}} {{status}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "DLQ backlog",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "targets": [
+        {
+          "expr": "sum by (transport, event) (vortos_dlq_backlog_size)",
+          "legendFormat": "{{transport}} {{event}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
       "title": "Security denied events",
       "datasource": { "type": "prometheus", "uid": "$datasource" },
       "targets": [
@@ -116,8 +142,7 @@
           "legendFormat": "{{event}}"
         }
       ],
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 }
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 }
     }
   ]
 }
-

@@ -22,6 +22,26 @@ policies:
           duration_minutes: 10
         severity: warning
 
+      - name: Vortos outbox backlog growing
+        type: nrql
+        query: |
+          SELECT sum(vortos_outbox_backlog_size) FROM Metric WHERE status = 'pending'
+        threshold:
+          operator: above
+          value: 100
+          duration_minutes: 10
+        severity: critical
+
+      - name: Vortos DLQ messages present
+        type: nrql
+        query: |
+          SELECT sum(vortos_dlq_backlog_size) FROM Metric
+        threshold:
+          operator: above
+          value: 0
+          duration_minutes: 5
+        severity: critical
+
       - name: Vortos security denial spike
         type: nrql
         query: |
@@ -31,4 +51,3 @@ policies:
           value: 5
           duration_minutes: 10
         severity: critical
-

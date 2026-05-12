@@ -42,7 +42,7 @@ groups:
           description: Messaging error rate is above 2% for 10 minutes.
 
       - alert: VortosDeadLetterMessagesPresent
-        expr: sum(vortos_messaging_dead_letter_messages_total) > 0
+        expr: sum(vortos_dlq_backlog_size) > 0
         for: 5m
         labels:
           severity: page
@@ -50,6 +50,36 @@ groups:
         annotations:
           summary: Vortos dead-letter messages are present
           description: One or more messages were sent to the dead-letter path.
+
+      - alert: VortosOutboxBacklogGrowing
+        expr: sum(vortos_outbox_backlog_size{status="pending"}) > 100
+        for: 10m
+        labels:
+          severity: page
+          service: vortos
+        annotations:
+          summary: Vortos outbox backlog is growing
+          description: Pending outbox messages are accumulating and may not be reaching the broker.
+
+      - alert: VortosOutboxOldestPendingTooOld
+        expr: max(vortos_outbox_oldest_pending_age_seconds) > 300
+        for: 5m
+        labels:
+          severity: page
+          service: vortos
+        annotations:
+          summary: Vortos outbox has old pending messages
+          description: The oldest pending outbox message is older than 5 minutes.
+
+      - alert: VortosDlqOldestFailedTooOld
+        expr: max(vortos_dlq_oldest_failed_age_seconds) > 900
+        for: 5m
+        labels:
+          severity: ticket
+          service: vortos
+        annotations:
+          summary: Vortos DLQ contains unresolved failures
+          description: A failed message has remained in the DLQ for more than 15 minutes.
 
       - alert: VortosPersistenceLatencyHigh
         expr: vortos:db_query_duration:p95_5m > 250
@@ -70,4 +100,3 @@ groups:
         annotations:
           summary: Vortos security denial rate is elevated
           description: Security denials are above 5 per second for 10 minutes.
-

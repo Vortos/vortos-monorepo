@@ -6,6 +6,7 @@ namespace Vortos\Tests\Metrics;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Vortos\Metrics\Command\CollectMetricsCommand;
 use Vortos\Metrics\Adapter\NoOpMetrics;
 use Vortos\Metrics\AutoInstrumentation\HttpMetricsListener;
 use Vortos\Metrics\Config\MetricsAdapter;
@@ -89,6 +90,15 @@ final class MetricsExtensionTest extends TestCase
 
         $disabled = $container->getParameter('vortos.metrics.disabled_modules');
         $this->assertSame([], $disabled);
+    }
+
+    public function test_collector_command_is_registered(): void
+    {
+        $container = $this->makeContainer();
+        (new MetricsExtension())->load([], $container);
+
+        $this->assertTrue($container->hasDefinition(CollectMetricsCommand::class));
+        $this->assertArrayHasKey('console.command', $container->getDefinition(CollectMetricsCommand::class)->getTags());
     }
 
     private function makeContainer(string $env = 'prod'): ContainerBuilder

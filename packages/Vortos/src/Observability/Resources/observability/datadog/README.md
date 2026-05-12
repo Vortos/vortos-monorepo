@@ -10,3 +10,6 @@ Typical runtime config:
 
 Import the JSON files through Datadog API/Terraform/provider tooling and adjust tags, service names, and thresholds per environment.
 
+For outbox and DLQ gauges, run `php bin/console vortos:metrics:collect` on a
+single scheduled worker. This emits point-in-time DogStatsD gauges without doing
+database aggregation on normal HTTP requests.

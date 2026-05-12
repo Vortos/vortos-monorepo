@@ -39,5 +39,11 @@ return new class extends AbstractModuleSchemaProvider {
         $outbox->addIndex(['status', 'created_at'], 'idx_vortos_outbox_status_created', [], [
             'where' => "status = 'pending'",
         ]);
+        $outbox->addIndex(['status', 'transport_name'], 'idx_vortos_outbox_status_transport', [], [
+            'where' => "status IN ('pending', 'failed')",
+        ]);
+        $outbox->addIndex(['transport_name', 'created_at'], 'idx_vortos_outbox_pending_transport_created', [], [
+            'where' => "status = 'pending'",
+        ]);
     }
 };

@@ -41,6 +41,30 @@
     },
     {
       "definition": {
+        "type": "timeseries",
+        "title": "Outbox backlog",
+        "requests": [
+          {
+            "q": "sum:vortos.outbox.backlog.size{*} by {transport,status}",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "DLQ backlog",
+        "requests": [
+          {
+            "q": "sum:vortos.dlq.backlog.size{*} by {transport,event}",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
         "type": "query_value",
         "title": "Security denials",
         "requests": [
@@ -52,4 +76,3 @@
     }
   ]
 }
-

@@ -8,11 +8,13 @@ use Prometheus\CollectorRegistry;
 use Prometheus\Storage\APC;
 use Prometheus\Storage\InMemory;
 use Prometheus\Storage\Redis;
+use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Messaging\Contract\EventBusInterface;
+use Vortos\Metrics\Command\CollectMetricsCommand;
 use Vortos\Metrics\Adapter\NoOpMetrics;
 use Vortos\Metrics\Adapter\PrometheusMetrics;
 use Vortos\Metrics\Adapter\StatsDFlushListener;
@@ -131,6 +133,7 @@ final class MetricsExtension extends Extension
         };
 
         $this->registerAutoInstrumentation($container, $resolved);
+        $this->registerCollectorCommand($container);
     }
 
     private function registerNoOp(ContainerBuilder $container): void
@@ -183,8 +186,20 @@ final class MetricsExtension extends Extension
             ->setArguments([
                 new Reference(CollectorRegistry::class),
                 $resolved['prometheus_endpoint_token'],
+                new TaggedIteratorArgument('vortos.metrics_collector'),
             ])
             ->addTag('vortos.api.controller')
+            ->setPublic(true);
+    }
+
+    private function registerCollectorCommand(ContainerBuilder $container): void
+    {
+        $container->register(CollectMetricsCommand::class, CollectMetricsCommand::class)
+            ->setArguments([
+                new TaggedIteratorArgument('vortos.metrics_collector'),
+                new Reference(MetricsInterface::class),
+            ])
+            ->addTag('console.command')
             ->setPublic(true);
     }
 

@@ -311,6 +311,8 @@ final class MessagingExtension extends Extension
 
     private function registerDeadLetterWriter(ContainerBuilder $container, string $dlqTable): void
     {
+        $container->setParameter('vortos.messaging.dlq_table', $dlqTable);
+
         $container->register(\Vortos\Messaging\DeadLetter\DeadLetterRepository::class, \Vortos\Messaging\DeadLetter\DeadLetterRepository::class)
             ->setAutowired(true)
             ->setArgument('$table', $dlqTable)
@@ -324,6 +326,8 @@ final class MessagingExtension extends Extension
 
     private function registerOutbox(ContainerBuilder $container, array $outboxConfig): void
     {
+        $container->setParameter('vortos.messaging.outbox_table', $outboxConfig['table']);
+
         $container->register(OutboxWriter::class, OutboxWriter::class)
             ->setAutowired(true)
             ->setArgument('$table', $outboxConfig['table'])

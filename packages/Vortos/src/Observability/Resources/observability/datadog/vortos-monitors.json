@@ -14,6 +14,20 @@
     "tags": ["service:vortos", "severity:ticket"]
   },
   {
+    "name": "Vortos outbox backlog growing",
+    "type": "query alert",
+    "query": "avg(last_10m):sum:vortos.outbox.backlog.size{status:pending} > 100",
+    "message": "Vortos outbox pending backlog is growing. Check the outbox relay worker and broker connectivity.",
+    "tags": ["service:vortos", "severity:page"]
+  },
+  {
+    "name": "Vortos DLQ messages present",
+    "type": "query alert",
+    "query": "avg(last_5m):sum:vortos.dlq.backlog.size{*} > 0",
+    "message": "Vortos DLQ contains failed messages that need replay or investigation.",
+    "tags": ["service:vortos", "severity:page"]
+  },
+  {
     "name": "Vortos security denials spike",
     "type": "query alert",
     "query": "sum(last_10m):sum:vortos.security.events.total{result:denied}.as_rate() > 5",
@@ -21,4 +35,3 @@
     "tags": ["service:vortos", "severity:page"]
   }
 ]
-

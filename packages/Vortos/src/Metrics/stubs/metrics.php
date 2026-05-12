@@ -58,6 +58,19 @@ return static function (VortosMetricsConfig $config): void {
     //     )
     // ;
 
+    // Operational messaging gauges are built in when the Messaging module and
+    // Doctrine DBAL are installed:
+    //
+    //   outbox_backlog_size{transport,status}
+    //   outbox_oldest_pending_age_seconds{transport}
+    //   dlq_backlog_size{transport,event}
+    //   dlq_oldest_failed_age_seconds{transport}
+    //
+    // Prometheus refreshes these during /metrics scrapes. Push backends such as
+    // StatsD should run this from cron or a worker:
+    //
+    //   php bin/console vortos:metrics:collect
+
     // Prometheus configuration — only relevant when adapter = Prometheus.
     //
     // Storage options:

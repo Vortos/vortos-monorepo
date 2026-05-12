@@ -28,6 +28,17 @@ return static function (VortosMetricsConfig $config): void {
     // Keep labels low-cardinality: route/status/command/variant are safe.
     // Do not use user IDs, emails, request IDs, raw URLs, or order IDs as labels.
 
+    // Built-in operational messaging gauges:
+    //
+    //   outbox_backlog_size{transport,status}
+    //   outbox_oldest_pending_age_seconds{transport}
+    //   dlq_backlog_size{transport,event}
+    //   dlq_oldest_failed_age_seconds{transport}
+    //
+    // Prometheus refreshes these during /metrics scrapes. For StatsD, schedule:
+    //
+    //   php bin/console vortos:metrics:collect
+
     // Uncomment to disable framework auto-instrumentation for specific modules:
     // $config->disableModule(MetricsModule::Cache, MetricsModule::Persistence);
 };

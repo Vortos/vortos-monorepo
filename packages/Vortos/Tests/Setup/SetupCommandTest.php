@@ -192,7 +192,7 @@ final class SetupCommandTest extends TestCase
         $this->assertSame(0, $tester->getStatusCode());
         $output = $tester->getDisplay();
 
-        $this->assertStringContainsString('Observability: otlp', $output);
+        $this->assertStringContainsString('Monitoring: send to monitoring tools', $output);
         $this->assertStringContainsString('composer config allow-plugins.php-http/discovery true', $output);
         $this->assertStringContainsString('composer config allow-plugins.tbachert/spi true', $output);
         $this->assertStringContainsString("'open-telemetry/api'", $output);
@@ -226,7 +226,7 @@ final class SetupCommandTest extends TestCase
         $this->assertSame(0, $tester->getStatusCode());
         $output = $tester->getDisplay();
 
-        $this->assertStringContainsString('Observability: normal', $output);
+        $this->assertStringContainsString('Monitoring: built-in', $output);
         $this->assertStringNotContainsString('open-telemetry/exporter-otlp', $output);
         $this->assertStringNotContainsString('allow-plugins.php-http/discovery', $output);
     }
@@ -649,7 +649,7 @@ final class SetupCommandTest extends TestCase
         $this->assertStringContainsString('Choose read database', $output);
         $this->assertStringContainsString('Choose cache', $output);
         $this->assertStringContainsString('Choose messaging', $output);
-        $this->assertStringContainsString('Choose observability', $output);
+        $this->assertStringContainsString('Choose monitoring', $output);
         $this->assertStringContainsString('Install MCP server', $output);
         $this->assertSame('custom', $state['profile']);
         $this->assertSame('docker-phpfpm', $state['preset']);

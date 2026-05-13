@@ -72,7 +72,7 @@
   },
   "scripts": {
     "post-create-project-cmd": [
-      "@php vortos setup --first-run"
+      "@php -r \"$dir = basename(getcwd()); echo '\\n\\033[32m✔ Vortos downloaded successfully!\\033[0m\\n\\nTo configure your environment, run:\\n\\n  \\033[1mcd ' . $dir . '\\033[0m\\n  \\033[1mphp vortos setup\\033[0m\\n\\n';\""
     ],
     "post-install-cmd": [
       "php tools/link-packages.php"

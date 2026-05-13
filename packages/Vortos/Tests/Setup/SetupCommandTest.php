@@ -192,7 +192,7 @@ final class SetupCommandTest extends TestCase
         $this->assertSame(0, $tester->getStatusCode());
         $output = $tester->getDisplay();
 
-        $this->assertStringContainsString('Monitoring: send to monitoring tools', $output);
+        $this->assertStringContainsString('Monitoring: Native + OTLP Exporter', $output);
         $this->assertStringContainsString('composer config allow-plugins.php-http/discovery true', $output);
         $this->assertStringContainsString('composer config allow-plugins.tbachert/spi true', $output);
         $this->assertStringContainsString("'open-telemetry/api'", $output);
@@ -226,9 +226,35 @@ final class SetupCommandTest extends TestCase
         $this->assertSame(0, $tester->getStatusCode());
         $output = $tester->getDisplay();
 
-        $this->assertStringContainsString('Monitoring: built-in', $output);
+        $this->assertStringContainsString('Monitoring: Native only', $output);
         $this->assertStringNotContainsString('open-telemetry/exporter-otlp', $output);
         $this->assertStringNotContainsString('allow-plugins.php-http/discovery', $output);
+    }
+
+    public function test_custom_monitoring_prompt_uses_plain_labels(): void
+    {
+        $tester = $this->tester();
+        $tester->setInputs([
+            'custom',
+            '0',
+            '0',
+            '0',
+            '0',
+            '0',
+            '1',
+            '0',
+            'Cancel',
+        ]);
+
+        $tester->execute(['--skip-docker-publish' => true]);
+
+        $output = $tester->getDisplay();
+
+        $this->assertStringContainsString('Choose monitoring', $output);
+        $this->assertStringContainsString('Native + OpenTelemetry (Adds OTLP Push Exporter)', $output);
+        $this->assertStringNotContainsString('observability.normal', $output);
+        $this->assertStringNotContainsString('observability.otlp', $output);
+        $this->assertStringNotContainsString('open-telemetry/exporter-otlp', $output);
     }
 
     public function test_mcp_next_step_is_shown_when_selected(): void

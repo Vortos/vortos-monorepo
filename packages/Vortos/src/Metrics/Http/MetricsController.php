@@ -47,7 +47,11 @@ final class MetricsController
 
     public function __invoke(Request $request): Response
     {
-        if ($this->token !== '' && !$this->isAuthorized($request)) {
+        if ($this->token === '') {
+            return new Response('Metrics endpoint requires a token. Set prometheusEndpointToken() in your metrics config.', Response::HTTP_SERVICE_UNAVAILABLE);
+        }
+
+        if (!$this->isAuthorized($request)) {
             return new Response('Unauthorized', Response::HTTP_UNAUTHORIZED, [
                 'WWW-Authenticate' => 'Bearer realm="metrics"',
             ]);

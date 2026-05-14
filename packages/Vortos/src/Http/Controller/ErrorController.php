@@ -31,7 +31,7 @@ class ErrorController
                 'error' => true,
                 'code' => $statusCode,
                 'message' => $message,
-                'trace' => $this->debug ? $exception->getTrace() : []
+                'trace' => $this->debug ? $this->safeTrace($exception) : []
             ], $statusCode);
         }
 
@@ -120,6 +120,14 @@ class ErrorController
     {
         return $request->headers->get('Content-Type') === 'application/json'
             || $request->headers->get('Accept') === 'application/json';
+    }
+
+    private function safeTrace(\Throwable $e): array
+    {
+        return array_map(
+            static fn(array $frame): array => array_diff_key($frame, ['args' => true]),
+            $e->getTrace()
+        );
     }
 
     private function getCodeSnippet(\Throwable $exception): array

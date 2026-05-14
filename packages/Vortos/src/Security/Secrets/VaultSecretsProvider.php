@@ -104,12 +104,14 @@ final class VaultSecretsProvider implements SecretsInterface
             return $this->activeToken;
         }
 
-        $this->activeToken  = $this->appRoleLogin();
-        $this->tokenExpiresAt = time() + 3600; // conservative — real TTL from Vault response
+        [$token, $leaseDuration] = $this->appRoleLogin();
+        $this->activeToken    = $token;
+        $this->tokenExpiresAt = time() + max(60, $leaseDuration);
         return $this->activeToken;
     }
 
-    private function appRoleLogin(): string
+    /** @return array{0: string, 1: int} [client_token, lease_duration_seconds] */
+    private function appRoleLogin(): array
     {
         $secretId = str_starts_with($this->secretId, 'env:')
             ? ($_ENV[substr($this->secretId, 4)] ?? '')
@@ -120,11 +122,13 @@ final class VaultSecretsProvider implements SecretsInterface
 
         $ch = curl_init($url);
         curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $payload,
-            CURLOPT_TIMEOUT        => 5,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_RETURNTRANSFER  => true,
+            CURLOPT_POST            => true,
+            CURLOPT_POSTFIELDS      => $payload,
+            CURLOPT_TIMEOUT         => 5,
+            CURLOPT_HTTPHEADER      => ['Content-Type: application/json'],
+            CURLOPT_SSL_VERIFYPEER  => true,
+            CURLOPT_SSL_VERIFYHOST  => 2,
         ]);
 
         $response = curl_exec($ch);
@@ -135,9 +139,12 @@ final class VaultSecretsProvider implements SecretsInterface
         }
 
         $data = json_decode((string) $response, true);
-        return $data['auth']['client_token'] ?? throw new \RuntimeException(
+        $token    = $data['auth']['client_token'] ?? throw new \RuntimeException(
             'vortos-security: Vault AppRole login failed — no client_token in response.'
         );
+        $leaseDuration = (int) ($data['auth']['lease_duration'] ?? 3600);
+
+        return [$token, $leaseDuration];
     }
 
     private function httpGet(string $url, string $token): ?string
@@ -150,6 +157,8 @@ final class VaultSecretsProvider implements SecretsInterface
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 5,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_HTTPHEADER     => [
                 'X-Vault-Token: ' . $token,
                 'X-Vault-Request: true',

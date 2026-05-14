@@ -49,11 +49,17 @@ final class FeatureFlagsExtension extends Extension
             ? new Reference(CacheInterface::class)
             : null;
 
+        $redisRef = $container->has(\Redis::class)
+            ? new Reference(\Redis::class, ContainerInterface::NULL_ON_INVALID_REFERENCE)
+            : null;
+
         $container->register(RedisCachingStorage::class, RedisCachingStorage::class)
             ->setArguments([
                 new Reference(DatabaseFlagStorage::class),
                 $cacheRef,
                 60,
+                'default',
+                $redisRef,
             ])
             ->setPublic(false);
 

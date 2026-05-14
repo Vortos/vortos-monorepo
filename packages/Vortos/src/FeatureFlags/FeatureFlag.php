@@ -41,4 +41,32 @@ final class FeatureFlag
     {
         return $this->variants !== null;
     }
+
+    public function toArray(): array
+    {
+        return [
+            'id'          => $this->id,
+            'name'        => $this->name,
+            'description' => $this->description,
+            'enabled'     => $this->enabled,
+            'rules'       => array_map(fn(FlagRule $r) => $r->toArray(), $this->rules),
+            'variants'    => $this->variants,
+            'created_at'  => $this->createdAt->format(\DateTimeInterface::ATOM),
+            'updated_at'  => $this->updatedAt->format(\DateTimeInterface::ATOM),
+        ];
+    }
+
+    public static function fromArray(array $data): self
+    {
+        return new self(
+            id:          $data['id'],
+            name:        $data['name'],
+            description: $data['description'],
+            enabled:     (bool) $data['enabled'],
+            rules:       array_map(fn(array $r) => FlagRule::fromArray($r), $data['rules'] ?? []),
+            variants:    $data['variants'] ?? null,
+            createdAt:   new \DateTimeImmutable($data['created_at']),
+            updatedAt:   new \DateTimeImmutable($data['updated_at']),
+        );
+    }
 }

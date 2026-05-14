@@ -16,6 +16,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Messaging\DependencyInjection\Compiler\HandlerLocatorPass;
 use Vortos\Messaging\DependencyInjection\Compiler\ProjectionDiscoveryCompilerPass;
+use Vortos\Messaging\DependencyInjection\Compiler\ReplaySecretCompilerPass;
 
 final class MessagingPackage implements PackageInterface
 {
@@ -60,6 +61,11 @@ final class MessagingPackage implements PackageInterface
             new HookDiscoveryCompilerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
             50,   // discovers lifecycle hooks — after handlers so hook registry is complete
+        );
+        $container->addCompilerPass(
+            new ReplaySecretCompilerPass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            45,   // injects replay secret into ConsumerRunner and ReplayDeadLetterCommand
         );
     }
 }

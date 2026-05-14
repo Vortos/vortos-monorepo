@@ -35,6 +35,13 @@ use Symfony\Component\Console\Output\OutputInterface;
 )]
 final class ReplayDeadLetterCommand extends Command
 {
+    private string $replaySecret = '';
+
+    public function setReplaySecret(string $secret): void
+    {
+        $this->replaySecret = $secret;
+    }
+
     public function __construct(
         private DeadLetterRepository $repository,
         private ProducerInterface $producer,
@@ -130,6 +137,9 @@ final class ReplayDeadLetterCommand extends Command
                 $headers['x-vortos-worker-attempts'] = 0;
                 $headers['x-vortos-global-replays'] = ($headers['x-vortos-global-replays'] ?? 0) + 1;
                 $headers['x-vortos-target-handler'] = $row['handler_id'];
+                $headers['x-vortos-replay-sig'] = $this->replaySecret !== ''
+                    ? hash_hmac('sha256', $row['handler_id'], $this->replaySecret)
+                    : '';
 
                 unset($headers['x-vortos-failure-reason']);
                 unset($headers['x-vortos-failed-at']);

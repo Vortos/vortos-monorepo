@@ -44,7 +44,15 @@ final class ModuleSchemaProviderScanner
         foreach ($this->additionalPatterns as $pattern) {
             $fullPattern = str_starts_with($pattern, '/') ? $pattern : $this->projectDir . '/' . $pattern;
 
+            $confinedTo = realpath($this->projectDir);
+
             foreach (glob($fullPattern) ?: [] as $absolutePath) {
+                $real = realpath($absolutePath);
+
+                if ($real === false || $confinedTo === false || !str_starts_with($real, $confinedTo . DIRECTORY_SEPARATOR)) {
+                    continue;
+                }
+
                 $this->addProviderFile($providers, $seen, $absolutePath);
             }
         }

@@ -5,11 +5,13 @@ namespace Vortos\Messaging\DeadLetter;
 use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\UuidV7;
+use Vortos\Messaging\Contract\PayloadSanitizerInterface;
 
 /**
  * Writes unprocessable messages to the vortos_failed_messages table.
  * Called by ConsumerRunner after all retry attempts are exhausted.
  * Always logs the failure first, then persists — log survives a DB outage.
+ * Returns true on success, false if persistence failed (caller must not commit offset).
  */
 final class DeadLetterWriter
 {
@@ -18,7 +20,8 @@ final class DeadLetterWriter
     public function __construct(
         private Connection $connection,
         private LoggerInterface $logger,
-        private string $table = 'vortos_failed_messages'
+        private string $table = 'vortos_failed_messages',
+        private ?PayloadSanitizerInterface $sanitizer = null,
     ) {}
 
     public function write(
@@ -30,7 +33,7 @@ final class DeadLetterWriter
         string $failureReason,
         string $exceptionClass,
         int $attemptCount
-    ): void {
+    ): bool {
         $this->logger->critical('Message dead-lettered', [
             'transport'   => $transportName,
             'event_class' => $eventClass,
@@ -38,13 +41,17 @@ final class DeadLetterWriter
             'attempts'    => $attemptCount,
         ]);
 
+        $sanitizedPayload = $this->sanitizer !== null
+            ? $this->sanitizer->sanitize($payload, $headers)
+            : $payload;
+
         try {
             $this->connection->insert($this->table, [
                 'id'              => (string) new UuidV7(),
                 'transport_name'  => $transportName,
                 'event_class'     => $eventClass,
-                'handler_id'     => $handlerId,
-                'payload'         => $payload,
+                'handler_id'      => $handlerId,
+                'payload'         => $sanitizedPayload,
                 'headers'         => json_encode($headers, JSON_THROW_ON_ERROR),
                 'status'          => 'failed',
                 'failure_reason'  => $this->sanitizeReason($failureReason),
@@ -52,10 +59,14 @@ final class DeadLetterWriter
                 'attempt_count'   => $attemptCount,
                 'failed_at'       => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             ]);
+
+            return true;
         } catch (\Throwable $e) {
             $this->logger->error('Failed to persist dead letter entry', [
                 'exception' => $e->getMessage(),
             ]);
+
+            return false;
         }
     }
 

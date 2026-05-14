@@ -12,11 +12,14 @@ final class RedisLockoutStore implements LockoutStoreInterface
     public function incrementAttempts(string $type, string $value, int $windowSeconds): int
     {
         $key = "lockout:attempts:{$type}:{$value}";
-        $count = $this->redis->incrBy($key, 1);
-        if ($count === 1) {
-            $this->redis->expire($key, $windowSeconds);
-        }
-        return $count;
+        $script = <<<'LUA'
+local current = redis.call('INCRBY', KEYS[1], 1)
+if current == 1 then
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+end
+return current
+LUA;
+        return (int) $this->redis->eval($script, [$key, (string) $windowSeconds], 1);
     }
 
     public function lock(string $type, string $value, int $durationSeconds): void

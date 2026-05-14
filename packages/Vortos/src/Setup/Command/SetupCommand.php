@@ -670,10 +670,11 @@ final class SetupCommand extends Command
 
         // 3. Security Section
         $values += [
-            'JWT_SECRET'           => $this->secret('JWT_SECRET', $current, $regenerateSecrets, 32),
-            'HEALTH_TOKEN'         => $this->secret('HEALTH_TOKEN', $current, $regenerateSecrets, 24),
-            'HEALTH_DETAILS'       => (bool) $config['docker'] ? 'never' : 'debug',
-            'HEALTH_EXPOSE_ERRORS' => 'false',
+            'JWT_SECRET'            => $this->secret('JWT_SECRET', $current, $regenerateSecrets, 32),
+            'VORTOS_REPLAY_SECRET'  => $this->secret('VORTOS_REPLAY_SECRET', $current, $regenerateSecrets, 32),
+            'HEALTH_TOKEN'          => $this->secret('HEALTH_TOKEN', $current, $regenerateSecrets, 24),
+            'HEALTH_DETAILS'        => (bool) $config['docker'] ? 'never' : 'debug',
+            'HEALTH_EXPOSE_ERRORS'  => 'false',
         ];
 
         // 4. Databases

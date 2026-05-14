@@ -83,7 +83,10 @@ final class CorsMiddleware implements EventSubscriberInterface
 
         $requestedHeaders = $request->headers->get('Access-Control-Request-Headers', '');
         if ($requestedHeaders !== '') {
-            $response->headers->set('Access-Control-Allow-Headers', $requestedHeaders);
+            $allowed = array_map('strtolower', $config['allowed_headers']);
+            $requested = array_map('trim', explode(',', strtolower($requestedHeaders)));
+            $safe = array_filter($requested, fn(string $h) => in_array($h, $allowed, true));
+            $response->headers->set('Access-Control-Allow-Headers', implode(', ', $safe));
         } else {
             $response->headers->set(
                 'Access-Control-Allow-Headers',

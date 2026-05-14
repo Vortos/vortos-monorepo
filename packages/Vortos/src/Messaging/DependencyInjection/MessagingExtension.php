@@ -14,8 +14,10 @@ use Vortos\Messaging\Contract\ConsumerLocatorInterface;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Messaging\Contract\OutboxInterface;
 use Vortos\Messaging\Contract\OutboxPollerInterface;
+use Vortos\Messaging\Contract\PayloadSanitizerInterface;
 use Vortos\Messaging\Contract\ProducerInterface;
 use Vortos\Messaging\DeadLetter\DeadLetterWriter;
+use Vortos\Messaging\DeadLetter\NullPayloadSanitizer;
 use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryBroker;
 use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryConsumer;
 use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryProducer;
@@ -140,9 +142,10 @@ final class MessagingExtension extends Extension
     private function initializeParameters(ContainerBuilder $container): void
     {
         $defaults = [
-            'vortos.event_producer_map' => [],
-            'vortos.handlers'           => [],
-            'vortos.hooks'              => [],
+            'vortos.event_producer_map'              => [],
+            'vortos.handlers'                        => [],
+            'vortos.hooks'                           => [],
+            'vortos.messaging.replay_secret_default' => '',
         ];
 
         foreach ($defaults as $key => $value) {
@@ -150,6 +153,11 @@ final class MessagingExtension extends Extension
                 $container->setParameter($key, $value);
             }
         }
+
+        $container->setParameter(
+            'vortos.messaging.replay_secret',
+            '%env(default:vortos.messaging.replay_secret_default:VORTOS_REPLAY_SECRET)%',
+        );
     }
 
     private function registerInProcessBus(ContainerBuilder $container): void
@@ -318,9 +326,16 @@ final class MessagingExtension extends Extension
             ->setArgument('$table', $dlqTable)
             ->setPublic(false);
 
+        $container->register(NullPayloadSanitizer::class, NullPayloadSanitizer::class)
+            ->setPublic(false);
+
+        $container->setAlias(PayloadSanitizerInterface::class, NullPayloadSanitizer::class)
+            ->setPublic(false);
+
         $container->register(DeadLetterWriter::class, DeadLetterWriter::class)
             ->setAutowired(true)
             ->setArgument('$table', $dlqTable)
+            ->setArgument('$sanitizer', new Reference(PayloadSanitizerInterface::class))
             ->setPublic(false);
     }
 

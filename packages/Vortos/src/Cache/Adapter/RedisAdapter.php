@@ -85,11 +85,11 @@ final class RedisAdapter implements TaggedCacheInterface
         $prefixed = $this->prefixedKey($key);
         $serialized = serialize($value);
 
-        if ($seconds > 0) {
-            return (bool) $this->redis->setex($prefixed, $seconds, $serialized);
+        if ($seconds <= 0) {
+            return false;
         }
 
-        return (bool) $this->redis->set($prefixed, $serialized);
+        return (bool) $this->redis->setex($prefixed, $seconds, $serialized);
     }
 
     /**
@@ -169,15 +169,15 @@ final class RedisAdapter implements TaggedCacheInterface
             return true;
         }
 
+        if ($seconds <= 0) {
+            return false;
+        }
+
         $this->redis->multi(\Redis::PIPELINE);
         foreach ($valueArray as $key => $value) {
             $prefixed = $this->prefixedKey($key);
             $serialized = serialize($value);
-            if ($seconds > 0) {
-                $this->redis->setex($prefixed, $seconds, $serialized);
-            } else {
-                $this->redis->set($prefixed, $serialized);
-            }
+            $this->redis->setex($prefixed, $seconds, $serialized);
         }
         $replies = $this->redis->exec();
 
@@ -315,10 +315,10 @@ final class RedisAdapter implements TaggedCacheInterface
 
         if ($ttl instanceof \DateInterval) {
             $seconds = (new \DateTimeImmutable())->add($ttl)->getTimestamp() - time();
-            return max(1, $seconds);
+            return max(0, $seconds);
         }
 
-        return $ttl;
+        return max(0, $ttl);
     }
 
     /**

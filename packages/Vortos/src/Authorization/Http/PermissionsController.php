@@ -7,11 +7,13 @@ namespace Vortos\Authorization\Http;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
+use Vortos\Auth\Attribute\RequiresAuth;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Authorization\Contract\PermissionResolverInterface;
 use Vortos\Http\Attribute\ApiController;
 
 #[ApiController]
+#[RequiresAuth]
 #[Route('/api/me/permissions', name: 'vortos.me.permissions', methods: ['GET'])]
 final class PermissionsController
 {
@@ -25,12 +27,7 @@ final class PermissionsController
         $identity = $this->currentUser->get();
 
         if (!$identity->isAuthenticated()) {
-            return new JsonResponse([
-                'permissions' => [],
-                'roles' => [],
-                'expandedRoles' => [],
-                'version' => hash('sha256', json_encode([], JSON_THROW_ON_ERROR)),
-            ]);
+            return new JsonResponse(['error' => 'Unauthorized'], 401);
         }
 
         $resolved = $this->resolver->resolve($identity);

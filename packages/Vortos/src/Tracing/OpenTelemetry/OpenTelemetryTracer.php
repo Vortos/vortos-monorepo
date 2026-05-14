@@ -33,10 +33,23 @@ final class OpenTelemetryTracer implements TracingInterface, ResetInterface
     /** @var array<string, string> */
     private array $baggage = [];
 
+    /**
+     * Inbound baggage keys accepted from external requests.
+     * Any key not on this list is discarded to prevent trace-context poisoning.
+     */
+    private const ALLOWED_BAGGAGE_KEYS = [
+        'correlation_id',
+        'request_id',
+        'tenant_id',
+        'session_id',
+    ];
+
     public function __construct(
         private TracerInterface $tracer,
         private TextMapPropagatorInterface $propagator,
         private mixed $shutdown = null,
+        /** @var list<string> */
+        private array $allowedBaggageKeys = self::ALLOWED_BAGGAGE_KEYS,
     ){
     }
 
@@ -136,7 +149,11 @@ final class OpenTelemetryTracer implements TracingInterface, ResetInterface
             [$key, $value] = array_pad(explode('=', trim($member), 2), 2, '');
             $key = rawurldecode($key);
             $value = rawurldecode($value);
-            if ($key !== '' && preg_match('/^[a-zA-Z0-9_.-]{1,64}$/', $key) && strlen($value) <= 256) {
+            if ($key !== ''
+                && preg_match('/^[a-zA-Z0-9_.-]{1,64}$/', $key)
+                && strlen($value) <= 256
+                && in_array($key, $this->allowedBaggageKeys, true)
+            ) {
                 $this->baggage[$key] = $value;
             }
         }

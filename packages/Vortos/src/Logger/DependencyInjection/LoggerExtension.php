@@ -254,21 +254,31 @@ final class LoggerExtension extends Extension
             }
 
             foreach ($resolved['slack_handlers'] as $i => $slack) {
-                $handlerId = $serviceId . '.slack_' . $i;
-                $container->register($handlerId, SlackWebhookHandler::class)
+                $innerHandlerId  = $serviceId . '.slack_' . $i . '.inner';
+                $bufferedHandlerId = $serviceId . '.slack_' . $i;
+                $container->register($innerHandlerId, SlackWebhookHandler::class)
                     ->setArguments([$slack['webhook'], null, null, true, null, false, false, $slack['minLevel']])
                     ->setShared(true)
                     ->setPublic(false);
-                $def->addMethodCall('pushHandler', [new Reference($handlerId)]);
+                $container->register($bufferedHandlerId, BufferHandler::class)
+                    ->setArguments([new Reference($innerHandlerId), 0, $slack['minLevel'], true, true])
+                    ->setShared(true)
+                    ->setPublic(false);
+                $def->addMethodCall('pushHandler', [new Reference($bufferedHandlerId)]);
             }
 
             foreach ($resolved['email_handlers'] as $i => $email) {
-                $handlerId = $serviceId . '.email_' . $i;
-                $container->register($handlerId, NativeMailerHandler::class)
+                $innerHandlerId    = $serviceId . '.email_' . $i . '.inner';
+                $bufferedHandlerId = $serviceId . '.email_' . $i;
+                $container->register($innerHandlerId, NativeMailerHandler::class)
                     ->setArguments([$email['to'], 'Application Alert', 'noreply@localhost', $email['minLevel']])
                     ->setShared(true)
                     ->setPublic(false);
-                $def->addMethodCall('pushHandler', [new Reference($handlerId)]);
+                $container->register($bufferedHandlerId, BufferHandler::class)
+                    ->setArguments([new Reference($innerHandlerId), 0, $email['minLevel'], true, true])
+                    ->setShared(true)
+                    ->setPublic(false);
+                $def->addMethodCall('pushHandler', [new Reference($bufferedHandlerId)]);
             }
 
             if ($container->hasDefinition('vortos.logger.processor.introspection')) {

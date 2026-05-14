@@ -51,6 +51,13 @@ final class KafkaConsumerFactory
         }
 
         $ssl = $transportConfig['security']['ssl'] ?? [];
+
+        if (!empty($sasl) && empty($ssl)) {
+            throw new \InvalidArgumentException(
+                "Transport '{$consumerConfig['transport']}' uses SASL without SSL — credentials would be sent in plaintext. Configure SSL alongside SASL."
+            );
+        }
+
         if (!empty($ssl)) {
 
             if (isset($ssl['ca_location'])) {

@@ -657,8 +657,8 @@ final class SetupCommand extends Command
         // 1. App Section
         $values = [
             'APP_NAME'  => $projectName,
-            'APP_ENV'   => 'dev',
-            'APP_DEBUG' => 'true',
+            'APP_ENV'   => (bool) $config['docker'] ? 'prod' : 'dev',
+            'APP_DEBUG' => (bool) $config['docker'] ? 'false' : 'true',
         ];
 
         // 2. HTTP / Runtime Section
@@ -672,7 +672,7 @@ final class SetupCommand extends Command
         $values += [
             'JWT_SECRET'           => $this->secret('JWT_SECRET', $current, $regenerateSecrets, 32),
             'HEALTH_TOKEN'         => $this->secret('HEALTH_TOKEN', $current, $regenerateSecrets, 24),
-            'HEALTH_DETAILS'       => 'debug',
+            'HEALTH_DETAILS'       => (bool) $config['docker'] ? 'never' : 'debug',
             'HEALTH_EXPOSE_ERRORS' => 'false',
         ];
 
@@ -694,6 +694,7 @@ final class SetupCommand extends Command
             'VORTOS_READ_DB_NAME'      => (bool) $config['mongo'] ? $projectName : '',
             'VORTOS_READ_DB_USER'      => (bool) $config['mongo'] ? 'root' : '',
             'VORTOS_READ_DB_PASSWORD'  => (bool) $config['mongo'] ? $readDbPassword : '',
+            'VORTOS_CURSOR_SECRET'     => (bool) $config['mongo'] ? $this->secret('VORTOS_CURSOR_SECRET', $current, $regenerateSecrets, 32) : '',
         ];
 
         // 5. Cache & Messaging

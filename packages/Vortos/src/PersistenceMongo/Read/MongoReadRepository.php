@@ -75,6 +75,7 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
 {
     private Database $database;
     private ?TracingInterface $tracer = null;
+    private string $cursorSecret = '';
 
     public function __construct(Client $client, string $databaseName)
     {
@@ -85,6 +86,12 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
     public function setTracer(TracingInterface $tracer): void
     {
         $this->tracer = $tracer;
+    }
+
+    /** @internal Injected by MongoCursorSecretCompilerPass at compile time */
+    public function setCursorSecret(string $secret): void
+    {
+        $this->cursorSecret = $secret;
     }
 
     /**
@@ -200,7 +207,7 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
     ): array {
         return $this->traced('find', function () use ($criteria, $sort, $limit, $cursor): array {
             if ($cursor !== null) {
-                $cursorFilter = $this->decodeCursor($cursor);
+                $cursorFilter = $this->decodeCursor($cursor, $sort);
                 $criteria = array_merge($criteria, $cursorFilter);
             }
 
@@ -422,27 +429,63 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
 
         $position['_id'] = $lastItem['_id'] ?? $lastItem['id'] ?? null;
 
-        return base64_encode(json_encode($position, JSON_THROW_ON_ERROR));
+        $encoded = base64_encode(json_encode($position, JSON_THROW_ON_ERROR));
+
+        if ($this->cursorSecret !== '') {
+            $encoded .= '.' . hash_hmac('sha256', $encoded, $this->cursorSecret);
+        }
+
+        return $encoded;
     }
 
     /**
      * Decode a cursor string into MongoDB filter conditions.
      *
-     * Converts the base64-encoded position back into a $gt or $lt filter
-     * for each sort field. Ascending sort uses $gt (greater than last seen).
-     * Descending sort uses $lt (less than last seen).
+     * Verifies the HMAC signature when a cursor secret is configured, then converts
+     * the position back into $gt/$lt filters using the sort direction for each field.
+     * Only fields present in $sort plus '_id' are accepted — any extra key in the
+     * decoded payload is silently dropped, preventing operator injection.
      *
      * @param  string $cursor Opaque cursor from encodeCursor()
+     * @param  array  $sort   Sort definition ['field' => 'asc'|'desc']
      * @return array  MongoDB filter conditions to append to the query criteria
+     * @throws \InvalidArgumentException on tampered or malformed cursor
      */
-    private function decodeCursor(string $cursor): array
+    private function decodeCursor(string $cursor, array $sort): array
     {
-        $position = json_decode(base64_decode($cursor), true, 512, JSON_THROW_ON_ERROR);
+        $encoded = $cursor;
 
+        if ($this->cursorSecret !== '') {
+            $dotPos = strrpos($cursor, '.');
+            if ($dotPos === false) {
+                throw new \InvalidArgumentException('Invalid pagination cursor.');
+            }
+            $encoded = substr($cursor, 0, $dotPos);
+            $sig     = substr($cursor, $dotPos + 1);
+            if (!hash_equals(hash_hmac('sha256', $encoded, $this->cursorSecret), $sig)) {
+                throw new \InvalidArgumentException('Invalid pagination cursor.');
+            }
+        }
+
+        $position = json_decode(base64_decode($encoded), true, 512, JSON_THROW_ON_ERROR);
+
+        if (!is_array($position)) {
+            throw new \InvalidArgumentException('Invalid pagination cursor.');
+        }
+
+        $allowedFields = array_fill_keys(array_keys($sort), true) + ['_id' => true];
         $filter = [];
 
-        foreach ($position as $field => $value) {
-            $filter[$field] = ['$gt' => $value];
+        foreach ($allowedFields as $field => $_) {
+            if (!array_key_exists($field, $position)) {
+                continue;
+            }
+            $value = $position[$field];
+            if (!is_scalar($value) && $value !== null) {
+                throw new \InvalidArgumentException('Invalid pagination cursor.');
+            }
+            $op = ($sort[$field] ?? 'asc') === 'desc' ? '$lt' : '$gt';
+            $filter[$field] = [$op => $value];
         }
 
         return $filter;

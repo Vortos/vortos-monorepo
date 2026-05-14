@@ -23,6 +23,12 @@ final class SignatureVerifier
      */
     public function verify(Request $request, string $secret, string $header, string $algorithm = 'sha256'): bool
     {
+        if ($secret === '') {
+            throw new \RuntimeException(
+                'Signature verification secret is empty. Set the env variable referenced in #[RequiresSignature].'
+            );
+        }
+
         $receivedHeader = $request->headers->get($header, '');
         if ($receivedHeader === '') {
             return false;
@@ -54,6 +60,12 @@ final class SignatureVerifier
         int     $replayWindowSeconds,
         string  $algorithm = 'sha256',
     ): bool {
+        if ($secret === '') {
+            throw new \RuntimeException(
+                'Signature verification secret is empty. Set the env variable referenced in #[RequiresSignature].'
+            );
+        }
+
         $sigHeader = $request->headers->get($signatureHeader, '');
         if ($sigHeader === '') {
             return false;
@@ -79,13 +91,29 @@ final class SignatureVerifier
     }
 
     /**
-     * Resolves 'env:VAR_NAME' and 'secrets:path' references in secret strings.
+     * Resolves 'env:VAR_NAME' references in secret strings.
      * Plain strings are returned as-is.
+     *
+     * @throws \RuntimeException if the resolved secret is empty
      */
     public function resolveSecret(string $secret): string
     {
         if (str_starts_with($secret, 'env:')) {
-            return $_ENV[substr($secret, 4)] ?? '';
+            $varName  = substr($secret, 4);
+            $resolved = $_ENV[$varName] ?? '';
+            if ($resolved === '') {
+                throw new \RuntimeException(
+                    "Signature secret env variable \"{$varName}\" is not set. "
+                    . 'Add it to your .env file to enable webhook signature verification.'
+                );
+            }
+            return $resolved;
+        }
+
+        if ($secret === '') {
+            throw new \RuntimeException(
+                'Signature verification secret is empty. Pass a non-empty secret or use env:VAR_NAME.'
+            );
         }
 
         return $secret;

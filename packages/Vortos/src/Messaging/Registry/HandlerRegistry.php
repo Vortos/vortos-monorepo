@@ -58,6 +58,17 @@ final class HandlerRegistry
         return isset($this->handlers[$consumerName][$eventClass]);
     }
 
+    /** Returns true if the event class is registered for at least one consumer. */
+    public function isKnownEventClass(string $eventClass): bool
+    {
+        foreach ($this->handlers as $consumer) {
+            if (isset($consumer[$eventClass])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Returns all consumer names that have at least one registered handler. */
     public function allConsumers():array
     {

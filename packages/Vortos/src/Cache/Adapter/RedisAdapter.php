@@ -51,6 +51,8 @@ final class RedisAdapter implements TaggedCacheInterface
         private \Redis $redis,
         private string $prefix = '',
         private int $defaultTtl = 3600,
+        /** @var list<class-string> */
+        private array $allowedClasses = [],
     ) {}
 
     /**
@@ -323,10 +325,15 @@ final class RedisAdapter implements TaggedCacheInterface
      * Unserialize a raw Redis string, returning $default if the data is corrupted.
      *
      * `b:0;` is the serialized form of false — must not be treated as a failure.
+     *
+     * Object instantiation is restricted to $allowedClasses. When empty, only scalars
+     * and arrays are permitted — objects trigger a deserialization failure and return
+     * $default. Configure allowed classes via VortosCacheConfig::allowSerializedClasses().
      */
     private function safeUnserialize(string $raw, mixed $default): mixed
     {
-        $value = unserialize($raw);
+        $options = ['allowed_classes' => $this->allowedClasses ?: false];
+        $value = unserialize($raw, $options);
 
         if ($value === false && $raw !== 'b:0;') {
             return $default;

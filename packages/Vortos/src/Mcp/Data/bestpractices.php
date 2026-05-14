@@ -20,10 +20,12 @@ return [
         'Enable SecurityHeadersMiddleware in production — HSTS, CSP, X-Frame-Options, X-Content-Type-Options.',
         'Enable CsrfMiddleware for all state-changing web routes (POST/PUT/PATCH/DELETE that originate from a browser).',
         'Use RequestSignatureMiddleware for all webhook endpoints — verify HMAC before processing the payload.',
+        'JWT secret (HS256) must be at least 64 hex characters — use bin2hex(random_bytes(32)). For multi-service architectures use RS256: configure ->algorithm("RS256") with ->privateKeyPath() / ->publicKeyPath() so verifying services only hold the public key.',
         'Rotate JWT secrets without downtime — issue new tokens with the new secret, let old tokens expire naturally.',
         'Use DataMaskingProcessor to strip PII (email, phone, card numbers) from log entries before they reach Sentry/Slack.',
         'Rate limiting and quota enforcement live in AuthPackage — use RedisRateLimitStore in production, not InMemory.',
         'API keys for M2M calls go through ApiKeyAuthMiddleware — never accept raw API keys in query strings, only headers.',
+        'HEALTH_DETAILS defaults to "never" — set HEALTH_DETAILS=token and a strong HEALTH_TOKEN in production to allow monitored access to detailed health output without exposing it publicly.',
         'Set HEALTH_EXPOSE_ERRORS=false in production — the /health endpoints must not leak stack traces.',
     ],
 

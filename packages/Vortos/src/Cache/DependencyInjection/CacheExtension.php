@@ -98,6 +98,7 @@ final class CacheExtension extends Extension
                     new Reference(\Redis::class),
                     $resolved['prefix'],
                     $resolved['default_ttl'],
+                    $resolved['allowed_classes'],
                 ])
                 ->setShared(true)
                 ->setPublic(false);

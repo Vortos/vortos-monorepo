@@ -15,11 +15,17 @@ final class StubScanner
 
     public function resolve(string $stubName): string
     {
-        $filename = $stubName . '.stub';
+        if (str_contains($stubName, "\0")) {
+            throw new \InvalidArgumentException('Invalid stub name.');
+        }
 
-        $userStub = $this->projectDir . '/stubs/' . $filename;
-        if (file_exists($userStub)) {
-            return $userStub;
+        $filename = $stubName . '.stub';
+        $stubsDir = $this->projectDir . '/stubs';
+        $resolved = realpath($stubsDir . '/' . $filename);
+        $base     = realpath($stubsDir);
+
+        if ($resolved !== false && $base !== false && str_starts_with($resolved, $base . DIRECTORY_SEPARATOR)) {
+            return $resolved;
         }
 
         $paths = $this->resolver->findInModules('Resources/stubs/' . $filename);

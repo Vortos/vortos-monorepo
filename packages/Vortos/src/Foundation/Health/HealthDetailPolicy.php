@@ -24,7 +24,7 @@ final class HealthDetailPolicy
     public static function fromEnvironment(): self
     {
         return new self(
-            self::normalizePolicy((string) ($_ENV['HEALTH_DETAILS'] ?? 'debug')),
+            self::normalizePolicy((string) ($_ENV['HEALTH_DETAILS'] ?? 'never')),
             $_ENV['HEALTH_TOKEN'] ?? null,
             (string) ($_ENV['APP_ENV'] ?? 'prod'),
             self::envBool($_ENV['APP_DEBUG'] ?? false),
@@ -68,7 +68,7 @@ final class HealthDetailPolicy
 
         return in_array($policy, [self::NEVER, self::TOKEN, self::DEBUG, self::ALWAYS], true)
             ? $policy
-            : self::DEBUG;
+            : self::NEVER;
     }
 
     private static function envBool(mixed $value): bool

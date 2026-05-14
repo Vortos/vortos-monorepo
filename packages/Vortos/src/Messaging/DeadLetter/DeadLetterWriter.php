@@ -13,6 +13,8 @@ use Symfony\Component\Uid\UuidV7;
  */
 final class DeadLetterWriter
 {
+    private const MAX_REASON_LENGTH = 2000;
+
     public function __construct(
         private Connection $connection,
         private LoggerInterface $logger,
@@ -44,8 +46,8 @@ final class DeadLetterWriter
                 'handler_id'     => $handlerId,
                 'payload'         => $payload,
                 'headers'         => json_encode($headers, JSON_THROW_ON_ERROR),
-                'status' => 'failed',
-                'failure_reason'  => $failureReason,
+                'status'          => 'failed',
+                'failure_reason'  => $this->sanitizeReason($failureReason),
                 'exception_class' => $exceptionClass,
                 'attempt_count'   => $attemptCount,
                 'failed_at'       => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
@@ -55,5 +57,22 @@ final class DeadLetterWriter
                 'exception' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Strips control characters and truncates to prevent attacker-controlled
+     * exception messages (which may contain raw payload fragments) from being
+     * stored verbatim in the database.
+     */
+    private function sanitizeReason(string $reason): string
+    {
+        // Strip control characters except tab (\x09) and newline (\x0A)
+        $sanitized = preg_replace('/[\x00-\x08\x0B-\x1F\x7F]/u', '', $reason) ?? '';
+
+        if (mb_strlen($sanitized) <= self::MAX_REASON_LENGTH) {
+            return $sanitized;
+        }
+
+        return mb_substr($sanitized, 0, self::MAX_REASON_LENGTH) . ' [truncated]';
     }
 }

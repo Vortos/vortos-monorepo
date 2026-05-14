@@ -37,6 +37,11 @@ final class Configuration implements ConfigurationInterface
                     ->defaultValue(3600)
                     ->info('Default TTL in seconds for keys stored without explicit TTL')
                 ->end()
+                ->arrayNode('allowed_classes')
+                    ->scalarPrototype()->end()
+                    ->defaultValue([])
+                    ->info('FQCNs of classes permitted during deserialization. Empty = scalars/arrays only.')
+                ->end()
             ->end();
 
         return $treeBuilder;

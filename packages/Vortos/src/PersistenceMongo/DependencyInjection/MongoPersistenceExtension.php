@@ -60,6 +60,7 @@ final class MongoPersistenceExtension extends Extension
             ->setPublic(true);
 
         $container->setParameter('vortos.persistence.mongo.database_name', $database);
+        $container->setParameter('vortos.persistence.mongo.cursor_secret', $_ENV['VORTOS_CURSOR_SECRET'] ?? '');
 
         $container->register(MongoHealthCheck::class, MongoHealthCheck::class)
             ->setArgument('$client', new Reference(Client::class))

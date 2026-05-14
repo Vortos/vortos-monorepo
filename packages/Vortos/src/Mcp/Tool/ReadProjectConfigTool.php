@@ -42,11 +42,18 @@ final class ReadProjectConfigTool implements ToolInterface
         $filter = $arguments['file'] ?? null;
 
         if ($filter !== null) {
-            $path = $configDir . '/' . ltrim($filter, '/') . '.php';
-            if (!file_exists($path)) {
+            if (str_contains($filter, "\0")) {
+                return 'Invalid config file name.';
+            }
+
+            $resolved = realpath($configDir . '/' . ltrim($filter, '/') . '.php');
+            $base     = realpath($configDir);
+
+            if ($resolved === false || $base === false || !str_starts_with($resolved, $base . DIRECTORY_SEPARATOR)) {
                 return "Config file not found: config/{$filter}.php";
             }
-            $files = [$path];
+
+            $files = [$resolved];
         } else {
             $files = glob($configDir . '/*.php') ?: [];
             sort($files);

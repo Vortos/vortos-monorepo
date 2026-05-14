@@ -93,8 +93,9 @@ final class JwtService
             'type' => 'refresh',
         ];
 
-        $accessToken = JWT::encode($accessPayload, $this->config->secret, 'HS256');
-        $refreshToken = JWT::encode($refreshPayload, $this->config->secret, 'HS256');
+        $signingKey   = $this->config->algorithm === 'RS256' ? $this->config->privateKey : $this->config->secret;
+        $accessToken  = JWT::encode($accessPayload, $signingKey, $this->config->algorithm);
+        $refreshToken = JWT::encode($refreshPayload, $signingKey, $this->config->algorithm);
 
         // Session enforcement — may throw SessionLimitExceededException
         $this->sessionEnforcer?->enforceOnIssue($identity, $jti, $now, $this->config->refreshTokenTtl);
@@ -222,7 +223,8 @@ final class JwtService
 
     private function decode(string $token): array
     {
-        return (array) JWT::decode($token, new Key($this->config->secret, 'HS256'));
+        $verifyKey = $this->config->algorithm === 'RS256' ? $this->config->publicKey : $this->config->secret;
+        return (array) JWT::decode($token, new Key($verifyKey, $this->config->algorithm));
     }
 
     /**

@@ -46,6 +46,8 @@ final class VortosCacheConfig
     private string $dsn = 'redis://redis:6379';
     private string $prefix = 'vortos_';
     private int $defaultTtl = 3600;
+    /** @var list<class-string> */
+    private array $allowedClasses = [];
 
     public function __construct()
     {
@@ -107,14 +109,29 @@ final class VortosCacheConfig
         return $this;
     }
 
+    /**
+     * Allow specific classes to be instantiated when deserializing cached objects.
+     *
+     * By default, only scalars and arrays can be deserialized from Redis. Pass the
+     * FQCNs of value objects or DTOs you intentionally cache as PHP objects.
+     *
+     * @param list<class-string> $classes
+     */
+    public function allowSerializedClasses(array $classes): static
+    {
+        $this->allowedClasses = $classes;
+        return $this;
+    }
+
     /** @internal Used by CacheExtension */
     public function toArray(): array
     {
         return [
-            'driver'      => $this->driver,
-            'dsn'         => $this->dsn,
-            'prefix'      => $this->prefix,
-            'default_ttl' => $this->defaultTtl,
+            'driver'          => $this->driver,
+            'dsn'             => $this->dsn,
+            'prefix'          => $this->prefix,
+            'default_ttl'     => $this->defaultTtl,
+            'allowed_classes' => $this->allowedClasses,
         ];
     }
 }

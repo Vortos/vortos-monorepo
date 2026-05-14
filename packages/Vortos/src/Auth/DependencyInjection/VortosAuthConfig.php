@@ -9,7 +9,10 @@ use Vortos\Auth\Storage\InMemoryTokenStorage;
 
 final class VortosAuthConfig
 {
+    private string $algorithm = 'HS256';
     private string $secret = '';
+    private string $privateKey = '';
+    private string $publicKey = '';
     private int $accessTokenTtl = 900;
     private int $refreshTokenTtl = 604800;
     private string $issuer = 'vortos';
@@ -20,9 +23,59 @@ final class VortosAuthConfig
     private bool $rateLimitHeaders = true;
     private bool $problemDetails = true;
 
+    public function algorithm(string $algorithm): static
+    {
+        $this->algorithm = $algorithm;
+        return $this;
+    }
+
     public function secret(string $secret): static
     {
         $this->secret = $secret;
+        return $this;
+    }
+
+    public function privateKey(string $pem): static
+    {
+        $this->privateKey = $pem;
+        return $this;
+    }
+
+    public function privateKeyPath(string $path): static
+    {
+        if ($path === '') {
+            return $this;
+        }
+
+        if (!is_file($path) || !is_readable($path)) {
+            throw new \InvalidArgumentException(
+                "Vortos Auth: RS256 private key file not found or not readable at: {$path}"
+            );
+        }
+
+        $this->privateKey = (string) file_get_contents($path);
+        return $this;
+    }
+
+    public function publicKey(string $pem): static
+    {
+        $this->publicKey = $pem;
+        return $this;
+    }
+
+    public function publicKeyPath(string $path): static
+    {
+        if ($path === '') {
+            return $this;
+        }
+
+        if (!is_file($path) || !is_readable($path)) {
+            throw new \InvalidArgumentException(
+                "Vortos Auth: RS256 public key file not found or not readable at: {$path}"
+            );
+        }
+
+        $this->publicKey = (string) file_get_contents($path);
         return $this;
     }
 
@@ -90,7 +143,10 @@ final class VortosAuthConfig
     public function toArray(): array
     {
         return [
+            'algorithm'                   => $this->algorithm,
             'secret'                      => $this->secret,
+            'private_key'                 => $this->privateKey,
+            'public_key'                  => $this->publicKey,
             'access_token_ttl'            => $this->accessTokenTtl,
             'refresh_token_ttl'           => $this->refreshTokenTtl,
             'issuer'                      => $this->issuer,

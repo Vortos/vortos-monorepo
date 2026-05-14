@@ -76,7 +76,10 @@ final class AuthExtension extends Extension
         // JwtConfig
         $container->register(JwtConfig::class, JwtConfig::class)
             ->setArguments([
+                $resolved['algorithm'],
                 $resolved['secret'],
+                $resolved['private_key'],
+                $resolved['public_key'],
                 $resolved['access_token_ttl'],
                 $resolved['refresh_token_ttl'],
                 $resolved['issuer'],

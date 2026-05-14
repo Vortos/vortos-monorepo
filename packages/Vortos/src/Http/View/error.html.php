@@ -427,7 +427,9 @@
             </div>
         </div>
 
-        <?php if (isset($isDebug) && $isDebug && isset($exception)): ?>
+        <?php if (isset($isDebug) && $isDebug && isset($exception)):
+            $h = static fn(mixed $v): string => htmlspecialchars((string) $v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        ?>
 
             <div class="layer-crash">
                 <div class="crash-header">
@@ -436,17 +438,17 @@
                 </div>
 
                 <div class="exception-title">
-                    <?= get_class($exception) ?>
+                    <?= $h(get_class($exception)) ?>
                 </div>
 
                 <div class="exception-message">
-                    <?= htmlspecialchars($exception->getMessage()) ?>
+                    <?= $h($exception->getMessage()) ?>
                 </div>
 
                 <div class="file-location">
                     <span>ORIGIN:</span>
-                    <span class="file-path"><?= $exception->getFile() ?></span>
-                    <span class="line-number"><?= $exception->getLine() ?></span>
+                    <span class="file-path"><?= $h($exception->getFile()) ?></span>
+                    <span class="line-number"><?= $h($exception->getLine()) ?></span>
                 </div>
 
                 <div class="code-viewer">
@@ -476,11 +478,11 @@
                                 <div class="step-index"><?= $i ?></div>
                                 <div class="step-content">
                                     <span class="step-method">
-                                        <?= isset($step['class']) ? $step['class'] . $step['type'] : '' ?><?= $step['function'] ?>()
+                                        <?= isset($step['class']) ? $h($step['class']) . $h($step['type']) : '' ?><?= $h($step['function']) ?>()
                                     </span>
                                     <?php if (isset($step['file'])): ?>
                                         <div class="step-file">
-                                            <?= $step['file'] ?> : <em><?= $step['line'] ?></em>
+                                            <?= $h($step['file']) ?> : <em><?= $h($step['line']) ?></em>
                                         </div>
                                     <?php else: ?>
                                         <div class="step-file">[Internal PHP Function]</div>
@@ -496,16 +498,16 @@
                     <table class="env-table">
                         <tr class="env-row">
                             <td class="env-key">Request URI</td>
-                            <td class="env-val"><?= $_SERVER['REQUEST_URI'] ?? 'N/A' ?></td>
+                            <td class="env-val"><?= $h($_SERVER['REQUEST_URI'] ?? 'N/A') ?></td>
                         </tr>
                         <tr class="env-row">
                             <td class="env-key">Method</td>
-                            <td class="env-val"><?= $_SERVER['REQUEST_METHOD'] ?? 'CLI' ?></td>
+                            <td class="env-val"><?= $h($_SERVER['REQUEST_METHOD'] ?? 'CLI') ?></td>
                         </tr>
                         <tr class="env-row">
                             <td class="env-key">App Env</td>
                             <td class="env-val" style="color: var(--signal-amber);">
-                                <?= $_ENV['APP_ENV'] ?: 'dfdev' ?>
+                                <?= $h($_ENV['APP_ENV'] ?: 'dev') ?>
                             </td>
                         </tr>
                         <tr class="env-row">

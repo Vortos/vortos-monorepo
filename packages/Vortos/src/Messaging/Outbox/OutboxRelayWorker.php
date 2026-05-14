@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Outbox;
 
+use Vortos\Domain\Event\DomainEventInterface;
 use Vortos\Messaging\Contract\OutboxPollerInterface;
 use Vortos\Messaging\Contract\ProducerInterface;
+use Vortos\Messaging\Registry\TransportRegistry;
 use Vortos\Messaging\Serializer\SerializerLocator;
 use Vortos\Tracing\Contract\TracingInterface;
 use Psr\Log\LoggerInterface;
@@ -27,6 +29,7 @@ final class OutboxRelayWorker
         private OutboxPollerInterface $poller,
         private ProducerInterface $producer,
         private SerializerLocator $serializerLocator,
+        private TransportRegistry $transportRegistry,
         private LoggerInterface $logger,
         private ?TracingInterface $tracer = null
     ){
@@ -48,6 +51,20 @@ final class OutboxRelayWorker
             ]);
 
             try {
+
+                if (!class_exists($outboxMessage->eventClass)
+                    || !is_a($outboxMessage->eventClass, DomainEventInterface::class, true)
+                ) {
+                    throw new \UnexpectedValueException(
+                        "Invalid event class '{$outboxMessage->eventClass}' — must implement DomainEventInterface."
+                    );
+                }
+
+                if (!$this->transportRegistry->has($outboxMessage->transportName)) {
+                    throw new \UnexpectedValueException(
+                        "Unknown transport '{$outboxMessage->transportName}'."
+                    );
+                }
 
                 $serializer = $this->serializerLocator->locate('json');
                 $event = $serializer->deserialize($outboxMessage->payload, $outboxMessage->eventClass);

@@ -7,6 +7,8 @@ namespace Vortos\Messaging\Command;
 use InvalidArgumentException;
 use Vortos\Messaging\Contract\ProducerInterface;
 use Vortos\Messaging\DeadLetter\DeadLetterRepository;
+use Vortos\Messaging\Registry\HandlerRegistry;
+use Vortos\Messaging\Registry\TransportRegistry;
 use Vortos\Messaging\Serializer\SerializerLocator;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -37,6 +39,8 @@ final class ReplayDeadLetterCommand extends Command
         private DeadLetterRepository $repository,
         private ProducerInterface $producer,
         private SerializerLocator $serializerLocator,
+        private HandlerRegistry $handlerRegistry,
+        private TransportRegistry $transportRegistry,
         private LoggerInterface $logger,
     ) {
         parent::__construct();
@@ -107,6 +111,18 @@ final class ReplayDeadLetterCommand extends Command
 
         foreach ($rows as $row) {
             try {
+                if (!$this->handlerRegistry->isKnownEventClass($row['event_class'])) {
+                    throw new \UnexpectedValueException(
+                        "Unknown event class '{$row['event_class']}' — not registered in HandlerRegistry."
+                    );
+                }
+
+                if (!$this->transportRegistry->has($row['transport_name'])) {
+                    throw new \UnexpectedValueException(
+                        "Unknown transport '{$row['transport_name']}' — not registered in TransportRegistry."
+                    );
+                }
+
                 $serializer = $this->serializerLocator->locate('json');
                 $event      = $serializer->deserialize($row['payload'], $row['event_class']);
                 $headers    = json_decode($row['headers'], true, 512, JSON_THROW_ON_ERROR);

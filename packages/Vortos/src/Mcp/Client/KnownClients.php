@@ -63,6 +63,21 @@ final class KnownClients
 
     private function homeDir(): string
     {
-        return $_SERVER['HOME'] ?? $_SERVER['USERPROFILE'] ?? '/root';
+        $home = $_SERVER['HOME'] ?? $_SERVER['USERPROFILE'] ?? null;
+
+        if ($home === null) {
+            throw new \RuntimeException(
+                'Cannot determine home directory: neither HOME nor USERPROFILE is set.'
+            );
+        }
+
+        if ($home === '/root') {
+            trigger_error(
+                'MCP config paths are being resolved under /root — running as root is not recommended.',
+                E_USER_WARNING
+            );
+        }
+
+        return $home;
     }
 }

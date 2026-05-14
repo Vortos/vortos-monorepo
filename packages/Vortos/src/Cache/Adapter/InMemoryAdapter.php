@@ -127,7 +127,9 @@ final class InMemoryAdapter implements TaggedCacheInterface
         $this->set($key, $value, $ttl);
 
         foreach ($tags as $tag) {
-            $this->tags[$tag][] = $key;
+            if (!isset($this->tags[$tag]) || !in_array($key, $this->tags[$tag], true)) {
+                $this->tags[$tag][] = $key;
+            }
         }
 
         return true;

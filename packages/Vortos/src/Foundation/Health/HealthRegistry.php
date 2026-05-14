@@ -23,7 +23,21 @@ final class HealthRegistry
                 continue;
             }
 
-            $results[$check->name()] = $check->check()->withRuntimeMetadata($critical, $timeoutMs);
+            $start     = microtime(true);
+            $result    = $check->check();
+            $elapsedMs = (microtime(true) - $start) * 1000.0;
+
+            // Use externally measured latency so withRuntimeMetadata can detect
+            // checks that hung longer than their timeout regardless of self-reported latency
+            $measured = new HealthResult(
+                $result->name,
+                $result->healthy,
+                $elapsedMs,
+                $result->error,
+                $result->errorCode,
+            );
+
+            $results[$check->name()] = $measured->withRuntimeMetadata($critical, $timeoutMs);
         }
 
         return $results;

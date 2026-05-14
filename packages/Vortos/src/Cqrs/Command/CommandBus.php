@@ -82,8 +82,8 @@ final class CommandBus implements CommandBusInterface
 
             $handler = $this->handlerLocator->get($commandClass);
 
-            // 3. Transaction
-            $this->unitOfWork->run(function () use ($command, $handler): void {
+            // 3. Transaction — markProcessed is inside so it commits atomically with handler work
+            $this->unitOfWork->run(function () use ($command, $handler, $idempotencyKey): void {
                 $result = $handler($command);
 
                 if ($result instanceof AggregateRoot) {
@@ -91,12 +91,11 @@ final class CommandBus implements CommandBusInterface
                         $this->eventBus->dispatch($event);
                     }
                 }
-            });
 
-            // 4. Mark processed — only reached on success
-            if ($idempotencyKey !== null) {
-                $this->idempotencyStore->markProcessed($idempotencyKey);
-            }
+                if ($idempotencyKey !== null) {
+                    $this->idempotencyStore->markProcessed($idempotencyKey);
+                }
+            });
 
             $this->logger->info('Command dispatched', [
                 'command'  => $commandClass,

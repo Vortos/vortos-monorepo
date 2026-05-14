@@ -24,7 +24,11 @@ final class IpResolver
 
     /**
      * Returns the client IP. When the connecting IP is a trusted proxy,
-     * reads the leftmost entry in X-Forwarded-For.
+     * walks X-Forwarded-For from right to left and returns the rightmost
+     * IP that is not a trusted proxy — this is the first hop we don't control
+     * and therefore the real client.
+     *
+     * Using the leftmost entry is unsafe: an attacker can prepend arbitrary IPs.
      */
     public function resolve(Request $request): string
     {
@@ -39,9 +43,17 @@ final class IpResolver
             return $connectingIp;
         }
 
-        // X-Forwarded-For: client, proxy1, proxy2 — leftmost is the original client
+        // Walk from rightmost (most recently added) and skip trusted proxies.
+        // The first non-trusted IP encountered is the real client.
         $ips = array_map('trim', explode(',', $forwarded));
-        return $ips[0] ?? $connectingIp;
+        foreach (array_reverse($ips) as $ip) {
+            if (!$this->isTrustedProxy($ip)) {
+                return $ip;
+            }
+        }
+
+        // Every IP in XFF is a trusted proxy — fall back to connecting IP
+        return $connectingIp;
     }
 
     /**

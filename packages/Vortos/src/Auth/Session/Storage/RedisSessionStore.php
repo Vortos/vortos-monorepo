@@ -15,7 +15,13 @@ final class RedisSessionStore
     {
         $key = "vortos_auth:sessions:{$userId}";
         $this->redis->zAdd($key, $issuedAt, $jti);
-        $this->redis->expire($key, $ttl);
+
+        // Only extend the key TTL — never shrink it. ttl() returns -2 (no key) or -1 (no expiry)
+        // both of which are less than any positive $ttl, so they always trigger the initial set.
+        $currentTtl = $this->redis->ttl($key);
+        if ($currentTtl < $ttl) {
+            $this->redis->expire($key, $ttl);
+        }
     }
 
     public function removeSession(string $userId, string $jti): void

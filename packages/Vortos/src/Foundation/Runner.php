@@ -166,10 +166,9 @@ class Runner
         $dumper = new PhpDumper($container);
 
         if ($this->context === 'http') {
-            file_put_contents(
-                $this->dumpFilePath,
-                $dumper->dump(['class' => 'CachedContainer'])
-            );
+            $tmpPath = $this->dumpFilePath . '.tmp';
+            file_put_contents($tmpPath, $dumper->dump(['class' => 'CachedContainer']));
+            rename($tmpPath, $this->dumpFilePath);
         }
     }
 

@@ -60,26 +60,27 @@ final class OutboxPoller implements OutboxPollerInterface
 
     public function markFailed(string $outboxId, string $reason): void
     {
-        $this->connection->executeStatement(
-            "UPDATE {$this->tableName}
-             SET
-                 attempt_count   = attempt_count + 1,
-                 failure_reason  = :reason,
-                 status          = CASE WHEN attempt_count + 1 >= :max THEN 'failed' ELSE 'pending' END,
-                 next_attempt_at = CASE
-                     WHEN attempt_count + 1 >= :max THEN NULL
-                     ELSE :base_time::timestamp + make_interval(secs => LEAST(:backoff_base * POWER(2, attempt_count + 1)::int, :backoff_cap))
-                 END
-             WHERE id = :id",
-            [
-                'reason'       => $reason,
-                'max'          => $this->maxAttempts,
-                'base_time'    => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
-                'backoff_base' => $this->backoffBase,
-                'backoff_cap'  => $this->backoffCap,
-                'id'           => $outboxId,
-            ]
+        $row = $this->connection->fetchAssociative(
+            "SELECT attempt_count FROM {$this->tableName} WHERE id = :id",
+            ['id' => $outboxId]
         );
+
+        if ($row === false) {
+            return;
+        }
+
+        $newCount    = (int) $row['attempt_count'] + 1;
+        $isFinal     = $newCount >= $this->maxAttempts;
+        $delaySecs   = $isFinal ? 0 : (int) min($this->backoffBase * (2 ** $newCount), $this->backoffCap);
+        $nextAttempt = $isFinal ? null
+            : (new \DateTimeImmutable())->modify("+{$delaySecs} seconds")->format('Y-m-d H:i:s');
+
+        $this->connection->update($this->tableName, [
+            'attempt_count'   => $newCount,
+            'failure_reason'  => $reason,
+            'status'          => $isFinal ? 'failed' : 'pending',
+            'next_attempt_at' => $nextAttempt,
+        ], ['id' => $outboxId]);
     }
 
     public function fetchFailed(

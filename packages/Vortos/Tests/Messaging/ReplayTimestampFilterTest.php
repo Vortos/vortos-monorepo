@@ -17,6 +17,8 @@ use Vortos\Messaging\Command\ReplayTimestampRange;
 use Vortos\Messaging\Contract\OutboxPollerInterface;
 use Vortos\Messaging\Contract\ProducerInterface;
 use Vortos\Messaging\DeadLetter\DeadLetterRepository;
+use Vortos\Messaging\Registry\HandlerRegistry;
+use Vortos\Messaging\Registry\TransportRegistry;
 use Vortos\Messaging\Serializer\SerializerLocator;
 
 final class ReplayTimestampFilterTest extends TestCase
@@ -127,6 +129,8 @@ final class ReplayTimestampFilterTest extends TestCase
             new DeadLetterRepository($connection),
             $this->producer(),
             new SerializerLocator([]),
+            new HandlerRegistry([]),
+            new TransportRegistry([]),
             new NullLogger(),
         ));
 

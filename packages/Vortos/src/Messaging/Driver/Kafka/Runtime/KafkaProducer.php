@@ -38,17 +38,9 @@ final class KafkaProducer implements ProducerInterface
     public function produce(string $transportName, DomainEventInterface $event, array $headers = []): void
     {
         $this->enqueue($transportName, $event, $headers);
-      
-        $result = $this->rdProducer->flush(10000);
-        if ($result !== RD_KAFKA_RESP_ERR_NO_ERROR) {
-            throw ProducerException::forTransport(
-                $transportName,
-                get_class($event),
-                new \RuntimeException('Failed to flush message to Kafka, error code: ' . $result)
-            );
-        }
+        // Fire-and-poll: non-blocking, processes any pending delivery callbacks without waiting
+        $this->rdProducer->poll(0);
     }
-
 
     public function produceBatch(string $transportName, array $events, array $headers = []): void
     {
@@ -56,9 +48,10 @@ final class KafkaProducer implements ProducerInterface
             $this->enqueue($transportName, $event, $headers);
         }
 
-        $result = $this->rdProducer->flush(10000);
+        $result    = $this->rdProducer->flush(10000);
+        $remaining = $this->rdProducer->getOutQLen();
 
-        if ($result !== RD_KAFKA_RESP_ERR_NO_ERROR) {
+        if ($result !== RD_KAFKA_RESP_ERR_NO_ERROR || $remaining > 0) {
             throw ProducerException::forBatchFlush(
                 $transportName,
                 $result

@@ -27,6 +27,7 @@ return new class extends AbstractModuleSchemaProvider {
         $failed->addColumn('id', 'guid', ['notnull' => true]);
         $failed->addColumn('transport_name', 'string', ['length' => 255, 'notnull' => true]);
         $failed->addColumn('event_class', 'string', ['length' => 512, 'notnull' => true]);
+        $failed->addColumn('handler_id', 'string', ['length' => 512, 'notnull' => true]);
         $failed->addColumn('payload', 'text', ['notnull' => true]);
         $failed->addColumn('headers', 'json', ['notnull' => true, 'default' => '{}']);
         $failed->addColumn('failure_reason', 'text', ['notnull' => true]);

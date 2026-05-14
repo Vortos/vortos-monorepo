@@ -34,6 +34,8 @@ use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Uid\UuidV7;
+use Vortos\Messaging\Attribute\Header\Header;
+use Vortos\Messaging\Bus\Stamp\HeadersStamp;
 use Vortos\Tracing\Contract\TracingInterface;
 
 /**
@@ -171,11 +173,18 @@ final class ConsumerRunner
             [
                 new EventIdStamp($eventId),
                 new CorrelationIdStamp($correlationId),
-                new ConsumerStamp($consumerName)
+                new ConsumerStamp($consumerName),
+                new HeadersStamp($message->headers)
             ]
         );
 
         $allSucceeded = true;
+
+        $target = $message->headers['x-vortos-target-handler'] ?? null;
+
+        if ($target !== null) {
+            $descriptors = array_filter($descriptors, fn($d) => $d['handlerId'] === $target);
+        }
 
         foreach ($descriptors as $descriptor) {
             $succeeded = $this->processHandler($consumerName, $descriptor, $envelope, $message);
@@ -200,6 +209,7 @@ final class ConsumerRunner
 
     private function processHandler(string $consumerName, array $descriptor, Envelope $envelope, ReceivedMessage $message): bool
     {
+        $start = hrtime(true);
         $eventId = $envelope->last(EventIdStamp::class)?->eventId ?? null;
 
         $cacheKey = null;
@@ -227,7 +237,29 @@ final class ConsumerRunner
             $consumerConfig = [];
         }
 
+        $retryArray = $consumerConfig['retry'] ?? [];
+        $retryPolicy = !empty($retryArray)
+            ? RetryPolicy::fromArray($retryArray)
+            : RetryPolicy::exponential(attempts: 3, initialDelayMs: 500);
+
         $idempotencyTtl = $consumerConfig['idempotencyTtl'] ?? $this->defaultIdempotencyTtl;
+
+        $globalReplays = $message->headers['x-vortos-global-replays'] ?? 0;
+
+        if ($globalReplays > $retryPolicy->maxReplayLimit) {
+            $eventClass = $message->headers['event_class'] ?? 'unknown';
+            $eventName = TelemetryLabels::classShortName($eventClass);
+            $consumerLabel = TelemetryLabels::safe($consumerName);
+
+            $this->logger->error("Hard discarding message: exceeded global replay limit.", [
+                'handler' => $descriptor['handlerId'],
+                'event' => $eventClass,
+                'limit' => $retryPolicy->maxReplayLimit
+            ]);
+
+            $this->recordMessage($consumerLabel, $eventName, 'discarded', $start);
+            return true;
+        }
 
         try {
             $this->middlewareStack->process($envelope, $handlerCallable);
@@ -238,10 +270,6 @@ final class ConsumerRunner
 
             return true;
         } catch (\Throwable $e) {
-            $retryArray = $consumerConfig['retry'] ?? [];
-            $retryPolicy = !empty($retryArray)
-                ? RetryPolicy::fromArray($retryArray)
-                : RetryPolicy::exponential(attempts: 3, initialDelayMs: 500);
 
             $attempt = 1;
             $lastException = $e;
@@ -276,6 +304,7 @@ final class ConsumerRunner
             $this->deadLetterWriter->write(
                 transportName: $message->transportName,
                 eventClass: $message->headers['event_class'] ?? '',
+                handlerId: $descriptor['handlerId'],
                 payload: $message->payload,
                 headers: $message->headers,
                 failureReason: $lastException->getMessage(),
@@ -318,10 +347,16 @@ final class ConsumerRunner
     private function resolveArguments(array $descriptor, Envelope $envelope): array
     {
         $args = [];
+        $allHeaders = $envelope->last(HeadersStamp::class)?->headers ?? [];
 
         foreach ($descriptor['parameters'] as $param) {
             if ($param['type'] === 'event') {
                 $args[] = $envelope->getMessage();
+                continue;
+            }
+
+            if ($param['attribute'] === Header::class) {
+                $args[] = $allHeaders[$param['headerName']] ?? null;
                 continue;
             }
 

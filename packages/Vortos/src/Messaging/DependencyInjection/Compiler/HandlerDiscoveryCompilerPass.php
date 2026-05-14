@@ -16,6 +16,7 @@ use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Domain\Event\DomainEventInterface;
+use Vortos\Messaging\Attribute\Header\Header;
 
 final class HandlerDiscoveryCompilerPass implements CompilerPassInterface
 {
@@ -26,7 +27,7 @@ final class HandlerDiscoveryCompilerPass implements CompilerPassInterface
         }
 
         $taggedHandlers = $container->findTaggedServiceIds('vortos.event_handler');
-      
+
         foreach ($taggedHandlers as $serviceId => $tags) {
             $containerDefinition = $container->getDefinition($serviceId);
             $className = $containerDefinition->getClass();
@@ -35,14 +36,6 @@ final class HandlerDiscoveryCompilerPass implements CompilerPassInterface
 
             $this->processHandlerClass($container, $serviceId, $reflClass);
         }
-
-        // $handlerServices = [];
-        // foreach ($taggedHandlers as $serviceId => $tags) {
-        //     $handlerServices[$serviceId] = new Reference($serviceId);
-        // }
-
-        // $container->getDefinition('vortos.handler_locator')
-        //     ->setArguments([$handlerServices]);
     }
 
     private function processHandlerClass(ContainerBuilder $container, string $serviceId, ReflectionClass $reflClass): void
@@ -140,41 +133,46 @@ final class HandlerDiscoveryCompilerPass implements CompilerPassInterface
                     'attribute' => $headerFound,
                     'paramType' => $paramType,
                 ];
-            } else {
-
-
-
-                $type = $param->getType();
-
-                if (!$type instanceof ReflectionNamedType) {
-                    continue;
-                }
-
-                if ($type->isBuiltin()) {
-                    continue;
-                }
-
-                $typeName = $type->getName();
-
-                if (!class_exists($typeName)) {
-                    throw new LogicException(
-                        "Parameter type '{$typeName}' in handler '{$method->getDeclaringClass()->getName()}::{$method->getName()}' does not exist"
-                    );
-                }
-
-                $reflEventClass = new ReflectionClass($typeName);
-
-                if (!$reflEventClass->implementsInterface(DomainEventInterface::class)) {
-                    throw new LogicException(
-                        "Parameter '{$typeName}' in handler '{$method->getDeclaringClass()->getName()}::{$method->getName()}' must implement DomainEventInterface"
-                    );
-                }
-
-                $parameters[] = [
-                    'type' => 'event',
-                    'eventClass' => $typeName,
-                ];
+                continue;
             }
+
+            $genericHeaderAttr = $param->getAttributes(Header::class);
+            if (!empty($genericHeaderAttr)) {
+                $attr = $genericHeaderAttr[0]->newInstance();
+                $parameters[] = [
+                    'type'       => 'header',
+                    'attribute'  => Header::class,
+                    'headerName' => $attr->name,
+                    'paramType'  => $param->getType()?->getName() ?? 'string',
+                ];
+                continue;
+            }
+
+            $type = $param->getType();
+            if (!$type instanceof ReflectionNamedType || $type->isBuiltin()) {
+                continue;
+            }
+
+            $typeName = $type->getName();
+
+            if (!class_exists($typeName)) {
+                throw new LogicException(
+                    "Parameter type '{$typeName}' in handler '{$method->getDeclaringClass()->getName()}::{$method->getName()}' does not exist"
+                );
+            }
+
+            $reflEventClass = new ReflectionClass($typeName);
+
+            if (!$reflEventClass->implementsInterface(DomainEventInterface::class)) {
+                throw new LogicException(
+                    "Parameter '{$typeName}' in handler '{$method->getDeclaringClass()->getName()}::{$method->getName()}' must implement DomainEventInterface"
+                );
+            }
+
+            $parameters[] = [
+                'type' => 'event',
+                'eventClass' => $typeName,
+            ];
         }
 
         return $parameters;

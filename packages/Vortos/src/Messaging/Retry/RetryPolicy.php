@@ -23,6 +23,7 @@ final class RetryPolicy
         public readonly int $initialDelayMs,
         public readonly int $maxDelayMs,
         public readonly float $multiplier,
+        public readonly int $maxReplayLimit,
         public readonly bool $jitter,
     ) {}
 
@@ -30,7 +31,7 @@ final class RetryPolicy
      * Creates a fixed backoff policy where every retry waits the same delay.
      * Use for simple cases where predictable retry timing is preferred.
      */
-    public static function fixed(int $attempts, int $delayMs): self
+    public static function fixed(int $attempts, int $delayMs, int $maxReplayLimit = 10): self
     {
         return new self(
             $attempts,
@@ -38,6 +39,7 @@ final class RetryPolicy
             $delayMs,
             $delayMs,
             1.0,
+            $maxReplayLimit,
             false
         );
     }
@@ -46,7 +48,7 @@ final class RetryPolicy
      * Creates an exponential backoff policy where delay doubles each attempt.
      * Jitter is enabled by default to prevent thundering herd across consumers.
      */
-    public static function exponential(int $attempts, int $initialDelayMs, int $maxDelayMs = 30000, bool $jitter = true): self
+    public static function exponential(int $attempts, int $initialDelayMs, int $maxDelayMs = 30000, int $maxReplayLimit = 10, bool $jitter = true): self
     {
         return new self(
             $attempts,
@@ -54,6 +56,7 @@ final class RetryPolicy
             $initialDelayMs,
             $maxDelayMs,
             2.0,
+            $maxReplayLimit,
             $jitter
         );
     }
@@ -67,7 +70,8 @@ final class RetryPolicy
             'initialDelay' => $this->initialDelayMs,
             'maxDelay' => $this->maxDelayMs,
             'multiplier' => $this->multiplier,
-            'jitter' => $this->jitter
+            'jitter' => $this->jitter,
+            'maxReplayLimit' => $this->maxReplayLimit,
         ];
     }
 
@@ -83,7 +87,8 @@ final class RetryPolicy
             $config['initialDelay'] ?? 500,
             $config['maxDelay'] ?? 30000,
             $config['multiplier'] ?? 2.0,
-            $config['jitter'] ?? true
+            $config['maxReplayLimit'] ?? 10,
+            $config['jitter'] ?? true,
         );
     }
 }

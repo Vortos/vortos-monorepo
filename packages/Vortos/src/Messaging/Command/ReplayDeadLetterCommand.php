@@ -111,6 +111,13 @@ final class ReplayDeadLetterCommand extends Command
                 $event      = $serializer->deserialize($row['payload'], $row['event_class']);
                 $headers    = json_decode($row['headers'], true, 512, JSON_THROW_ON_ERROR);
 
+                $headers['x-vortos-worker-attempts'] = 0;
+                $headers['x-vortos-global-replays'] = ($headers['x-vortos-global-replays'] ?? 0) + 1;
+                $headers['x-vortos-target-handler'] = $row['handler_id'];
+
+                unset($headers['x-vortos-failure-reason']);
+                unset($headers['x-vortos-failed-at']);
+
                 $this->producer->produce($row['transport_name'], $event, $headers);
                 $this->repository->markReplayed($row['id']);
 

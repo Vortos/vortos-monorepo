@@ -7,9 +7,9 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\UuidV7;
 
 /**
- * Writes unprocessable messages to the failed_messages store.
+ * Writes unprocessable messages to the vortos_failed_messages table.
  * Called by ConsumerRunner after all retry attempts are exhausted.
- * Currently logs the failure — Phase 12 adds DBAL persistence.
+ * Always logs the failure first, then persists — log survives a DB outage.
  */
 final class DeadLetterWriter
 {
@@ -22,6 +22,7 @@ final class DeadLetterWriter
     public function write(
         string $transportName,
         string $eventClass,
+        string $handlerId,
         string $payload,
         array $headers,
         string $failureReason,
@@ -40,6 +41,7 @@ final class DeadLetterWriter
                 'id'              => (string) new UuidV7(),
                 'transport_name'  => $transportName,
                 'event_class'     => $eventClass,
+                'handler_id'     => $handlerId,
                 'payload'         => $payload,
                 'headers'         => json_encode($headers, JSON_THROW_ON_ERROR),
                 'status' => 'failed',

@@ -64,6 +64,8 @@ final class StubHealthCheck implements HealthCheckInterface
 
     public function check(): HealthResult
     {
+        // Sleep so the external wall-clock measurement in HealthRegistry matches the declared latency
+        usleep((int) ($this->latencyMs * 1000));
         return new HealthResult($this->name, $this->healthy, $this->latencyMs, $this->healthy ? null : 'failed');
     }
 }

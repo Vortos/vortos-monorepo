@@ -23,15 +23,17 @@ final class RedisLockoutStoreTest extends TestCase
 
     public function test_increment_attempts_returns_count(): void
     {
-        $this->redis->method('incrBy')->willReturn(3);
+        $this->redis->method('eval')->willReturn(3);
         $result = $this->store->incrementAttempts('email', 'user@example.com', 900);
         $this->assertSame(3, $result);
     }
 
     public function test_increment_sets_ttl_on_first_attempt(): void
     {
-        $this->redis->method('incrBy')->willReturn(1);
-        $this->redis->expects($this->once())->method('expire');
+        // TTL is set atomically inside the Lua script — verify eval is called with the TTL as ARGV[1]
+        $this->redis->expects($this->once())->method('eval')
+            ->with($this->anything(), ['lockout:attempts:email:user@example.com', '900'], 1)
+            ->willReturn(1);
         $this->store->incrementAttempts('email', 'user@example.com', 900);
     }
 

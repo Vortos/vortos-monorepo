@@ -23,22 +23,24 @@ final class RedisRateLimitStoreTest extends TestCase
 
     public function test_increment_returns_count(): void
     {
-        $this->redis->method('incrBy')->willReturn(1);
-        $this->redis->method('expire');
+        $this->redis->method('eval')->willReturn(1);
         $result = $this->store->increment('key', 60);
         $this->assertSame(1, $result);
     }
 
     public function test_increment_sets_ttl_on_first_call(): void
     {
-        $this->redis->method('incrBy')->willReturn(1);
-        $this->redis->expects($this->once())->method('expire')->with('key', 60);
+        // TTL is set atomically inside the Lua script — verify eval is called with the window as ARGV[1]
+        $this->redis->expects($this->once())->method('eval')
+            ->with($this->anything(), ['key', '60'], 1)
+            ->willReturn(1);
         $this->store->increment('key', 60);
     }
 
     public function test_increment_does_not_reset_ttl_on_subsequent_calls(): void
     {
-        $this->redis->method('incrBy')->willReturn(5);
+        // Lua script only sets EXPIRE when count == 1; subsequent calls return count > 1
+        $this->redis->method('eval')->willReturn(5);
         $this->redis->expects($this->never())->method('expire');
         $this->store->increment('key', 60);
     }

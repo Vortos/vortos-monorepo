@@ -28,12 +28,13 @@ final class RedisCachingStorageTest extends TestCase
     public function test_find_all_returns_cached_on_second_call(): void
     {
         $flags = [$this->flag('flag-a')];
+        $cachedJson = json_encode(array_map(fn(FeatureFlag $f) => $f->toArray(), $flags));
 
         $inner = $this->createMock(FlagStorageInterface::class);
         $inner->expects($this->once())->method('findAll')->willReturn($flags);
 
         $cache = $this->createMock(CacheInterface::class);
-        $cache->method('get')->willReturnOnConsecutiveCalls(null, $flags);
+        $cache->method('get')->willReturnOnConsecutiveCalls(null, $cachedJson);
         $cache->method('set');
 
         $storage = new RedisCachingStorage($inner, $cache);

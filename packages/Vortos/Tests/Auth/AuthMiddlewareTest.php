@@ -48,7 +48,7 @@ final class AuthMiddlewareTest extends TestCase
     protected function setUp(): void
     {
         $config = new JwtConfig(
-            secret: 'test-secret-at-least-32-characters-long',
+            secret: 'test-secret-for-unit-tests-only-not-for-production-xxxxxxxxxxxxx',
             accessTokenTtl: 900,
             refreshTokenTtl: 604800,
             issuer: 'test',
@@ -263,7 +263,7 @@ final class AuthMiddlewareTest extends TestCase
     public function test_protected_route_with_expired_token_returns_401(): void
     {
         $config = new JwtConfig(
-            secret: 'test-secret-at-least-32-characters-long',
+            secret: 'test-secret-for-unit-tests-only-not-for-production-xxxxxxxxxxxxx',
             accessTokenTtl: -1,
             refreshTokenTtl: 604800,
             issuer: 'test',

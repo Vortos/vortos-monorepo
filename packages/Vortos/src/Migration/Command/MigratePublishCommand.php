@@ -315,7 +315,7 @@ final class MigratePublishCommand extends Command
             return [];
         }
 
-        $data = json_decode((string) file_get_contents($path), true);
+        $data = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
 
         return $data['published'] ?? [];
     }
@@ -328,7 +328,7 @@ final class MigratePublishCommand extends Command
             return 2;
         }
 
-        $data = json_decode((string) file_get_contents($path), true);
+        $data = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
 
         return isset($data['version']) && is_int($data['version']) ? $data['version'] : 1;
     }
@@ -347,7 +347,7 @@ final class MigratePublishCommand extends Command
 
     private function writeFile(string $path, string $content): void
     {
-        $bytes = @file_put_contents($path, $content, LOCK_EX);
+        $bytes = file_put_contents($path, $content, LOCK_EX);
 
         if ($bytes === false) {
             throw new \RuntimeException(sprintf(

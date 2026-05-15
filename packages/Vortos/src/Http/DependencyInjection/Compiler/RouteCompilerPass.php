@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Vortos\Http\DependencyInjection\Compiler;
 
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
@@ -40,6 +42,12 @@ class RouteCompilerPass implements CompilerPassInterface
      */
     public static function createRouteCollection(string $serializedRoutes): RouteCollection
     {
-        return unserialize($serializedRoutes);
+        return unserialize($serializedRoutes, [
+            'allowed_classes' => [
+                \Symfony\Component\Routing\RouteCollection::class,
+                \Symfony\Component\Routing\Route::class,
+                \Symfony\Component\Routing\CompiledRoute::class,
+            ],
+        ]);
     }
 }

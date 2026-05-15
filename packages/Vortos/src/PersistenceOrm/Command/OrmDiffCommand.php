@@ -67,7 +67,7 @@ final class OrmDiffCommand extends Command
             mkdir($dir, 0755, true);
         }
 
-        file_put_contents($filePath, $content);
+        file_put_contents($filePath, $content, LOCK_EX);
 
         $output->writeln(sprintf('<info>✔ Migration created:</info> migrations/%s.php', $shortName));
         $output->writeln(sprintf('  <comment>%d</comment> SQL statement(s). Run <info>vortos:migrate</info> to apply.', count($sqls)));

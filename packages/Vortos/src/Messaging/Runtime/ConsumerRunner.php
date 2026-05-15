@@ -31,7 +31,7 @@ use Vortos\Observability\Telemetry\MetricLabel;
 use Vortos\Observability\Telemetry\MetricLabelValue;
 use Vortos\Observability\Telemetry\TelemetryLabels;
 use Psr\Log\LoggerInterface;
-use Psr\SimpleCache\CacheInterface;
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Uid\UuidV7;
@@ -68,7 +68,7 @@ final class ConsumerRunner
         private MiddlewareStack $middlewareStack,
         private DeadLetterWriter $deadLetterWriter,
         private ProducerInterface $producer,
-        private CacheInterface $cache,
+        private AtomicCacheInterface $cache,
         private ConsumerLocatorInterface $consumerLocator,
         private LoggerInterface $logger,
         private ServiceLocator $handlerLocator,
@@ -230,25 +230,7 @@ final class ConsumerRunner
         $start = hrtime(true);
         $eventId = $envelope->last(EventIdStamp::class)?->eventId ?? null;
 
-        $cacheKey = null;
-        if ($eventId !== null) {
-            $cacheKey = 'vortos_idempotency_' . $descriptor['handlerId'] . '_' . $eventId;
-
-            if ($this->cache->has($cacheKey) && !$descriptor['idempotent']) {
-                $this->logger->debug('Skipping duplicate handler execution');
-                return true;
-            }
-        }
-       
-        $handlerService = $this->handlerLocator->get($descriptor['serviceId']);
-
-        $handlerCallable = function (Envelope $e) use ($handlerService, $descriptor): Envelope {
-            $handlerService->{$descriptor['method']}(
-                ...$this->resolveArguments($descriptor, $e)
-            );
-            return $e;
-        };
-
+        // Load consumer config before the idempotency claim — TTL is needed for setNx
         try {
             $consumerConfig = $this->consumerRegistry->get($consumerName);
         } catch (\Throwable) {
@@ -262,7 +244,31 @@ final class ConsumerRunner
 
         $idempotencyTtl = $consumerConfig['idempotencyTtl'] ?? $this->defaultIdempotencyTtl;
 
-        $globalReplays = $isTrustedReplay ? ($message->headers['x-vortos-global-replays'] ?? 0) : 0;
+        // Atomic idempotency claim for non-idempotent handlers — eliminates TOCTOU race
+        $cacheKey = null;
+        if ($eventId !== null) {
+            $cacheKey = 'vortos_idempotency_' . $descriptor['handlerId'] . '_' . $eventId;
+
+            if (!$descriptor['idempotent']) {
+                if (!$this->cache->setNx($cacheKey, true, $idempotencyTtl)) {
+                    $this->logger->debug('Skipping duplicate handler execution');
+                    return true;
+                }
+            }
+        }
+
+        $handlerService = $this->handlerLocator->get($descriptor['serviceId']);
+
+        $handlerCallable = function (Envelope $e) use ($handlerService, $descriptor): Envelope {
+            $handlerService->{$descriptor['method']}(
+                ...$this->resolveArguments($descriptor, $e)
+            );
+            return $e;
+        };
+
+        // H-37: cast to int — Kafka header values arrive as strings; non-numeric strings
+        // would compare as 0 under PHP loose comparison, bypassing the replay limit.
+        $globalReplays = $isTrustedReplay ? (int) ($message->headers['x-vortos-global-replays'] ?? 0) : 0;
 
         if ($globalReplays > $retryPolicy->maxReplayLimit) {
             $eventClass = $message->headers['event_class'] ?? 'unknown';
@@ -282,7 +288,8 @@ final class ConsumerRunner
         try {
             $this->middlewareStack->process($envelope, $handlerCallable);
 
-            if (isset($cacheKey)) {
+            // Idempotent handlers: set the tracking key on success (non-idempotent key was already claimed via setNx)
+            if ($cacheKey !== null && $descriptor['idempotent']) {
                 $this->cache->set($cacheKey, true, $idempotencyTtl);
             }
 
@@ -303,7 +310,7 @@ final class ConsumerRunner
                 try {
                     $this->middlewareStack->process($envelope, $handlerCallable);
 
-                    if (isset($cacheKey)) {
+                    if ($cacheKey !== null && $descriptor['idempotent']) {
                         $this->cache->set($cacheKey, true, $idempotencyTtl);
                     }
 
@@ -320,6 +327,11 @@ final class ConsumerRunner
                     $attempt++;
                     $lastException = $e;
                 }
+            }
+
+            // All retries exhausted — release the idempotency claim so the message can be reprocessed
+            if ($cacheKey !== null && !$descriptor['idempotent']) {
+                $this->cache->delete($cacheKey);
             }
 
             $written = $this->deadLetterWriter->write(

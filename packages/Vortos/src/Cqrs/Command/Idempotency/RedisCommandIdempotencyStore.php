@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Cqrs\Command\Idempotency;
 
-use Psr\SimpleCache\CacheInterface;
+use Vortos\Cache\Contract\AtomicCacheInterface;
 
 /**
  * Redis-backed command idempotency store.
@@ -37,7 +37,7 @@ final class RedisCommandIdempotencyStore implements CommandIdempotencyStoreInter
 {
     private const KEY_PREFIX = 'vortos_cmd_idempotency_';
 
-    public function __construct(private CacheInterface $cache) {}
+    public function __construct(private AtomicCacheInterface $cache) {}
 
     /**
      * {@inheritdoc}
@@ -53,5 +53,21 @@ final class RedisCommandIdempotencyStore implements CommandIdempotencyStoreInter
     public function markProcessed(string $idempotencyKey, int $ttl = 86400): void
     {
         $this->cache->set(self::KEY_PREFIX . $idempotencyKey, '1', $ttl);
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function tryMarkProcessed(string $idempotencyKey, int $ttl = 86400): bool
+    {
+        return $this->cache->setNx(self::KEY_PREFIX . $idempotencyKey, '1', $ttl);
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function releaseProcessed(string $idempotencyKey): void
+    {
+        $this->cache->delete(self::KEY_PREFIX . $idempotencyKey);
     }
 }

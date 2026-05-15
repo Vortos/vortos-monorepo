@@ -54,4 +54,31 @@ interface CommandIdempotencyStoreInterface
      * @param int    $ttl            Seconds until key expires (default: 86400 = 24 hours)
      */
     public function markProcessed(string $idempotencyKey, int $ttl = 86400): void;
+
+    /**
+     * Atomically claim an idempotency key.
+     *
+     * Combines wasProcessed() and markProcessed() into a single atomic operation,
+     * eliminating the TOCTOU race between the check and the write.
+     *
+     * Returns true  — key was not yet claimed; this call claimed it successfully.
+     * Returns false — key was already claimed by a prior call; command should be skipped.
+     *
+     * If the command handler subsequently fails (exception or transaction rollback),
+     * call releaseProcessed() to remove the claim so the command can be retried.
+     *
+     * @param string $idempotencyKey Client-generated UUID
+     * @param int    $ttl            Seconds until key expires
+     */
+    public function tryMarkProcessed(string $idempotencyKey, int $ttl = 86400): bool;
+
+    /**
+     * Release a previously claimed idempotency key.
+     *
+     * Call this when the command handler fails after tryMarkProcessed() returned true,
+     * so the command can be safely retried with the same idempotency key.
+     *
+     * @param string $idempotencyKey The key to release
+     */
+    public function releaseProcessed(string $idempotencyKey): void;
 }

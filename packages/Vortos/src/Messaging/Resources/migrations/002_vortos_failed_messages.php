@@ -37,14 +37,8 @@ return new class extends AbstractModuleSchemaProvider {
         $failed->addColumn('replayed_at', 'datetime_immutable', ['notnull' => false]);
         $failed->addColumn('status', 'string', ['length' => 20, 'notnull' => true, 'default' => 'failed']);
         $failed->setPrimaryKey(['id']);
-        $failed->addIndex(['status', 'failed_at'], 'idx_vortos_failed_messages_status', [], [
-            'where' => "status = 'failed'",
-        ]);
-        $failed->addIndex(['status', 'transport_name', 'event_class'], 'idx_vortos_failed_messages_status_transport_event', [], [
-            'where' => "status = 'failed'",
-        ]);
-        $failed->addIndex(['transport_name', 'failed_at'], 'idx_vortos_failed_messages_transport_failed_at', [], [
-            'where' => "status = 'failed'",
-        ]);
+        $failed->addIndex(['status', 'failed_at'], 'idx_vortos_failed_messages_status');
+        $failed->addIndex(['status', 'transport_name', 'event_class'], 'idx_vortos_failed_messages_status_transport_event');
+        $failed->addIndex(['transport_name', 'failed_at'], 'idx_vortos_failed_messages_transport_failed_at');
     }
 };

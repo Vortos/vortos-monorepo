@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Cache\Adapter;
 
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Cache\Contract\TaggedCacheInterface;
 
 /**
@@ -43,7 +44,7 @@ use Vortos\Cache\Contract\TaggedCacheInterface;
  * FLUSHDB wipes the entire Redis database including Kafka consumer group offsets,
  * messaging idempotency keys, and session data. SCAN+DEL with prefix is safe.
  */
-final class RedisAdapter implements TaggedCacheInterface
+final class RedisAdapter implements TaggedCacheInterface, AtomicCacheInterface
 {
     private const TAG_PREFIX = '__tag__';
 
@@ -281,6 +282,25 @@ final class RedisAdapter implements TaggedCacheInterface
         $this->redis->exec();
 
         return true;
+    }
+
+    /**
+     * Store a value only if the key does not already exist.
+     *
+     * Uses Redis SET NX EX — a single atomic command.
+     * Returns true if the key was written, false if it already existed.
+     *
+     * {@inheritdoc}
+     */
+    public function setNx(string $key, mixed $value, int $ttl): bool
+    {
+        $result = $this->redis->set(
+            $this->prefixedKey($key),
+            serialize($value),
+            ['nx', 'ex' => max(1, $ttl)],
+        );
+
+        return $result !== false;
     }
 
     /**

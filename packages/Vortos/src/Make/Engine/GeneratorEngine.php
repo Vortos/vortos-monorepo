@@ -103,7 +103,7 @@ final class GeneratorEngine
             return;
         }
 
-        file_put_contents($fullPath, $content);
+        file_put_contents($fullPath, $content, LOCK_EX);
         $output->writeln(sprintf('  <info>created:</info> src/%s', $relativePath));
     }
 }

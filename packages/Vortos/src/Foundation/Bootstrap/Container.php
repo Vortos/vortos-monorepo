@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\Console\Application;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -30,7 +32,7 @@ $scanComposerFile = function (array $pkgData) use (&$discovered): void {
 // Source 1: installed.json (Packagist-installed packages)
 $installedJson = $projectRoot . '/vendor/composer/installed.json';
 if (file_exists($installedJson)) {
-    $installed = json_decode(file_get_contents($installedJson), true);
+    $installed = json_decode((string) file_get_contents($installedJson), true, 512, JSON_THROW_ON_ERROR);
     foreach ($installed['packages'] ?? $installed as $pkg) {
         $scanComposerFile($pkg);
     }
@@ -39,7 +41,7 @@ if (file_exists($installedJson)) {
 // Source 2: path repositories — scan their composer.json files
 $rootComposer = $projectRoot . '/composer.json';
 if (file_exists($rootComposer)) {
-    $rootData = json_decode(file_get_contents($rootComposer), true);
+    $rootData = json_decode((string) file_get_contents($rootComposer), true, 512, JSON_THROW_ON_ERROR);
     foreach ($rootData['repositories'] ?? [] as $repo) {
         if (($repo['type'] ?? '') !== 'path') {
             continue;
@@ -47,11 +49,11 @@ if (file_exists($rootComposer)) {
         $basePath = $projectRoot . '/' . rtrim($repo['url'], '/');
         // Direct composer.json
         foreach (glob($basePath . '/composer.json') as $file) {
-            $scanComposerFile(json_decode(file_get_contents($file), true) ?? []);
+            $scanComposerFile(json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR));
         }
         // Sub-packages (monorepo pattern: packages/Vendor/src/*/composer.json)
         foreach (glob($basePath . '/src/*/composer.json') as $file) {
-            $scanComposerFile(json_decode(file_get_contents($file), true) ?? []);
+            $scanComposerFile(json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR));
         }
     }
 }

@@ -30,7 +30,11 @@ final class RedisCachingStorage implements FlagStorageInterface
         $raw = $this->cache->get($cacheKey);
 
         if ($raw !== null && is_string($raw)) {
-            $decoded = json_decode($raw, true);
+            try {
+                $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                $decoded = null; // Corrupt cache entry — treat as miss
+            }
             if (is_array($decoded)) {
                 return array_map(fn(array $d) => FeatureFlag::fromArray($d), $decoded);
             }
@@ -46,7 +50,11 @@ final class RedisCachingStorage implements FlagStorageInterface
             usleep(100_000); // 100ms — wait for the winning worker to populate the cache
             $raw = $this->cache->get($cacheKey);
             if ($raw !== null && is_string($raw)) {
-                $decoded = json_decode($raw, true);
+                try {
+                    $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+                } catch (\JsonException) {
+                    $decoded = null; // Corrupt cache entry — treat as miss
+                }
                 if (is_array($decoded)) {
                     return array_map(fn(array $d) => FeatureFlag::fromArray($d), $decoded);
                 }

@@ -69,7 +69,6 @@ final class CommandHandlerPass implements CompilerPassInterface
     private function inferCommandClass(string $serviceId, ContainerBuilder $container): string
     {
         $className = $container->getDefinition($serviceId)->getClass();
-// var_dump("---------------------------".$className . "------------------");
         if ($className === null) {
             throw new \LogicException(sprintf(
                 'Cannot infer command class for service "%s" — class is null.',

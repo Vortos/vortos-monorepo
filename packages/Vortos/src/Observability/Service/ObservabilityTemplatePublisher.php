@@ -52,7 +52,7 @@ final class ObservabilityTemplatePublisher
                     mkdir(dirname($target), 0755, true);
                 }
 
-                file_put_contents($target, $contents);
+                file_put_contents($target, $contents, LOCK_EX);
             }
 
             $published[] = $targetRelative;

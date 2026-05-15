@@ -19,7 +19,7 @@ final class FlagRegistry implements FlagRegistryInterface, ResetInterface
 
     public function isEnabled(string $name, FlagContext $context = new FlagContext()): bool
     {
-        $key = $name . '|' . ($context->userId ?? '__anon__') . '|' . md5(serialize($context->attributes));
+        $key = $name . '|' . ($context->userId ?? '__anon__') . '|' . hash('xxh3', json_encode($context->attributes, JSON_THROW_ON_ERROR));
 
         if (!array_key_exists($key, $this->resolved)) {
             $flag              = $this->storage->findByName($name);

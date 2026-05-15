@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Vortos\Foundation\DependencyInjection\Compiler;
 
 use Symfony\Component\Console\Application;

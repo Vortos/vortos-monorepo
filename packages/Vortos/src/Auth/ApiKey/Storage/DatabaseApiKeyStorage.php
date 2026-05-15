@@ -92,7 +92,7 @@ final class DatabaseApiKeyStorage implements ApiKeyStorageInterface
     private function hydrate(array $row): ApiKeyRecord
     {
         $scopes = is_string($row['scopes'])
-            ? json_decode($row['scopes'], true)
+            ? json_decode($row['scopes'], true, 512)
             : ($row['scopes'] ?? []);
 
         return new ApiKeyRecord(

@@ -71,9 +71,11 @@ final class LoggerExtension extends Extension
 
     public function load(array $configs, ContainerBuilder $container): void
     {
-        $env     = $container->hasParameter('kernel.env') ? $container->getParameter('kernel.env') : 'prod';
-        $logPath = $container->hasParameter('kernel.log_path') ? $container->getParameter('kernel.log_path') : sys_get_temp_dir();
+        $env        = $container->hasParameter('kernel.env') ? $container->getParameter('kernel.env') : 'prod';
         $projectDir = $container->hasParameter('kernel.project_dir') ? $container->getParameter('kernel.project_dir') : '';
+        $logPath    = $container->hasParameter('kernel.log_path')
+            ? $container->getParameter('kernel.log_path')
+            : ($projectDir !== '' ? $projectDir . '/var/log' : throw new \RuntimeException('kernel.log_path is required when kernel.project_dir is not set.'));
 
         $config = new VortosLoggingConfig($env);
         $base   = $projectDir . '/config/logging.php';

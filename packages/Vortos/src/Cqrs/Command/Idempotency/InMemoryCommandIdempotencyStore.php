@@ -46,6 +46,30 @@ final class InMemoryCommandIdempotencyStore implements CommandIdempotencyStoreIn
     }
 
     /**
+     * {@inheritdoc}
+     *
+     * Atomic in a single-threaded PHP process.
+     */
+    public function tryMarkProcessed(string $idempotencyKey, int $ttl = 86400): bool
+    {
+        if (isset($this->store[$idempotencyKey])) {
+            return false;
+        }
+
+        $this->store[$idempotencyKey] = true;
+
+        return true;
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function releaseProcessed(string $idempotencyKey): void
+    {
+        unset($this->store[$idempotencyKey]);
+    }
+
+    /**
      * Reset all stored keys.
      * Call in test tearDown() to ensure test isolation.
      */

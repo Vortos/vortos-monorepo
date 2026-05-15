@@ -84,7 +84,7 @@ final class MigrateMakeCommand extends Command
             mkdir($dir, 0755, true);
         }
 
-        file_put_contents($filePath, $content);
+        file_put_contents($filePath, $content, LOCK_EX);
 
         $relative = ltrim(str_replace($this->projectDir, '', $filePath), '/');
 

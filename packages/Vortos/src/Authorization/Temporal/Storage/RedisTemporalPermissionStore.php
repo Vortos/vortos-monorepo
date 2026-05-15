@@ -67,7 +67,11 @@ final class RedisTemporalPermissionStore implements TemporalPermissionStoreInter
 
         if (!$data) return null;
 
-        $payload = json_decode($data, true);
+        try {
+            $payload = json_decode($data, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return null; // Corrupt cache — treat as no grant (deny)
+        }
         return isset($payload['expires_at'])
             ? (new \DateTimeImmutable())->setTimestamp($payload['expires_at'])
             : null;

@@ -66,7 +66,7 @@ final class MigrateRollbackCommand extends Command
 
         $steps = $input->getOption('all')
             ? $executed->count()
-            : max(1, (int) $input->getOption('steps'));
+            : max(1, min((int) $input->getOption('steps'), 1000));
 
         $targetVersion = $this->resolveTarget($executed->getItems(), $steps);
         $plan          = $factory->getMigrationPlanCalculator()->getPlanUntilVersion($targetVersion);

@@ -37,9 +37,9 @@ final class OutboxRelayCommand extends Command
 
     public function execute(InputInterface $input, OutputInterface $output): int
     {
-        $batchSize = (int) $input->getOption('batch-size');
-        $sleepMs   = (int) $input->getOption('sleep-ms');
-        $timeout   = (int) $input->getOption('timeout');
+        $batchSize = max(1, min((int) $input->getOption('batch-size'), 1000));
+        $sleepMs   = max(0, min((int) $input->getOption('sleep-ms'), 60000));
+        $timeout   = max(0, min((int) $input->getOption('timeout'), 86400));
         $dryRun    = (bool) $input->getOption('dry-run');
 
         if ($dryRun) {
@@ -69,6 +69,7 @@ final class OutboxRelayCommand extends Command
 
         if ($timeout > 0) {
             if (extension_loaded('pcntl')) {
+                pcntl_async_signals(true);
                 pcntl_signal(SIGALRM, fn() => $this->runner->stop());
                 pcntl_alarm($timeout);
                 $output->writeln("<comment>Timeout set to {$timeout}s</comment>");

@@ -44,7 +44,7 @@ final readonly class OutboxMessage
             $row['transport_name'],
             $row['event_class'],
             $row['payload'],
-            json_decode($row['headers'], true),
+            json_decode($row['headers'], true, 512),
             $row['status'],
             (int) $row['attempt_count'],
             new DateTimeImmutable($row['created_at']),

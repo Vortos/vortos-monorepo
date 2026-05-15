@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Vortos\Domain\Aggregate;
 
 use Vortos\Domain\Event\DomainEventInterface;

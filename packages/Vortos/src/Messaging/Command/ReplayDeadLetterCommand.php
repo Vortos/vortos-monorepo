@@ -68,7 +68,7 @@ final class ReplayDeadLetterCommand extends Command
 
     public function execute(InputInterface $input, OutputInterface $output): int
     {
-        $limit      = (int) $input->getOption('limit');
+        $limit      = max(1, min((int) $input->getOption('limit'), 10000));
         $dryRun     = (bool) $input->getOption('dry-run');
         $transport  = $input->getOption('transport') ?: null;
         $eventClass = $input->getOption('event-class') ?: null;

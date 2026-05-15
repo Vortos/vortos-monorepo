@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Cache\Adapter;
 
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Cache\Contract\TaggedCacheInterface;
 
 /**
@@ -33,7 +34,7 @@ use Vortos\Cache\Contract\TaggedCacheInterface;
  * Values are lost on process restart. No shared state between workers.
  * Use RedisAdapter in all non-test environments.
  */
-final class InMemoryAdapter implements TaggedCacheInterface
+final class InMemoryAdapter implements TaggedCacheInterface, AtomicCacheInterface
 {
     /**
      * @var array<string, array{value: mixed, expiresAt: int|null}>
@@ -148,6 +149,22 @@ final class InMemoryAdapter implements TaggedCacheInterface
 
             unset($this->tags[$tag]);
         }
+
+        return true;
+    }
+
+    /**
+     * Set-if-not-exists — atomic in a single-threaded PHP process.
+     *
+     * {@inheritdoc}
+     */
+    public function setNx(string $key, mixed $value, int $ttl): bool
+    {
+        if ($this->has($key)) {
+            return false;
+        }
+
+        $this->set($key, $value, $ttl);
 
         return true;
     }

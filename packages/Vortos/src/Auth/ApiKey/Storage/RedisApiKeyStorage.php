@@ -26,7 +26,7 @@ final class RedisApiKeyStorage implements ApiKeyStorageInterface
             return null;
         }
 
-        return $this->deserialize(json_decode((string) $json, true));
+        return $this->deserialize(json_decode((string) $json, true, 512));
     }
 
     public function save(ApiKeyRecord $record): void

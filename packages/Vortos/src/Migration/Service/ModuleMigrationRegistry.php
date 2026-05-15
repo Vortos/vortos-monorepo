@@ -97,7 +97,7 @@ final class ModuleMigrationRegistry
             return [];
         }
 
-        $data = json_decode((string) file_get_contents($path), true);
+        $data = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
 
         return is_array($data['published'] ?? null) ? $data['published'] : [];
     }

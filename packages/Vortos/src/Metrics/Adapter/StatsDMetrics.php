@@ -14,6 +14,7 @@ use Vortos\Metrics\Definition\MetricType;
 use Vortos\Metrics\Instrument\StatsDCounter;
 use Vortos\Metrics\Instrument\StatsDGauge;
 use Vortos\Metrics\Instrument\StatsDHistogram;
+use Psr\Log\LoggerInterface;
 
 /**
  * StatsD metrics adapter — buffered UDP datagrams, zero dependencies.
@@ -51,8 +52,17 @@ final class StatsDMetrics implements MetricsInterface, FlushableMetricsInterface
         private readonly int $port = 8125,
         private readonly string $namespace = 'vortos',
         private readonly float $sampleRate = 1.0,
+        private readonly ?LoggerInterface $logger = null,
     ) {
         $socket = @fsockopen('udp://' . $host, $port, $errno, $errstr, 0);
+        if ($socket === false) {
+            $this->logger?->warning('StatsD socket could not be opened — metrics will be silently dropped.', [
+                'host'  => $host,
+                'port'  => $port,
+                'error' => $errstr,
+                'errno' => $errno,
+            ]);
+        }
         $this->socket = $socket !== false ? $socket : null;
     }
 

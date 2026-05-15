@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Vortos\Http\Controller;
 
 use Vortos\Http\Contract\PublicExceptionInterface;

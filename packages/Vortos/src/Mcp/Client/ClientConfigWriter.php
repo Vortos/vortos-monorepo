@@ -62,6 +62,7 @@ final class ClientConfigWriter
         file_put_contents(
             $configPath,
             json_encode($existing, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n",
+            LOCK_EX,
         );
 
         return ['path' => $configPath, 'action' => $action];
@@ -93,7 +94,7 @@ final class ClientConfigWriter
             mkdir($dir, 0755, true);
         }
 
-        file_put_contents($configPath, $updated);
+        file_put_contents($configPath, $updated, LOCK_EX);
 
         return ['path' => $configPath, 'action' => file_exists($configPath) && $existing !== '' ? 'updated' : 'created'];
     }

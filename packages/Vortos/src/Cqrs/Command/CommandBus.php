@@ -72,30 +72,33 @@ final class CommandBus implements CommandBusInterface
             // 1. Validate — before idempotency, before transaction
             $this->runValidation($command);
 
-            // 2. Idempotency check
+            // 2. Atomic idempotency claim — eliminates TOCTOU between check and mark
             $idempotencyKey = $this->resolveIdempotencyKey($command);
 
-            if ($idempotencyKey !== null && $this->idempotencyStore->wasProcessed($idempotencyKey)) {
+            if ($idempotencyKey !== null && !$this->idempotencyStore->tryMarkProcessed($idempotencyKey)) {
                 $span?->setStatus('ok');
                 return;
             }
 
             $handler = $this->handlerLocator->get($commandClass);
 
-            // 3. Transaction — markProcessed is inside so it commits atomically with handler work
-            $this->unitOfWork->run(function () use ($command, $handler, $idempotencyKey): void {
-                $result = $handler($command);
+            // 3. Transaction — release idempotency claim on failure so the command can be retried
+            try {
+                $this->unitOfWork->run(function () use ($command, $handler): void {
+                    $result = $handler($command);
 
-                if ($result instanceof AggregateRoot) {
-                    foreach ($result->pullDomainEvents() as $event) {
-                        $this->eventBus->dispatch($event);
+                    if ($result instanceof AggregateRoot) {
+                        foreach ($result->pullDomainEvents() as $event) {
+                            $this->eventBus->dispatch($event);
+                        }
                     }
-                }
-
+                });
+            } catch (\Throwable $txException) {
                 if ($idempotencyKey !== null) {
-                    $this->idempotencyStore->markProcessed($idempotencyKey);
+                    $this->idempotencyStore->releaseProcessed($idempotencyKey);
                 }
-            });
+                throw $txException;
+            }
 
             $this->logger->info('Command dispatched', [
                 'command'  => $commandClass,

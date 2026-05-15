@@ -173,9 +173,10 @@ abstract class RequestDto
         if (str_contains($request->headers->get('Content-Type', ''), 'application/json')) {
             $content = $request->getContent();
             if ($content !== '') {
-                $decoded = json_decode($content, true);
-                if (json_last_error() !== JSON_ERROR_NONE) {
-                    throw new InvalidArgumentException('Invalid JSON body: ' . json_last_error_msg());
+                try {
+                    $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+                } catch (\JsonException $e) {
+                    throw new InvalidArgumentException('Invalid JSON body: ' . $e->getMessage());
                 }
                 if (is_array($decoded)) {
                     foreach ($decoded as $key => $value) {

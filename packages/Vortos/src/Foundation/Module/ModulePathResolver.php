@@ -59,7 +59,7 @@ final class ModulePathResolver
             return $this->roots = [];
         }
 
-        $installed          = json_decode(file_get_contents($installedJson), true);
+        $installed          = json_decode((string) file_get_contents($installedJson), true, 512);
         $vendorComposerDir  = $this->projectDir . '/vendor/composer';
         $roots              = [];
 

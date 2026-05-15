@@ -83,7 +83,7 @@ final class VaultSecretsProvider implements SecretsInterface
             return '';
         }
 
-        $data = json_decode($response, true);
+        $data = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
 
         // KV v2 wraps data in data.data
         $secret = $data['data']['data'][$field]
@@ -138,7 +138,7 @@ final class VaultSecretsProvider implements SecretsInterface
             throw new \RuntimeException('vortos-security: Vault AppRole login failed — no response.');
         }
 
-        $data = json_decode((string) $response, true);
+        $data = json_decode((string) $response, true, 512, JSON_THROW_ON_ERROR);
         $token    = $data['auth']['client_token'] ?? throw new \RuntimeException(
             'vortos-security: Vault AppRole login failed — no client_token in response.'
         );

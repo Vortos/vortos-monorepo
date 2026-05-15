@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Cache\Adapter;
 
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Cache\Contract\TaggedCacheInterface;
 
 /**
@@ -36,7 +37,7 @@ use Vortos\Cache\Contract\TaggedCacheInterface;
  *     (a controller may check the same permission 5 times — only compute once)
  *   - Cache tenant configuration lookup within a request
  */
-final class ArrayAdapter implements TaggedCacheInterface
+final class ArrayAdapter implements TaggedCacheInterface, AtomicCacheInterface
 {
     /** @var array<string, mixed> */
     private array $store = [];
@@ -104,8 +105,26 @@ final class ArrayAdapter implements TaggedCacheInterface
         $this->store[$key] = $value;
 
         foreach ($tags as $tag) {
-            $this->tags[$tag][] = $key;
+            if (!isset($this->tags[$tag]) || !in_array($key, $this->tags[$tag], true)) {
+                $this->tags[$tag][] = $key;
+            }
         }
+
+        return true;
+    }
+
+    /**
+     * Set-if-not-exists — atomic in a single-threaded PHP process.
+     *
+     * {@inheritdoc}
+     */
+    public function setNx(string $key, mixed $value, int $ttl): bool
+    {
+        if (array_key_exists($key, $this->store)) {
+            return false;
+        }
+
+        $this->store[$key] = $value;
 
         return true;
     }

@@ -51,11 +51,12 @@ final class ConsumeCommand extends Command
     {
         $consumerName = $input->getArgument('consumer');
 
-        $timeout     = (int) $input->getOption('timeout');
-        $maxMessages = (int) $input->getOption('max-messages');
+        $timeout     = max(0, min((int) $input->getOption('timeout'), 86400));
+        $maxMessages = max(0, min((int) $input->getOption('max-messages'), 1_000_000));
 
         if ($timeout > 0) {
             if (extension_loaded('pcntl')) {
+                pcntl_async_signals(true);
                 pcntl_signal(SIGALRM, fn() => $this->consumerRunner->stop());
                 pcntl_alarm($timeout);
                 $output->writeln("<comment>Timeout set to {$timeout}s</comment>");

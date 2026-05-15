@@ -69,7 +69,7 @@ final class MigrateCommand extends Command
         $locked = false;
 
         if (!(bool) $input->getOption('no-lock') && $this->lock !== null) {
-            $locked = $this->lock->acquire((int) $input->getOption('lock-timeout'));
+            $locked = $this->lock->acquire(max(0, min((int) $input->getOption('lock-timeout'), 3600)));
 
             if (!$locked) {
                 $output->writeln('<error>Another migration process is already running. Could not acquire migration lock.</error>');

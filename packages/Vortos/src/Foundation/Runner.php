@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Vortos\Foundation;
 
 use CachedContainer;
@@ -167,7 +169,7 @@ class Runner
 
         if ($this->context === 'http') {
             $tmpPath = $this->dumpFilePath . '.tmp';
-            file_put_contents($tmpPath, $dumper->dump(['class' => 'CachedContainer']));
+            file_put_contents($tmpPath, $dumper->dump(['class' => 'CachedContainer']), LOCK_EX);
             rename($tmpPath, $this->dumpFilePath);
         }
     }

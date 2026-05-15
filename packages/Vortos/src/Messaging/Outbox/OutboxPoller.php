@@ -29,7 +29,11 @@ final class OutboxPoller implements OutboxPollerInterface
         private int $maxAttempts = 5,
         private int $backoffBase = 30,
         private int $backoffCap = 3600,
-    ) {}
+    ) {
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $this->tableName)) {
+            throw new \InvalidArgumentException(sprintf('Invalid table name "%s".', $this->tableName));
+        }
+    }
 
     public function fetchPending(int $limit = 100): array
     {

@@ -67,10 +67,10 @@ final class DatabaseFlagStorage implements FlagStorageInterface
     {
         $rules    = array_map(
             fn(array $r) => FlagRule::fromArray($r),
-            json_decode($row['rules'], true) ?? [],
+            json_decode($row['rules'], true, 512) ?? [],
         );
         $variants = $row['variants'] !== null
-            ? json_decode($row['variants'], true)
+            ? json_decode($row['variants'], true, 512)
             : null;
 
         return new FeatureFlag(

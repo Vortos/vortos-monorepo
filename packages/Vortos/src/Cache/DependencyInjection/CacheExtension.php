@@ -15,6 +15,7 @@ use Vortos\Cache\Adapter\RedisAdapter;
 use Vortos\Cache\Adapter\RedisConnectionFactory;
 use Vortos\Cache\Command\CacheClearCommand;
 use Vortos\Cache\Command\CacheWarmupCommand;
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Cache\Contract\TaggedCacheInterface;
 use Vortos\Cache\Health\RedisHealthCheck;
 use Vortos\Config\DependencyInjection\ConfigExtension;
@@ -35,12 +36,13 @@ use Vortos\Config\Stub\ConfigStub;
  *   ArrayAdapter            — shared, public (Runner::cleanUp() clears it per request)
  *   CacheInterface          — alias → configured driver
  *   TaggedCacheInterface    — alias → configured driver
+ *   AtomicCacheInterface    — alias → configured driver
  *   CacheClearCommand       — console command
  *   CacheWarmupCommand      — console command with tagged iterator
  *
  * ## Driver swap
  *
- * Both CacheInterface and TaggedCacheInterface aliases point to the configured driver.
+ * CacheInterface, TaggedCacheInterface, and AtomicCacheInterface aliases all point to the configured driver.
  * Swapping driver in config/cache.php automatically routes all injections.
  * RedisAdapter, InMemoryAdapter, ArrayAdapter are always injectable by class name
  * regardless of which driver is active.
@@ -126,6 +128,9 @@ final class CacheExtension extends Extension
             ->setPublic(true);
 
         $container->setAlias(TaggedCacheInterface::class, $resolved['driver'])
+            ->setPublic(true);
+
+        $container->setAlias(AtomicCacheInterface::class, $resolved['driver'])
             ->setPublic(true);
 
         // Commands

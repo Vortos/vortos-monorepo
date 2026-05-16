@@ -18,6 +18,9 @@
         "symfony/cache": "^7.0",
         "symfony/var-exporter": "^7.0"
     },
+    "conflict": {
+        "symfony/var-exporter": "^8.0"
+    },
     "extra": {
         "vortos": {
             "package": "Vortos\\PersistenceOrm\\DependencyInjection\\PersistenceOrmPackage",

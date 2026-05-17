@@ -8,6 +8,7 @@ use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Cache\Contract\TaggedCacheInterface;
 use Vortos\Tracing\Contract\TracingInterface;
 
@@ -45,11 +46,14 @@ final class CacheTracingCompilerPass implements CompilerPassInterface
             ->setShared(true)
             ->setPublic(false);
 
-        // Re-point both aliases to the decorator
+        // Re-point all three cache aliases to the decorator
         $container->setAlias(CacheInterface::class, TracingCacheAdapter::class)
             ->setPublic(true);
 
         $container->setAlias(TaggedCacheInterface::class, TracingCacheAdapter::class)
+            ->setPublic(true);
+
+        $container->setAlias(AtomicCacheInterface::class, TracingCacheAdapter::class)
             ->setPublic(true);
     }
 }

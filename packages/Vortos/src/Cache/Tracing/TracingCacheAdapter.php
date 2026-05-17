@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Cache\Tracing;
 
 use Psr\SimpleCache\CacheInterface;
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Cache\Contract\TaggedCacheInterface;
 use Vortos\Tracing\Config\TracingModule;
 use Vortos\Tracing\Contract\TracingInterface;
@@ -27,12 +28,12 @@ use Vortos\Tracing\Contract\TracingInterface;
  *   cache.has    — has()
  *   cache.clear  — clear()
  */
-final class TracingCacheAdapter implements TaggedCacheInterface
+final class TracingCacheAdapter implements TaggedCacheInterface, AtomicCacheInterface
 {
     private static ?object $sentinel = null;
 
     public function __construct(
-        private readonly TaggedCacheInterface $inner,
+        private readonly TaggedCacheInterface&AtomicCacheInterface $inner,
         private readonly TracingInterface $tracer,
     ) {}
 
@@ -236,6 +237,26 @@ final class TracingCacheAdapter implements TaggedCacheInterface
 
         try {
             $result = $this->inner->invalidateTags($tags);
+            $span->setStatus('ok');
+            return $result;
+        } catch (\Throwable $e) {
+            $span->recordException($e);
+            $span->setStatus('error');
+            throw $e;
+        } finally {
+            $span->end();
+        }
+    }
+
+    public function setNx(string $key, mixed $value, int $ttl): bool
+    {
+        $span = $this->tracer->startSpan('cache.set_nx', [
+            'cache.key'     => $key,
+            'vortos.module' => TracingModule::Cache,
+        ]);
+
+        try {
+            $result = $this->inner->setNx($key, $value, $ttl);
             $span->setStatus('ok');
             return $result;
         } catch (\Throwable $e) {

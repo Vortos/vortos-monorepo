@@ -25,10 +25,10 @@ use Vortos\Cqrs\Query\QueryBus;
 use Vortos\Cqrs\Query\QueryBusInterface;
 use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\Tracing\Contract\TracingInterface;
-use Psr\SimpleCache\CacheInterface;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
 
@@ -77,7 +77,7 @@ final class CqrsExtension extends Extension
     private function registerCommandBus(ContainerBuilder $container, array $config): void
     {
         $container->register(RedisCommandIdempotencyStore::class, RedisCommandIdempotencyStore::class)
-            ->setArgument('$cache', new Reference(CacheInterface::class))
+            ->setArgument('$cache', new Reference(AtomicCacheInterface::class))
             ->setPublic(false);
 
         $container->register(InMemoryCommandIdempotencyStore::class, InMemoryCommandIdempotencyStore::class)

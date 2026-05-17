@@ -8,6 +8,7 @@ use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Cache\Contract\TaggedCacheInterface;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
@@ -54,6 +55,9 @@ final class CacheMetricsCompilerPass implements CompilerPassInterface
             ->setPublic(true);
 
         $container->setAlias(TaggedCacheInterface::class, CacheMetricsDecorator::class)
+            ->setPublic(true);
+
+        $container->setAlias(AtomicCacheInterface::class, CacheMetricsDecorator::class)
             ->setPublic(true);
     }
 }

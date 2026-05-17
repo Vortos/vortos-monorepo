@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Metrics\AutoInstrumentation;
 
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Cache\Contract\TaggedCacheInterface;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Vortos\Observability\Config\ObservabilityModule;
@@ -29,10 +30,10 @@ use Vortos\Observability\Telemetry\MetricLabelValue;
  *   use a counting wrapper generator so the inner adapter receives an iterable
  *   and the count is known without loading everything into memory.
  */
-final class CacheMetricsDecorator implements TaggedCacheInterface
+final class CacheMetricsDecorator implements TaggedCacheInterface, AtomicCacheInterface
 {
     public function __construct(
-        private readonly TaggedCacheInterface $inner,
+        private readonly TaggedCacheInterface&AtomicCacheInterface $inner,
         private readonly FrameworkTelemetry $telemetry,
     ) {}
 
@@ -128,6 +129,13 @@ final class CacheMetricsDecorator implements TaggedCacheInterface
     {
         $result = $this->inner->invalidateTags($tags);
         $this->record(MetricOperation::Delete, MetricResult::Ok);
+        return $result;
+    }
+
+    public function setNx(string $key, mixed $value, int $ttl): bool
+    {
+        $result = $this->inner->setNx($key, $value, $ttl);
+        $this->record(MetricOperation::Set, $result ? MetricResult::Ok : MetricResult::Miss);
         return $result;
     }
 

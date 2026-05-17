@@ -9,6 +9,7 @@ use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Vortos\Cache\Adapter\InMemoryAdapter;
 use Vortos\Cache\Adapter\RedisAdapter;
+use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Cache\Contract\TaggedCacheInterface;
 use Vortos\Cache\DependencyInjection\CacheExtension;
 
@@ -52,5 +53,6 @@ final class CacheExtensionEnvDefaultsTest extends TestCase
 
         $this->assertSame($expectedDriver, (string) $container->getAlias(CacheInterface::class));
         $this->assertSame($expectedDriver, (string) $container->getAlias(TaggedCacheInterface::class));
+        $this->assertSame($expectedDriver, (string) $container->getAlias(AtomicCacheInterface::class));
     }
 }

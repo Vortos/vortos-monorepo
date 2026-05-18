@@ -24,6 +24,7 @@ use Vortos\Cqrs\Command\Idempotency\InMemoryCommandIdempotencyStore;
 use Vortos\Cqrs\Command\Idempotency\RedisCommandIdempotencyStore;
 use Vortos\Cqrs\Query\QueryBus;
 use Vortos\Cqrs\Query\QueryBusInterface;
+use Vortos\Cqrs\Validation\SymfonyValidatorFactory;
 use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Vortos\Cache\Contract\AtomicCacheInterface;
@@ -70,6 +71,11 @@ final class CqrsExtension extends Extension
 
     private function registerValidator(ContainerBuilder $container): void
     {
+        $container->register(ValidatorInterface::class, ValidatorInterface::class)
+            ->setFactory([SymfonyValidatorFactory::class, 'create'])
+            ->setShared(true)
+            ->setPublic(false);
+
         $container->register(VortosValidator::class, VortosValidator::class)
             ->setArgument('$validator', new Reference(ValidatorInterface::class))
             ->setShared(true)

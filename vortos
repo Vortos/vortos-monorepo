@@ -263,6 +263,7 @@ function commandSections(): array
             'commands' => [
                 'debug:container'   => 'List registered container services',
                 'debug:routes'      => 'List registered routes',
+                'debug:bindings'    => 'List #[DefaultImpl] interface → class bindings',
                 'config:publish'    => 'Publish config stubs',
                 'docker:publish'    => 'Publish Docker files',
                 'mcp:doctor'        => 'Show MCP server status',

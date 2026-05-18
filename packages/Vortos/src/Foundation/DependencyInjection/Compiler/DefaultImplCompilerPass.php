@@ -34,6 +34,8 @@ final class DefaultImplCompilerPass implements CompilerPassInterface
 
         $appNamespaces = $this->resolveAppNamespaces($projectDir);
 
+        $bindings = [];
+
         foreach ($container->findTaggedServiceIds('vortos.default_impl') as $serviceId => $_) {
             $definition = $container->getDefinition($serviceId);
             $className  = $definition->getClass() ?? $serviceId;
@@ -60,7 +62,14 @@ final class DefaultImplCompilerPass implements CompilerPassInterface
             }
 
             $container->setAlias($interface, $serviceId)->setPublic(true);
+
+            $bindings[$interface] = [
+                'class' => $className,
+                'file'  => $reflClass->getFileName() ?: '',
+            ];
         }
+
+        $container->setParameter('vortos.default_impl.bindings', $bindings);
     }
 
     /** @return string[] App namespace prefixes (e.g. ['App\\', 'Vortos\\']) */

@@ -139,7 +139,8 @@ class Runner
             }
         }
 
-        $container = include $this->containerPath;
+        $projectRoot = $this->projectRoot;
+        $container   = include $this->containerPath;
 
         $this->configureContainer($container);
         $container->compile();

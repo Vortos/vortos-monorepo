@@ -11,6 +11,7 @@ use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\DependencyInjection\ChildDefinition;
+use Vortos\Foundation\Command\DebugBindingsCommand;
 use Vortos\Foundation\DependencyInjection\Attribute\DefaultImpl;
 use Vortos\Foundation\Health\HealthDetailPolicy;
 use Vortos\Foundation\Health\HealthRegistry;
@@ -58,5 +59,10 @@ final class FoundationExtension extends Extension
                 $definition->addTag('vortos.default_impl');
             },
         );
+
+        $container->register(DebugBindingsCommand::class, DebugBindingsCommand::class)
+            ->setArgument('$bindings', '%vortos.default_impl.bindings%')
+            ->addTag('console.command')
+            ->setPublic(true);
     }
 }

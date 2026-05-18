@@ -34,7 +34,7 @@ final class CqrsMetricsDecorator implements CommandBusInterface
         private readonly FrameworkTelemetry $telemetry,
     ) {}
 
-    public function dispatch(CommandInterface $command): void
+    public function dispatch(CommandInterface $command): mixed
     {
         $commandName = substr(strrchr(get_class($command), '\\') ?: get_class($command), 1);
         $start       = hrtime(true);
@@ -43,7 +43,7 @@ final class CqrsMetricsDecorator implements CommandBusInterface
         $this->telemetry->increment(ObservabilityModule::Cqrs, FrameworkMetric::CqrsCommandsTotal, $labels);
 
         try {
-            $this->inner->dispatch($command);
+            return $this->inner->dispatch($command);
         } catch (\Throwable $e) {
             $this->telemetry->increment(ObservabilityModule::Cqrs, FrameworkMetric::CqrsCommandFailuresTotal, $labels);
             throw $e;

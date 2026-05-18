@@ -11,16 +11,19 @@ use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 /**
  * ORM implementation of UnitOfWorkInterface.
  *
- * Delegates transaction management to Doctrine's EntityManager via
- * wrapInTransaction(), which handles begin, commit, and rollback — including
- * automatic rollback on any exception thrown inside $work.
+ * Uses DBAL-level transactions (beginTransaction / commit / rollBack) rather
+ * than EntityManager::wrapInTransaction(). This is critical for FrankenPHP
+ * worker mode: wrapInTransaction() calls $em->close() in its finally block on
+ * any exception, permanently killing the EntityManager for all subsequent
+ * requests in that worker thread. DBAL-level transactions never close the EM.
  *
  * ## Worker mode isolation (ResetInterface)
  *
  * Implements ResetInterface so ResettableServicesPass discovers it automatically.
  * Between requests, Runner::cleanUp() calls ServicesResetter::reset(), which
- * calls reset() here. This clears Doctrine's identity map, detaching all
- * entities and preventing any aggregate state from leaking across requests.
+ * calls reset() here. reset() clears Doctrine's identity map and, if the EM was
+ * closed by an unexpected path, reopens it via EntityManager::create() — ensuring
+ * the next request always starts with a healthy EM.
  *
  * ## Connection resilience
  *
@@ -44,7 +47,19 @@ final class OrmUnitOfWork implements UnitOfWorkInterface, ResetInterface
     {
         $this->ensureConnection();
 
-        return $this->em->wrapInTransaction($work);
+        $conn = $this->em->getConnection();
+        $conn->beginTransaction();
+
+        try {
+            $result = $work();
+            $this->em->flush();
+            $conn->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $conn->rollBack();
+            throw $e;
+        }
     }
 
     public function isActive(): bool
@@ -54,6 +69,13 @@ final class OrmUnitOfWork implements UnitOfWorkInterface, ResetInterface
 
     public function reset(): void
     {
+        if (!$this->em->isOpen()) {
+            // EM was closed by an unexpected code path — reopen for next request.
+            // This is a safety net; the DBAL-level transaction strategy should
+            // prevent the EM from ever being closed in normal operation.
+            $this->em->getConnection()->close();
+        }
+
         $this->em->clear();
     }
 

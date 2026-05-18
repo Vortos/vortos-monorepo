@@ -54,7 +54,7 @@ final class CommandBus implements CommandBusInterface
         private ?VortosValidator $validator = null,
     ) {}
 
-    public function dispatch(CommandInterface $command): void
+    public function dispatch(CommandInterface $command): mixed
     {
         $commandClass = get_class($command);
         $shortName    = substr(strrchr($commandClass, '\\') ?: $commandClass, 1);
@@ -77,14 +77,14 @@ final class CommandBus implements CommandBusInterface
 
             if ($idempotencyKey !== null && !$this->idempotencyStore->tryMarkProcessed($idempotencyKey)) {
                 $span?->setStatus('ok');
-                return;
+                return null;
             }
 
             $handler = $this->handlerLocator->get($commandClass);
 
             // 3. Transaction — release idempotency claim on failure so the command can be retried
             try {
-                $this->unitOfWork->run(function () use ($command, $handler): void {
+                $result = $this->unitOfWork->run(function () use ($command, $handler): mixed {
                     $result = $handler($command);
 
                     if ($result instanceof AggregateRoot) {
@@ -92,6 +92,8 @@ final class CommandBus implements CommandBusInterface
                             $this->eventBus->dispatch($event);
                         }
                     }
+
+                    return $result;
                 });
             } catch (\Throwable $txException) {
                 if ($idempotencyKey !== null) {
@@ -107,6 +109,8 @@ final class CommandBus implements CommandBusInterface
             ]);
 
             $span?->setStatus('ok');
+
+            return $result;
         } catch (\Throwable $e) {
             $span?->recordException($e);
             $span?->setStatus('error');

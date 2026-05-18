@@ -20,10 +20,12 @@ class Runner
 {
     private ?Container $container = null;
     private ?Response $response = null;
-    private readonly string $dumpFilePath;
     private readonly string $containerPath;
     private array $parameters = [];
     private bool $withRoutes = true;
+
+    /** Cache directory for compiled container dumps. */
+    private readonly string $cacheDir;
 
     public function __construct(
         private readonly string $environment,
@@ -31,9 +33,9 @@ class Runner
         private readonly string $projectRoot,
         private readonly string $context = 'http',
     ) {
-        $this->dumpFilePath = $projectRoot . "/var/cache/container_dump.php";
-        $this->containerPath = __DIR__ . "/Bootstrap/Container.php";
-        $this->withRoutes = $this->context === 'http';
+        $this->cacheDir      = $projectRoot . '/var/cache';
+        $this->containerPath = __DIR__ . '/Bootstrap/Container.php';
+        $this->withRoutes    = $this->context === 'http';
     }
 
     public function run(): Response
@@ -128,22 +130,49 @@ class Runner
 
     private function getCompiledContainer(): Container
     {
-        if ($this->environment === 'prod' && $this->context === 'http' && file_exists($this->dumpFilePath)) {
-            require_once $this->dumpFilePath;
-            $container = new CachedContainer();
-        } else {
-            $projectRoot = $this->projectRoot;
+        if ($this->environment === 'prod' && $this->context === 'http') {
+            $dumpPath = $this->resolveContainerDumpPath();
 
-            $container = include $this->containerPath;
-
-            $this->configureContainer($container);
-
-            $container->compile();
-
-            $this->handleCachingContainer($container);
+            if ($dumpPath !== null) {
+                require_once $dumpPath;
+                return new CachedContainer();
+            }
         }
 
+        $container = include $this->containerPath;
+
+        $this->configureContainer($container);
+        $container->compile();
+        $this->dumpContainer($container);
+
         return $container;
+    }
+
+    /**
+     * Returns the path to a valid cached container dump, or null if none exists.
+     *
+     * The dump filename is content-hashed from the config source files so that
+     * a new deploy atomically invalidates the old container without a race:
+     * the new dump is written to a PID-scoped tmp file, then renamed into place.
+     * Stale dumps from previous deploys are cleaned up on first boot.
+     */
+    private function resolveContainerDumpPath(): ?string
+    {
+        $hash = $this->configHash();
+        $path = $this->cacheDir . '/container_' . $hash . '.php';
+
+        if (file_exists($path)) {
+            return $path;
+        }
+
+        // Clean up stale container dumps from previous deploys.
+        foreach (glob($this->cacheDir . '/container_*.php') ?: [] as $stale) {
+            if ($stale !== $path) {
+                @unlink($stale);
+            }
+        }
+
+        return null;
     }
 
     private function configureContainer(ContainerBuilder $container): void
@@ -159,19 +188,96 @@ class Runner
         }
     }
 
-    private function handleCachingContainer(Container $container): void
+    private function dumpContainer(Container $container): void
     {
-        if ($this->environment !== 'prod') {
+        if ($this->environment !== 'prod' || $this->context !== 'http') {
             return;
         }
 
-        $dumper = new PhpDumper($container);
+        $hash     = $this->configHash();
+        $dumpPath = $this->cacheDir . '/container_' . $hash . '.php';
 
-        if ($this->context === 'http') {
-            $tmpPath = $this->dumpFilePath . '.tmp';
-            file_put_contents($tmpPath, $dumper->dump(['class' => 'CachedContainer']), LOCK_EX);
-            rename($tmpPath, $this->dumpFilePath);
+        if (file_exists($dumpPath)) {
+            return;
         }
+
+        if (!is_dir($this->cacheDir)) {
+            mkdir($this->cacheDir, 0755, true);
+        }
+
+        // PID-scoped tmp prevents two racing workers from corrupting the same file.
+        $tmpPath  = $this->cacheDir . '/container_' . $hash . '_' . getmypid() . '.tmp';
+        $lockPath = $this->cacheDir . '/container_' . $hash . '.lock';
+
+        $lock = fopen($lockPath, 'c');
+
+        if ($lock === false) {
+            return;
+        }
+
+        // Non-blocking: if another worker already holds the lock, skip — it will
+        // write the dump and the next request will pick it up via resolveContainerDumpPath().
+        if (!flock($lock, LOCK_EX | LOCK_NB)) {
+            fclose($lock);
+            return;
+        }
+
+        try {
+            // Re-check under lock — another worker may have finished between our check and here.
+            if (!file_exists($dumpPath)) {
+                $dumper = new PhpDumper($container);
+                file_put_contents($tmpPath, $dumper->dump(['class' => 'CachedContainer']));
+                rename($tmpPath, $dumpPath);
+            }
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+            @unlink($lockPath);
+            @unlink($tmpPath);
+        }
+    }
+
+    /**
+     * Produces a stable hash from config source files that affect the compiled container.
+     * A changed hash means the container must be recompiled.
+     */
+    private function configHash(): string
+    {
+        $sources = [
+            $this->projectRoot . '/config',
+            $this->projectRoot . '/src',
+        ];
+
+        $fingerprints = [];
+
+        foreach ($sources as $dir) {
+            if (!is_dir($dir)) {
+                continue;
+            }
+
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+            );
+
+            foreach ($iterator as $file) {
+                /** @var \SplFileInfo $file */
+                if (!$file->isFile()) {
+                    continue;
+                }
+
+                $ext = $file->getExtension();
+
+                if ($ext !== 'php' && $ext !== 'yaml' && $ext !== 'yml') {
+                    continue;
+                }
+
+                $fingerprints[] = $file->getMTime() . ':' . $file->getSize() . ':' . $file->getPathname();
+            }
+        }
+
+        sort($fingerprints);
+
+        return substr(hash('xxh3', implode("\n", $fingerprints)), 0, 16);
     }
 
     private function handleBoostrapErrors(\Throwable $exception, Request $request, ?Container $container = null): Response

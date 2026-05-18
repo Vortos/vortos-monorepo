@@ -65,6 +65,52 @@ final class CommandBusTest extends TestCase
         $bus->dispatch(new BusTestCommand());
     }
 
+    public function test_dispatch_returns_handler_result(): void
+    {
+        $handler = new class {
+            public function __invoke(BusTestCommand $command): string
+            {
+                return 'aggregate-result';
+            }
+        };
+
+        $bus    = $this->makeBus([BusTestCommand::class => $handler]);
+        $result = $bus->dispatch(new BusTestCommand());
+
+        $this->assertSame('aggregate-result', $result);
+    }
+
+    public function test_dispatch_returns_null_when_handler_returns_void(): void
+    {
+        $handler = new class {
+            public function __invoke(BusTestCommand $command): void {}
+        };
+
+        $bus    = $this->makeBus([BusTestCommand::class => $handler]);
+        $result = $bus->dispatch(new BusTestCommand());
+
+        $this->assertNull($result);
+    }
+
+    public function test_dispatch_returns_null_for_idempotent_duplicate(): void
+    {
+        $handler = new class {
+            public function __invoke(BusTestCommand $command): string { return 'first'; }
+        };
+
+        // Use property strategy so we can control the idempotency key
+        $bus = $this->makeBus(
+            [BusTestCommand::class => $handler],
+            [BusTestCommand::class => ['strategy' => 'property', 'property' => 'value']],
+        );
+
+        $command = new BusTestCommand('idempotency-key');
+        $bus->dispatch($command); // first — processed
+        $result = $bus->dispatch($command); // second — skipped
+
+        $this->assertNull($result);
+    }
+
     public function test_handler_receives_correct_command(): void
     {
         $received = null;

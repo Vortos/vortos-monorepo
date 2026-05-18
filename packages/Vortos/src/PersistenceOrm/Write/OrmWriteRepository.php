@@ -4,12 +4,25 @@ declare(strict_types=1);
 
 namespace Vortos\PersistenceOrm\Write;
 
+use Doctrine\DBAL\Exception\ConnectionException as DbalConnectionException;
+use Doctrine\DBAL\Exception\DeadlockException as DbalDeadlockException;
+use Doctrine\DBAL\Exception\ForeignKeyConstraintViolationException as DbalForeignKeyException;
+use Doctrine\DBAL\Exception\LockWaitTimeoutException as DbalLockWaitTimeoutException;
+use Doctrine\DBAL\Exception\NotNullConstraintViolationException as DbalNotNullException;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException as DbalUniqueException;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\OptimisticLockException as DoctrineOptimisticLockException;
 use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Identity\AggregateId;
 use Vortos\Domain\Repository\Exception\OptimisticLockException;
 use Vortos\Domain\Repository\WriteRepositoryInterface;
+use Vortos\PersistenceOrm\Exception\ConnectionException;
+use Vortos\PersistenceOrm\Exception\DeadlockException;
+use Vortos\PersistenceOrm\Exception\ForeignKeyConstraintException;
+use Vortos\PersistenceOrm\Exception\LockWaitTimeoutException;
+use Vortos\PersistenceOrm\Exception\NotNullConstraintException;
+use Vortos\PersistenceOrm\Exception\PersistenceException;
+use Vortos\PersistenceOrm\Exception\UniqueConstraintException;
 
 /**
  * Abstract Doctrine ORM write repository.
@@ -17,7 +30,8 @@ use Vortos\Domain\Repository\WriteRepositoryInterface;
  * Domain aggregates extend Vortos\PersistenceOrm\Aggregate\AggregateRoot and
  * carry #[ORM\Entity] annotations directly — one class, no translation layer.
  * This repository delegates all persistence to the EntityManager and translates
- * Doctrine's optimistic lock exception into the domain exception.
+ * all Doctrine/DBAL exceptions into the Vortos\PersistenceOrm\Exception hierarchy
+ * so application and domain code never imports Doctrine or DBAL types.
  *
  * ## Usage
  *
@@ -36,11 +50,17 @@ use Vortos\Domain\Repository\WriteRepositoryInterface;
  * tracked (new aggregate), it persists then flushes. This handles both insert
  * and update without requiring callers to distinguish between the two.
  *
- * ## Optimistic locking
+ * ## Exception translation
  *
- * Doctrine enforces #[ORM\Version] locking automatically on UPDATE. On conflict
- * it throws DoctrineOptimisticLockException, which is caught here and translated
- * to the domain OptimisticLockException with the expected version from the exception.
+ * All DBAL exceptions are caught and translated to Vortos types:
+ *   UniqueConstraintViolationException  → UniqueConstraintException
+ *   ForeignKeyConstraintViolation       → ForeignKeyConstraintException
+ *   NotNullConstraintViolation          → NotNullConstraintException
+ *   DeadlockException                   → DeadlockException (safe to retry)
+ *   LockWaitTimeoutException            → LockWaitTimeoutException (safe to retry)
+ *   ConnectionException                 → ConnectionException
+ *   DoctrineOptimisticLockException     → domain OptimisticLockException
+ *   Any other \Throwable                → PersistenceException (wrapped)
  *
  * ## Worker mode
  *
@@ -51,10 +71,10 @@ use Vortos\Domain\Repository\WriteRepositoryInterface;
  *
  * ## flush() scope
  *
- * Each save() and delete() flushes immediately (unit-level flush). To batch
- * multiple saves before a single flush, inject EntityManagerInterface directly
- * and call flush() yourself after all operations. The OrmUnitOfWork transaction
- * wraps everything — flush() still participates in the outer transaction.
+ * Each save() and delete() flushes immediately (unit-level flush). The outer
+ * OrmUnitOfWork::run() flushes again after $work() returns to capture any
+ * changes made by event handlers — this second flush is idempotent if save()
+ * already flushed everything.
  */
 abstract class OrmWriteRepository implements WriteRepositoryInterface
 {
@@ -82,6 +102,8 @@ abstract class OrmWriteRepository implements WriteRepositoryInterface
                 $aggregate->getVersion(),
                 -1,
             );
+        } catch (\Throwable $e) {
+            throw $this->translateException($e);
         }
     }
 
@@ -105,7 +127,23 @@ abstract class OrmWriteRepository implements WriteRepositoryInterface
                 $aggregate->getVersion(),
                 -1,
             );
+        } catch (\Throwable $e) {
+            throw $this->translateException($e);
         }
+    }
+
+    private function translateException(\Throwable $e): \Throwable
+    {
+        return match (true) {
+            $e instanceof DbalUniqueException        => UniqueConstraintException::wrap($e),
+            $e instanceof DbalForeignKeyException    => ForeignKeyConstraintException::wrap($e),
+            $e instanceof DbalNotNullException       => NotNullConstraintException::wrap($e),
+            $e instanceof DbalDeadlockException      => DeadlockException::wrap($e),
+            $e instanceof DbalLockWaitTimeoutException => LockWaitTimeoutException::wrap($e),
+            $e instanceof DbalConnectionException    => ConnectionException::wrap($e),
+            $e instanceof \Doctrine\DBAL\Exception   => PersistenceException::wrap($e),
+            default                                  => $e,
+        };
     }
 
     protected function em(): EntityManagerInterface

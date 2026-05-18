@@ -6,6 +6,7 @@ namespace Vortos\Tests\Cqrs\Validation;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Validator\Constraints as Assert;
+use Symfony\Component\Validator\Validation;
 use Vortos\Cqrs\Validation\ValidationException;
 use Vortos\Cqrs\Validation\VortosValidator;
 
@@ -15,7 +16,11 @@ final class VortosValidatorTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->validator = new VortosValidator();
+        $inner = Validation::createValidatorBuilder()
+            ->enableAttributeMapping()
+            ->getValidator();
+
+        $this->validator = new VortosValidator($inner);
     }
 
     public function test_valid_object_passes(): void

@@ -89,6 +89,7 @@ services:
     restart: always
     volumes:
       - ./:/var/www/html
+      - ./docker/worker/supervisord.conf:/etc/supervisord.conf:ro
     depends_on:
       - kafka
       - write_db

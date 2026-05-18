@@ -21,15 +21,16 @@ use Vortos\PersistenceMongo\Health\MongoHealthCheck;
  *   MongoDB\Client                             — shared client, built via MongoClientFactory::fromDsn()
  *   vortos.persistence.mongo.database_name     — parameter holding the database name
  *
- * ## What this extension does NOT register
+ * ## Read repository auto-wiring
  *
- * User read repositories (subclasses of MongoReadRepository) are NOT registered here.
- * Users register their own read repositories in config/services.php:
+ * Subclasses of MongoReadRepository registered in services.php are detected
+ * at compile time by MongoReadRepositoryAutowirePass. The pass injects
+ * MongoDB\Client and the database name parameter automatically, and adds the
+ * 'vortos.read_repository' tag so SetupPersistenceCommand and tracing passes
+ * discover the repository without any manual configuration:
  *
- *   $services->set(UserReadRepository::class)
- *       ->arg('$client', service(MongoDB\Client::class))
- *       ->arg('$databaseName', '%vortos.persistence.mongo.database_name%')
- *       ->tag('vortos.read_repository');
+ *   // services.php — this is all that is required:
+ *   $services->set(UserReadRepository::class);
  *
  * The 'vortos.read_repository' tag is used by SetupPersistenceCommand
  * to discover all read repositories and ensure their indexes exist.

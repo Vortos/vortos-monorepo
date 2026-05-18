@@ -13,6 +13,7 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
+use Symfony\Component\Validator\Validator\ValidatorInterface;
 use Vortos\Cqrs\Attribute\AsCommandHandler;
 use Vortos\Cqrs\Attribute\AsProjectionHandler;
 use Vortos\Cqrs\Attribute\AsQueryHandler;
@@ -70,6 +71,7 @@ final class CqrsExtension extends Extension
     private function registerValidator(ContainerBuilder $container): void
     {
         $container->register(VortosValidator::class, VortosValidator::class)
+            ->setArgument('$validator', new Reference(ValidatorInterface::class))
             ->setShared(true)
             ->setPublic(false);
     }

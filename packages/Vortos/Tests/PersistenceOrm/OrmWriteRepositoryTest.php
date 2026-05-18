@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 namespace Vortos\Tests\PersistenceOrm;
 
+use Doctrine\DBAL\Exception\ConnectionException as DbalConnectionException;
+use Doctrine\DBAL\Exception\DeadlockException as DbalDeadlockException;
+use Doctrine\DBAL\Exception\ForeignKeyConstraintViolationException as DbalForeignKeyException;
+use Doctrine\DBAL\Exception\LockWaitTimeoutException as DbalLockWaitTimeoutException;
+use Doctrine\DBAL\Exception\NotNullConstraintViolationException as DbalNotNullException;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException as DbalUniqueException;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping as ORM;
 use Doctrine\ORM\OptimisticLockException as DoctrineOptimisticLockException;
@@ -12,6 +18,12 @@ use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Identity\AggregateId;
 use Vortos\Domain\Repository\Exception\OptimisticLockException;
 use Vortos\PersistenceOrm\Aggregate\AggregateRoot as OrmAggregateRoot;
+use Vortos\PersistenceOrm\Exception\ConnectionException;
+use Vortos\PersistenceOrm\Exception\DeadlockException;
+use Vortos\PersistenceOrm\Exception\ForeignKeyConstraintException;
+use Vortos\PersistenceOrm\Exception\LockWaitTimeoutException;
+use Vortos\PersistenceOrm\Exception\NotNullConstraintException;
+use Vortos\PersistenceOrm\Exception\UniqueConstraintException;
 use Vortos\PersistenceOrm\Write\OrmWriteRepository;
 
 // --- fixtures ---
@@ -166,6 +178,126 @@ final class OrmWriteRepositoryTest extends TestCase
         );
 
         $this->expectException(OptimisticLockException::class);
+
+        (new RepoTestRepository($em))->delete($agg);
+    }
+
+    // --- DBAL exception translation ---
+
+    public function test_save_translates_unique_constraint_violation(): void
+    {
+        $this->assertSaveTranslates(DbalUniqueException::class, UniqueConstraintException::class);
+    }
+
+    public function test_save_translates_foreign_key_violation(): void
+    {
+        $this->assertSaveTranslates(DbalForeignKeyException::class, ForeignKeyConstraintException::class);
+    }
+
+    public function test_save_translates_not_null_violation(): void
+    {
+        $this->assertSaveTranslates(DbalNotNullException::class, NotNullConstraintException::class);
+    }
+
+    public function test_save_translates_deadlock(): void
+    {
+        $this->assertSaveTranslates(DbalDeadlockException::class, DeadlockException::class);
+    }
+
+    public function test_save_translates_lock_wait_timeout(): void
+    {
+        $this->assertSaveTranslates(DbalLockWaitTimeoutException::class, LockWaitTimeoutException::class);
+    }
+
+    public function test_save_translates_connection_exception(): void
+    {
+        $this->assertSaveTranslates(DbalConnectionException::class, ConnectionException::class);
+    }
+
+    public function test_delete_translates_unique_constraint_violation(): void
+    {
+        $this->assertDeleteTranslates(DbalUniqueException::class, UniqueConstraintException::class);
+    }
+
+    public function test_delete_translates_deadlock(): void
+    {
+        $this->assertDeleteTranslates(DbalDeadlockException::class, DeadlockException::class);
+    }
+
+    public function test_save_wraps_unknown_dbal_exception_as_persistence_exception(): void
+    {
+        $agg = new RepoTestAggregate();
+        $dbalException = $this->createMock(\Doctrine\DBAL\Exception::class);
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(false);
+        $em->method('persist');
+        $em->method('flush')->willThrowException($dbalException);
+
+        $this->expectException(\Vortos\PersistenceOrm\Exception\PersistenceException::class);
+
+        (new RepoTestRepository($em))->save($agg);
+    }
+
+    public function test_save_does_not_wrap_non_dbal_exception(): void
+    {
+        $agg = new RepoTestAggregate();
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(false);
+        $em->method('persist');
+        $em->method('flush')->willThrowException(new \DomainException('domain error'));
+
+        $this->expectException(\DomainException::class);
+        $this->expectExceptionMessage('domain error');
+
+        (new RepoTestRepository($em))->save($agg);
+    }
+
+    public function test_translated_exception_wraps_original_as_cause(): void
+    {
+        $agg = new RepoTestAggregate();
+        $original = $this->createMock(DbalUniqueException::class);
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(false);
+        $em->method('persist');
+        $em->method('flush')->willThrowException($original);
+
+        try {
+            (new RepoTestRepository($em))->save($agg);
+            $this->fail('Expected UniqueConstraintException');
+        } catch (UniqueConstraintException $e) {
+            $this->assertSame($original, $e->getPrevious());
+        }
+    }
+
+    private function assertSaveTranslates(string $dbalClass, string $vortosClass): void
+    {
+        $agg = new RepoTestAggregate();
+        $exception = $this->createMock($dbalClass);
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(false);
+        $em->method('persist');
+        $em->method('flush')->willThrowException($exception);
+
+        $this->expectException($vortosClass);
+
+        (new RepoTestRepository($em))->save($agg);
+    }
+
+    private function assertDeleteTranslates(string $dbalClass, string $vortosClass): void
+    {
+        $agg = new RepoTestAggregate();
+        $exception = $this->createMock($dbalClass);
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('contains')->willReturn(true);
+        $em->method('remove');
+        $em->method('flush')->willThrowException($exception);
+
+        $this->expectException($vortosClass);
 
         (new RepoTestRepository($em))->delete($agg);
     }

@@ -47,11 +47,14 @@ interface CommandBusInterface
     /**
      * Dispatch a command to its registered handler.
      *
+     * Returns whatever the handler returns — typically an aggregate root, a DTO,
+     * or null. Callers that do not need the return value may ignore it.
+     *
      * @param CommandInterface $command The command to dispatch
      *
      * @throws CommandHandlerNotFoundException If no handler is registered for this command
      * @throws DuplicateCommandException       If idempotency key was already processed (strict mode only)
      * @throws \Throwable                      Rethrows any exception from the handler after rollback
      */
-    public function dispatch(CommandInterface $command): void;
+    public function dispatch(CommandInterface $command): mixed;
 }

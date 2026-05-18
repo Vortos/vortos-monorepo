@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\PersistenceMongo\Cursor\MongoCursorSecretCompilerPass;
+use Vortos\PersistenceMongo\DependencyInjection\Compiler\MongoReadRepositoryAutowirePass;
 use Vortos\PersistenceMongo\Tracing\MongoTracingCompilerPass;
 
 /**
@@ -29,6 +30,14 @@ final class MongoPersistencePackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
+        // Priority 8 — must run before tracing (0) and cursor-secret (0) passes
+        // so those passes find the 'vortos.read_repository' tag we add here.
+        $container->addCompilerPass(
+            new MongoReadRepositoryAutowirePass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            8,
+        );
+
         $container->addCompilerPass(
             new MongoTracingCompilerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,

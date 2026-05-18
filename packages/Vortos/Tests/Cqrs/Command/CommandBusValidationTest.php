@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Validator\Constraints as Assert;
+use Symfony\Component\Validator\Validation;
 use Vortos\Cqrs\Command\CommandBus;
 use Vortos\Cqrs\Command\Idempotency\InMemoryCommandIdempotencyStore;
 use Vortos\Cqrs\Validation\ValidationException;
@@ -55,6 +56,13 @@ final class CommandBusValidationTest extends TestCase
         );
     }
 
+    private function makeValidator(): VortosValidator
+    {
+        return new VortosValidator(
+            Validation::createValidatorBuilder()->enableAttributeMapping()->getValidator(),
+        );
+    }
+
     private function makeUow(): UnitOfWorkInterface
     {
         $uow = $this->createMock(UnitOfWorkInterface::class);
@@ -67,7 +75,7 @@ final class CommandBusValidationTest extends TestCase
         $called = false;
         $bus = $this->makeBus(
             [ValidatedCommand::class => function (ValidatedCommand $c) use (&$called) { $called = true; }],
-            validator: new VortosValidator(),
+            validator: $this->makeValidator(),
         );
         $bus->dispatch(new ValidatedCommand('alice@example.com', 'Alice', 30));
         $this->assertTrue($called);
@@ -78,7 +86,7 @@ final class CommandBusValidationTest extends TestCase
         $called = false;
         $bus = $this->makeBus(
             [ValidatedCommand::class => function (ValidatedCommand $c) use (&$called) { $called = true; }],
-            validator: new VortosValidator(),
+            validator: $this->makeValidator(),
         );
         try {
             $bus->dispatch(new ValidatedCommand('not-an-email', '', -1));
@@ -95,7 +103,7 @@ final class CommandBusValidationTest extends TestCase
         $bus = $this->makeBus(
             [ValidatedCommand::class => fn(ValidatedCommand $c) => null],
             uow: $uow,
-            validator: new VortosValidator(),
+            validator: $this->makeValidator(),
         );
         try {
             $bus->dispatch(new ValidatedCommand('bad', '', -1));
@@ -117,7 +125,7 @@ final class CommandBusValidationTest extends TestCase
     {
         $bus = $this->makeBus(
             [ValidatedCommand::class => fn(ValidatedCommand $c) => null],
-            validator: new VortosValidator(),
+            validator: $this->makeValidator(),
         );
         try {
             $bus->dispatch(new ValidatedCommand('bad', '', -1));
@@ -137,7 +145,7 @@ final class CommandBusValidationTest extends TestCase
         $bus     = new CommandBus(
             $locator, $this->makeUow(),
             $this->createMock(EventBusInterface::class),
-            $store, new NullLogger(), new NoOpTracer(), [], new VortosValidator(),
+            $store, new NullLogger(), new NoOpTracer(), [], $this->makeValidator(),
         );
         try {
             $bus->dispatch(new ValidatedCommand('bad', 'Alice', 30));

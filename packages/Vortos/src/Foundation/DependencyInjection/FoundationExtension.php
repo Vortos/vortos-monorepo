@@ -11,6 +11,7 @@ use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\DependencyInjection\ChildDefinition;
+use Vortos\Foundation\DependencyInjection\Attribute\DefaultImpl;
 use Vortos\Foundation\Health\HealthDetailPolicy;
 use Vortos\Foundation\Health\HealthRegistry;
 use Vortos\Foundation\Health\Http\HealthController;
@@ -48,6 +49,13 @@ final class FoundationExtension extends Extension
             AsCommand::class,
             static function (ChildDefinition $definition, AsCommand $attribute): void {
                 $definition->addTag('console.command');
+            },
+        );
+
+        $container->registerAttributeForAutoconfiguration(
+            DefaultImpl::class,
+            static function (ChildDefinition $definition, DefaultImpl $attribute): void {
+                $definition->addTag('vortos.default_impl');
             },
         );
     }

@@ -6,23 +6,21 @@ namespace Vortos\Cqrs\Validation;
 
 use Symfony\Component\Validator\ConstraintViolationListInterface;
 use Symfony\Component\Validator\Mapping\ClassMetadata;
-use Symfony\Component\Validator\Validation;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
 /**
  * Thin wrapper around symfony/validator.
  * Userland never touches ValidatorInterface directly.
+ *
+ * ValidatorInterface is injected by the DI container so it uses the PSR-6
+ * metadata cache wired by Symfony's FrameworkBundle (or the Vortos cache
+ * package). Building a standalone validator via Validation::createValidatorBuilder()
+ * skips the cache entirely — every request re-parses attribute metadata via
+ * reflection, which is measurably slow on large command objects.
  */
 final class VortosValidator
 {
-    private ValidatorInterface $validator;
-
-    public function __construct()
-    {
-        $this->validator = Validation::createValidatorBuilder()
-            ->enableAttributeMapping()
-            ->getValidator();
-    }
+    public function __construct(private readonly ValidatorInterface $validator) {}
 
     /** @param string[]|string|null $groups */
     public function validate(object $object, array|string|null $groups = null): ConstraintViolationListInterface

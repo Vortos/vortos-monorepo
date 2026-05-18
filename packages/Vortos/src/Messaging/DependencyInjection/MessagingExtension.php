@@ -47,6 +47,7 @@ use Vortos\Messaging\Registry\HandlerRegistry;
 use Vortos\Messaging\Registry\ProducerRegistry;
 use Vortos\Messaging\Registry\TransportRegistry;
 use Vortos\Messaging\Runtime\ConsumerLocator;
+use Vortos\Messaging\Dev\SyncProjectionEventBusDecorator;
 use Vortos\Messaging\Runtime\ConsumerRunner;
 use Vortos\Messaging\Runtime\OutboxRelayRunner;
 use Vortos\Messaging\Serializer\JsonSerializer;
@@ -113,6 +114,7 @@ final class MessagingExtension extends Extension
         $this->registerInMemoryDriver($container);
         $this->registerKafkaDrivers($container);
         $this->registerEventBus($container);
+        $this->registerSyncProjectionDecorator($container, $env);
         $this->registerConsumerRunner($container, $resolvedConfig['consumer_defaults']['idempotency_ttl']);
         $this->registerCLICommands($container);
         $this->registerDefaultDriverInterfaces($container, $resolvedConfig['driver']);
@@ -283,6 +285,26 @@ final class MessagingExtension extends Extension
 
         $container->setAlias(EventBusInterface::class, EventBus::class)
             ->setPublic(true);
+    }
+
+    private function registerSyncProjectionDecorator(ContainerBuilder $container, string $env): void
+    {
+        if (!in_array($env, ['dev', 'test'], true)) {
+            return;
+        }
+
+        // VORTOS_SYNC_PROJECTIONS=false opts out — useful when testing real Kafka flow in dev.
+        if (($_ENV['VORTOS_SYNC_PROJECTIONS'] ?? 'true') === 'false') {
+            return;
+        }
+
+        $container->register(SyncProjectionEventBusDecorator::class, SyncProjectionEventBusDecorator::class)
+            ->setDecoratedService(EventBusInterface::class)
+            ->setArgument('$inner', new Reference(SyncProjectionEventBusDecorator::class . '.inner'))
+            ->setArgument('$handlerRegistry', new Reference(HandlerRegistry::class))
+            ->setArgument('$handlerLocator', new Reference('vortos.handler_locator'))
+            ->setArgument('$logger', new Reference(\Psr\Log\LoggerInterface::class))
+            ->setPublic(false);
     }
 
     private function registerKafkaDrivers(ContainerBuilder $container): void

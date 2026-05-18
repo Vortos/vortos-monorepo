@@ -8,15 +8,11 @@ use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
-use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
-use Vortos\Cache\Contract\TaggedCacheInterface;
 use Vortos\Migration\Generator\MigrationClassGenerator;
 use Vortos\Migration\Service\DependencyFactoryProvider;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
-use Vortos\PersistenceOrm\Cache\OrmMetadataCache;
-use Vortos\PersistenceOrm\Command\OrmClearCacheCommand;
 use Vortos\PersistenceOrm\Command\OrmDiffCommand;
 use Vortos\PersistenceOrm\Command\OrmSchemaCommand;
 use Vortos\PersistenceOrm\Factory\EntityManagerFactory;
@@ -34,7 +30,7 @@ use Vortos\PersistenceOrm\Transaction\OrmUnitOfWork;
  *   EntityManagerInterface::class — alias
  *   Connection::class             — DBAL connection extracted from EntityManager
  *                                   (shared with OutboxWriter for atomic writes)
- *   OrmUnitOfWork::class          — transaction boundary via EM::wrapInTransaction()
+ *   OrmUnitOfWork::class          — transaction boundary via DBAL beginTransaction/commit/rollBack
  *   UnitOfWorkInterface::class    — alias (overrides DBAL's alias when only ORM is active)
  *   OrmSchemaCommand::class       — vortos:orm:schema console command
  *   OrmDiffCommand::class         — vortos:orm:diff  generate migration from entity diff
@@ -58,24 +54,13 @@ final class PersistenceOrmExtension extends Extension
         $devMode     = $container->getParameter('kernel.env') === 'dev';
         $dsn         = (string) $container->getParameter('vortos.persistence.write_dsn');
 
-        $metadataCacheRef = null;
-        if ($container->has(TaggedCacheInterface::class)) {
-            $container->register(OrmMetadataCache::class, OrmMetadataCache::class)
-                ->setArgument('$cache', new Reference(TaggedCacheInterface::class))
-                ->setShared(true)
-                ->setPublic(false);
-
-            $metadataCacheRef = new Reference(OrmMetadataCache::class);
-
-            $container->register(OrmClearCacheCommand::class, OrmClearCacheCommand::class)
-                ->setArgument('$cache', new Reference(TaggedCacheInterface::class))
-                ->setPublic(false)
-                ->addTag('console.command');
-        }
-
+        // Arg 3 ($metadataCache) is intentionally null here. OrmMetadataCachePass
+        // runs after all extensions are merged and patches this argument if
+        // TaggedCacheInterface is available — avoiding the false-negative from
+        // MergeExtensionConfigurationPass isolating extensions in temp containers.
         $container->register(EntityManager::class, EntityManager::class)
             ->setFactory([EntityManagerFactory::class, 'fromDsn'])
-            ->setArguments([$dsn, $entityPaths, $devMode, $metadataCacheRef])
+            ->setArguments([$dsn, $entityPaths, $devMode, null])
             ->setShared(true)
             ->setPublic(true)
             ->setLazy(true);

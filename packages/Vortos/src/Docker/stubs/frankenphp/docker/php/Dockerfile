@@ -48,6 +48,12 @@ RUN mkdir -p /var/www/html/var/log /var/www/html/var/cache \
 RUN groupadd --gid 1000 app \
     && useradd --uid 1000 --gid app --shell /bin/bash --no-create-home app
 
+# Pre-create Caddy's data and config dirs with correct ownership so named
+# volumes are initialised as uid 1000 on first run (Docker copies image
+# directory contents into an empty volume on first mount).
+RUN mkdir -p /data/caddy /config/caddy \
+    && chown -R app:app /data /config
+
 # ============================================================
 # Stage 3a — Backend: HTTP server target
 # ============================================================

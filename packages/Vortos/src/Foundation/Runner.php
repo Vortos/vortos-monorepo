@@ -41,34 +41,20 @@ class Runner
 
     public function run(): Response
     {
+        $request = $this->getRequest();
+
         // Prod: a failed boot is permanent until redeploy — skip recompilation on every request.
         // Dev: always retry so fixing the code recovers without restarting the worker.
         if ($this->bootError !== null && !$this->debug) {
-            return new Response(
-                'Service temporarily unavailable. Check application logs.',
-                503,
-                ['Content-Type' => 'text/plain'],
-            );
+            return $this->handleBoostrapErrors(exception: $this->bootError, request: $request);
         }
-
-        $request = $this->getRequest();
 
         try {
             $this->getContainer();
             $this->bootError = null;
         } catch (\Throwable $e) {
             $this->bootError = $e;
-
-            error_log('[Vortos] Container boot failed: ' . $e->getMessage());
-            error_log($e->getTraceAsString());
-
-            return new Response(
-                $this->debug
-                    ? '<h1>Container Error</h1><pre>' . htmlspecialchars($e->getMessage()) . '</pre><pre>' . htmlspecialchars($e->getTraceAsString()) . '</pre>'
-                    : 'Service temporarily unavailable. Check application logs.',
-                503,
-                ['Content-Type' => 'text/html'],
-            );
+            return $this->handleBoostrapErrors(exception: $e, request: $request);
         }
 
         try {
@@ -155,7 +141,25 @@ class Runner
         $container   = include $this->containerPath;
 
         $this->configureContainer($container);
-        $container->compile();
+
+        try {
+            $container->compile();
+        } catch (\Throwable $e) {
+            if (str_contains($e->getMessage(), 'has been excluded')) {
+                throw new \RuntimeException(
+                    $e->getMessage()
+                    . "\n\nHint: If this interface has an implementation class, add #[DefaultImpl] to it:"
+                    . "\n\n    use Vortos\\Foundation\\DependencyInjection\\Attribute\\DefaultImpl;"
+                    . "\n\n    #[DefaultImpl]"
+                    . "\n    final class YourImpl implements YourInterface { ... }"
+                    . "\n\nOr register the binding manually in config/services.php.",
+                    0,
+                    $e,
+                );
+            }
+            throw $e;
+        }
+
         $this->dumpContainer($container);
 
         return $container;

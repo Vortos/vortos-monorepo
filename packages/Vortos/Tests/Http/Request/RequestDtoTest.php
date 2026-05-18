@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Validator\Constraints as Assert;
+use Symfony\Component\Validator\Validation;
 use Vortos\Cqrs\Validation\ValidationException;
 use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\Http\Request\RequestDto;
@@ -38,7 +39,9 @@ final class RequestDtoTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->validator = new VortosValidator();
+        $this->validator = new VortosValidator(
+            Validation::createValidatorBuilder()->enableAttributeMapping()->getValidator(),
+        );
     }
 
     private function jsonRequest(array $data, array $query = []): Request

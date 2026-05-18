@@ -45,10 +45,17 @@ WORKDIR /var/www/html
 RUN mkdir -p /var/www/html/var/log /var/www/html/var/cache \
     && chmod -R 777 /var/www/html/var
 
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --shell /bin/bash --no-create-home app
+
 # ============================================================
 # Stage 3a — Backend: HTTP server target
 # ============================================================
 FROM base AS backend
+
+# FrankenPHP built with XCADDY_SETCAP=1 holds cap_net_bind_service,
+# so it can bind ports 80/443 without root.
+USER app:app
 
 EXPOSE 80 443
 

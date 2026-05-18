@@ -225,7 +225,7 @@ function commandSections(): array
                 'setup:messaging'      => 'Publish outbox and dead letter migrations',
                 'outbox:relay'         => 'Run the outbox relay worker',
                 'outbox:replay'        => 'Reset failed outbox messages',
-                'dlq:replay'           => 'Replay permanently failed messages',
+                'dlq:replay'           => 'Replay permanently failed messages (--all-handlers to broadcast to all)',
             ],
         ],
         'Auth & Security' => [

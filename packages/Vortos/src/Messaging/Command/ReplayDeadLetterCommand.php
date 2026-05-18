@@ -63,7 +63,8 @@ final class ReplayDeadLetterCommand extends Command
             ->addOption('id', null, InputOption::VALUE_OPTIONAL, 'Replay a single message by ID')
             ->addOption('latest', null, InputOption::VALUE_NONE, 'Process most recently failed messages first (default: oldest first)')
             ->addOption('failed-from', null, InputOption::VALUE_OPTIONAL, 'Filter messages failed at or after this timestamp')
-            ->addOption('failed-to', null, InputOption::VALUE_OPTIONAL, 'Filter messages failed at or before this timestamp');
+            ->addOption('failed-to', null, InputOption::VALUE_OPTIONAL, 'Filter messages failed at or before this timestamp')
+            ->addOption('all-handlers', null, InputOption::VALUE_NONE, 'Re-broadcast the full event to all handlers, not just the one that failed. Deduplicates by event_id so each unique event is produced once.');
     }
 
     public function execute(InputInterface $input, OutputInterface $output): int
@@ -113,8 +114,14 @@ final class ReplayDeadLetterCommand extends Command
             return Command::SUCCESS;
         }
 
-        $replayed = 0;
-        $failed   = 0;
+        $replayed    = 0;
+        $failed      = 0;
+        $allHandlers = (bool) $input->getOption('all-handlers');
+        $serializer  = $this->serializerLocator->locate('json');
+
+        // When broadcasting to all handlers, deduplicate by event_id so each
+        // unique event is produced exactly once even if multiple handlers failed.
+        $broadcastSeen = [];
 
         foreach ($rows as $row) {
             try {
@@ -130,19 +137,36 @@ final class ReplayDeadLetterCommand extends Command
                     );
                 }
 
-                $serializer = $this->serializerLocator->locate('json');
-                $event      = $serializer->deserialize($row['payload'], $row['event_class']);
-                $headers    = json_decode($row['headers'], true, 512, JSON_THROW_ON_ERROR);
+                $headers = json_decode($row['headers'], true, 512, JSON_THROW_ON_ERROR);
 
+                unset($headers['x-vortos-failure-reason'], $headers['x-vortos-failed-at']);
                 $headers['x-vortos-global-replays'] = ($headers['x-vortos-global-replays'] ?? 0) + 1;
-                $headers['x-vortos-target-handler'] = $row['handler_id'];
-                $headers['x-vortos-replay-sig'] = $this->replaySecret !== ''
-                    ? hash_hmac('sha256', $row['handler_id'], $this->replaySecret)
-                    : '';
 
-                unset($headers['x-vortos-failure-reason']);
-                unset($headers['x-vortos-failed-at']);
+                if ($allHandlers) {
+                    // Broadcast mode: no target header — all handlers run.
+                    // Deduplicate so the event is produced once per unique event_id.
+                    unset($headers['x-vortos-target-handler'], $headers['x-vortos-replay-sig']);
 
+                    $eventKey = $headers['event_id'] ?? md5($row['payload']);
+
+                    if (isset($broadcastSeen[$eventKey])) {
+                        // Another failed handler for the same event — already produced. Just mark replayed.
+                        $this->repository->markReplayed($row['id']);
+                        $output->writeln(sprintf('  <info>↩</info> %s  |  %s  <comment>(deduplicated)</comment>', $row['id'], $row['event_class']));
+                        $replayed++;
+                        continue;
+                    }
+
+                    $broadcastSeen[$eventKey] = true;
+                } else {
+                    // Targeted mode: replay only the handler that originally failed.
+                    $headers['x-vortos-target-handler'] = $row['handler_id'];
+                    $headers['x-vortos-replay-sig']     = $this->replaySecret !== ''
+                        ? hash_hmac('sha256', $row['handler_id'], $this->replaySecret)
+                        : '';
+                }
+
+                $event = $serializer->deserialize($row['payload'], $row['event_class']);
                 $this->producer->produce($row['transport_name'], $event, $headers);
                 $this->repository->markReplayed($row['id']);
 

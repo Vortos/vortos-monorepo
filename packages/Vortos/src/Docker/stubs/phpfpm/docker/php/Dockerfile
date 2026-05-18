@@ -1,5 +1,6 @@
 # ============================================================
 # Stage 1 — Base: shared PHP + extensions layer
+# Both backend and worker build FROM this
 # ============================================================
 FROM php:8.3-fpm AS base
 
@@ -21,8 +22,18 @@ WORKDIR /var/www/html
 RUN mkdir -p /var/www/html/var/log /var/www/html/var/cache \
     && chmod -R 777 /var/www/html/var
 
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --shell /bin/bash --no-create-home app
+
 # ============================================================
-# Stage 2 — Worker: supervisord target
+# Stage 2 — Backend: PHP-FPM target
+# ============================================================
+FROM base AS backend
+
+USER app:app
+
+# ============================================================
+# Stage 3 — Worker: supervisord target
 # ============================================================
 FROM base AS worker
 

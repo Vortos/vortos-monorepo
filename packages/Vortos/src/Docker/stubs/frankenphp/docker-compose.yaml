@@ -4,6 +4,7 @@ services:
       context: ./
       dockerfile: ./docker/php/Dockerfile
       target: backend
+    user: "1000:1000"
     volumes:
       - ./:/var/www/html
       - ./docker/frankenphp/Caddyfile:/etc/frankenphp/Caddyfile

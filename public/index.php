@@ -11,10 +11,14 @@ $config = require __DIR__ . '/../bootstrap/app.php';
 if (isset($_SERVER['FRANKENPHP_WORKER'])) {
     $runner = new Runner(...$config, context: 'http');
 
-    // Boot container once outside the loop
-    $runner->getContainer();
+    // Warm the container once before the request loop.
+    // On failure: survive — run() owns error handling and the prod/dev distinction.
+    try {
+        $runner->getContainer();
+    } catch (\Throwable $e) {
+        // Logged by run() on each request. Nothing else to do here.
+    }
 
-    // Handle requests in a loop — process stays alive
     while (frankenphp_handle_request(function () use ($runner): void {
         header('X-Vortos-Mode: Worker-Active');
         $response = $runner->run();

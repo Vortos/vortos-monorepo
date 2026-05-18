@@ -20,6 +20,7 @@ class Runner
 {
     private ?Container $container = null;
     private ?Response $response = null;
+    private ?\Throwable $bootError = null;
     private readonly string $containerPath;
     private array $parameters = [];
     private bool $withRoutes = true;
@@ -40,13 +41,25 @@ class Runner
 
     public function run(): Response
     {
+        // Prod: a failed boot is permanent until redeploy — skip recompilation on every request.
+        // Dev: always retry so fixing the code recovers without restarting the worker.
+        if ($this->bootError !== null && !$this->debug) {
+            return new Response(
+                'Service temporarily unavailable. Check application logs.',
+                503,
+                ['Content-Type' => 'text/plain'],
+            );
+        }
+
         $request = $this->getRequest();
 
         try {
             $this->getContainer();
+            $this->bootError = null;
         } catch (\Throwable $e) {
+            $this->bootError = $e;
 
-            error_log('FATAL: Container compilation failed: ' . $e->getMessage());
+            error_log('[Vortos] Container boot failed: ' . $e->getMessage());
             error_log($e->getTraceAsString());
 
             return new Response(
@@ -65,7 +78,6 @@ class Runner
                 request: $request
             );
         } catch (\Throwable $e) {
-
             $this->response = $this->handleBoostrapErrors(
                 exception: $e,
                 request: $request,

@@ -110,6 +110,20 @@ final class ProjectionDiscoveryCompilerPass implements CompilerPassInterface
                 ];
 
                 $handlers = $container->getParameter('vortos.handlers');
+
+                foreach ($handlers[$consumer] ?? [] as $descriptors) {
+                    foreach ($descriptors as $existing) {
+                        if ($existing['handlerId'] === $handlerId) {
+                            throw new \LogicException(sprintf(
+                                'Duplicate handlerId "%s" on consumer "%s": already registered by "%s". Each handler on a consumer must have a unique handlerId.',
+                                $handlerId,
+                                $consumer,
+                                $existing['serviceId'],
+                            ));
+                        }
+                    }
+                }
+
                 $handlers[$consumer][$eventClass][] = $descriptor;
                 $container->setParameter('vortos.handlers', $handlers);
             }

@@ -102,6 +102,20 @@ final class HandlerDiscoveryCompilerPass implements CompilerPassInterface
         ];
 
         $handlers = $container->getParameter('vortos.handlers');
+
+        foreach ($handlers[$attribute->consumer] ?? [] as $descriptors) {
+            foreach ($descriptors as $existing) {
+                if ($existing['handlerId'] === $attribute->handlerId) {
+                    throw new LogicException(sprintf(
+                        'Duplicate handlerId "%s" on consumer "%s": already registered by "%s". Each handler on a consumer must have a unique handlerId.',
+                        $attribute->handlerId,
+                        $attribute->consumer,
+                        $existing['serviceId'],
+                    ));
+                }
+            }
+        }
+
         $handlers[$attribute->consumer][$eventClass][] = $descriptor;
 
         $container->setParameter('vortos.handlers', $handlers);

@@ -22,9 +22,14 @@ use Vortos\Foundation\Module\ModulePathResolver;
 use Vortos\Migration\Service\MigrationDriftDetector;
 use Vortos\Migration\Service\MigrationDriftFormatter;
 use Vortos\Migration\Service\MigrationLock;
+use Vortos\Migration\Service\MigrationPlanAnalyzer;
 use Vortos\Migration\Service\MigrationPreflight;
+use Vortos\Migration\Service\MigrationRawInspectorInterface;
 use Vortos\Migration\Service\MigrationSchemaInspector;
 use Vortos\Migration\Service\MigrationSchemaInspectorInterface;
+use Vortos\Migration\Service\MigrationSqlExtractor;
+use Vortos\Migration\Service\MigrationSqlExtractorInterface;
+use Vortos\Migration\Service\MigrationSqlParser;
 use Vortos\Migration\Service\ModuleMigrationRegistry;
 use Vortos\Migration\Service\ModuleSchemaProviderScanner;
 use Vortos\Migration\Service\ModuleStubScanner;
@@ -114,6 +119,8 @@ final class MigrationExtension extends Extension
             ->setPublic(false);
         $container->setAlias(MigrationSchemaInspectorInterface::class, MigrationSchemaInspector::class)
             ->setPublic(false);
+        $container->setAlias(MigrationRawInspectorInterface::class, MigrationSchemaInspector::class)
+            ->setPublic(false);
 
         $container->register(MigrationDriftDetector::class, MigrationDriftDetector::class)
             ->setArgument('$inspector', new Reference(MigrationSchemaInspectorInterface::class))
@@ -130,6 +137,25 @@ final class MigrationExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
+        $container->register(MigrationSqlParser::class, MigrationSqlParser::class)
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(MigrationSqlExtractor::class, MigrationSqlExtractor::class)
+            ->setShared(true)
+            ->setPublic(false);
+        $container->setAlias(MigrationSqlExtractorInterface::class, MigrationSqlExtractor::class)
+            ->setPublic(false);
+
+        $container->register(MigrationPlanAnalyzer::class, MigrationPlanAnalyzer::class)
+            ->setArgument('$inspector', new Reference(MigrationRawInspectorInterface::class))
+            ->setArgument('$extractor', new Reference(MigrationSqlExtractorInterface::class))
+            ->setArgument('$parser', new Reference(MigrationSqlParser::class))
+            ->setArgument('$moduleRegistry', new Reference(ModuleMigrationRegistry::class))
+            ->setArgument('$driftDetector', new Reference(MigrationDriftDetector::class))
+            ->setShared(true)
+            ->setPublic(false);
+
         $container->register(MigrationLock::class, MigrationLock::class)
             ->setArgument('$connection', new Reference(Connection::class))
             ->setShared(true)
@@ -141,8 +167,7 @@ final class MigrationExtension extends Extension
 
         $container->register(MigrateCommand::class, MigrateCommand::class)
             ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
-            ->setArgument('$preflight', new Reference(MigrationPreflight::class))
-            ->setArgument('$driftFormatter', new Reference(MigrationDriftFormatter::class))
+            ->setArgument('$planAnalyzer', new Reference(MigrationPlanAnalyzer::class))
             ->setArgument('$lock', new Reference(MigrationLock::class))
             ->setPublic(true)
             ->addTag('console.command');

@@ -8,7 +8,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Schema\Schema;
 use Vortos\Migration\Schema\ModuleMigrationDescriptor;
 
-final class MigrationSchemaInspector implements MigrationSchemaInspectorInterface
+final class MigrationSchemaInspector implements MigrationSchemaInspectorInterface, MigrationRawInspectorInterface
 {
     /** @var array<string, true>|null */
     private ?array $tableNameCache = null;
@@ -119,6 +119,25 @@ final class MigrationSchemaInspector implements MigrationSchemaInspectorInterfac
         }
 
         return $missing;
+    }
+
+    public function tableExistsRaw(string $table): bool
+    {
+        return $this->tableExists($table);
+    }
+
+    public function columnExistsRaw(string $table, string $column): bool
+    {
+        if (!$this->tableExists($table)) {
+            return false;
+        }
+
+        $columns = array_map(
+            'strtolower',
+            array_keys($this->connection->createSchemaManager()->listTableColumns($table)),
+        );
+
+        return in_array(strtolower($column), $columns, true);
     }
 
     private function tableExists(string $table): bool

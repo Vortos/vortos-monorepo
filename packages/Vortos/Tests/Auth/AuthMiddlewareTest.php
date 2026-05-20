@@ -5,11 +5,8 @@ declare(strict_types=1);
 namespace Tests\Auth;
 
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
-use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Http\Request;
+use Vortos\Http\Response;
 use Vortos\Auth\Attribute\RequiresAuth;
 use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Identity\CurrentUserProvider;
@@ -43,7 +40,6 @@ final class AuthMiddlewareTest extends TestCase
     private ArrayAdapter $arrayAdapter;
     private AuthMiddleware $middleware;
     private InMemoryTokenStorage $tokenStorage;
-    private HttpKernelInterface $stubKernel;
 
     protected function setUp(): void
     {
@@ -56,13 +52,6 @@ final class AuthMiddlewareTest extends TestCase
         $this->tokenStorage = new InMemoryTokenStorage();
         $this->jwtService = new JwtService($config, $this->tokenStorage);
         $this->arrayAdapter = new ArrayAdapter();
-
-        $this->stubKernel = new class implements HttpKernelInterface {
-            public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = true): Response
-            {
-                return new Response('ok', 200);
-            }
-        };
 
         $this->middleware = new AuthMiddleware(
             $this->jwtService,
@@ -77,60 +66,52 @@ final class AuthMiddlewareTest extends TestCase
         $this->tokenStorage->clear();
     }
 
-    /**
-     * Creates a RequestEvent with _controller already set in attributes —
-     * simulating what RouterListener does in production before our subscriber runs.
-     */
-    private function makeEvent(string $path, string $controllerClass, array $headers = []): RequestEvent
+    private function makeRequest(string $controllerClass, array $headers = []): Request
     {
-        $request = Request::create($path);
-
+        $request = Request::create('/test');
+        $request->attributes->set('_controller', $controllerClass);
         foreach ($headers as $name => $value) {
             $request->headers->set($name, $value);
         }
+        return $request;
+    }
 
-        // Simulate RouterListener having already matched the route
-        $request->attributes->set('_controller', $controllerClass);
-
-        return new RequestEvent($this->stubKernel, $request, HttpKernelInterface::MAIN_REQUEST);
+    private function next(): \Closure
+    {
+        return fn(Request $r) => new Response('ok', 200);
     }
 
     // -------------------------------------------------------------------------
     // PUBLIC ROUTE TESTS
     // -------------------------------------------------------------------------
 
-    public function test_public_route_without_token_does_not_set_response(): void
+    public function test_public_route_without_token_passes_through(): void
     {
-        $event = $this->makeEvent('/api/public', StubPublicController::class);
-
-        $this->middleware->onKernelRequest($event);
-
-        // No response set — request proceeds to controller
-        $this->assertNull($event->getResponse());
+        $request = $this->makeRequest(StubPublicController::class);
+        $response = $this->middleware->handle($request, $this->next());
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_public_route_sets_anonymous_identity_when_no_token(): void
     {
-        $event = $this->makeEvent('/api/public', StubPublicController::class);
-
-        $this->middleware->onKernelRequest($event);
+        $request = $this->makeRequest(StubPublicController::class);
+        $this->middleware->handle($request, $this->next());
 
         $provider = new CurrentUserProvider($this->arrayAdapter);
         $this->assertFalse($provider->get()->isAuthenticated());
     }
 
-    public function test_public_route_with_valid_token_does_not_set_response(): void
+    public function test_public_route_with_valid_token_passes_through(): void
     {
         $identity = new UserIdentity('user-1', ['ROLE_USER']);
         $token = $this->jwtService->issue($identity);
 
-        $event = $this->makeEvent('/api/public', StubPublicController::class, [
+        $request = $this->makeRequest(StubPublicController::class, [
             'Authorization' => 'Bearer ' . $token->accessToken,
         ]);
 
-        $this->middleware->onKernelRequest($event);
-
-        $this->assertNull($event->getResponse());
+        $response = $this->middleware->handle($request, $this->next());
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_public_route_with_valid_token_sets_user_identity(): void
@@ -138,11 +119,11 @@ final class AuthMiddlewareTest extends TestCase
         $identity = new UserIdentity('user-1', ['ROLE_USER']);
         $token = $this->jwtService->issue($identity);
 
-        $event = $this->makeEvent('/api/public', StubPublicController::class, [
+        $request = $this->makeRequest(StubPublicController::class, [
             'Authorization' => 'Bearer ' . $token->accessToken,
         ]);
 
-        $this->middleware->onKernelRequest($event);
+        $this->middleware->handle($request, $this->next());
 
         $provider = new CurrentUserProvider($this->arrayAdapter);
         $resolved = $provider->get();
@@ -154,23 +135,18 @@ final class AuthMiddlewareTest extends TestCase
     // PROTECTED ROUTE — NO TOKEN
     // -------------------------------------------------------------------------
 
-    public function test_protected_route_without_token_sets_401_response(): void
+    public function test_protected_route_without_token_returns_401(): void
     {
-        $event = $this->makeEvent('/api/protected', StubProtectedController::class);
-
-        $this->middleware->onKernelRequest($event);
-
-        $this->assertNotNull($event->getResponse());
-        $this->assertEquals(401, $event->getResponse()->getStatusCode());
+        $request = $this->makeRequest(StubProtectedController::class);
+        $response = $this->middleware->handle($request, $this->next());
+        $this->assertSame(401, $response->getStatusCode());
     }
 
     public function test_protected_route_401_response_is_json(): void
     {
-        $event = $this->makeEvent('/api/protected', StubProtectedController::class);
-
-        $this->middleware->onKernelRequest($event);
-
-        $body = json_decode($event->getResponse()->getContent(), true);
+        $request = $this->makeRequest(StubProtectedController::class);
+        $response = $this->middleware->handle($request, $this->next());
+        $body = json_decode($response->getContent(), true);
         $this->assertArrayHasKey('error', $body);
         $this->assertEquals('Unauthorized', $body['error']);
         $this->assertArrayHasKey('message', $body);
@@ -180,18 +156,17 @@ final class AuthMiddlewareTest extends TestCase
     // PROTECTED ROUTE — VALID TOKEN
     // -------------------------------------------------------------------------
 
-    public function test_protected_route_with_valid_token_does_not_set_response(): void
+    public function test_protected_route_with_valid_token_passes_through(): void
     {
         $identity = new UserIdentity('user-1', ['ROLE_USER']);
         $token = $this->jwtService->issue($identity);
 
-        $event = $this->makeEvent('/api/protected', StubProtectedController::class, [
+        $request = $this->makeRequest(StubProtectedController::class, [
             'Authorization' => 'Bearer ' . $token->accessToken,
         ]);
 
-        $this->middleware->onKernelRequest($event);
-
-        $this->assertNull($event->getResponse());
+        $response = $this->middleware->handle($request, $this->next());
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_protected_route_with_valid_token_sets_identity(): void
@@ -199,11 +174,11 @@ final class AuthMiddlewareTest extends TestCase
         $identity = new UserIdentity('user-42', ['ROLE_ADMIN']);
         $token = $this->jwtService->issue($identity);
 
-        $event = $this->makeEvent('/api/protected', StubProtectedController::class, [
+        $request = $this->makeRequest(StubProtectedController::class, [
             'Authorization' => 'Bearer ' . $token->accessToken,
         ]);
 
-        $this->middleware->onKernelRequest($event);
+        $this->middleware->handle($request, $this->next());
 
         $provider = new CurrentUserProvider($this->arrayAdapter);
         $resolved = $provider->get();
@@ -217,13 +192,12 @@ final class AuthMiddlewareTest extends TestCase
 
     public function test_protected_route_with_malformed_token_returns_401(): void
     {
-        $event = $this->makeEvent('/api/protected', StubProtectedController::class, [
+        $request = $this->makeRequest(StubProtectedController::class, [
             'Authorization' => 'Bearer not.a.valid.token',
         ]);
 
-        $this->middleware->onKernelRequest($event);
-
-        $this->assertEquals(401, $event->getResponse()->getStatusCode());
+        $response = $this->middleware->handle($request, $this->next());
+        $this->assertSame(401, $response->getStatusCode());
     }
 
     public function test_protected_route_with_truncated_token_returns_401_not_500(): void
@@ -232,14 +206,12 @@ final class AuthMiddlewareTest extends TestCase
         $token = $this->jwtService->issue($identity);
         $truncated = substr($token->accessToken, 0, strlen($token->accessToken) - 20);
 
-        $event = $this->makeEvent('/api/protected', StubProtectedController::class, [
+        $request = $this->makeRequest(StubProtectedController::class, [
             'Authorization' => 'Bearer ' . $truncated,
         ]);
 
-        $this->middleware->onKernelRequest($event);
-
-        // This was the original bug — truncated token caused 500. Must be 401.
-        $this->assertEquals(401, $event->getResponse()->getStatusCode());
+        $response = $this->middleware->handle($request, $this->next());
+        $this->assertSame(401, $response->getStatusCode());
     }
 
     public function test_protected_route_with_tampered_signature_returns_401(): void
@@ -251,13 +223,12 @@ final class AuthMiddlewareTest extends TestCase
         $parts[2] = 'tampered_signature_here';
         $tampered = implode('.', $parts);
 
-        $event = $this->makeEvent('/api/protected', StubProtectedController::class, [
+        $request = $this->makeRequest(StubProtectedController::class, [
             'Authorization' => 'Bearer ' . $tampered,
         ]);
 
-        $this->middleware->onKernelRequest($event);
-
-        $this->assertEquals(401, $event->getResponse()->getStatusCode());
+        $response = $this->middleware->handle($request, $this->next());
+        $this->assertSame(401, $response->getStatusCode());
     }
 
     public function test_protected_route_with_expired_token_returns_401(): void
@@ -274,24 +245,22 @@ final class AuthMiddlewareTest extends TestCase
 
         $middleware = new AuthMiddleware($expiredService, $this->arrayAdapter, [StubProtectedController::class]);
 
-        $event = $this->makeEvent('/api/protected', StubProtectedController::class, [
+        $request = $this->makeRequest(StubProtectedController::class, [
             'Authorization' => 'Bearer ' . $token->accessToken,
         ]);
 
-        $middleware->onKernelRequest($event);
-
-        $this->assertEquals(401, $event->getResponse()->getStatusCode());
+        $response = $middleware->handle($request, $this->next());
+        $this->assertSame(401, $response->getStatusCode());
     }
 
     public function test_protected_route_with_empty_bearer_returns_401(): void
     {
-        $event = $this->makeEvent('/api/protected', StubProtectedController::class, [
+        $request = $this->makeRequest(StubProtectedController::class, [
             'Authorization' => 'Bearer ',
         ]);
 
-        $this->middleware->onKernelRequest($event);
-
-        $this->assertEquals(401, $event->getResponse()->getStatusCode());
+        $response = $this->middleware->handle($request, $this->next());
+        $this->assertSame(401, $response->getStatusCode());
     }
 
     public function test_protected_route_with_missing_bearer_prefix_returns_401(): void
@@ -299,47 +268,26 @@ final class AuthMiddlewareTest extends TestCase
         $identity = new UserIdentity('user-1', []);
         $token = $this->jwtService->issue($identity);
 
-        $event = $this->makeEvent('/api/protected', StubProtectedController::class, [
+        $request = $this->makeRequest(StubProtectedController::class, [
             'Authorization' => $token->accessToken, // no 'Bearer ' prefix
         ]);
 
-        $this->middleware->onKernelRequest($event);
-
-        $this->assertEquals(401, $event->getResponse()->getStatusCode());
+        $response = $this->middleware->handle($request, $this->next());
+        $this->assertSame(401, $response->getStatusCode());
     }
 
     // -------------------------------------------------------------------------
     // EDGE CASES
     // -------------------------------------------------------------------------
 
-    public function test_subrequest_is_ignored(): void
-    {
-        $request = Request::create('/api/protected');
-        $request->attributes->set('_controller', StubProtectedController::class);
-
-        // Subrequest — not MAIN_REQUEST
-        $event = new RequestEvent(
-            $this->stubKernel,
-            $request,
-            HttpKernelInterface::SUB_REQUEST,
-        );
-
-        $this->middleware->onKernelRequest($event);
-
-        // Subrequests are skipped entirely — no response set, no identity change
-        $this->assertNull($event->getResponse());
-    }
-
-    public function test_route_with_no_controller_does_not_set_response(): void
+    public function test_route_with_no_controller_does_not_block(): void
     {
         $request = Request::create('/some/unmatched/path');
         // No _controller set — simulates unmatched route
 
-        $event = new RequestEvent($this->stubKernel, $request, HttpKernelInterface::MAIN_REQUEST);
+        $response = $this->middleware->handle($request, $this->next());
 
-        $this->middleware->onKernelRequest($event);
-
-        // Should not 401 — inner kernel handles the 404
-        $this->assertNull($event->getResponse());
+        // Should not 401 — passes through
+        $this->assertSame(200, $response->getStatusCode());
     }
 }

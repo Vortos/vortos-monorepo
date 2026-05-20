@@ -3,24 +3,26 @@ declare(strict_types=1);
 
 namespace Vortos\Authorization\Ownership\Middleware;
 
-use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpFoundation\JsonResponse;
+use Vortos\Http\Attribute\AsMiddleware;
+use Vortos\Http\Contract\MiddlewareInterface;
+use Vortos\Http\JsonResponse;
+use Vortos\Http\MiddlewareOrder;
+use Vortos\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Authorization\Engine\PolicyEngine;
 use Vortos\Authorization\Ownership\Contract\OwnershipPolicyInterface;
 
 /**
  * Enforces #[RequiresOwnership] and #[RequiresOwnershipOrPermission].
- * Priority 2 — after authorization (3), before feature access (1).
+ * Runs at OWNERSHIP (order 550) — after AUTHORIZATION (600), before FEATURE_FLAGS (520).
  * Zero reflection — reads compile-time map.
  *
  * Route map keys: ControllerClass (class-level) or ControllerClass::method (method-level).
  * Method-level takes precedence over class-level when both are present.
  */
-final class OwnershipMiddleware implements EventSubscriberInterface
+#[AsMiddleware(order: MiddlewareOrder::OWNERSHIP)]
+final class OwnershipMiddleware implements MiddlewareInterface
 {
     /**
      * @param array<string, array{type: 'ownership'|'ownership_or_permission', policy: string, override: ?string}> $routeMap
@@ -33,19 +35,13 @@ final class OwnershipMiddleware implements EventSubscriberInterface
         private array $policies,
     ) {}
 
-    public static function getSubscribedEvents(): array
+    public function handle(Request $request, \Closure $next): Response
     {
-        return [KernelEvents::REQUEST => ['onKernelRequest', 2]];
-    }
-
-    public function onKernelRequest(RequestEvent $event): void
-    {
-        if (!$event->isMainRequest()) return;
-
-        $request = $event->getRequest();
         [$controllerClass, $controllerMethod] = $this->extractControllerReference($request->attributes->get('_controller'));
 
-        if ($controllerClass === null) return;
+        if ($controllerClass === null) {
+            return $next($request);
+        }
 
         // Method-level takes precedence over class-level
         $methodKey = $controllerMethod !== null ? $controllerClass . '::' . $controllerMethod : null;
@@ -53,15 +49,21 @@ final class OwnershipMiddleware implements EventSubscriberInterface
             ? $this->routeMap[$methodKey]
             : ($this->routeMap[$controllerClass] ?? null);
 
-        if ($rule === null) return;
+        if ($rule === null) {
+            return $next($request);
+        }
 
         $identity = $this->currentUser->get();
 
-        if (!$identity->isAuthenticated()) return;
+        if (!$identity->isAuthenticated()) {
+            return $next($request);
+        }
 
         $policyClass = $rule['policy'];
 
-        if (!isset($this->policies[$policyClass])) return;
+        if (!isset($this->policies[$policyClass])) {
+            return $next($request);
+        }
 
         $policy = $this->policies[$policyClass];
         $resourceId = $policy->getResourceIdFrom($request);
@@ -69,24 +71,26 @@ final class OwnershipMiddleware implements EventSubscriberInterface
 
         if ($rule['type'] === 'ownership') {
             if (!$isOwner) {
-                $event->setResponse(new JsonResponse(
+                return new JsonResponse(
                     ['error' => 'Forbidden', 'message' => 'You do not own this resource.'],
                     Response::HTTP_FORBIDDEN,
-                ));
+                );
             }
-            return;
+            return $next($request);
         }
 
         // ownership_or_permission — check override permission
         if (!$isOwner) {
             $override = $rule['override'];
             if ($override && !$this->policyEngine->can($identity, $override)) {
-                $event->setResponse(new JsonResponse(
+                return new JsonResponse(
                     ['error' => 'Forbidden', 'message' => 'You do not own this resource and lack the required permission.'],
                     Response::HTTP_FORBIDDEN,
-                ));
+                );
             }
         }
+
+        return $next($request);
     }
 
     /**

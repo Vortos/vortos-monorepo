@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Security\Signing;
 
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 
 /**
  * Verifies HMAC request signatures.

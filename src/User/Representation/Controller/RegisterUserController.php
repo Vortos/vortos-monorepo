@@ -4,40 +4,43 @@ declare(strict_types=1);
 
 namespace App\User\Representation\Controller;
 
-use App\User\Application\Command\RegisterUser\RegisterUserCommand;
-use App\User\Domain\Exception\UserAlreadyExistException;
+use App\User\Application\Command\RegisterUserCommand;
+use App\User\Domain\User;
 use App\User\Representation\Request\RegisterUserRequest;
-use Symfony\Component\HttpFoundation\JsonResponse;
+use Vortos\Http\JsonResponse;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Uid\UuidV7;
 use Vortos\Cqrs\Command\CommandBusInterface;
-use Vortos\Http\Attribute\ApiController;
+use Vortos\Cqrs\Validation\VortosValidator;
+use Vortos\Http\Attribute\AsController;
+use Vortos\Http\Request;
+use Vortos\Security\Csrf\Attribute\SkipCsrf;
 
-#[ApiController]
-#[Route('/api/auth/register', methods: ['POST'])]
+#[AsController]
+#[Route('/api/users/register', name: 'users.register', methods: ['POST'])]
+#[SkipCsrf]
 final class RegisterUserController
 {
     public function __construct(
         private readonly CommandBusInterface $commandBus,
+        private readonly VortosValidator $validator,
     ) {}
 
-    public function __invoke(RegisterUserRequest $request): JsonResponse
+    public function __invoke(Request $request): JsonResponse
     {
-        try {
-            $this->commandBus->dispatch(new RegisterUserCommand(
-                userId:   (string) new UuidV7(),
-                email:    $request->email,
-                name:     $request->name,
-                password: $request->password,
-            ));
-        } catch (UserAlreadyExistException) {
-            return new JsonResponse([
-                'error'      => 'validation_failed',
-                'message'    => 'The given data was invalid.',
-                'violations' => ['email' => ['This email is already registered.']],
-            ], 422);
-        }
+        $dto = RegisterUserRequest::fromRequest($request, $this->validator);
 
-        return new JsonResponse(['message' => 'User registered successfully.'], 201);
+        /** @var User $user */
+        $user = $this->commandBus->dispatch(new RegisterUserCommand(
+            name:  $dto->name,
+            email: $dto->email,
+            password: $dto->password,
+            idempotencyKey: $request->headers->get('Idempotency-Key'),
+        ));
+
+        return new JsonResponse([
+            'id'    => (string) $user->getId(),
+            'name'  => $user->getName(),
+            'email' => (string) $user->getEmail(),
+        ], 201);
     }
 }

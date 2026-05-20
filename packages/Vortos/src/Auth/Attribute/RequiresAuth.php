@@ -15,7 +15,7 @@ use Attribute;
  *
  * ## Usage
  *
- *   #[ApiController]
+ *   #[AsController]
  *   #[Route('/api/users', methods: ['GET'])]
  *   #[RequiresAuth]
  *   final class ListUsersController

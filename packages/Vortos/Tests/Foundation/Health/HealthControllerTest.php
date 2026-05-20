@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Vortos\Tests\Foundation\Health;
 
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
 use Vortos\Foundation\Health\HealthDetailPolicy;
 use Vortos\Foundation\Health\HealthRegistry;
-use Vortos\Foundation\Health\Http\HealthController;
+use Vortos\Http\Health\HealthController;
+use Vortos\Http\Request;
+use Vortos\Http\Response;
 
 final class HealthControllerTest extends TestCase
 {

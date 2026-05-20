@@ -40,7 +40,7 @@ final class MakeEntityCommand extends Command
             return Command::FAILURE;
         }
 
-        $ormActive = class_exists(\Vortos\PersistenceOrm\Aggregate\OrmAggregateRoot::class);
+        $ormActive = class_exists(\Vortos\PersistenceOrm\Aggregate\AggregateRoot::class);
         $stubName  = $ormActive ? 'entity-orm' : 'entity';
         $tableName = strtolower(preg_replace('/(?<!^)[A-Z]/', '_$0', $name) ?? $name) . 's';
 

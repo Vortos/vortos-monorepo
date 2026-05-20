@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Http\EventListener;
 
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpFoundation\JsonResponse;
+use Vortos\Http\JsonResponse;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Cqrs\Validation\ValidationException;

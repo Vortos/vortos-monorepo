@@ -6,10 +6,8 @@ namespace Tests\Authorization;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ServiceLocator;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Vortos\Http\Request;
+use Vortos\Http\Response;
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Identity\CurrentUserProvider;
@@ -199,7 +197,6 @@ final class AuthorizationTest extends TestCase
     private PolicyRegistry $registry;
     private RoleVoter $roleVoter;
     private ArrayAdapter $arrayAdapter;
-    private HttpKernelInterface $stubKernel;
 
     protected function setUp(): void
     {
@@ -239,12 +236,6 @@ final class AuthorizationTest extends TestCase
         );
 
         $this->arrayAdapter = new ArrayAdapter();
-        $this->stubKernel = new class implements HttpKernelInterface {
-            public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = true): Response
-            {
-                return new Response('ok', 200);
-            }
-        };
     }
 
     protected function tearDown(): void
@@ -480,100 +471,98 @@ final class AuthorizationTest extends TestCase
 
     public function test_public_route_passes_through(): void
     {
-        $event = $this->makeEvent(PublicController::class, 'admin');
-
-        $this->makeMiddleware()->onKernelRequest($event);
-
-        $this->assertNull($event->getResponse());
+        $response = $this->makeMiddleware()->handle(
+            $this->makeRequest(PublicController::class, 'admin'),
+            fn($r) => new Response('ok'),
+        );
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_protected_route_anonymous_user_returns_401(): void
     {
-        $event = $this->makeEvent(CreateArticleController::class, 'anonymous');
-
-        $this->makeMiddleware()->onKernelRequest($event);
-
-        $this->assertSame(401, $event->getResponse()?->getStatusCode());
+        $response = $this->makeMiddleware()->handle(
+            $this->makeRequest(CreateArticleController::class, 'anonymous'),
+            fn($r) => new Response('ok'),
+        );
+        $this->assertSame(401, $response->getStatusCode());
     }
 
     public function test_protected_route_unauthorized_user_returns_403(): void
     {
-        $event = $this->makeEvent(CreateArticleController::class, 'user');
-
-        $this->makeMiddleware()->onKernelRequest($event);
-
-        $this->assertSame(403, $event->getResponse()?->getStatusCode());
+        $response = $this->makeMiddleware()->handle(
+            $this->makeRequest(CreateArticleController::class, 'user'),
+            fn($r) => new Response('ok'),
+        );
+        $this->assertSame(403, $response->getStatusCode());
     }
 
     public function test_protected_route_authorized_user_passes(): void
     {
-        $event = $this->makeEvent(CreateArticleController::class, 'editor');
-
-        $this->makeMiddleware()->onKernelRequest($event);
-
-        $this->assertNull($event->getResponse());
+        $response = $this->makeMiddleware()->handle(
+            $this->makeRequest(CreateArticleController::class, 'editor'),
+            fn($r) => new Response('ok'),
+        );
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_ownership_scope_check_with_matching_resource(): void
     {
-        $event = $this->makeEvent(UpdateArticleController::class, 'regular-user', ['articleId' => 'regular-user']);
-
-        $this->makeMiddleware()->onKernelRequest($event);
-
-        $this->assertNull($event->getResponse());
+        $response = $this->makeMiddleware()->handle(
+            $this->makeRequest(UpdateArticleController::class, 'regular-user', ['articleId' => 'regular-user']),
+            fn($r) => new Response('ok'),
+        );
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_ownership_scope_check_with_non_matching_resource(): void
     {
-        $event = $this->makeEvent(UpdateArticleController::class, 'regular-user', ['articleId' => 'other-user']);
-
-        $this->makeMiddleware()->onKernelRequest($event);
-
-        $this->assertSame(403, $event->getResponse()?->getStatusCode());
+        $response = $this->makeMiddleware()->handle(
+            $this->makeRequest(UpdateArticleController::class, 'regular-user', ['articleId' => 'other-user']),
+            fn($r) => new Response('ok'),
+        );
+        $this->assertSame(403, $response->getStatusCode());
     }
 
     public function test_multiple_permissions_all_must_pass(): void
     {
-        $event = $this->makeEvent(AdminDashboardController::class, 'admin');
-
-        $this->makeMiddleware()->onKernelRequest($event);
-
-        $this->assertNull($event->getResponse());
+        $response = $this->makeMiddleware()->handle(
+            $this->makeRequest(AdminDashboardController::class, 'admin'),
+            fn($r) => new Response('ok'),
+        );
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_multiple_permissions_fails_if_one_denied(): void
     {
-        $event = $this->makeEvent(AdminDashboardController::class, 'editor');
-
-        $this->makeMiddleware()->onKernelRequest($event);
-
-        $this->assertSame(403, $event->getResponse()?->getStatusCode());
+        $response = $this->makeMiddleware()->handle(
+            $this->makeRequest(AdminDashboardController::class, 'editor'),
+            fn($r) => new Response('ok'),
+        );
+        $this->assertSame(403, $response->getStatusCode());
     }
 
     public function test_scoped_route_passes_when_request_scope_has_grant(): void
     {
         $store = new TestScopedPermissionStore();
         $store->grant('regular-user', 'org', 'org-1', 'articles.list.any');
-        $event = $this->makeEvent(OrgArticlesController::class, 'user', ['orgId' => 'org-1']);
-
-        $this->makeMiddleware($store)->onKernelRequest($event);
-
-        $this->assertNull($event->getResponse());
+        $response = $this->makeMiddleware($store)->handle(
+            $this->makeRequest(OrgArticlesController::class, 'user', ['orgId' => 'org-1']),
+            fn($r) => new Response('ok'),
+        );
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_scoped_route_denies_when_request_scope_grant_is_missing(): void
     {
-        $event = $this->makeEvent(OrgArticlesController::class, 'user', ['orgId' => 'org-1']);
-
-        $this->makeMiddleware(new TestScopedPermissionStore())->onKernelRequest($event);
-
-        $this->assertSame(403, $event->getResponse()?->getStatusCode());
+        $response = $this->makeMiddleware(new TestScopedPermissionStore())->handle(
+            $this->makeRequest(OrgArticlesController::class, 'user', ['orgId' => 'org-1']),
+            fn($r) => new Response('ok'),
+        );
+        $this->assertSame(403, $response->getStatusCode());
     }
 
     public function test_permission_format_parsing(): void
     {
-        // Valid format: engine accepts and evaluates it (denied only because user lacks the permission,
-        // not because of a format error)
         $identity = new UserIdentity('user-1', ['ROLE_USER']);
         $decision = $this->engine->decide($identity, 'articles.update.own');
         $this->assertNotSame('invalid_permission_format', $decision->reason());
@@ -634,7 +623,7 @@ final class AuthorizationTest extends TestCase
     /**
      * @param array<string, string> $routeParams
      */
-    private function makeEvent(string $controllerClass, string $identity = 'authenticated', array $routeParams = []): RequestEvent
+    private function makeRequest(string $controllerClass, string $identity = 'authenticated', array $routeParams = []): Request
     {
         $request = Request::create('/test');
         $request->attributes->set('_controller', $controllerClass);
@@ -652,12 +641,9 @@ final class AuthorizationTest extends TestCase
             default => new UserIdentity($identity, ['ROLE_USER']),
         });
 
-        return new RequestEvent($this->stubKernel, $request, HttpKernelInterface::MAIN_REQUEST);
+        return $request;
     }
 
-    /**
-     * @return array<string, string|bool|null>
-     */
     private function breakGlassBypassEngine(
         bool $enabled,
         ?EmergencyDenyListInterface $denyList = null,

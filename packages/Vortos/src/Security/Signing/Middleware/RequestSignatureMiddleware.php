@@ -4,26 +4,28 @@ declare(strict_types=1);
 
 namespace Vortos\Security\Signing\Middleware;
 
-use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpFoundation\JsonResponse;
+use Vortos\Http\Attribute\AsMiddleware;
+use Vortos\Http\Contract\MiddlewareInterface;
+use Vortos\Http\JsonResponse;
+use Vortos\Http\MiddlewareOrder;
+use Vortos\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 use Vortos\Security\Event\SecurityEventDispatcher;
 use Vortos\Security\Event\SignatureInvalidEvent;
 use Vortos\Security\Signing\SignatureVerifier;
-use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 
 /**
  * Enforces #[RequiresSignature] on webhook endpoints.
  *
- * Priority 75 — after IP filter (90) and CSRF (85), before auth (6).
+ * Runs at SECURITY (order 900) — before CSRF (800) and auth (700).
  * Webhook endpoints typically also carry #[SkipCsrf] since they use
  * request signing instead of CSRF tokens.
  *
  * Runtime: reads compile-time route map — zero reflection.
  */
-final class RequestSignatureMiddleware implements EventSubscriberInterface
+#[AsMiddleware(order: MiddlewareOrder::SECURITY)]
+final class RequestSignatureMiddleware implements MiddlewareInterface
 {
     /**
      * @param array $routeMap Pre-built by RequestSignatureCompilerPass.
@@ -31,29 +33,17 @@ final class RequestSignatureMiddleware implements EventSubscriberInterface
      *                        Values: ['secret', 'header', 'timestamp_header', 'replay_window_seconds', 'algorithm']
      */
     public function __construct(
-        private readonly SignatureVerifier      $verifier,
-        private readonly SecurityEventDispatcher $events,
-        private readonly array                 $routeMap,
+        private readonly SignatureVerifier        $verifier,
+        private readonly SecurityEventDispatcher  $events,
+        private readonly array                   $routeMap,
     ) {}
 
-    public static function getSubscribedEvents(): array
+    public function handle(Request $request, \Closure $next): Response
     {
-        return [
-            KernelEvents::REQUEST => ['onKernelRequest', 75],
-        ];
-    }
-
-    public function onKernelRequest(RequestEvent $event): void
-    {
-        if (!$event->isMainRequest()) {
-            return;
-        }
-
-        $request = $event->getRequest();
-        $key     = $this->resolveRouteKey($request->attributes->get('_controller'));
+        $key = $this->resolveRouteKey($request->attributes->get('_controller'));
 
         if ($key === null || !isset($this->routeMap[$key])) {
-            return;
+            return $next($request);
         }
 
         $rule   = $this->routeMap[$key];
@@ -79,11 +69,13 @@ final class RequestSignatureMiddleware implements EventSubscriberInterface
             $request->attributes->set(TelemetryRequestAttributes::DROP_TRACE, true);
             $request->attributes->set(TelemetryRequestAttributes::BLOCKED_REASON, 'signature');
 
-            $event->setResponse(new JsonResponse(
+            return new JsonResponse(
                 ['error' => 'Invalid or missing request signature.'],
                 Response::HTTP_UNAUTHORIZED,
-            ));
+            );
         }
+
+        return $next($request);
     }
 
     private function resolveRouteKey(mixed $controller): ?string

@@ -10,11 +10,8 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\Event\ResponseEvent;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Vortos\Http\Request;
+use Vortos\Http\Response;
 use Vortos\PersistenceDbal\DependencyInjection\DbalPersistenceExtension;
 use Vortos\PersistenceDbal\N1Detection\N1DetectionCompilerPass;
 use Vortos\PersistenceOrm\DependencyInjection\PersistenceOrmExtension;
@@ -115,19 +112,18 @@ final class N1DetectionTest extends TestCase
 
     public function test_listener_adds_response_header_when_violation_detected(): void
     {
-        $tracker = new N1QueryTracker();
+        $tracker  = new N1QueryTracker();
+        $listener = new N1DetectionListener($tracker, new NullLogger(), threshold: 3);
 
-        foreach (range(1, 5) as $i) {
-            $tracker->track("SELECT * FROM orders WHERE id = {$i}");
-        }
-
-        $logger   = new NullLogger();
-        $listener = new N1DetectionListener($tracker, $logger, threshold: 3);
-        $kernel   = $this->createMock(HttpKernelInterface::class);
-        $response = new Response();
-
-        $event = new ResponseEvent($kernel, Request::create('/'), HttpKernelInterface::MAIN_REQUEST, $response);
-        $listener->onResponse($event);
+        $response = $listener->handle(
+            Request::create('/'),
+            function ($r) use ($tracker): Response {
+                foreach (range(1, 5) as $i) {
+                    $tracker->track("SELECT * FROM orders WHERE id = {$i}");
+                }
+                return new Response('', 200);
+            },
+        );
 
         $this->assertTrue($response->headers->has('X-Vortos-N1'));
         $this->assertStringContainsString('5x', $response->headers->get('X-Vortos-N1'));
@@ -137,16 +133,16 @@ final class N1DetectionTest extends TestCase
     {
         $tracker  = new N1QueryTracker();
         $listener = new N1DetectionListener($tracker, new NullLogger(), threshold: 3);
-        $kernel   = $this->createMock(HttpKernelInterface::class);
-        $response = new Response();
 
-        $event = new ResponseEvent($kernel, Request::create('/'), HttpKernelInterface::MAIN_REQUEST, $response);
-        $listener->onResponse($event);
+        $response = $listener->handle(
+            Request::create('/'),
+            fn($r) => new Response('', 200),
+        );
 
         $this->assertFalse($response->headers->has('X-Vortos-N1'));
     }
 
-    public function test_listener_resets_tracker_on_main_request(): void
+    public function test_listener_resets_tracker_before_calling_next(): void
     {
         $tracker = new N1QueryTracker();
 
@@ -155,41 +151,20 @@ final class N1DetectionTest extends TestCase
         }
 
         $listener = new N1DetectionListener($tracker, new NullLogger());
-        $kernel   = $this->createMock(HttpKernelInterface::class);
 
-        $event = new RequestEvent($kernel, Request::create('/'), HttpKernelInterface::MAIN_REQUEST);
-        $listener->onRequest($event);
+        // Capture tracker state inside next() — reset should have already happened
+        $trackerAfterReset = null;
+        $listener->handle(Request::create('/'), function ($r) use ($tracker, &$trackerAfterReset) {
+            $trackerAfterReset = $tracker->getViolations(threshold: 3);
+            return new Response();
+        });
 
-        $this->assertSame([], $tracker->getViolations(threshold: 3));
-    }
-
-    public function test_listener_skips_sub_requests(): void
-    {
-        $tracker = new N1QueryTracker();
-
-        foreach (range(1, 5) as $i) {
-            $tracker->track("SELECT * FROM orders WHERE id = {$i}");
-        }
-
-        $listener = new N1DetectionListener($tracker, new NullLogger());
-        $kernel   = $this->createMock(HttpKernelInterface::class);
-        $response = new Response();
-
-        $event = new ResponseEvent($kernel, Request::create('/'), HttpKernelInterface::SUB_REQUEST, $response);
-        $listener->onResponse($event);
-
-        // Sub-request — no header added, tracker not touched
-        $this->assertFalse($response->headers->has('X-Vortos-N1'));
-        $this->assertCount(1, $tracker->getViolations(threshold: 3));
+        $this->assertSame([], $trackerAfterReset);
     }
 
     public function test_listener_logs_warning_for_each_violation(): void
     {
         $tracker = new N1QueryTracker();
-
-        foreach (range(1, 5) as $i) {
-            $tracker->track("SELECT * FROM orders WHERE id = {$i}");
-        }
 
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($this->once())
@@ -197,11 +172,12 @@ final class N1DetectionTest extends TestCase
             ->with('N+1 query detected', $this->arrayHasKey('count'));
 
         $listener = new N1DetectionListener($tracker, $logger, threshold: 3);
-        $kernel   = $this->createMock(HttpKernelInterface::class);
-        $response = new Response();
-
-        $event = new ResponseEvent($kernel, Request::create('/'), HttpKernelInterface::MAIN_REQUEST, $response);
-        $listener->onResponse($event);
+        $listener->handle(Request::create('/'), function ($r) use ($tracker): Response {
+            foreach (range(1, 5) as $i) {
+                $tracker->track("SELECT * FROM orders WHERE id = {$i}");
+            }
+            return new Response();
+        });
     }
 
     // ── Compiler pass — dev-only gate ──────────────────────────────────────
@@ -313,10 +289,7 @@ final class N1DetectionTest extends TestCase
         $container->setParameter('kernel.env', $env);
         $container->setParameter('vortos.persistence.write_dsn', 'sqlite:///:memory:');
 
-        // Register LoggerInterface so the compiler pass can inject it
         $container->register(LoggerInterface::class, NullLogger::class)->setPublic(true);
-
-        // Register TracingInterface so DbalPersistenceExtension can inject it
         $container->register(TracingInterface::class, NoOpTracer::class)->setPublic(true);
 
         (new DbalPersistenceExtension())->load([], $container);

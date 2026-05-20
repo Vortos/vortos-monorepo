@@ -299,12 +299,15 @@ final class MessagingExtension extends Extension
         }
 
         $container->register(SyncProjectionEventBusDecorator::class, SyncProjectionEventBusDecorator::class)
-            ->setDecoratedService(EventBusInterface::class)
-            ->setArgument('$inner', new Reference(SyncProjectionEventBusDecorator::class . '.inner'))
+            ->setAutowired(false)
+            ->setArgument('$inner', new Reference(EventBus::class))
             ->setArgument('$handlerRegistry', new Reference(HandlerRegistry::class))
             ->setArgument('$handlerLocator', new Reference('vortos.handler_locator'))
             ->setArgument('$logger', new Reference(\Psr\Log\LoggerInterface::class))
             ->setPublic(false);
+
+        $container->setAlias(EventBusInterface::class, SyncProjectionEventBusDecorator::class)
+            ->setPublic(true);
     }
 
     private function registerKafkaDrivers(ContainerBuilder $container): void

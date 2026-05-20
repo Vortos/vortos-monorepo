@@ -15,7 +15,7 @@ use Vortos\Foundation\Command\DebugBindingsCommand;
 use Vortos\Foundation\DependencyInjection\Attribute\DefaultImpl;
 use Vortos\Foundation\Health\HealthDetailPolicy;
 use Vortos\Foundation\Health\HealthRegistry;
-use Vortos\Foundation\Health\Http\HealthController;
+use Vortos\Http\Health\HealthController;
 use Vortos\Foundation\Reset\ServicesResetter;
 
 final class FoundationExtension extends Extension

@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Vortos\Tests\Authorization\Scope;
 
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 use Vortos\Authorization\Scope\Contract\ScopeResolverInterface;
 use Vortos\Authorization\Scope\ScopeResolverRegistry;
 

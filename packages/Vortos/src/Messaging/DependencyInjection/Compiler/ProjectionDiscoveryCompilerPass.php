@@ -129,15 +129,15 @@ final class ProjectionDiscoveryCompilerPass implements CompilerPassInterface
             }
         }
 
-        // // Add projection handlers to the service locator
-        // // They share the same locator as event handlers
-        // if ($container->hasDefinition('vortos.handler_locator')) {
-        //     $currentArgs = $container->getDefinition('vortos.handler_locator')->getArgument(0);
-        //     foreach ($taggedHandlers as $serviceId => $_) {
-        //         $currentArgs[$serviceId] = new \Symfony\Component\DependencyInjection\Reference($serviceId);
-        //     }
-        //     $container->getDefinition('vortos.handler_locator')->setArguments([$currentArgs]);
-        // }
+        // Add projection handlers to the service locator so SyncProjectionEventBusDecorator
+        // can resolve them at runtime (handlerLocator->has/get by serviceId).
+        if ($container->hasDefinition('vortos.handler_locator')) {
+            $currentArgs = $container->getDefinition('vortos.handler_locator')->getArgument(0);
+            foreach ($taggedHandlers as $serviceId => $_) {
+                $currentArgs[$serviceId] = new \Symfony\Component\DependencyInjection\Reference($serviceId);
+            }
+            $container->getDefinition('vortos.handler_locator')->setArguments([$currentArgs]);
+        }
     }
 
     /**

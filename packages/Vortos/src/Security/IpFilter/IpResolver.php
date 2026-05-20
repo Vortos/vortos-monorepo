@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Security\IpFilter;
 
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 
 /**
  * Resolves the real client IP address, respecting trusted proxy chains.

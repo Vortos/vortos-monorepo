@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace {{Namespace}}\Infrastructure\Policy;
 
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Authorization\Ownership\Contract\OwnershipPolicyInterface;
 

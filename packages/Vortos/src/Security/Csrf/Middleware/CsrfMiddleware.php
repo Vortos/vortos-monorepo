@@ -4,22 +4,21 @@ declare(strict_types=1);
 
 namespace Vortos\Security\Csrf\Middleware;
 
-use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpFoundation\JsonResponse;
+use Vortos\Http\Attribute\AsMiddleware;
+use Vortos\Http\Contract\MiddlewareInterface;
+use Vortos\Http\JsonResponse;
+use Vortos\Http\MiddlewareOrder;
+use Vortos\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\Event\ResponseEvent;
-use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 use Vortos\Security\Csrf\CsrfTokenService;
 use Vortos\Security\Event\CsrfViolationEvent;
 use Vortos\Security\Event\SecurityEventDispatcher;
-use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 
 /**
  * CSRF protection using the double-submit cookie pattern.
  *
- * Priority 20 on REQUEST — after routing (32), before auth (6).
- * Priority 85 on RESPONSE — issues the initial CSRF cookie on the first response.
+ * Runs at CSRF (order 800) — after security checks (900), before auth (700).
  *
  * Routes in $skipControllers (built by CsrfCompilerPass from #[SkipCsrf]) bypass
  * validation — use for stateless JWT endpoints and webhook receivers.
@@ -27,74 +26,55 @@ use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
  * Safe methods (GET/HEAD/OPTIONS) are always allowed — CSRF only applies to
  * state-changing requests.
  */
-final class CsrfMiddleware implements EventSubscriberInterface
+#[AsMiddleware(order: MiddlewareOrder::CSRF)]
+final class CsrfMiddleware implements MiddlewareInterface
 {
     /**
      * @param list<string> $skipControllers Controller FQCNs or 'Class::method' strings
      *                                       pre-built by CsrfCompilerPass at compile time.
      */
     public function __construct(
-        private readonly CsrfTokenService      $csrf,
-        private readonly SecurityEventDispatcher $events,
-        private readonly bool                  $enabled,
-        private readonly array                 $skipControllers,
+        private readonly CsrfTokenService        $csrf,
+        private readonly SecurityEventDispatcher  $events,
+        private readonly bool                    $enabled,
+        private readonly array                   $skipControllers,
     ) {}
 
-    public static function getSubscribedEvents(): array
+    public function handle(Request $request, \Closure $next): Response
     {
-        return [
-            KernelEvents::REQUEST  => ['onKernelRequest', 20],
-            KernelEvents::RESPONSE => ['onKernelResponse', 85],
-        ];
-    }
+        if ($this->enabled && !in_array($request->getMethod(), ['GET', 'HEAD', 'OPTIONS', 'TRACE'], true)) {
+            $controller = $this->resolveControllerKey($request->attributes->get('_controller'));
 
-    public function onKernelRequest(RequestEvent $event): void
-    {
-        if (!$event->isMainRequest() || !$this->enabled) {
-            return;
+            if ($controller === null || !$this->isSkipped($controller)) {
+                if (!$this->csrf->validate($request)) {
+                    $this->events->dispatch(new CsrfViolationEvent(
+                        $request->getClientIp() ?? 'unknown',
+                        $request->getPathInfo(),
+                        $request->getMethod(),
+                    ));
+                    $request->attributes->set(TelemetryRequestAttributes::DROP_TRACE, true);
+                    $request->attributes->set(TelemetryRequestAttributes::BLOCKED_REASON, 'csrf');
+
+                    return new JsonResponse(
+                        [
+                            'error'   => 'CSRF token invalid or missing.',
+                            'message' => 'Include the token from the ' . $this->csrf->cookieName() . ' cookie '
+                                . 'in the ' . $this->csrf->headerName() . ' request header.',
+                        ],
+                        Response::HTTP_FORBIDDEN,
+                    );
+                }
+            }
         }
 
-        $request = $event->getRequest();
+        $response = $next($request);
 
-        if (in_array($request->getMethod(), ['GET', 'HEAD', 'OPTIONS', 'TRACE'], true)) {
-            return;
+        // Issue a CSRF cookie if not yet present
+        if ($this->enabled && !$this->csrf->hasCookie($request)) {
+            $this->csrf->issue($response);
         }
 
-        $controller = $this->resolveControllerKey($request->attributes->get('_controller'));
-        if ($controller !== null && $this->isSkipped($controller)) {
-            return;
-        }
-
-        if (!$this->csrf->validate($request)) {
-            $this->events->dispatch(new CsrfViolationEvent(
-                $request->getClientIp() ?? 'unknown',
-                $request->getPathInfo(),
-                $request->getMethod(),
-            ));
-            $request->attributes->set(TelemetryRequestAttributes::DROP_TRACE, true);
-            $request->attributes->set(TelemetryRequestAttributes::BLOCKED_REASON, 'csrf');
-
-            $event->setResponse(new JsonResponse(
-                [
-                    'error'   => 'CSRF token invalid or missing.',
-                    'message' => 'Include the token from the ' . $this->csrf->cookieName() . ' cookie '
-                        . 'in the ' . $this->csrf->headerName() . ' request header.',
-                ],
-                Response::HTTP_FORBIDDEN,
-            ));
-        }
-    }
-
-    public function onKernelResponse(ResponseEvent $event): void
-    {
-        if (!$event->isMainRequest() || !$this->enabled) {
-            return;
-        }
-
-        // Issue a CSRF cookie on the first request where none is present
-        if (!$this->csrf->hasCookie($event->getRequest())) {
-            $this->csrf->issue($event->getResponse());
-        }
+        return $response;
     }
 
     private function isSkipped(string $controllerKey): bool

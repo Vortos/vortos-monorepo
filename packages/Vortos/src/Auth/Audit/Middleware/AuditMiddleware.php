@@ -1,11 +1,14 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Vortos\Auth\Audit\Middleware;
 
-use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpKernel\Event\ResponseEvent;
-use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Http\Attribute\AsMiddleware;
+use Vortos\Http\Contract\MiddlewareInterface;
+use Vortos\Http\MiddlewareOrder;
+use Vortos\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Vortos\Auth\Audit\AuditEntry;
 use Vortos\Auth\Audit\Contract\AuditStoreInterface;
 use Vortos\Auth\Identity\CurrentUserProvider;
@@ -13,46 +16,45 @@ use Vortos\Auth\Identity\CurrentUserProvider;
 /**
  * Records audit log entries for controllers with #[AuditLog].
  *
- * Fires on kernel.response — after the controller has executed and a real
- * HTTP status code is available. This means the audit log reflects what
- * actually happened, not just what was attempted.
+ * Runs at AUTHORIZATION (order 600). The after-phase executes after the controller
+ * returns — the audit log reflects what actually happened (real status code).
  *
- * The response status code is included in entry metadata as '_status'.
- *
- * Zero reflection at runtime — reads compile-time map.
  * Audit failure never affects the response.
+ * Zero reflection at runtime — reads compile-time map.
  */
-final class AuditMiddleware implements EventSubscriberInterface
+#[AsMiddleware(order: MiddlewareOrder::AUTHORIZATION)]
+final class AuditMiddleware implements MiddlewareInterface
 {
     /**
      * @param array<string, list<array{action: string, include: list<string>}>> $routeMap
      */
     public function __construct(
-        private CurrentUserProvider $currentUser,
-        private ?AuditStoreInterface $store,
-        private array $routeMap,
+        private CurrentUserProvider   $currentUser,
+        private ?AuditStoreInterface  $store,
+        private array                 $routeMap,
     ) {}
 
-    public static function getSubscribedEvents(): array
+    public function handle(Request $request, \Closure $next): Response
     {
-        return [KernelEvents::RESPONSE => ['onKernelResponse', 0]];
-    }
+        $response = $next($request);
 
-    public function onKernelResponse(ResponseEvent $event): void
-    {
-        if (!$event->isMainRequest()) return;
-        if ($this->store === null) return;
+        if ($this->store === null) {
+            return $response;
+        }
 
-        $request = $event->getRequest();
         $controller = $this->extractControllerClass($request->attributes->get('_controller'));
 
-        if ($controller === null || !isset($this->routeMap[$controller])) return;
+        if ($controller === null || !isset($this->routeMap[$controller])) {
+            return $response;
+        }
 
         $identity = $this->currentUser->get();
 
-        if (!$identity->isAuthenticated()) return;
+        if (!$identity->isAuthenticated()) {
+            return $response;
+        }
 
-        $statusCode = $event->getResponse()->getStatusCode();
+        $statusCode = $response->getStatusCode();
 
         foreach ($this->routeMap[$controller] as $rule) {
             $metadata = ['_status' => $statusCode];
@@ -77,13 +79,21 @@ final class AuditMiddleware implements EventSubscriberInterface
                 // Audit failure must never affect the response
             }
         }
+
+        return $response;
     }
 
     private function extractControllerClass(mixed $controller): ?string
     {
-        if (is_string($controller)) return explode('::', $controller)[0];
-        if (is_array($controller)) return is_object($controller[0]) ? get_class($controller[0]) : $controller[0];
-        if (is_object($controller)) return get_class($controller);
+        if (is_string($controller)) {
+            return explode('::', $controller)[0];
+        }
+        if (is_array($controller)) {
+            return is_object($controller[0]) ? get_class($controller[0]) : $controller[0];
+        }
+        if (is_object($controller)) {
+            return get_class($controller);
+        }
         return null;
     }
 }

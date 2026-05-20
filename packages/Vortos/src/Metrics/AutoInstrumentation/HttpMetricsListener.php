@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Vortos\Metrics\AutoInstrumentation;
 
-use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\Event\ResponseEvent;
-use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Http\Attribute\AsMiddleware;
+use Vortos\Http\Contract\MiddlewareInterface;
+use Vortos\Http\MiddlewareOrder;
+use Vortos\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Observability\Telemetry\FrameworkMetric;
@@ -30,44 +31,23 @@ use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
  * Never use request URI as a label — it creates unbounded cardinality.
  * If _route is not set (e.g. 404 requests), label value is 'unknown'.
  *
- * ## Timing
- *
- * Request start time is stored as a request attribute (_vortos_metrics_start).
- * ResponseEvent computes elapsed time in milliseconds and observes it.
+ * Runs at OUTERMOST (order 1000) — wraps the entire middleware stack so
+ * duration includes all middleware processing time.
  */
-final class HttpMetricsListener implements EventSubscriberInterface
+#[AsMiddleware(order: MiddlewareOrder::OUTERMOST)]
+final class HttpMetricsListener implements MiddlewareInterface
 {
     public function __construct(private readonly FrameworkTelemetry $telemetry) {}
 
-    public static function getSubscribedEvents(): array
+    public function handle(Request $request, \Closure $next): Response
     {
-        return [
-            KernelEvents::REQUEST  => ['onRequest', 250],
-            KernelEvents::RESPONSE => ['onResponse', -10],
-        ];
-    }
+        $start = hrtime(true);
 
-    public function onRequest(RequestEvent $event): void
-    {
-        if (!$event->isMainRequest()) {
-            return;
-        }
-
-        $event->getRequest()->attributes->set('_vortos_metrics_start', hrtime(true));
-    }
-
-    public function onResponse(ResponseEvent $event): void
-    {
-        if (!$event->isMainRequest()) {
-            return;
-        }
-
-        $request = $event->getRequest();
-        $start   = $request->attributes->get('_vortos_metrics_start');
+        $response = $next($request);
 
         $method = $request->getMethod();
         $route  = $request->attributes->get('_route', 'unknown');
-        $status = (string) $event->getResponse()->getStatusCode();
+        $status = (string) $response->getStatusCode();
         $blockedReason = $request->attributes->get(TelemetryRequestAttributes::BLOCKED_REASON);
 
         $requestLabels = FrameworkMetricLabels::of(
@@ -93,10 +73,9 @@ final class HttpMetricsListener implements EventSubscriberInterface
             );
         }
 
-        if ($start !== null) {
-            $durationMs = (hrtime(true) - $start) / 1_000_000;
+        $durationMs = (hrtime(true) - $start) / 1_000_000;
+        $this->telemetry->observe(ObservabilityModule::Http, FrameworkMetric::HttpRequestDurationMs, $durationLabels, $durationMs);
 
-            $this->telemetry->observe(ObservabilityModule::Http, FrameworkMetric::HttpRequestDurationMs, $durationLabels, $durationMs);
-        }
+        return $response;
     }
 }

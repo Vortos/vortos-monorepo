@@ -4,10 +4,8 @@ declare(strict_types=1);
 namespace Vortos\Tests\Auth\Audit;
 
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Event\ResponseEvent;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Vortos\Http\Request;
+use Vortos\Http\Response;
 use Vortos\Auth\Audit\AuditEntry;
 use Vortos\Auth\Audit\Contract\AuditStoreInterface;
 use Vortos\Auth\Audit\Middleware\AuditMiddleware;
@@ -26,20 +24,19 @@ final class AuditMiddlewareTest extends TestCase
         return new CurrentUserProvider($adapter);
     }
 
-    private function makeEvent(
-        string $controller,
-        array $attributes = [],
-        int $statusCode = 200,
-        int $requestType = HttpKernelInterface::MAIN_REQUEST,
-    ): ResponseEvent {
+    private function makeRequest(string $controller, array $attributes = []): Request
+    {
         $request = Request::create('/test');
         $request->attributes->set('_controller', $controller);
         foreach ($attributes as $k => $v) {
             $request->attributes->set($k, $v);
         }
-        $kernel = $this->createMock(HttpKernelInterface::class);
-        $response = new Response('', $statusCode);
-        return new ResponseEvent($kernel, $request, $requestType, $response);
+        return $request;
+    }
+
+    private function next(int $statusCode = 200): \Closure
+    {
+        return fn(Request $r) => new Response('ok', $statusCode);
     }
 
     public function test_records_audit_entry_when_route_matches(): void
@@ -49,7 +46,7 @@ final class AuditMiddlewareTest extends TestCase
 
         $routeMap = ['App\TestCtrl' => [['action' => 'document.viewed', 'include' => []]]];
         $middleware = new AuditMiddleware($this->makeProvider(), $store, $routeMap);
-        $middleware->onKernelResponse($this->makeEvent('App\TestCtrl'));
+        $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
     }
 
     public function test_does_not_record_for_anonymous_user(): void
@@ -59,15 +56,15 @@ final class AuditMiddlewareTest extends TestCase
 
         $routeMap = ['App\TestCtrl' => [['action' => 'document.viewed', 'include' => []]]];
         $middleware = new AuditMiddleware($this->makeProvider(false), $store, $routeMap);
-        $middleware->onKernelResponse($this->makeEvent('App\TestCtrl'));
+        $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
     }
 
     public function test_does_not_record_when_no_store(): void
     {
         $routeMap = ['App\TestCtrl' => [['action' => 'document.viewed', 'include' => []]]];
         $middleware = new AuditMiddleware($this->makeProvider(), null, $routeMap);
-        $middleware->onKernelResponse($this->makeEvent('App\TestCtrl'));
-        $this->assertTrue(true);
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_does_not_record_when_no_route_map(): void
@@ -76,7 +73,7 @@ final class AuditMiddlewareTest extends TestCase
         $store->expects($this->never())->method('record');
 
         $middleware = new AuditMiddleware($this->makeProvider(), $store, []);
-        $middleware->onKernelResponse($this->makeEvent('App\TestCtrl'));
+        $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
     }
 
     public function test_captures_included_route_params(): void
@@ -91,7 +88,10 @@ final class AuditMiddlewareTest extends TestCase
 
         $routeMap = ['App\TestCtrl' => [['action' => 'document.deleted', 'include' => ['id', 'reason']]]];
         $middleware = new AuditMiddleware($this->makeProvider(), $store, $routeMap);
-        $middleware->onKernelResponse($this->makeEvent('App\TestCtrl', ['id' => 'doc-123', 'reason' => 'spam']));
+        $middleware->handle(
+            $this->makeRequest('App\TestCtrl', ['id' => 'doc-123', 'reason' => 'spam']),
+            $this->next(),
+        );
 
         $this->assertSame('doc-123', $captured['id']);
         $this->assertSame('spam', $captured['reason']);
@@ -109,7 +109,7 @@ final class AuditMiddlewareTest extends TestCase
 
         $routeMap = ['App\TestCtrl' => [['action' => 'document.viewed', 'include' => []]]];
         $middleware = new AuditMiddleware($this->makeProvider(), $store, $routeMap);
-        $middleware->onKernelResponse($this->makeEvent('App\TestCtrl', [], 201));
+        $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next(201));
 
         $this->assertSame(201, $captured['_status']);
     }
@@ -121,22 +121,8 @@ final class AuditMiddlewareTest extends TestCase
 
         $routeMap = ['App\TestCtrl' => [['action' => 'document.viewed', 'include' => []]]];
         $middleware = new AuditMiddleware($this->makeProvider(), $store, $routeMap);
-        $event = $this->makeEvent('App\TestCtrl', [], 200);
-        $middleware->onKernelResponse($event);
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next(200));
 
-        // Audit failure must not modify the response
-        $this->assertSame(200, $event->getResponse()->getStatusCode());
-    }
-
-    public function test_skips_subrequests(): void
-    {
-        $store = $this->createMock(AuditStoreInterface::class);
-        $store->expects($this->never())->method('record');
-
-        $routeMap = ['App\TestCtrl' => [['action' => 'document.viewed', 'include' => []]]];
-        $middleware = new AuditMiddleware($this->makeProvider(), $store, $routeMap);
-        $middleware->onKernelResponse(
-            $this->makeEvent('App\TestCtrl', [], 200, HttpKernelInterface::SUB_REQUEST)
-        );
+        $this->assertSame(200, $response->getStatusCode());
     }
 }

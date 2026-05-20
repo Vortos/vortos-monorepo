@@ -4,9 +4,8 @@ declare(strict_types=1);
 namespace Vortos\Tests\Auth\TwoFactor;
 
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Vortos\Http\Request;
+use Vortos\Http\Response;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Auth\Identity\AnonymousIdentity;
@@ -24,20 +23,23 @@ final class TwoFactorMiddlewareTest extends TestCase
         return new CurrentUserProvider($adapter);
     }
 
-    private function makeEvent(string $controller): RequestEvent
+    private function makeRequest(string $controller): Request
     {
         $request = Request::create('/test');
         $request->attributes->set('_controller', $controller);
-        $kernel = $this->createMock(HttpKernelInterface::class);
-        return new RequestEvent($kernel, $request, HttpKernelInterface::MAIN_REQUEST);
+        return $request;
+    }
+
+    private function next(): \Closure
+    {
+        return fn(Request $r) => new Response('ok', 200);
     }
 
     public function test_allows_when_no_verifier(): void
     {
         $middleware = new TwoFactorMiddleware($this->makeProvider(), null, ['App\TestCtrl']);
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $this->assertNull($event->getResponse());
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_allows_when_controller_not_protected(): void
@@ -46,9 +48,8 @@ final class TwoFactorMiddlewareTest extends TestCase
         $verifier->expects($this->never())->method('isVerified');
 
         $middleware = new TwoFactorMiddleware($this->makeProvider(), $verifier, []);
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $this->assertNull($event->getResponse());
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_allows_when_2fa_verified(): void
@@ -57,9 +58,8 @@ final class TwoFactorMiddlewareTest extends TestCase
         $verifier->method('isVerified')->willReturn(true);
 
         $middleware = new TwoFactorMiddleware($this->makeProvider(), $verifier, ['App\TestCtrl']);
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $this->assertNull($event->getResponse());
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_denies_with_403_when_2fa_not_verified(): void
@@ -69,9 +69,8 @@ final class TwoFactorMiddlewareTest extends TestCase
         $verifier->method('getChallengeUrl')->willReturn('/auth/2fa/challenge');
 
         $middleware = new TwoFactorMiddleware($this->makeProvider(), $verifier, ['App\TestCtrl']);
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $this->assertSame(403, $event->getResponse()->getStatusCode());
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(403, $response->getStatusCode());
     }
 
     public function test_response_contains_challenge_url(): void
@@ -81,20 +80,19 @@ final class TwoFactorMiddlewareTest extends TestCase
         $verifier->method('getChallengeUrl')->willReturn('/auth/2fa/challenge');
 
         $middleware = new TwoFactorMiddleware($this->makeProvider(), $verifier, ['App\TestCtrl']);
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $body = json_decode($event->getResponse()->getContent(), true);
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $body = json_decode($response->getContent(), true);
         $this->assertSame('/auth/2fa/challenge', $body['challenge_url']);
     }
 
-    public function test_skips_anonymous_users(): void
+    public function test_passes_through_for_anonymous_users(): void
     {
         $verifier = $this->createMock(TwoFactorVerifierInterface::class);
         $verifier->expects($this->never())->method('isVerified');
 
         $middleware = new TwoFactorMiddleware($this->makeProvider(false), $verifier, ['App\TestCtrl']);
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $this->assertNull($event->getResponse());
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        // AuthMiddleware handles 401 — 2FA just lets it through
+        $this->assertSame(200, $response->getStatusCode());
     }
 }

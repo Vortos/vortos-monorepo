@@ -12,7 +12,7 @@
         "php": ">=8.2",
         "doctrine/dbal": "^4.4",
         "vortos/vortos-auth": "^1.0",
-        "symfony/http-kernel": "^7.3"
+        "vortos/vortos-http": "^1.0"
     },
     "extra": {
         "vortos": {

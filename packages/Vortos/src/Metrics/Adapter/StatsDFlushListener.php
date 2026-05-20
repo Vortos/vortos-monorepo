@@ -4,29 +4,24 @@ declare(strict_types=1);
 
 namespace Vortos\Metrics\Adapter;
 
-use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Http\Contract\TerminableMiddlewareInterface;
+use Vortos\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Flushes the StatsD send buffer after each request.
+ * Flushes the StatsD send buffer after each HTTP response.
  *
  * In FrankenPHP worker mode the PHP process is long-lived — StatsDMetrics::__destruct()
- * never runs between requests. This listener calls flush() on kernel.terminate
- * (after the response is sent) so metrics are dispatched once per request with
- * minimal syscall overhead.
+ * never runs between requests. terminate() is called after the response is sent
+ * so metrics are dispatched once per request with minimal syscall overhead.
  *
  * Only registered by MetricsExtension when adapter = StatsD.
  */
-final class StatsDFlushListener implements EventSubscriberInterface
+final class StatsDFlushListener implements TerminableMiddlewareInterface
 {
     public function __construct(private readonly StatsDMetrics $metrics) {}
 
-    public static function getSubscribedEvents(): array
-    {
-        return [KernelEvents::TERMINATE => 'onTerminate'];
-    }
-
-    public function onTerminate(): void
+    public function terminate(Request $request, Response $response): void
     {
         $this->metrics->flush();
     }

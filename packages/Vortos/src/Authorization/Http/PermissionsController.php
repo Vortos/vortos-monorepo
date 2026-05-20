@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace Vortos\Authorization\Http;
 
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\JsonResponse;
+use Vortos\Http\Request;
 use Symfony\Component\Routing\Attribute\Route;
 use Vortos\Auth\Attribute\RequiresAuth;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Authorization\Contract\PermissionResolverInterface;
-use Vortos\Http\Attribute\ApiController;
+use Vortos\Http\Attribute\AsController;
 
-#[ApiController]
+#[AsController]
 #[RequiresAuth]
 #[Route('/api/me/permissions', name: 'vortos.me.permissions', methods: ['GET'])]
 final class PermissionsController

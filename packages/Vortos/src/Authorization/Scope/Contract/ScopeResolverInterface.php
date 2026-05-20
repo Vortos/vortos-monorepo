@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Vortos\Authorization\Scope\Contract;
 
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 
 /**
  * Resolves the scope value from the current request.

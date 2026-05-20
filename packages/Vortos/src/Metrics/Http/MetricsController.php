@@ -6,10 +6,10 @@ namespace Vortos\Metrics\Http;
 
 use Prometheus\CollectorRegistry;
 use Prometheus\RenderTextFormat;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
+use Vortos\Http\Request;
+use Vortos\Http\Response;
 use Symfony\Component\Routing\Attribute\Route;
-use Vortos\Http\Attribute\ApiController;
+use Vortos\Http\Attribute\AsController;
 use Vortos\Metrics\Contract\MetricsCollectorInterface;
 
 /**
@@ -35,7 +35,7 @@ use Vortos\Metrics\Contract\MetricsCollectorInterface;
  *       metrics_path: '/metrics'
  *       bearer_token: 'your-secret-here'
  */
-#[ApiController]
+#[AsController]
 #[Route('/metrics', name: 'vortos.metrics', methods: ['GET'])]
 final class MetricsController
 {

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Http\Request;
 
 use Symfony\Component\DependencyInjection\Attribute\AsTaggedItem;
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 use Symfony\Component\HttpKernel\Controller\ValueResolverInterface;
 use Symfony\Component\HttpKernel\ControllerMetadata\ArgumentMetadata;
 use Vortos\Cqrs\Validation\VortosValidator;

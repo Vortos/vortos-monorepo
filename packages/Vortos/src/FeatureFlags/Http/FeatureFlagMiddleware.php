@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Vortos\FeatureFlags\Http;
 
 use Psr\Log\LoggerInterface;
-use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Http\Attribute\AsMiddleware;
+use Vortos\Http\Contract\MiddlewareInterface;
+use Vortos\Http\MiddlewareOrder;
+use Vortos\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Vortos\FeatureFlags\Exception\FeatureNotAvailableException;
 use Vortos\FeatureFlags\FlagRegistryInterface;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
@@ -26,9 +28,10 @@ use Vortos\Tracing\Contract\TracingInterface;
  * The flag map is built at container compile time by FeatureFlagsCompilerPass —
  * no reflection occurs on the request path. Lookup is a plain array read.
  *
- * Runs at priority 5, after RouterListener (8) has set _controller.
+ * Runs at FEATURE_FLAGS (order 520) — after OWNERSHIP (550), before FEATURE_ACCESS (500).
  */
-final class FeatureFlagMiddleware implements EventSubscriberInterface
+#[AsMiddleware(order: MiddlewareOrder::FEATURE_FLAGS)]
+final class FeatureFlagMiddleware implements MiddlewareInterface
 {
     public function __construct(
         private readonly FlagRegistryInterface $registry,
@@ -39,35 +42,25 @@ final class FeatureFlagMiddleware implements EventSubscriberInterface
         private readonly ?TracingInterface $tracer = null,
     ) {}
 
-    public static function getSubscribedEvents(): array
+    public function handle(Request $request, \Closure $next): Response
     {
-        return [KernelEvents::REQUEST => ['onRequest', 5]];
-    }
-
-    public function onRequest(RequestEvent $event): void
-    {
-        if (!$event->isMainRequest()) {
-            return;
-        }
-
-        $request    = $event->getRequest();
         $controller = $request->attributes->get('_controller');
 
         if ($controller === null) {
-            return;
+            return $next($request);
         }
 
         $class = $this->extractClass($controller);
 
         if ($class === null) {
-            return;
+            return $next($request);
         }
 
         $method   = is_array($controller) ? ($controller[1] ?? '__invoke') : '__invoke';
         $flagName = $this->resolveFlag($class, $method);
 
         if ($flagName === null) {
-            return;
+            return $next($request);
         }
 
         $context = $this->contextResolver->resolve($request);
@@ -109,6 +102,8 @@ final class FeatureFlagMiddleware implements EventSubscriberInterface
         } finally {
             $span?->end();
         }
+
+        return $next($request);
     }
 
     private function resolveFlag(string $class, string $method): ?string

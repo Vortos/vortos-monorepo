@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Vortos\FeatureFlags\Http;
 
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\JsonResponse;
+use Vortos\Http\Request;
 use Symfony\Component\Routing\Attribute\Route;
 use Vortos\FeatureFlags\FlagRegistryInterface;
-use Vortos\Http\Attribute\ApiController;
+use Vortos\Http\Attribute\AsController;
 
-#[ApiController]
+#[AsController]
 #[Route('/api/flags', name: 'vortos.flags', methods: ['GET'])]
 final class FlagsController
 {

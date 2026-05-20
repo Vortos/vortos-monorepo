@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Vortos\Auth\TwoFactor\Contract;
 
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 use Vortos\Auth\Contract\UserIdentityInterface;
 
 /**

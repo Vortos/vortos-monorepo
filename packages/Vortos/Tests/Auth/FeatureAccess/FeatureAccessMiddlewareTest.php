@@ -4,10 +4,8 @@ declare(strict_types=1);
 namespace Vortos\Tests\Auth\FeatureAccess;
 
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
-use Vortos\Auth\Cache\Adapter\ArrayAdapter;
+use Vortos\Http\Request;
+use Vortos\Http\Response;
 use Vortos\Auth\FeatureAccess\Contract\FeatureAccessPolicyInterface;
 use Vortos\Auth\FeatureAccess\Middleware\FeatureAccessMiddleware;
 use Vortos\Auth\Identity\AnonymousIdentity;
@@ -55,20 +53,23 @@ final class FeatureAccessMiddlewareTest extends TestCase
         return new CurrentUserProvider($adapter);
     }
 
-    private function makeEvent(string $controller): RequestEvent
+    private function makeRequest(string $controller): Request
     {
         $request = Request::create('/test');
         $request->attributes->set('_controller', $controller);
-        $kernel = $this->createMock(HttpKernelInterface::class);
-        return new RequestEvent($kernel, $request, HttpKernelInterface::MAIN_REQUEST);
+        return $request;
+    }
+
+    private function next(): \Closure
+    {
+        return fn(Request $r) => new Response('ok', 200);
     }
 
     public function test_allows_when_no_route_map(): void
     {
         $middleware = new FeatureAccessMiddleware($this->makeProvider(), [], []);
-        $event = $this->makeEvent('App\Controller\TestController');
-        $middleware->onKernelRequest($event);
-        $this->assertNull($event->getResponse());
+        $response = $middleware->handle($this->makeRequest('App\Controller\TestController'), $this->next());
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_allows_when_policy_grants(): void
@@ -79,9 +80,8 @@ final class FeatureAccessMiddlewareTest extends TestCase
             $routeMap,
             [new AlwaysAllowPolicy()]
         );
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $this->assertNull($event->getResponse());
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_denies_with_403_when_policy_denies(): void
@@ -92,9 +92,8 @@ final class FeatureAccessMiddlewareTest extends TestCase
             $routeMap,
             [new AlwaysDenyPolicy()]
         );
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $this->assertSame(403, $event->getResponse()->getStatusCode());
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(403, $response->getStatusCode());
     }
 
     public function test_returns_402_when_payment_required(): void
@@ -105,9 +104,8 @@ final class FeatureAccessMiddlewareTest extends TestCase
             $routeMap,
             [new AlwaysDenyPolicy()]
         );
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $this->assertSame(402, $event->getResponse()->getStatusCode());
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(402, $response->getStatusCode());
     }
 
     public function test_plan_based_policy_allows_pro(): void
@@ -118,9 +116,8 @@ final class FeatureAccessMiddlewareTest extends TestCase
             $routeMap,
             [new PlanBasedPolicy()]
         );
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $this->assertNull($event->getResponse());
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function test_plan_based_policy_denies_free(): void
@@ -131,9 +128,8 @@ final class FeatureAccessMiddlewareTest extends TestCase
             $routeMap,
             [new PlanBasedPolicy()]
         );
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $this->assertSame(403, $event->getResponse()->getStatusCode());
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(403, $response->getStatusCode());
     }
 
     public function test_response_contains_feature_name(): void
@@ -144,25 +140,8 @@ final class FeatureAccessMiddlewareTest extends TestCase
             $routeMap,
             [new AlwaysDenyPolicy()]
         );
-        $event = $this->makeEvent('App\TestCtrl');
-        $middleware->onKernelRequest($event);
-        $body = json_decode($event->getResponse()->getContent(), true);
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $body = json_decode($response->getContent(), true);
         $this->assertSame('api.bulk_export', $body['feature']);
-    }
-
-    public function test_skips_subrequests(): void
-    {
-        $routeMap = ['App\TestCtrl' => [['feature' => 'api.bulk_export', 'paymentRequired' => false]]];
-        $middleware = new FeatureAccessMiddleware(
-            $this->makeProvider(),
-            $routeMap,
-            [new AlwaysDenyPolicy()]
-        );
-        $request = Request::create('/test');
-        $request->attributes->set('_controller', 'App\TestCtrl');
-        $kernel = $this->createMock(HttpKernelInterface::class);
-        $event = new RequestEvent($kernel, $request, HttpKernelInterface::SUB_REQUEST);
-        $middleware->onKernelRequest($event);
-        $this->assertNull($event->getResponse());
     }
 }

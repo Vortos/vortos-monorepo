@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace {{Namespace}}\Representation\Controller;
 
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Response;
+use Vortos\Http\JsonResponse;
+use Vortos\Http\Response;
 use Symfony\Component\Routing\Attribute\Route;
-use Vortos\Http\Attribute\ApiController;
+use Vortos\Http\Attribute\AsController;
 use {{Namespace}}\Representation\Request\{{ClassName}}Request;
 
-#[ApiController]
+#[AsController]
 #[Route('/{{RoutePrefix}}', name: '{{RouteName}}', methods: ['{{RouteMethod}}'])]
 final class {{ClassName}}Controller
 {

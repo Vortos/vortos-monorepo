@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Vortos\FeatureFlags\Exception;
 
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Vortos\Http\Exception\NotFoundException;
 
-final class FeatureNotAvailableException extends NotFoundHttpException
+final class FeatureNotAvailableException extends NotFoundException
 {
     public function __construct(string $flag)
     {

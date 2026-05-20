@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\FeatureFlags\Http;
 
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\FeatureFlags\FlagContext;
 

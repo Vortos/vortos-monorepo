@@ -40,7 +40,7 @@ final class MakeWriteRepositoryCommand extends Command
             return Command::FAILURE;
         }
 
-        $ormActive = class_exists(\Vortos\PersistenceOrm\Aggregate\OrmAggregateRoot::class);
+        $ormActive = class_exists(\Vortos\PersistenceOrm\Aggregate\AggregateRoot::class);
         $stubName  = $ormActive ? 'write-repository-orm' : 'write-repository';
 
         $vars = [

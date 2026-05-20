@@ -6,12 +6,8 @@ namespace Vortos\Tests\Metrics;
 
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\Event\ResponseEvent;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
-use Symfony\Component\HttpKernel\KernelEvents;
+use Vortos\Http\Request;
+use Vortos\Http\Response;
 use Vortos\Metrics\AutoInstrumentation\HttpMetricsListener;
 use Vortos\Metrics\Contract\CounterInterface;
 use Vortos\Metrics\Contract\HistogramInterface;
@@ -30,19 +26,10 @@ final class HttpMetricsListenerTest extends TestCase
         $this->listener = new HttpMetricsListener(new FrameworkTelemetry($this->metrics));
     }
 
-    public function test_subscribes_to_request_and_response_events(): void
+    public function test_handle_records_counter_and_histogram(): void
     {
-        $events = HttpMetricsListener::getSubscribedEvents();
-        $this->assertArrayHasKey(KernelEvents::REQUEST, $events);
-        $this->assertArrayHasKey(KernelEvents::RESPONSE, $events);
-    }
-
-    public function test_response_event_records_counter_and_histogram(): void
-    {
-        $kernel  = $this->createMock(HttpKernelInterface::class);
         $request = Request::create('/api/test', 'GET');
         $request->attributes->set('_route', 'api_test');
-        $response = new Response('', 200);
 
         $counter   = $this->createMock(CounterInterface::class);
         $histogram = $this->createMock(HistogramInterface::class);
@@ -60,35 +47,14 @@ final class HttpMetricsListenerTest extends TestCase
         $counter->expects($this->once())->method('increment');
         $histogram->expects($this->once())->method('observe')->with($this->isFloat());
 
-        $requestEvent = new RequestEvent($kernel, $request, HttpKernelInterface::MAIN_REQUEST);
-        $this->listener->onRequest($requestEvent);
-
-        $responseEvent = new ResponseEvent($kernel, $request, HttpKernelInterface::MAIN_REQUEST, $response);
-        $this->listener->onResponse($responseEvent);
+        $this->listener->handle($request, fn($r) => new Response('', 200));
     }
 
-    public function test_sub_request_is_skipped(): void
+    public function test_blocked_request_records_blocked_counter(): void
     {
-        $kernel   = $this->createMock(HttpKernelInterface::class);
-        $request  = Request::create('/sub', 'GET');
-        $response = new Response();
-
-        $this->metrics->expects($this->never())->method('counter');
-        $this->metrics->expects($this->never())->method('histogram');
-
-        $requestEvent = new RequestEvent($kernel, $request, HttpKernelInterface::SUB_REQUEST);
-        $this->listener->onRequest($requestEvent);
-
-        $responseEvent = new ResponseEvent($kernel, $request, HttpKernelInterface::SUB_REQUEST, $response);
-        $this->listener->onResponse($responseEvent);
-    }
-
-    public function test_blocked_request_records_cheap_blocked_counter(): void
-    {
-        $kernel  = $this->createMock(HttpKernelInterface::class);
         $request = Request::create('/api/test', 'GET');
         $request->attributes->set(TelemetryRequestAttributes::BLOCKED_REASON, 'rate_limit');
-        $response = new Response('', 429);
+
         $counter = $this->createMock(CounterInterface::class);
 
         $this->metrics->expects($this->exactly(2))
@@ -97,13 +63,26 @@ final class HttpMetricsListenerTest extends TestCase
                 if ($name === 'http_blocked_total') {
                     $this->assertSame(['reason' => 'rate_limit', 'status' => '429'], $labels);
                 }
-
                 return $counter;
             });
-        $this->metrics->expects($this->never())->method('histogram');
+        $this->metrics->expects($this->once())->method('histogram')->willReturn(
+            $this->createMock(HistogramInterface::class)
+        );
         $counter->expects($this->exactly(2))->method('increment');
 
-        $responseEvent = new ResponseEvent($kernel, $request, HttpKernelInterface::MAIN_REQUEST, $response);
-        $this->listener->onResponse($responseEvent);
+        $this->listener->handle($request, fn($r) => new Response('', 429));
+    }
+
+    public function test_response_is_passed_through_unchanged(): void
+    {
+        $counter   = $this->createMock(CounterInterface::class);
+        $histogram = $this->createMock(HistogramInterface::class);
+        $this->metrics->method('counter')->willReturn($counter);
+        $this->metrics->method('histogram')->willReturn($histogram);
+
+        $request = Request::create('/test', 'GET');
+        $response = $this->listener->handle($request, fn($r) => new Response('body', 201));
+
+        $this->assertSame(201, $response->getStatusCode());
     }
 }

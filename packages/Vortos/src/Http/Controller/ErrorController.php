@@ -4,21 +4,27 @@ declare(strict_types=1);
 
 namespace Vortos\Http\Controller;
 
+use Vortos\Http\Contract\ExceptionHandlerInterface;
 use Vortos\Http\Contract\PublicExceptionInterface;
 use Monolog\Level;
 use Psr\Log\LoggerInterface;
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Exception\HttpExceptionInterface;
+use Vortos\Http\JsonResponse;
+use Vortos\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
-class ErrorController
+class ErrorController implements ExceptionHandlerInterface
 {
 
     public function __construct(
         private bool $debug,
         private ?LoggerInterface $logger = null
     ) {}
+
+    public function handle(\Throwable $e, Request $request): ?Response
+    {
+        return $this->__invoke($e, $request);
+    }
 
     public function __invoke(\Throwable $exception, Request $request): Response
     {
@@ -28,13 +34,15 @@ class ErrorController
         
         $message = $this->getMessage($exception, $statusCode);
 
+        $extraHeaders = $exception instanceof HttpExceptionInterface ? $exception->getHeaders() : [];
+
         if ($this->wantsJson($request)) {
             return new JsonResponse([
                 'error' => true,
                 'code' => $statusCode,
                 'message' => $message,
                 'trace' => $this->debug ? $this->safeTrace($exception) : []
-            ], $statusCode);
+            ], $statusCode, $extraHeaders);
         }
 
         $isDebug     = $this->debug;
@@ -44,7 +52,8 @@ class ErrorController
         include __DIR__ . '/../View/error.html.php';
         $content = ob_get_clean();
 
-        return new Response($content, $statusCode);
+        $response = new Response($content, $statusCode, $extraHeaders);
+        return $response;
     }
 
     private function logException(\Throwable $exception, Request $request): void

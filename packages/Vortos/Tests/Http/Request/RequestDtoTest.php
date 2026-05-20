@@ -6,7 +6,7 @@ namespace Vortos\Tests\Http\Request;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 use Symfony\Component\Validator\Constraints as Assert;
 use Symfony\Component\Validator\Validation;
 use Vortos\Cqrs\Validation\ValidationException;

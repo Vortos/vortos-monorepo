@@ -4,11 +4,12 @@ declare(strict_types=1);
 namespace Vortos\Auth\FeatureAccess\Middleware;
 
 use Psr\Log\LoggerInterface;
-use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpFoundation\JsonResponse;
+use Vortos\Http\Attribute\AsMiddleware;
+use Vortos\Http\Contract\MiddlewareInterface;
+use Vortos\Http\JsonResponse;
+use Vortos\Http\MiddlewareOrder;
+use Vortos\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
-use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Auth\FeatureAccess\Contract\FeatureAccessPolicyInterface;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Observability\Config\ObservabilityModule;
@@ -21,14 +22,15 @@ use Vortos\Tracing\Contract\TracingInterface;
 
 /**
  * Enforces #[RequiresFeatureAccess] on controllers.
- * Priority 1 — after ownership (2) and authorization (3).
+ * Runs at FEATURE_ACCESS (order 500) — after ownership, before quota.
  *
  * Returns 403 when denied.
  * Returns 402 (Payment Required) when paymentRequired: true.
  *
  * Runtime: zero reflection — reads compile-time map.
  */
-final class FeatureAccessMiddleware implements EventSubscriberInterface
+#[AsMiddleware(order: MiddlewareOrder::FEATURE_ACCESS)]
+final class FeatureAccessMiddleware implements MiddlewareInterface
 {
     /**
      * @param array<string, list<array{feature: string, paymentRequired: bool}>> $routeMap
@@ -44,20 +46,13 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
         private ?TracingInterface $tracer = null,
     ) {}
 
-    public static function getSubscribedEvents(): array
+    public function handle(Request $request, \Closure $next): Response
     {
-        return [KernelEvents::REQUEST => ['onKernelRequest', 1]];
-    }
+        $controller = $this->extractControllerClass($request->attributes->get('_controller'));
 
-    public function onKernelRequest(RequestEvent $event): void
-    {
-        if (!$event->isMainRequest()) return;
-
-        $controller = $this->extractControllerClass(
-            $event->getRequest()->attributes->get('_controller')
-        );
-
-        if ($controller === null || !isset($this->routeMap[$controller])) return;
+        if ($controller === null || !isset($this->routeMap[$controller])) {
+            return $next($request);
+        }
 
         $identity = $this->currentUser->get();
 
@@ -80,8 +75,8 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
                     ]);
                     $this->trace('vortos.feature_access.allowed', false);
 
-                    $event->setResponse($this->problemResponse(
-                        $event,
+                    return $this->problemResponse(
+                        $request,
                         $status,
                         $rule['paymentRequired']
                             ? 'https://docs.vortos.dev/errors/payment-required'
@@ -94,8 +89,7 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
                             'feature' => $rule['feature'],
                             'payment_required' => $rule['paymentRequired'],
                         ],
-                    ));
-                    return;
+                    );
                 }
 
                 $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::FeatureAccessAllowedTotal, FrameworkMetricLabels::of(
@@ -105,6 +99,8 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
                 ));
             }
         }
+
+        return $next($request);
     }
 
     private function extractControllerClass(mixed $controller): ?string
@@ -119,7 +115,7 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
      * @param array<string, mixed> $extensions
      */
     private function problemResponse(
-        RequestEvent $event,
+        Request $request,
         int $status,
         string $type,
         string $title,
@@ -136,7 +132,7 @@ final class FeatureAccessMiddleware implements EventSubscriberInterface
                 'title' => $title,
                 'status' => $status,
                 'detail' => $detail,
-                'instance' => $event->getRequest()->getPathInfo(),
+                'instance' => $request->getPathInfo(),
                 'extensions' => $extensions,
             ] + $extensions,
             $status,

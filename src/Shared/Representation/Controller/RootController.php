@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Shared\Representation\Controller;
 
-use Symfony\Component\HttpFoundation\JsonResponse;
+use Vortos\Http\JsonResponse;
 use Symfony\Component\Routing\Attribute\Route;
-use Vortos\Http\Attribute\ApiController;
+use Vortos\Http\Attribute\AsController;
 
-#[ApiController]
+#[AsController]
 #[Route('/', name: 'root', methods: ['GET'])]
 final class RootController
 {

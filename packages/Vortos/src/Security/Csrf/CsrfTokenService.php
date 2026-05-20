@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Security\Csrf;
 
 use Symfony\Component\HttpFoundation\Cookie;
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**

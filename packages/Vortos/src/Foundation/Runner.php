@@ -10,8 +10,9 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Container;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Dumper\PhpDumper;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
+use Vortos\Http\Request;
+use Vortos\Http\Response;
 use Vortos\Auth\Middleware\AuthMiddleware;
 use Vortos\Cache\Adapter\ArrayAdapter;
 use Vortos\Foundation\Reset\ServicesResetter;
@@ -19,7 +20,7 @@ use Vortos\Foundation\Reset\ServicesResetter;
 class Runner
 {
     private ?Container $container = null;
-    private ?Response $response = null;
+    private ?SymfonyResponse $response = null;
     private ?\Throwable $bootError = null;
     private readonly string $containerPath;
     private array $parameters = [];
@@ -39,7 +40,7 @@ class Runner
         $this->withRoutes    = $this->context === 'http';
     }
 
-    public function run(): Response
+    public function run(): SymfonyResponse
     {
         $request = $this->getRequest();
 
@@ -58,6 +59,7 @@ class Runner
         }
 
         try {
+            $this->applyTrustedProxies();
             $kernel = $this->container->get('vortos');
 
             $this->response = $kernel->handle(
@@ -118,6 +120,35 @@ class Runner
         // Only reset container in non-worker mode
         if (!function_exists('frankenphp_handle_request')) {
             $this->container = null;
+        }
+    }
+
+    private function applyTrustedProxies(): void
+    {
+        if ($this->container === null) {
+            return;
+        }
+
+        $proxies = $this->container->hasParameter('vortos.trusted_proxies')
+            ? (array) $this->container->getParameter('vortos.trusted_proxies')
+            : [];
+
+        $hosts = $this->container->hasParameter('vortos.trusted_hosts')
+            ? (array) $this->container->getParameter('vortos.trusted_hosts')
+            : [];
+
+        if ($proxies !== []) {
+            Request::setTrustedProxies(
+                $proxies,
+                Request::HEADER_X_FORWARDED_FOR
+                | Request::HEADER_X_FORWARDED_HOST
+                | Request::HEADER_X_FORWARDED_PORT
+                | Request::HEADER_X_FORWARDED_PROTO,
+            );
+        }
+
+        if ($hosts !== []) {
+            Request::setTrustedHosts($hosts);
         }
     }
 

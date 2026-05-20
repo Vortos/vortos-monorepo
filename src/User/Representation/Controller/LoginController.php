@@ -4,57 +4,51 @@ declare(strict_types=1);
 
 namespace App\User\Representation\Controller;
 
-use App\User\Infrastructure\Repository\UserRepository;
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
+use App\User\Infrastructure\Database\UserWriteRepository;
+use App\User\Domain\Email;
+use Vortos\Http\JsonResponse;
 use Symfony\Component\Routing\Attribute\Route;
-use Vortos\Auth\Contract\PasswordHasherInterface;
 use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Auth\Jwt\JwtService;
-use Vortos\Http\Attribute\ApiController;
+use Vortos\Http\Attribute\AsController;
+use Vortos\Http\Exception\UnauthorizedException;
+use Vortos\Http\Request;
+use Vortos\Security\Csrf\Attribute\SkipCsrf;
 
-#[ApiController]
-#[Route('/api/auth/login', methods: ['POST'])]
+#[AsController]
+#[Route('/api/users/login', name: 'users.login', methods: ['POST'])]
+#[SkipCsrf]
 final class LoginController
 {
     public function __construct(
+        private readonly UserWriteRepository $repository,
         private readonly JwtService $jwtService,
-        private readonly PasswordHasherInterface $hasher,
-        private readonly UserRepository $userRepository,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
     {
-        $data     = json_decode($request->getContent(), true, 512, JSON_THROW_ON_ERROR);
-        $email    = trim($data['email'] ?? '');
-        $password = $data['password'] ?? '';
+        $body = json_decode($request->getContent(), true, 512, JSON_THROW_ON_ERROR);
 
-        if ($email === '' || $password === '') {
-            return new JsonResponse([
-                'error'      => 'validation_failed',
-                'message'    => 'The given data was invalid.',
-                'violations' => array_filter([
-                    'email'    => $email === '' ? ['This value is required.'] : null,
-                    'password' => $password === '' ? ['This value is required.'] : null,
-                ]),
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        $email    = $body['email'] ?? '';
+        $password = $body['password'] ?? '';
+
+        try {
+            $user = $this->repository->findByEmail(new Email($email));
+        } catch (\InvalidArgumentException) {
+            throw new UnauthorizedException('Invalid credentials.');
         }
 
-        $user = $this->userRepository->findByEmail($email);
-
-        if ($user === null || !$this->hasher->verify($password, $user->getPasswordHash())) {
-            return new JsonResponse(
-                ['error' => 'Invalid credentials.'],
-                Response::HTTP_UNAUTHORIZED,
-            );
+        if ($user === null || !password_verify($password, $user->getPasswordHash())) {
+            throw new UnauthorizedException('Invalid credentials.');
         }
 
-        return new JsonResponse(
-            $this->jwtService->issue(new UserIdentity(
-                id:    (string) $user->getId(),
-                roles: $user->getRoles(),
-            ))->toArray(),
+        $identity = new UserIdentity(
+            id:    (string) $user->getId(),
+            roles: ['ROLE_USER'],
         );
+
+        $token = $this->jwtService->issue($identity);
+
+        return new JsonResponse($token->toArray());
     }
 }

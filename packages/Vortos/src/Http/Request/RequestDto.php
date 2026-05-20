@@ -14,7 +14,7 @@ use ReflectionNamedType;
 use ReflectionParameter;
 use ReflectionProperty;
 use ReflectionUnionType;
-use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Request;
 use Symfony\Component\Validator\ConstraintViolation;
 use Symfony\Component\Validator\ConstraintViolationList;
 use Vortos\Cqrs\Validation\ValidationException;

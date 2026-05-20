@@ -49,6 +49,7 @@ return static function (ContainerConfigurator $configurator): void {
             '../src/Auth/TwoFactor/Middleware/',
             '../src/Auth/ApiKey/',
         '../src/Messaging/Command/',
+            '../src/Messaging/Dev/',
             // '../src/Auth/Controller/',
             // '../src/Auth/Contract/',
             '../src/Auth/Exception/',

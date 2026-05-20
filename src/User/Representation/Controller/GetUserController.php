@@ -11,7 +11,6 @@ use Vortos\Auth\Attribute\RequiresAuth;
 use Vortos\Authorization\Attribute\RequiresPermission;
 use Vortos\Cqrs\Query\QueryBusInterface;
 use Vortos\Http\Attribute\AsController;
-use Vortos\Http\Exception\NotFoundException;
 
 #[AsController]
 #[Route('/api/users/{id}', name: 'users.get', methods: ['GET'])]
@@ -25,11 +24,8 @@ final class GetUserController
 
     public function __invoke(string $id): JsonResponse
     {
-        $user = $this->queryBus->ask(new GetUserQuery(userId: $id));
-
-        if ($user === null) {
-            throw new NotFoundException("User {$id} not found.");
-        }
+        /** @var array $user */
+        $user = $this->queryBus->ask(new GetUserQuery(userId: $id))->unwrap();
 
         return new JsonResponse($user);
     }

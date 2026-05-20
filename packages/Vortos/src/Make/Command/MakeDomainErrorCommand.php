@@ -13,10 +13,10 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Make\Engine\GeneratorEngine;
 
 #[AsCommand(
-    name: 'vortos:make:domain-exception',
-    description: 'Generate a domain exception',
+    name: 'vortos:make:domain-error',
+    description: 'Generate a domain error',
 )]
-final class MakeDomainExceptionCommand extends Command
+final class MakeDomainErrorCommand extends Command
 {
     public function __construct(private readonly GeneratorEngine $engine)
     {
@@ -26,14 +26,16 @@ final class MakeDomainExceptionCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('name', InputArgument::REQUIRED, 'Exception name without "Exception" suffix (e.g. UserNotFound)')
-            ->addOption('context', 'c', InputOption::VALUE_REQUIRED, 'Domain context folder (e.g. User)');
+            ->addArgument('name', InputArgument::REQUIRED, 'Error name without "Error" suffix (e.g. UserNotFound)')
+            ->addOption('context', 'c', InputOption::VALUE_REQUIRED, 'Domain context folder (e.g. User)')
+            ->addOption('status', 's', InputOption::VALUE_REQUIRED, 'HTTP status code', '422');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $name    = (string) $input->getArgument('name');
         $context = (string) $input->getOption('context');
+        $status  = (string) $input->getOption('status');
 
         if ($context === '') {
             $output->writeln('<error>--context is required. Example: --context=User</error>');
@@ -41,19 +43,26 @@ final class MakeDomainExceptionCommand extends Command
         }
 
         $vars = [
-            'Namespace' => "App\\{$context}",
-            'ClassName' => $name,
+            'Namespace'  => "App\\{$context}",
+            'ClassName'  => $name,
+            'HttpStatus' => $status,
+            'ErrorCode'  => $this->toErrorCode($name),
         ];
 
-        $output->writeln("<info>vortos:make:domain-exception</info> {$name} --context={$context}");
+        $output->writeln("<info>vortos:make:domain-error</info> {$name} --context={$context} --status={$status}");
         $output->writeln('');
 
         $this->engine->write(
-            "{$context}/Domain/Exception/{$name}Exception.php",
-            $this->engine->render('domain-exception', $vars),
+            "{$context}/Domain/Error/{$name}Error.php",
+            $this->engine->render('domain-error', $vars),
             $output,
         );
 
         return Command::SUCCESS;
+    }
+
+    private function toErrorCode(string $name): string
+    {
+        return strtoupper((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $name));
     }
 }

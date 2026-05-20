@@ -1,0 +1,17 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Domain\Error;
+
+use Vortos\Domain\Error\DomainError;
+use Vortos\Domain\Error\HttpStatus;
+
+#[HttpStatus({{HttpStatus}})]
+final class {{ClassName}}Error extends DomainError
+{
+    public static function because(string $reason): self
+    {
+        return new self($reason);
+    }
+}

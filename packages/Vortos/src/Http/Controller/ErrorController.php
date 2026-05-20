@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Http\Controller;
 
+use Vortos\Domain\Error\DomainError;
+use Vortos\Domain\Error\HttpStatus;
 use Vortos\Http\Contract\ExceptionHandlerInterface;
 use Vortos\Http\Contract\PublicExceptionInterface;
 use Monolog\Level;
@@ -26,22 +28,27 @@ class ErrorController implements ExceptionHandlerInterface
         return $this->__invoke($e, $request);
     }
 
+    /** @var array<class-string, int> */
+    private static array $httpStatusCache = [];
+
     public function __invoke(\Throwable $exception, Request $request): Response
     {
         $this->logException($exception, $request);
 
-        $statusCode = $this->getStatusCode($exception);
-        
-        $message = $this->getMessage($exception, $statusCode);
+        if ($exception instanceof DomainError) {
+            return $this->handleDomainError($exception, $request);
+        }
 
+        $statusCode = $this->getStatusCode($exception);
+        $message    = $this->getMessage($exception, $statusCode);
         $extraHeaders = $exception instanceof HttpExceptionInterface ? $exception->getHeaders() : [];
 
         if ($this->wantsJson($request)) {
             return new JsonResponse([
-                'error' => true,
-                'code' => $statusCode,
+                'error'   => true,
+                'code'    => $statusCode,
                 'message' => $message,
-                'trace' => $this->debug ? $this->safeTrace($exception) : []
+                'trace'   => $this->debug ? $this->safeTrace($exception) : [],
             ], $statusCode, $extraHeaders);
         }
 
@@ -52,8 +59,45 @@ class ErrorController implements ExceptionHandlerInterface
         include __DIR__ . '/../View/error.html.php';
         $content = ob_get_clean();
 
-        $response = new Response($content, $statusCode, $extraHeaders);
-        return $response;
+        return new Response($content, $statusCode, $extraHeaders);
+    }
+
+    private function handleDomainError(DomainError $error, Request $request): Response
+    {
+        $status = $this->resolveDomainErrorStatus($error);
+
+        if ($this->wantsJson($request)) {
+            return new JsonResponse([
+                'error'   => true,
+                'code'    => $error->errorCode(),
+                'message' => $error->getMessage(),
+                'context' => $error->context(),
+                'trace'   => $this->debug ? $this->safeTrace($error) : [],
+            ], $status);
+        }
+
+        $isDebug     = $this->debug;
+        $statusCode  = $status;
+        $message     = $error->getMessage();
+        $codeSnippet = $this->getCodeSnippet($error);
+
+        ob_start();
+        include __DIR__ . '/../View/error.html.php';
+        $content = ob_get_clean();
+
+        return new Response($content, $status);
+    }
+
+    private function resolveDomainErrorStatus(DomainError $error): int
+    {
+        $class = $error::class;
+
+        if (!isset(self::$httpStatusCache[$class])) {
+            $attrs = (new \ReflectionClass($class))->getAttributes(HttpStatus::class);
+            self::$httpStatusCache[$class] = empty($attrs) ? 422 : $attrs[0]->newInstance()->status;
+        }
+
+        return self::$httpStatusCache[$class];
     }
 
     private function logException(\Throwable $exception, Request $request): void
@@ -81,13 +125,16 @@ class ErrorController implements ExceptionHandlerInterface
 
     private function resolveLogLevel(\Throwable $exception): Level
     {
-        if($exception instanceof HttpExceptionInterface){
+        if ($exception instanceof DomainError) {
+            return $this->resolveDomainErrorStatus($exception) >= 500 ? Level::Critical : Level::Error;
+        }
 
-            if($exception->getStatusCode() >= 500){
+        if ($exception instanceof HttpExceptionInterface) {
+            if ($exception->getStatusCode() >= 500) {
                 return Level::Critical;
             }
 
-            if($exception->getStatusCode() >= 400){
+            if ($exception->getStatusCode() >= 400) {
                 return Level::Error;
             }
         }

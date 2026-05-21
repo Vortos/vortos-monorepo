@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Metrics\AutoInstrumentation;
 
-use Vortos\Domain\Event\DomainEventInterface;
+use Vortos\Domain\Event\EventEnvelope;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Vortos\Observability\Config\ObservabilityModule;
@@ -24,7 +24,8 @@ use Vortos\Observability\Telemetry\MetricLabelValue;
  *
  * ## Label value
  *
- *   'event' uses the short class name (e.g. 'UserRegisteredEvent').
+ *   'event' uses the short class name of the envelope's payload type
+ *   (e.g. 'UserRegistered').
  */
 final class MessagingMetricsDecorator implements EventBusInterface
 {
@@ -33,16 +34,17 @@ final class MessagingMetricsDecorator implements EventBusInterface
         private readonly FrameworkTelemetry $telemetry,
     ) {}
 
-    public function dispatch(DomainEventInterface $event): void
+    public function dispatch(EventEnvelope $envelope): void
     {
-        $eventName = substr(strrchr(get_class($event), '\\') ?: get_class($event), 1);
+        $payloadType = $envelope->payloadType;
+        $eventName = substr(strrchr($payloadType, '\\') ?: $payloadType, 1);
         $start     = hrtime(true);
 
         $labels = FrameworkMetricLabels::of(MetricLabelValue::of(MetricLabel::Event, $eventName));
         $this->telemetry->increment(ObservabilityModule::Messaging, FrameworkMetric::MessagingEventsDispatchedTotal, $labels);
 
         try {
-            $this->inner->dispatch($event);
+            $this->inner->dispatch($envelope);
         } catch (\Throwable $e) {
             $this->telemetry->increment(ObservabilityModule::Messaging, FrameworkMetric::MessagingEventFailuresTotal, $labels);
             throw $e;
@@ -52,10 +54,10 @@ final class MessagingMetricsDecorator implements EventBusInterface
         }
     }
 
-    public function dispatchBatch(DomainEventInterface ...$events): void
+    public function dispatchBatch(EventEnvelope ...$envelopes): void
     {
-        foreach ($events as $event) {
-            $this->dispatch($event);
+        foreach ($envelopes as $envelope) {
+            $this->dispatch($envelope);
         }
     }
 }

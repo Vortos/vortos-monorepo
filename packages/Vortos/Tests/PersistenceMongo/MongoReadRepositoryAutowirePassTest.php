@@ -10,9 +10,11 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Vortos\PersistenceMongo\DependencyInjection\Compiler\MongoReadRepositoryAutowirePass;
 use Vortos\PersistenceMongo\Read\MongoReadRepository;
+use Vortos\PersistenceMongo\Schema\Attribute\MongoCollection;
 
 // --- fixture ---
 
+#[MongoCollection('fakes')]
 final class FakeReadRepository extends MongoReadRepository
 {
     protected function collectionName(): string { return 'fakes'; }

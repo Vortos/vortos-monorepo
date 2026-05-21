@@ -19,7 +19,7 @@ return [
     'naming' => [
         'aggregate'          => 'PascalCase noun — User, Order, Product',
         'aggregate_id'       => 'Aggregate name + Id — UserId, OrderId, ProductId',
-        'domain_event'       => 'PascalCase past tense + Event suffix — UserRegisteredEvent, OrderPlacedEvent, PaymentProcessedEvent',
+        'domain_event'       => 'PascalCase past tense, no suffix — UserRegistered, OrderPlaced, PaymentProcessed. Pure POPO: final readonly class with public readonly constructor-promoted properties only.',
         'command'            => 'PascalCase imperative, no suffix — RegisterUser, PlaceOrder, CancelSubscription',
         'command_handler'    => 'Command name + Handler — RegisterUserHandler, PlaceOrderHandler',
         'query'              => 'GetXByY or ListXs — GetUserById, GetOrderByReference, ListUserOrders',

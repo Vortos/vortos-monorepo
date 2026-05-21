@@ -90,7 +90,7 @@ final class OutboxReplayCommand extends Command
                 $output->writeln(sprintf(
                     '  • [%s]  %s  →  %s',
                     $message->id,
-                    $message->eventClass,
+                    $message->payloadType,
                     $message->transportName,
                 ));
                 $output->writeln(sprintf('    Reason: %s', $message->failureReason ?? 'unknown'));
@@ -106,7 +106,7 @@ final class OutboxReplayCommand extends Command
         foreach ($messages as $message) {
             try {
                 $this->outboxPoller->resetFailed($message->id);
-                $output->writeln(sprintf('  <info>✔</info> %s  |  %s', $message->id, $message->eventClass));
+                $output->writeln(sprintf('  <info>✔</info> %s  |  %s', $message->id, $message->payloadType));
                 $reset++;
             } catch (\Throwable $e) {
                 $this->logger->error('Failed to reset outbox message', ['id' => $message->id, 'error' => $e->getMessage()]);

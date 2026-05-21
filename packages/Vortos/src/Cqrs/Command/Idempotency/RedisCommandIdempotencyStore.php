@@ -35,7 +35,8 @@ use Vortos\Cache\Contract\AtomicCacheInterface;
  */
 final class RedisCommandIdempotencyStore implements CommandIdempotencyStoreInterface
 {
-    private const KEY_PREFIX = 'vortos_cmd_idempotency_';
+    private const KEY_PREFIX    = 'vortos_cmd_idempotency_';
+    private const RESULT_PREFIX = 'vortos_cmd_result_';
 
     public function __construct(private AtomicCacheInterface $cache) {}
 
@@ -69,5 +70,24 @@ final class RedisCommandIdempotencyStore implements CommandIdempotencyStoreInter
     public function releaseProcessed(string $idempotencyKey): void
     {
         $this->cache->delete(self::KEY_PREFIX . $idempotencyKey);
+        $this->cache->delete(self::RESULT_PREFIX . $idempotencyKey);
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function storeResult(string $idempotencyKey, mixed $result, int $ttl = 86400): void
+    {
+        $this->cache->set(self::RESULT_PREFIX . $idempotencyKey, serialize($result), $ttl);
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function getResult(string $idempotencyKey): mixed
+    {
+        $raw = $this->cache->get(self::RESULT_PREFIX . $idempotencyKey);
+
+        return $raw !== null ? unserialize($raw) : null;
     }
 }

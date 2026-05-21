@@ -111,8 +111,10 @@ final class OutboxPoller implements OutboxPollerInterface
         }
 
         if ($eventClass !== null) {
-            $sql .= ' AND event_class = :event_class';
-            $params['event_class'] = $eventClass;
+            // CLI flag is --event-class for backward-compatibility, but the
+            // column is now payload_type (FQCN of the event payload class).
+            $sql .= ' AND payload_type = :payload_type';
+            $params['payload_type'] = $eventClass;
         }
 
         if ($createdFrom !== null) {

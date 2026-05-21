@@ -26,6 +26,9 @@ final class InMemoryCommandIdempotencyStore implements CommandIdempotencyStoreIn
     /** @var array<string, true> */
     private array $store = [];
 
+    /** @var array<string, mixed> */
+    private array $results = [];
+
     /**
      * {@inheritdoc}
      */
@@ -67,14 +70,32 @@ final class InMemoryCommandIdempotencyStore implements CommandIdempotencyStoreIn
     public function releaseProcessed(string $idempotencyKey): void
     {
         unset($this->store[$idempotencyKey]);
+        unset($this->results[$idempotencyKey]);
     }
 
     /**
-     * Reset all stored keys.
+     * {@inheritdoc}
+     */
+    public function storeResult(string $idempotencyKey, mixed $result, int $ttl = 86400): void
+    {
+        $this->results[$idempotencyKey] = $result;
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function getResult(string $idempotencyKey): mixed
+    {
+        return $this->results[$idempotencyKey] ?? null;
+    }
+
+    /**
+     * Reset all stored keys and results.
      * Call in test tearDown() to ensure test isolation.
      */
     public function clear(): void
     {
-        $this->store = [];
+        $this->store   = [];
+        $this->results = [];
     }
 }

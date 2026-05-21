@@ -4,28 +4,36 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Contract;
 
-use Vortos\Domain\Event\DomainEventInterface;
-
 /**
- * Produces domain events to a named transport (broker topic/queue).
+ * Produces event payloads to a named transport (broker topic/queue).
  *
  * Implementations are broker-specific (Kafka, InMemory, etc.).
- * This interface is used by the outbox relay and direct producers.
+ * Used by the outbox relay worker and by EventBus when outbox is disabled
+ * for a producer.
+ *
+ * Payloads are plain POPOs — the producer treats them as opaque objects to
+ * be serialized and shipped. All framework metadata (eventId, aggregate
+ * identity, correlation) travels as headers; the producer never inspects
+ * the payload's internals.
+ *
  * Never call this directly from domain code — use EventBusInterface instead.
  */
 interface ProducerInterface
 {
     /**
-     * Produce a single event to the named transport.
-     * Headers are merged with any default headers defined on the producer definition.
+     * Produce a single payload to the named transport.
+     * Headers are merged with any default headers defined on the producer
+     * definition. The caller (EventBus) supplies envelope-derived headers
+     * such as event_id, payload_type, aggregate_id, occurred_at.
      */
-    public function produce(string $transportName, DomainEventInterface $event, array $headers = []): void;
+    public function produce(string $transportName, object $payload, array $headers = []): void;
 
     /**
-     * Produce multiple events to the named transport in a single batch.
-     * More efficient than calling produce() in a loop for high-throughput scenarios.
+     * Produce multiple payloads to the named transport in a single batch.
+     * More efficient than calling produce() in a loop for high-throughput
+     * scenarios.
      *
-     * @param DomainEventInterface[] $events
+     * @param object[] $payloads
      */
-    public function produceBatch(string $transportName, array $events, array $headers = []): void;
+    public function produceBatch(string $transportName, array $payloads, array $headers = []): void;
 }

@@ -81,4 +81,28 @@ interface CommandIdempotencyStoreInterface
      * @param string $idempotencyKey The key to release
      */
     public function releaseProcessed(string $idempotencyKey): void;
+
+    /**
+     * Store the handler result for replay on duplicate requests.
+     *
+     * Called after the transaction commits successfully. The result is serialized
+     * and stored alongside the idempotency claim so that duplicate requests
+     * receive the same response as the original without re-executing the handler.
+     *
+     * @param string $idempotencyKey Client-generated UUID
+     * @param mixed  $result         The value returned by the command handler
+     * @param int    $ttl            Must match the TTL used in tryMarkProcessed
+     */
+    public function storeResult(string $idempotencyKey, mixed $result, int $ttl = 86400): void;
+
+    /**
+     * Retrieve the cached handler result for a duplicate request.
+     *
+     * Returns null if the result has not been stored yet (command still in-flight)
+     * or if the key has expired.
+     *
+     * @param string $idempotencyKey Client-generated UUID
+     * @return mixed The original handler result, or null if not yet available
+     */
+    public function getResult(string $idempotencyKey): mixed;
 }

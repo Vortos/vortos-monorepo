@@ -4,21 +4,26 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Hook;
 
-use Vortos\Messaging\Hook\Exception\HookExecutionException;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ServiceLocator;
-use Symfony\Component\Messenger\Envelope;
 use Throwable;
-use Vortos\Domain\Event\DomainEventInterface;
+use Vortos\Domain\Event\EventEnvelope;
+use Vortos\Messaging\Hook\Exception\HookExecutionException;
 
 /**
  * Executes registered hooks at the correct lifecycle moments.
  *
- * Retrieves descriptors from HookRegistry, applies event and consumer
- * filters, resolves hook instances from the scoped ServiceLocator,
- * and invokes handle() on each. Each hook invocation is wrapped
- * individually — one failing hook never prevents others from running.
+ * Producer-side hooks (BeforeDispatch, AfterDispatch, PreSend) receive the
+ * domain EventEnvelope. Filter matching compares against the envelope's
+ * payloadType (FQCN of the payload class).
  *
+ * Consumer-side hooks (BeforeConsume, AfterConsume) continue to receive the
+ * Symfony Messenger Envelope built by ConsumerRunner — they operate on
+ * received messages, not on the producer-side domain envelope.
+ *
+ * Retrieves descriptors from HookRegistry, applies filters, resolves hook
+ * instances from the scoped ServiceLocator, and invokes them. Each hook is
+ * wrapped individually — one failing hook never prevents others from running.
  * Never throws publicly. All hook exceptions are caught and logged.
  */
 final class HookRunner
@@ -26,108 +31,89 @@ final class HookRunner
     public function __construct(
         private HookRegistry $registry,
         private ServiceLocator $hookLocator,
-        private LoggerInterface $logger
+        private LoggerInterface $logger,
     ) {}
 
-    public function runBeforeDispatch(DomainEventInterface $event): void
+    public function runBeforeDispatch(EventEnvelope $envelope): void
     {
         $hooks = $this->registry->getHooks(HookDescriptor::BEFORE_DISPATCH);
 
-        $eventClass = get_class($event);
-
         foreach ($hooks as $hook) {
-            if ($this->matchesEvent($hook, $eventClass)) {
-                $this->invoke(
-                    $hook,
-                    fn($hook) => $hook->__invoke($event)
-                );
+            if ($this->matchesEvent($hook, $envelope->payloadType)) {
+                $this->invoke($hook, fn($hook) => $hook->__invoke($envelope));
             }
         }
     }
 
-    public function runAfterDispatch(DomainEventInterface $event, ?Throwable $throwable): void
+    public function runAfterDispatch(EventEnvelope $envelope, ?Throwable $throwable): void
     {
         $hooks = $this->registry->getHooks(HookDescriptor::AFTER_DISPATCH);
 
-        $eventClass = get_class($event);
-
         foreach ($hooks as $hook) {
-            if ($this->matchesEvent($hook, $eventClass)) {
-
-                if ($hook->onFailureOnly === true && $throwable === null) {
-                    continue;
-                }
-                $this->invoke(
-                    $hook,
-                    fn($hook) => $hook->__invoke($event, $throwable)
-                );
+            if (!$this->matchesEvent($hook, $envelope->payloadType)) {
+                continue;
             }
+
+            if ($hook->onFailureOnly === true && $throwable === null) {
+                continue;
+            }
+
+            $this->invoke($hook, fn($hook) => $hook->__invoke($envelope, $throwable));
         }
     }
 
-    public function runPreSend(DomainEventInterface $event, array &$headers): void
+    public function runPreSend(EventEnvelope $envelope, array &$headers): void
     {
         $hooks = $this->registry->getHooks(HookDescriptor::PRE_SEND);
 
-        $eventClass = get_class($event);
-
         foreach ($hooks as $hook) {
-            if ($this->matchesEvent($hook, $eventClass)) {
+            if ($this->matchesEvent($hook, $envelope->payloadType)) {
                 $this->invoke(
                     $hook,
-                    function ($hook) use ($event, &$headers) {
-                        $hook->__invoke($event, $headers);
-                    }
+                    function ($hook) use ($envelope, &$headers) {
+                        $hook->__invoke($envelope, $headers);
+                    },
                 );
             }
         }
     }
 
-    public function runBeforeConsume(Envelope $envelope, string $consumerName): void
+    public function runBeforeConsume(EventEnvelope $envelope, string $consumerName): void
     {
         $hooks = $this->registry->getHooks(HookDescriptor::BEFORE_CONSUME);
 
-        $eventClass = get_class($envelope->getMessage());
-
         foreach ($hooks as $hook) {
-            if ($this->matchesConsume($hook, $eventClass, $consumerName)) {
-                $this->invoke(
-                    $hook,
-                    fn($hook) => $hook->__invoke($envelope, $consumerName)
-                );
+            if ($this->matchesConsume($hook, $envelope->payloadType, $consumerName)) {
+                $this->invoke($hook, fn($hook) => $hook->__invoke($envelope, $consumerName));
             }
         }
     }
 
-    public function runAfterConsume(Envelope $envelope, string $consumerName, ?Throwable $throwable = null): void
+    public function runAfterConsume(EventEnvelope $envelope, string $consumerName, ?Throwable $throwable = null): void
     {
         $hooks = $this->registry->getHooks(HookDescriptor::AFTER_CONSUME);
 
-        $eventClass = get_class($envelope->getMessage());
-
         foreach ($hooks as $hook) {
-            if ($this->matchesConsume($hook, $eventClass, $consumerName)) {
-
-                if ($hook->onFailureOnly === true && $throwable === null) {
-                    continue;
-                }
-
-                $this->invoke(
-                    $hook,
-                    fn($hook) => $hook->__invoke($envelope, $consumerName, $throwable)
-                );
+            if (!$this->matchesConsume($hook, $envelope->payloadType, $consumerName)) {
+                continue;
             }
+
+            if ($hook->onFailureOnly === true && $throwable === null) {
+                continue;
+            }
+
+            $this->invoke($hook, fn($hook) => $hook->__invoke($envelope, $consumerName, $throwable));
         }
     }
 
-    private function matchesEvent(HookDescriptor $descriptor, string $eventClass): bool
+    private function matchesEvent(HookDescriptor $descriptor, string $payloadType): bool
     {
-        return $descriptor->eventFilter === null || $descriptor->eventFilter === $eventClass;
+        return $descriptor->eventFilter === null || $descriptor->eventFilter === $payloadType;
     }
 
-    private function matchesConsume(HookDescriptor $descriptor, string $eventClass, string $consumerName): bool
+    private function matchesConsume(HookDescriptor $descriptor, string $payloadType, string $consumerName): bool
     {
-        return $this->matchesEvent($descriptor, $eventClass)
+        return $this->matchesEvent($descriptor, $payloadType)
             && ($descriptor->consumerFilter === null || $descriptor->consumerFilter === $consumerName);
     }
 
@@ -144,9 +130,9 @@ final class HookRunner
                     'exception' => HookExecutionException::forHook(
                         $descriptor->serviceId,
                         $descriptor->hookType,
-                        $e
-                    )
-                ]
+                        $e,
+                    ),
+                ],
             );
         }
     }

@@ -21,7 +21,7 @@ return [
                 'Command handlers: accept a Command DTO, load aggregate, call business method, return aggregate',
                 'Command handlers NEVER call beginTransaction/commit — the CommandBus wraps them',
                 'Query handlers: accept a Query DTO, read from the read store, return a DTO or array',
-                'Projection handlers: accept a DomainEvent, update the read model via upsert()',
+                'Projection handlers: accept a pure POPO event payload (+ optionally EventEnvelope for aggregateId/occurredAt), update the read model via upsert()',
                 'No HTTP, no JSON, no request/response objects',
             ],
         ],
@@ -65,9 +65,9 @@ return [
             'Controller: serialize and return JsonResponse',
         ],
         'projection_flow' => [
-            'Kafka → ConsumerWorker → deserialize event',
+            'Kafka → ConsumerWorker → deserialize payload → reconstruct EventEnvelope from wire headers',
             'ConsumerRunner: route to ProjectionHandler via #[AsProjectionHandler]',
-            'ProjectionHandler: upsert read model in MongoDB',
+            'ProjectionHandler: receives POPO payload (+ EventEnvelope if declared) → upsert read model in MongoDB',
             'ConsumerWorker: commit Kafka offset',
         ],
     ],
@@ -82,7 +82,7 @@ src/
       OrderId.php                              ← extends AggregateId
       OrderStatus.php                          ← ValueObject (enum or class)
       Event/
-        OrderPlacedEvent.php                   ← extends DomainEvent
+        OrderPlaced.php                        ← pure POPO (final readonly, no base class)
         OrderCancelledEvent.php
       Exception/
         OrderNotFoundException.php

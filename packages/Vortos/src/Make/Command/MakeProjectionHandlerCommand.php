@@ -82,7 +82,7 @@ final class MakeProjectionHandlerCommand extends Command
     private function resolveEvent(string $eventInput, OutputInterface $output): array
     {
         if ($eventInput === '') {
-            return ['use Vortos\Domain\Event\DomainEventInterface;', 'DomainEventInterface'];
+            return [null, 'object'];
         }
 
         if (str_contains($eventInput, '\\')) {

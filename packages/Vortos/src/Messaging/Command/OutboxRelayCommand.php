@@ -57,7 +57,7 @@ final class OutboxRelayCommand extends Command
                 $output->writeln(sprintf(
                     '  • [%s]  %s  →  %s',
                     $message->id,
-                    $message->eventClass,
+                    $message->payloadType,
                     $message->transportName,
                 ));
             }

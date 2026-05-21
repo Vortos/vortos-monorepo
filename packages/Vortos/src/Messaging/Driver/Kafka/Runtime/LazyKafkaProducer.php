@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Driver\Kafka\Runtime;
 
-use Vortos\Domain\Event\DomainEventInterface;
 use Vortos\Messaging\Contract\ProducerInterface;
 use Vortos\Messaging\Driver\Kafka\Factory\KafkaProducerFactory;
 
@@ -13,17 +12,17 @@ final class LazyKafkaProducer implements ProducerInterface
     private array $producers = [];
 
     public function __construct(
-        private KafkaProducerFactory $factory
+        private KafkaProducerFactory $factory,
     ) {}
 
-    public function produce(string $transportName, DomainEventInterface $event, array $headers = []): void
+    public function produce(string $transportName, object $payload, array $headers = []): void
     {
-        $this->get($transportName)->produce($transportName, $event, $headers);
+        $this->get($transportName)->produce($transportName, $payload, $headers);
     }
 
-    public function produceBatch(string $transportName, array $events, array $headers = []): void
+    public function produceBatch(string $transportName, array $payloads, array $headers = []): void
     {
-        $this->get($transportName)->produceBatch($transportName, $events, $headers);
+        $this->get($transportName)->produceBatch($transportName, $payloads, $headers);
     }
 
     private function get(string $transportName): KafkaProducer

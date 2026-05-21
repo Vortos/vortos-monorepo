@@ -6,45 +6,42 @@ namespace Vortos\Messaging\Dev;
 
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ServiceLocator;
-use Vortos\Domain\Event\DomainEventInterface;
+use Vortos\Domain\Event\EventEnvelope;
+use Vortos\Domain\Event\Metadata;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Messaging\Registry\HandlerRegistry;
 
 /**
  * Dev/test decorator that synchronously invokes projection handlers immediately
- * after each event is dispatched to the real EventBus.
+ * after each envelope is dispatched to the real EventBus.
  *
- * In production, projections are updated asynchronously: the event is written to
- * the outbox, relayed to Kafka, consumed by a worker, and then the projection
- * handler runs. In tests and local dev this latency makes it impossible to assert
- * on read-model state immediately after a command — you would need arbitrary sleeps
- * or polling.
+ * In production, projections are updated asynchronously: the envelope is
+ * written to the outbox, relayed to Kafka, consumed by a worker, and then the
+ * projection handler runs. In tests and local dev this latency makes it
+ * impossible to assert on read-model state immediately after a command — you
+ * would need arbitrary sleeps or polling.
  *
- * This decorator solves that: after the real dispatch() returns, it looks up all
- * projection handlers for the event across every consumer and calls them in-process
- * synchronously. The read model is updated before dispatch() returns, so tests can
- * assert on it immediately.
+ * This decorator solves that: after the real dispatch() returns, it looks up
+ * all projection handlers for the envelope's payload type across every
+ * consumer and calls them in-process synchronously.
  *
- * ## How it is registered
+ * Parameter injection is type-based via reflection:
+ *   - First non-builtin param matching the payload class → $envelope->payload
+ *   - EventEnvelope → $envelope
+ *   - Metadata → $envelope->metadata
  *
- * MessagingExtension registers this as a Symfony decorator for EventBusInterface
- * in dev and test environments only. Set VORTOS_SYNC_PROJECTIONS=false to opt out
- * (useful when you want to test real Kafka flow end-to-end in dev).
+ * MessagingExtension registers this as a Symfony decorator for
+ * EventBusInterface in dev and test environments only. Set
+ * VORTOS_SYNC_PROJECTIONS=false to opt out.
  *
- * ## Production
- *
- * This class is NEVER active in production — it is gated by kernel.env and the
- * VORTOS_SYNC_PROJECTIONS env variable. No performance or correctness impact
- * on production deployments.
- *
- * ## Error handling
- *
- * Projection errors are logged and swallowed — the same way a real Kafka consumer
- * handles transient failures before DLQ. This prevents a broken projection from
- * masking the real domain error when a command fails.
+ * Projection errors are logged and swallowed — the same way a real Kafka
+ * consumer handles transient failures before DLQ.
  */
 final class SyncProjectionEventBusDecorator implements EventBusInterface
 {
+    /** @var array<string, list<mixed>> Reflection cache: "ServiceId::method" → resolved arg list shape */
+    private array $paramCache = [];
+
     public function __construct(
         private readonly EventBusInterface $inner,
         private readonly HandlerRegistry $handlerRegistry,
@@ -52,21 +49,21 @@ final class SyncProjectionEventBusDecorator implements EventBusInterface
         private readonly LoggerInterface $logger,
     ) {}
 
-    public function dispatchBatch(DomainEventInterface ...$events): void
+    public function dispatchBatch(EventEnvelope ...$envelopes): void
     {
-        foreach ($events as $event) {
-            $this->dispatch($event);
+        foreach ($envelopes as $envelope) {
+            $this->dispatch($envelope);
         }
     }
 
-    public function dispatch(DomainEventInterface $event): void
+    public function dispatch(EventEnvelope $envelope): void
     {
-        $this->inner->dispatch($event);
+        $this->inner->dispatch($envelope);
 
-        $eventClass = get_class($event);
+        $payloadType = $envelope->payloadType;
 
         foreach ($this->handlerRegistry->allConsumers() as $consumer) {
-            $descriptors = $this->handlerRegistry->getHandlers($consumer, $eventClass);
+            $descriptors = $this->handlerRegistry->getHandlers($consumer, $payloadType);
 
             foreach ($descriptors as $descriptor) {
                 if (!($descriptor['isProjection'] ?? false)) {
@@ -82,16 +79,59 @@ final class SyncProjectionEventBusDecorator implements EventBusInterface
 
                 try {
                     $handler = $this->handlerLocator->get($serviceId);
-                    $handler->$method($event);
+                    $args    = $this->resolveArgs($handler, $method, $envelope);
+                    $handler->$method(...$args);
                 } catch (\Throwable $e) {
                     $this->logger->warning('SyncProjectionEventBusDecorator: projection failed (swallowed)', [
-                        'consumer'   => $consumer,
-                        'handler'    => $serviceId,
-                        'event'      => $eventClass,
-                        'error'      => $e->getMessage(),
+                        'consumer'     => $consumer,
+                        'handler'      => $serviceId,
+                        'payload_type' => $payloadType,
+                        'error'        => $e->getMessage(),
                     ]);
                 }
             }
         }
+    }
+
+    /**
+     * Resolve arguments for a handler method using reflection.
+     *
+     * Injection rules (in order, per parameter):
+     *   1. Type is EventEnvelope → inject $envelope
+     *   2. Type is Metadata      → inject $envelope->metadata
+     *   3. Type matches payload class (or any non-builtin class) → inject $envelope->payload
+     *   4. Otherwise             → inject null
+     *
+     * @return list<mixed>
+     */
+    private function resolveArgs(object $handler, string $method, EventEnvelope $envelope): array
+    {
+        $ref    = new \ReflectionMethod($handler, $method);
+        $params = $ref->getParameters();
+
+        if (count($params) === 0) {
+            return [];
+        }
+
+        $args = [];
+
+        foreach ($params as $param) {
+            $type = $param->getType();
+
+            if (!$type instanceof \ReflectionNamedType || $type->isBuiltin()) {
+                $args[] = $param->isOptional() ? $param->getDefaultValue() : null;
+                continue;
+            }
+
+            $typeName = $type->getName();
+
+            $args[] = match ($typeName) {
+                EventEnvelope::class => $envelope,
+                Metadata::class      => $envelope->metadata,
+                default              => $envelope->payload,
+            };
+        }
+
+        return $args;
     }
 }

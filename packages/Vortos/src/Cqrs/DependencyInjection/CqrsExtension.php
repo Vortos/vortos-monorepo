@@ -33,6 +33,7 @@ use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\Tracing\Contract\TracingInterface;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
+use Vortos\Cqrs\Http\Middleware\IdempotencyKeyMiddleware;
 
 final class CqrsExtension extends Extension
 {
@@ -66,6 +67,7 @@ final class CqrsExtension extends Extension
         $this->registerValidator($container);
         $this->registerCommandBus($container, $resolved['command_bus']);
         $this->registerQueryBus($container);
+        $this->registerIdempotencyMiddleware($container);
         $this->registerAutoconfiguration($container);
     }
 
@@ -132,6 +134,15 @@ final class CqrsExtension extends Extension
 
         $container->setAlias(QueryBusInterface::class, QueryBus::class)
             ->setPublic(true);
+    }
+
+    private function registerIdempotencyMiddleware(ContainerBuilder $container): void
+    {
+        $container->register(IdempotencyKeyMiddleware::class, IdempotencyKeyMiddleware::class)
+            ->setArgument('$enforcedControllers', []) // filled by IdempotencyKeyMiddlewarePass
+            ->setShared(true)
+            ->setPublic(true)
+            ->addTag('kernel.event_subscriber');
     }
 
     private function registerAutoconfiguration(ContainerBuilder $container): void

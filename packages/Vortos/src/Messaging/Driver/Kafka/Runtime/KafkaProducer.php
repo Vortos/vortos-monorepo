@@ -4,26 +4,27 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Driver\Kafka\Runtime;
 
+use RdKafka\Producer;
+use Throwable;
 use Vortos\Messaging\Contract\ProducerInterface;
 use Vortos\Messaging\Driver\Kafka\Exception\ProducerException;
 use Vortos\Messaging\Registry\TransportRegistry;
 use Vortos\Messaging\Serializer\SerializerLocator;
 use Vortos\Tracing\Contract\TracingInterface;
-use RdKafka\Producer;
-use Throwable;
-use Vortos\Domain\Event\DomainEventInterface;
 
 /**
  * Kafka implementation of ProducerInterface using the RdKafka extension.
- * 
+ *
  * produce() uses fire-and-poll — produces the message then does a non-blocking
  * poll to process any pending delivery callbacks.
- * 
+ *
  * produceBatch() defers polling until all messages are enqueued, then flushes
  * once for efficiency. More throughput-friendly for high-volume scenarios.
- * 
- * Never inject this directly into domain code — use ProducerInterface or
- * dispatch through EventBus instead.
+ *
+ * Headers are passed in by the caller (typically EventBus) and carry the full
+ * envelope contract: event_id, payload_type, aggregate_id, aggregate_type,
+ * aggregate_version, schema_version, occurred_at, correlation_id, etc. The
+ * tracer adds W3C traceparent on top.
  */
 final class KafkaProducer implements ProducerInterface
 {
@@ -32,63 +33,46 @@ final class KafkaProducer implements ProducerInterface
         private SerializerLocator $serializerLocator,
         private TransportRegistry $transportRegistry,
         private ?TracingInterface $tracer,
-        private string $defaultSerializer = 'json'
+        private string $defaultSerializer = 'json',
     ) {}
 
-    public function produce(string $transportName, DomainEventInterface $event, array $headers = []): void
+    public function produce(string $transportName, object $payload, array $headers = []): void
     {
-        $this->enqueue($transportName, $event, $headers);
+        $this->enqueue($transportName, $payload, $headers);
         // Fire-and-poll: non-blocking, processes any pending delivery callbacks without waiting
         $this->rdProducer->poll(0);
     }
 
-    public function produceBatch(string $transportName, array $events, array $headers = []): void
+    public function produceBatch(string $transportName, array $payloads, array $headers = []): void
     {
-        foreach ($events as $event) {
-            $this->enqueue($transportName, $event, $headers);
+        foreach ($payloads as $payload) {
+            $this->enqueue($transportName, $payload, $headers);
         }
 
         $result    = $this->rdProducer->flush(10000);
         $remaining = $this->rdProducer->getOutQLen();
 
         if ($result !== RD_KAFKA_RESP_ERR_NO_ERROR || $remaining > 0) {
-            throw ProducerException::forBatchFlush(
-                $transportName,
-                $result
-            );
+            throw ProducerException::forBatchFlush($transportName, $result);
         }
     }
 
-    private function enqueue(string $transportName, DomainEventInterface $event, array $headers = []): void
+    private function enqueue(string $transportName, object $payload, array $headers = []): void
     {
-        $eventClass = get_class($event);
+        $payloadClass = $payload::class;
 
         try {
             $transportConfig = $this->transportRegistry->get($transportName);
-
             $format = $transportConfig['serializer'] ?? $this->defaultSerializer;
-
             $serializer = $this->serializerLocator->locate($format);
-
-            $payload = $serializer->serialize($event);
-
+            $serialized = $serializer->serialize($payload);
             $topic = $this->rdProducer->newTopic($transportConfig['subscription']['topic']);
 
-            $finalHeaders = array_merge(
-                ['event_class' => $eventClass],
-                $headers
-            );
+            $this->tracer?->injectHeaders($headers);
 
-            $this->tracer?->injectHeaders($finalHeaders);
-
-            $topic->producev(RD_KAFKA_PARTITION_UA, 0, $payload, null, $finalHeaders);
+            $topic->producev(RD_KAFKA_PARTITION_UA, 0, $serialized, null, $headers);
         } catch (\RdKafka\Exception | Throwable $e) {
-
-            throw ProducerException::forTransport(
-                $transportName,
-                $eventClass,
-                $e
-            );
+            throw ProducerException::forTransport($transportName, $payloadClass, $e);
         }
     }
 }

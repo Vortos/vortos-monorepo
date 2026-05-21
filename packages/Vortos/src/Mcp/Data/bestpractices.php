@@ -34,10 +34,10 @@ return [
         'Test projection handlers in isolation — dispatch an event, assert the read model was upserted correctly.',
         'Test command handlers against a real (test) database when testing persistence — integration tests are more valuable than mocked ones for the write side.',
         'Use the ServicesResetter between tests in integration suites — same as cleanUp() in production, resets state between test cases.',
-        'Assert domain events from aggregates: $events = $aggregate->pullDomainEvents(). Never assert Kafka messages directly in unit tests.',
+        'Assert domain events from aggregates: $envelopes = $aggregate->pullDomainEvents() — returns EventEnvelope[]. Assert $envelope->payload for the POPO data, $envelope->aggregateId, $envelope->payloadType, etc. Never assert Kafka messages directly in unit tests.',
         'For authorization tests: seed roles and permissions, then assert PolicyEngine::can() returns the expected result.',
         'Use --dry-run on vortos:migrate:fresh in CI to verify migration scripts before applying them.',
-        'Test outbox writes: after a command, assert that vortos_outbox has a pending row with the expected event_class and payload.',
+        'Test outbox writes: after a command, assert that vortos_outbox has a pending row with the expected payload_type (FQCN) and payload JSON.',
     ],
 
     'worker_mode' => [

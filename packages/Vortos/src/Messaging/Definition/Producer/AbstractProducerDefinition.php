@@ -53,7 +53,7 @@ abstract class AbstractProducerDefinition
     /**
      * Declares which domain event classes this producer routes to its transport.
      * Used by EventBus to resolve the correct producer at dispatch time.
-     * Event classes must implement DomainEventInterface.
+     * Event classes must be final (pure POPOs — no base class required).
      * Validated by the compiler pass at container compile time.
      */
     public function publishes(string ...$eventClasses): static

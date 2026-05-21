@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Messaging\Middleware\Core;
 
 use Vortos\Messaging\Bus\Stamp\ConsumerStamp;
+use Vortos\Messaging\Bus\Stamp\EventEnvelopeStamp;
 use Vortos\Messaging\Hook\HookRunner;
 use Vortos\Messaging\Middleware\MiddlewareInterface;
 use Symfony\Component\Messenger\Envelope;
@@ -12,12 +13,10 @@ use Symfony\Component\Messenger\Envelope;
 /**
  * Fires BeforeConsume and AfterConsume lifecycle hooks around handler execution.
  *
- * Sits between LoggingMiddleware and TransactionalMiddleware in the stack,
- * ensuring trace context is restored before hooks run and hook database
- * writes participate in the handler's transaction.
- *
- * Skips all hooks when ConsumerStamp is absent — envelope is not from
- * the consumer pipeline in that case.
+ * Extracts the EventEnvelopeStamp (attached by ConsumerRunner) so that hooks
+ * receive a full domain EventEnvelope rather than the raw Messenger Envelope.
+ * Falls back to a no-op when the stamp is absent — envelope is not from the
+ * consumer pipeline in that case.
  */
 final class HookMiddleware implements MiddlewareInterface
 {
@@ -33,17 +32,22 @@ final class HookMiddleware implements MiddlewareInterface
             return $next($envelope);
         }
 
+        $domainEnvelope = $envelope->last(EventEnvelopeStamp::class)?->envelope;
+
+        if ($domainEnvelope === null) {
+            return $next($envelope);
+        }
+
         $consumerName = $consumerStamp->consumerName;
 
-        $this->hookRunner->runBeforeConsume($envelope, $consumerName);
+        $this->hookRunner->runBeforeConsume($domainEnvelope, $consumerName);
 
         try {
             $result = $next($envelope);
-            $this->hookRunner->runAfterConsume($envelope, $consumerName, null);
-
+            $this->hookRunner->runAfterConsume($domainEnvelope, $consumerName, null);
             return $result;
         } catch (\Throwable $e) {
-            $this->hookRunner->runAfterConsume($envelope, $consumerName, $e);
+            $this->hookRunner->runAfterConsume($domainEnvelope, $consumerName, $e);
             throw $e;
         }
     }

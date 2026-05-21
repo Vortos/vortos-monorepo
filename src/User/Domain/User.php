@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\User\Domain;
 
-use App\User\Domain\Event\UserRegisteredEvent;
+use App\User\Domain\Event\UserRegistered;
 use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Identity\AggregateId;
 
@@ -27,10 +27,9 @@ final class User extends AggregateRoot
             passwordHash: password_hash($plainPassword, PASSWORD_BCRYPT),
         );
 
-        $user->recordEvent(new UserRegisteredEvent(
-            aggregateId: (string) $id,
-            email:       $email,
-            name:        $name,
+        $user->recordEvent(new UserRegistered(
+            email: $email,
+            name:  $name,
         ));
 
         return $user;

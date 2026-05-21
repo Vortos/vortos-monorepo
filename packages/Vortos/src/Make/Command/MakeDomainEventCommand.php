@@ -49,7 +49,7 @@ final class MakeDomainEventCommand extends Command
         $output->writeln('');
 
         $this->engine->write(
-            "{$context}/Domain/Event/{$name}Event.php",
+            "{$context}/Domain/Event/{$name}.php",
             $this->engine->render('domain-event', $vars),
             $output,
         );

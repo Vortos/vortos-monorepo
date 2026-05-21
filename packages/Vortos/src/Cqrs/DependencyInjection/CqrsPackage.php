@@ -12,13 +12,15 @@ use Vortos\Cqrs\DependencyInjection\Compiler\CommandHandlerPass;
 use Vortos\Cqrs\DependencyInjection\Compiler\IdempotencyKeyPass;
 use Vortos\Cqrs\DependencyInjection\Compiler\QueryHandlerPass;
 use Vortos\Cqrs\DependencyInjection\Compiler\ValidationPass;
+use Vortos\Cqrs\Http\Middleware\Compiler\IdempotencyKeyMiddlewarePass;
 
 /**
  * Compiler pass order:
- *   CommandHandlerPass (50) — builds command handler map
- *   QueryHandlerPass   (50) — builds query handler map
- *   IdempotencyKeyPass (40) — resolves idempotency strategies
- *   ValidationPass     (30) — warns about unconstrained string properties
+ *   CommandHandlerPass         (50) — builds command handler map
+ *   QueryHandlerPass           (50) — builds query handler map
+ *   IdempotencyKeyPass         (40) — resolves idempotency strategies
+ *   IdempotencyKeyMiddlewarePass (40) — builds enforced controller list for middleware
+ *   ValidationPass             (30) — warns about unconstrained string properties
  */
 final class CqrsPackage implements PackageInterface
 {
@@ -32,6 +34,7 @@ final class CqrsPackage implements PackageInterface
         $container->addCompilerPass(new CommandHandlerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 50);
         $container->addCompilerPass(new QueryHandlerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 50);
         $container->addCompilerPass(new IdempotencyKeyPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        $container->addCompilerPass(new IdempotencyKeyMiddlewarePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new ValidationPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 30);
     }
 }

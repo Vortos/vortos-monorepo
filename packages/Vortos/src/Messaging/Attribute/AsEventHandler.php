@@ -13,9 +13,9 @@ use Attribute;
  * the handler. When placed on a method, that specific method is the handler.
  * Multiple methods in the same class can each have this attribute for different events.
  *
- * The first non-attribute parameter of the handler method must be a class
- * implementing DomainEventInterface — this determines which event type is handled.
- * The compiler pass validates this at container compile time.
+ * The first non-builtin, non-special typed parameter of the handler method is
+ * the event class (pure POPO — final readonly, no base class required).
+ * The compiler pass validates this at container compile time (rules F1–F5).
  *
  * Example (class-level):
  *   #[AsEventHandler(handlerId: 'order.placed.notify', consumer: 'orders.placed')]

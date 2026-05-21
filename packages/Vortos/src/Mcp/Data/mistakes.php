@@ -74,6 +74,16 @@ return [
         'why'    => '.env is committed to version control and accessible in plaintext on the server filesystem. Secrets must be fetched at runtime from a secure store.',
     ],
     [
+        'wrong'  => 'class UserRegisteredEvent extends DomainEvent',
+        'right'  => 'final readonly class UserRegistered { public function __construct(public string $email, ...) {} }',
+        'why'    => 'Domain events must be pure POPOs — final, readonly, constructor-promoted properties, no methods other than __construct, no base class. The compiler pass enforces this (F1–F5). aggregateId and occurredAt live on EventEnvelope, not on the payload.',
+    ],
+    [
+        'wrong'  => 'Reading $event->aggregateId() or $event->occurredAt() in a projection handler',
+        'right'  => 'Declare EventEnvelope $envelope as a second parameter and read $envelope->aggregateId and $envelope->occurredAt',
+        'why'    => 'Event payloads are pure data — they carry no identity or timing metadata. That context lives on the EventEnvelope wrapper injected by the ConsumerRunner.',
+    ],
+    [
         'wrong'  => 'Domain logic in a controller',
         'right'  => 'Controllers are thin: validate input, dispatch a Command or Query via the bus, return a response. All business logic lives in the Domain or Application layer.',
         'why'    => 'Domain logic in controllers cannot be tested without an HTTP stack, cannot be reused from CLI commands, and violates layer separation.',

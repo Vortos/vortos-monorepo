@@ -77,7 +77,7 @@ final class CommandBus implements CommandBusInterface
 
             if ($idempotencyKey !== null && !$this->idempotencyStore->tryMarkProcessed($idempotencyKey)) {
                 $span?->setStatus('ok');
-                return null;
+                return $this->idempotencyStore->getResult($idempotencyKey);
             }
 
             $handler = $this->handlerLocator->get($commandClass);
@@ -100,6 +100,10 @@ final class CommandBus implements CommandBusInterface
                     $this->idempotencyStore->releaseProcessed($idempotencyKey);
                 }
                 throw $txException;
+            }
+
+            if ($idempotencyKey !== null) {
+                $this->idempotencyStore->storeResult($idempotencyKey, $result);
             }
 
             $this->logger->info('Command dispatched', [
@@ -143,8 +147,10 @@ final class CommandBus implements CommandBusInterface
         $strategy = $this->idempotencyStrategies[get_class($command)] ?? ['strategy' => 'none'];
 
         return match ($strategy['strategy']) {
-            'method'   => $command->idempotencyKey(),
-            'property' => (string) ($command->{$strategy['property']} ?? null),
+            'method'   => $command->idempotencyKey() ?: null,
+            'property' => ($command->{$strategy['property']} ?? null) !== null
+                ? (string) $command->{$strategy['property']}
+                : null,
             default    => null,
         };
     }

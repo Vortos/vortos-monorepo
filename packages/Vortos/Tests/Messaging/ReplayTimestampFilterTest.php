@@ -10,7 +10,6 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
-use Vortos\Domain\Event\DomainEventInterface;
 use Vortos\Messaging\Command\OutboxReplayCommand;
 use Vortos\Messaging\Command\ReplayDeadLetterCommand;
 use Vortos\Messaging\Command\ReplayTimestampRange;
@@ -200,9 +199,9 @@ final class ReplayTimestampFilterTest extends TestCase
     private function producer(): ProducerInterface
     {
         return new class implements ProducerInterface {
-            public function produce(string $transportName, DomainEventInterface $event, array $headers = []): void {}
+            public function produce(string $transportName, object $payload, array $headers = []): void {}
 
-            public function produceBatch(string $transportName, array $events, array $headers = []): void {}
+            public function produceBatch(string $transportName, array $payloads, array $headers = []): void {}
         };
     }
 }

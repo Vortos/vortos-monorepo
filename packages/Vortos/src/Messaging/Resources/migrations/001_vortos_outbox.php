@@ -18,32 +18,45 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function description(): string
     {
-        return 'Vortos outbox';
+        return 'Vortos outbox — envelope-first schema';
     }
 
     public function define(Schema $schema): void
     {
         $outbox = $schema->createTable('vortos_outbox');
-        $outbox->addColumn('id', 'guid', ['notnull' => true]);
-        $outbox->addColumn('transport_name', 'string', ['length' => 255, 'notnull' => true]);
-        $outbox->addColumn('event_class', 'string', ['length' => 512, 'notnull' => true]);
-        $outbox->addColumn('payload', 'text', ['notnull' => true]);
-        $outbox->addColumn('headers', 'json', ['notnull' => true, 'default' => '{}']);
-        $outbox->addColumn('status', 'string', ['length' => 20, 'notnull' => true, 'default' => 'pending']);
-        $outbox->addColumn('attempt_count', 'integer', ['notnull' => true, 'default' => 0]);
-        $outbox->addColumn('created_at', 'datetime_immutable', ['notnull' => true]);
-        $outbox->addColumn('published_at', 'datetime_immutable', ['notnull' => false]);
-        $outbox->addColumn('next_attempt_at', 'datetime_immutable', ['notnull' => false]);
-        $outbox->addColumn('failure_reason', 'text', ['notnull' => false]);
+
+        $outbox->addColumn('id',                'guid',               ['notnull' => true]);
+        $outbox->addColumn('transport_name',    'string',             ['length' => 255, 'notnull' => true]);
+        $outbox->addColumn('event_id',          'guid',               ['notnull' => true]);
+        $outbox->addColumn('aggregate_id',      'string',             ['length' => 255, 'notnull' => true]);
+        $outbox->addColumn('aggregate_type',    'string',             ['length' => 512, 'notnull' => true]);
+        $outbox->addColumn('aggregate_version', 'integer',            ['notnull' => true]);
+        $outbox->addColumn('payload_type',      'string',             ['length' => 512, 'notnull' => true]);
+        $outbox->addColumn('schema_version',    'integer',            ['notnull' => true, 'default' => 1]);
+        $outbox->addColumn('occurred_at',       'datetime_immutable', ['notnull' => true]);
+        $outbox->addColumn('correlation_id',    'string',             ['length' => 255, 'notnull' => false]);
+        $outbox->addColumn('causation_id',      'string',             ['length' => 255, 'notnull' => false]);
+        $outbox->addColumn('trace_id',          'string',             ['length' => 255, 'notnull' => false]);
+        $outbox->addColumn('metadata',          'json',               ['notnull' => false]);
+        $outbox->addColumn('payload',           'text',               ['notnull' => true]);
+        $outbox->addColumn('status',            'string',             ['length' => 20,  'notnull' => true, 'default' => 'pending']);
+        $outbox->addColumn('attempt_count',     'integer',            ['notnull' => true, 'default' => 0]);
+        $outbox->addColumn('created_at',        'datetime_immutable', ['notnull' => true]);
+        $outbox->addColumn('published_at',      'datetime_immutable', ['notnull' => false]);
+        $outbox->addColumn('next_attempt_at',   'datetime_immutable', ['notnull' => false]);
+        $outbox->addColumn('failure_reason',    'text',               ['notnull' => false]);
+
         $outbox->setPrimaryKey(['id']);
-        $outbox->addIndex(['status', 'created_at'], 'idx_vortos_outbox_status_created', [], [
+
+        // Relay worker: pending rows ordered by time, skip locked for parallelism
+        $outbox->addIndex(['status', 'next_attempt_at'], 'idx_vortos_outbox_status_next', [], [
             'where' => "status = 'pending'",
         ]);
-        $outbox->addIndex(['status', 'transport_name'], 'idx_vortos_outbox_status_transport', [], [
-            'where' => "status IN ('pending', 'failed')",
-        ]);
-        $outbox->addIndex(['transport_name', 'created_at'], 'idx_vortos_outbox_pending_transport_created', [], [
-            'where' => "status = 'pending'",
-        ]);
+
+        // Replay by aggregate
+        $outbox->addIndex(['aggregate_id', 'occurred_at'], 'idx_vortos_outbox_aggregate_occurred');
+
+        // Replay by event type
+        $outbox->addIndex(['payload_type', 'occurred_at'], 'idx_vortos_outbox_type_occurred');
     }
 };

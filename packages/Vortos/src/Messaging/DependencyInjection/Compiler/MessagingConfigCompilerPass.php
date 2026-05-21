@@ -15,7 +15,6 @@ use ReflectionClass;
 use ReflectionMethod;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
-use Vortos\Domain\Event\DomainEventInterface;
 
 final class MessagingConfigCompilerPass implements CompilerPassInterface
 {
@@ -177,9 +176,10 @@ final class MessagingConfigCompilerPass implements CompilerPassInterface
                         "Producer '{$producerName}' declares event '{$eventClass}' in publishes() but the class does not exist."
                     );
                 }
-                if (!is_a($eventClass, DomainEventInterface::class, true)) {
+                $refl = new ReflectionClass($eventClass);
+                if (!$refl->isFinal()) {
                     throw new \LogicException(
-                        "Producer '{$producerName}' declares '{$eventClass}' in publishes() but it does not implement DomainEventInterface."
+                        "Producer '{$producerName}' declares '{$eventClass}' in publishes() but event classes must be final."
                     );
                 }
             }

@@ -7,10 +7,9 @@ namespace Vortos\Messaging\Hook\Attribute;
 use Attribute;
 
 /**
- * Fires after EventBus::dispatch() completes — after internal handlers ran and after outbox write or direct produce. 
- * Receives the DomainEventInterface and a ?Throwable — null on success, 
- * the exception on failure. 
- * The exception is passed for observation only — the hook must not swallow it or re-throw a different one. 
+ * Fires after EventBus::dispatch() completes — after internal handlers ran and after outbox write or direct produce.
+ * Receives the EventEnvelope and a ?Throwable — null on success, the exception on failure.
+ * The exception is passed for observation only — the hook must not swallow it or re-throw a different one.
  * If $onFailureOnly = true, only fires when $throwable !== null.
  */
 #[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]

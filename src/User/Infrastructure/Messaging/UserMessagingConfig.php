@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\User\Infrastructure\Messaging;
 
-use App\User\Domain\Event\UserRegisteredEvent;
+use App\User\Domain\Event\UserRegistered;
 use Vortos\Messaging\Attribute\MessagingConfig;
 use Vortos\Messaging\Attribute\RegisterConsumer;
 use Vortos\Messaging\Attribute\RegisterProducer;
@@ -32,7 +32,7 @@ final class UserMessagingConfig
         return KafkaProducerDefinition::create('user.events')
             ->transport('user.events')
             ->outbox(true)
-            ->publishes(UserRegisteredEvent::class);
+            ->publishes(UserRegistered::class);
     }
 
     #[RegisterConsumer]

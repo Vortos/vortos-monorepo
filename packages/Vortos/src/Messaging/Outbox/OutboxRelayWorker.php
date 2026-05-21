@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Outbox;
 
-use Vortos\Domain\Event\DomainEventInterface;
+use DateTimeInterface;
 use Vortos\Messaging\Contract\OutboxPollerInterface;
 use Vortos\Messaging\Contract\ProducerInterface;
 use Vortos\Messaging\Registry\TransportRegistry;
@@ -43,20 +43,18 @@ final class OutboxRelayWorker
         foreach($messages as $outboxMessage){
 
             $span = $this->tracer?->startSpan('outbox.relay', [
-                'outbox_id'   => $outboxMessage->id,
-                'event_class' => $outboxMessage->eventClass,
-                'transport'   => $outboxMessage->transportName,
+                'outbox_id'    => $outboxMessage->id,
+                'payload_type' => $outboxMessage->payloadType,
+                'transport'    => $outboxMessage->transportName,
                 'messaging.operation' => 'publish',
                 'vortos.module' => ObservabilityModule::Messaging,
             ]);
 
             try {
 
-                if (!class_exists($outboxMessage->eventClass)
-                    || !is_a($outboxMessage->eventClass, DomainEventInterface::class, true)
-                ) {
+                if (!class_exists($outboxMessage->payloadType)) {
                     throw new \UnexpectedValueException(
-                        "Invalid event class '{$outboxMessage->eventClass}' — must implement DomainEventInterface."
+                        "Payload class '{$outboxMessage->payloadType}' does not exist."
                     );
                 }
 
@@ -67,12 +65,25 @@ final class OutboxRelayWorker
                 }
 
                 $serializer = $this->serializerLocator->locate('json');
-                $event = $serializer->deserialize($outboxMessage->payload, $outboxMessage->eventClass);
+                $payload = $serializer->deserialize($outboxMessage->payload, $outboxMessage->payloadType);
+
+                $headers = [
+                    'event_id'          => $outboxMessage->eventId,
+                    'payload_type'      => $outboxMessage->payloadType,
+                    'aggregate_id'      => $outboxMessage->aggregateId,
+                    'aggregate_type'    => $outboxMessage->aggregateType,
+                    'aggregate_version' => (string) $outboxMessage->aggregateVersion,
+                    'schema_version'    => (string) $outboxMessage->schemaVersion,
+                    'occurred_at'       => $outboxMessage->occurredAt->format(DateTimeInterface::ATOM),
+                    'correlation_id'    => $outboxMessage->correlationId ?? '',
+                    'causation_id'      => $outboxMessage->causationId ?? '',
+                    'trace_id'          => $outboxMessage->traceId ?? '',
+                ];
 
                 $this->producer->produce(
                     $outboxMessage->transportName,
-                    $event,
-                    $outboxMessage->headers
+                    $payload,
+                    $headers,
                 );
 
                 $this->poller->markPublished($outboxMessage->id);
@@ -80,10 +91,10 @@ final class OutboxRelayWorker
 
             } catch (\Throwable $e) {
                 $this->logger->error('Outbox relay failed for message', [
-                    'outbox_id'   => $outboxMessage->id,
-                    'event_class' => $outboxMessage->eventClass,
-                    'transport'   => $outboxMessage->transportName,
-                    'error'       => $e->getMessage(),
+                    'outbox_id'    => $outboxMessage->id,
+                    'payload_type' => $outboxMessage->payloadType,
+                    'transport'    => $outboxMessage->transportName,
+                    'error'        => $e->getMessage(),
                 ]);
 
                 $this->poller->markFailed($outboxMessage->id, $e->getMessage());

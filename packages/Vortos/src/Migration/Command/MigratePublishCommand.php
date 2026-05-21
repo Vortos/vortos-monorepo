@@ -120,6 +120,7 @@ final class MigratePublishCommand extends Command
             $fqcn = self::MIGRATION_NAMESPACE . '\\' . $className;
 
             $description = $this->generator->descriptionFromFilename($stub['filename']);
+
             $content = isset($stub['provider'])
                 ? $this->generator->generateFromSchemaProvider(
                     $className,

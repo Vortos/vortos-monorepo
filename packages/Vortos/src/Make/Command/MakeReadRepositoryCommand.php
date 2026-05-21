@@ -14,7 +14,7 @@ use Vortos\Make\Engine\GeneratorEngine;
 
 #[AsCommand(
     name: 'vortos:make:read-repository',
-    description: 'Generate a MongoDB read repository for an aggregate',
+    description: 'Generate a MongoDB read repository and its read model DTO for an aggregate',
 )]
 final class MakeReadRepositoryCommand extends Command
 {
@@ -50,10 +50,23 @@ final class MakeReadRepositoryCommand extends Command
         $output->writeln('');
 
         $this->engine->write(
-            "{$context}/Infrastructure/Repository/{$aggregate}ReadRepository.php",
+            "{$context}/Application/ReadModel/{$aggregate}ReadModel.php",
+            $this->engine->render('read-model', $vars),
+            $output,
+        );
+
+        $this->engine->write(
+            "{$context}/Infrastructure/Persistence/Mongo/{$aggregate}ReadRepository.php",
             $this->engine->render('read-repository', $vars),
             $output,
         );
+
+        $output->writeln('');
+        $output->writeln('<comment>Next steps:</comment>');
+        $output->writeln("  1. Add fields to <info>{$aggregate}ReadModel</info>");
+        $output->writeln("  2. Map them in <info>{$aggregate}ReadRepository::fromDocument()</info>");
+        $output->writeln("  3. Add <info>#[MongoIndex]</info> attributes for your query patterns");
+        $output->writeln("  4. Run <info>php bin/console vortos:mongo:sync</info> to apply indexes");
 
         return Command::SUCCESS;
     }

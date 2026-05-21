@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Persistence\DependencyInjection;
 
-use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
-use Vortos\Persistence\Command\SetupPersistenceCommand;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
 
@@ -62,11 +60,6 @@ final class PersistenceExtension extends Extension
         $container->setParameter('vortos.persistence.write_dsn', $resolved['write']['dsn']);
         $container->setParameter('vortos.persistence.read_dsn', $resolved['read']['dsn']);
         $container->setParameter('vortos.persistence.read_database', $resolved['read']['database']);
-
-        $container->register(SetupPersistenceCommand::class, SetupPersistenceCommand::class)
-            ->setArgument('$readRepositories', new TaggedIteratorArgument('vortos.read_repository'))
-            ->setPublic(true)
-            ->addTag('console.command');
 
         $container->register('vortos.config_stub.persistence', ConfigStub::class)
             ->setArguments(['persistence', __DIR__ . '/../stubs/persistence.php'])

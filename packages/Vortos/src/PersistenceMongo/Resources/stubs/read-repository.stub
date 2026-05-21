@@ -2,26 +2,24 @@
 
 declare(strict_types=1);
 
-namespace {{Namespace}}\Infrastructure\Repository;
+namespace {{Namespace}}\Infrastructure\Persistence\Mongo;
 
+use {{Namespace}}\Application\ReadModel\{{AggregateClass}}ReadModel;
 use Vortos\PersistenceMongo\Read\MongoReadRepository;
+use Vortos\PersistenceMongo\Schema\Attribute\MongoCollection;
+use Vortos\PersistenceMongo\Schema\Attribute\MongoIndex;
 
+/**
+ * @extends MongoReadRepository<{{AggregateClass}}ReadModel>
+ */
+#[MongoCollection('{{CollectionName}}')]
+#[MongoIndex(key: ['_id' => 1])]
 final class {{AggregateClass}}ReadRepository extends MongoReadRepository
 {
-    protected function collectionName(): string
+    protected function fromDocument(array $doc): {{AggregateClass}}ReadModel
     {
-        return '{{CollectionName}}';
-    }
-
-    protected function fromDocument(array $doc): array
-    {
-        return [
-            'id' => $doc['_id'],
-        ];
-    }
-
-    protected function indexes(): array
-    {
-        return [];
+        return new {{AggregateClass}}ReadModel(
+            id: $doc['_id'],
+        );
     }
 }

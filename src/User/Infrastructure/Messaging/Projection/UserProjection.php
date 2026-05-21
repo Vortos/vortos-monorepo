@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\User\Infrastructure\Messaging\Projection;
 
 use App\User\Domain\Event\UserRegisteredEvent;
-use App\User\Infrastructure\Database\UserReadRepository;
+use App\User\Infrastructure\Persistence\Mongo\UserReadRepository;
 use Vortos\Cqrs\Attribute\AsProjectionHandler;
 use Vortos\Cqrs\Projection\ProjectionHandlerInterface;
 

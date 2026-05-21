@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\User\Application\Query;
 
+use App\User\Application\ReadModel\UserReadModel;
 use App\User\Domain\Error\UserNotFoundError;
-use App\User\Infrastructure\Database\UserReadRepository;
+use App\User\Infrastructure\Persistence\Mongo\UserReadRepository;
 use Vortos\Cqrs\Attribute\AsQueryHandler;
 use Vortos\Domain\Error\Result;
 
@@ -18,6 +19,7 @@ final class GetUserQueryHandler
 
     public function __invoke(GetUserQuery $query): Result
     {
+        /** @var UserReadModel|null $user */
         $user = $this->repository->findById($query->userId);
 
         if ($user === null) {

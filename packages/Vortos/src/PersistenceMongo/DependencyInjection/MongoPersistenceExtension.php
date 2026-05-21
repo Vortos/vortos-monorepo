@@ -8,32 +8,41 @@ use MongoDB\Client;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
+use Vortos\PersistenceMongo\Command\MongoSyncCommand;
 use Vortos\PersistenceMongo\Connection\MongoClientFactory;
 use Vortos\PersistenceMongo\Health\MongoHealthCheck;
+use Vortos\PersistenceMongo\Schema\MongoIndexAttributeScanner;
 
 /**
  * Wires MongoDB-specific services.
- *
- * Reads the read DSN and database name from parameters set by PersistenceExtension.
  *
  * ## What this extension registers
  *
  *   MongoDB\Client                             — shared client, built via MongoClientFactory::fromDsn()
  *   vortos.persistence.mongo.database_name     — parameter holding the database name
+ *   MongoIndexAttributeScanner                 — populated with repository class names at compile time
+ *   MongoSyncCommand                           — vortos:mongo:sync console command
  *
  * ## Read repository auto-wiring
  *
- * Subclasses of MongoReadRepository registered in services.php are detected
- * at compile time by MongoReadRepositoryAutowirePass. The pass injects
- * MongoDB\Client and the database name parameter automatically, and adds the
- * 'vortos.read_repository' tag so SetupPersistenceCommand and tracing passes
- * discover the repository without any manual configuration:
+ * Subclasses of MongoReadRepository registered in services.php are detected at compile time
+ * by MongoReadRepositoryAutowirePass. The pass injects MongoDB\Client and the database name
+ * parameter automatically, adds the 'vortos.read_repository' tag, and registers the class
+ * name with MongoIndexAttributeScanner so vortos:mongo:sync can find #[MongoIndex] attributes.
  *
  *   // services.php — this is all that is required:
  *   $services->set(UserReadRepository::class);
  *
- * The 'vortos.read_repository' tag is used by SetupPersistenceCommand
- * to discover all read repositories and ensure their indexes exist.
+ * ## MongoDB index management
+ *
+ * Declare indexes via #[MongoIndex] attributes on the repository class:
+ *
+ *   #[MongoCollection('users')]
+ *   #[MongoIndex(key: ['email' => 1], unique: true)]
+ *   final class UserReadRepository extends MongoReadRepository { ... }
+ *
+ * Apply on every deploy:
+ *   php bin/console vortos:mongo:sync
  *
  * ## MongoDB\Client is not lazy
  *
@@ -51,7 +60,7 @@ final class MongoPersistenceExtension extends Extension
 
     public function load(array $configs, ContainerBuilder $container): void
     {
-        $dsn = (string) $container->getParameter('vortos.persistence.read_dsn');
+        $dsn      = (string) $container->getParameter('vortos.persistence.read_dsn');
         $database = (string) $container->getParameter('vortos.persistence.read_database');
 
         $container->register(Client::class, Client::class)
@@ -66,5 +75,16 @@ final class MongoPersistenceExtension extends Extension
         $container->register(MongoHealthCheck::class, MongoHealthCheck::class)
             ->setArgument('$client', new Reference(Client::class))
             ->setPublic(false);
+
+        $container->register(MongoIndexAttributeScanner::class, MongoIndexAttributeScanner::class)
+            ->setShared(true)
+            ->setPublic(true);
+
+        $container->register(MongoSyncCommand::class, MongoSyncCommand::class)
+            ->setArgument('$client', new Reference(Client::class))
+            ->setArgument('$databaseName', '%vortos.persistence.mongo.database_name%')
+            ->setArgument('$scanner', new Reference(MongoIndexAttributeScanner::class))
+            ->setPublic(true)
+            ->addTag('console.command');
     }
 }

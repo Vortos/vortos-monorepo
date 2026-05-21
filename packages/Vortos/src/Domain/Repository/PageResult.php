@@ -23,11 +23,13 @@ namespace Vortos\Domain\Repository;
  *   if ($page->hasMore) {
  *       $next = $repository->findPage($criteria, limit: 20, cursor: $page->nextCursor);
  *   }
+ *
+ * @template T
  */
 final readonly class PageResult
 {
     public function __construct(
-        /** @var array<int, array> The result items for this page */
+        /** @var list<T> The result items for this page */
         public array $items,
 
         /** Opaque cursor string for fetching the next page. Null if no more pages. */

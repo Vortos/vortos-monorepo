@@ -7,30 +7,29 @@ namespace Vortos\Domain\Repository;
 /**
  * Contract for read model repositories.
  *
- * Read repositories return raw arrays or ViewModels, never domain aggregates.
+ * Read repositories return typed read model DTOs, never domain aggregates.
  * The read side is optimized for query performance, not transactional integrity.
  *
- * The default implementation is MongoReadRepository in vortos-persistence.
- * A DBAL implementation is available for pure relational read stacks.
- * InMemoryReadRepository ships for testing.
+ * Implementations: MongoReadRepository (MongoDB), DbalReadRepository (PostgreSQL).
+ *
+ * @template T The read model type returned by this repository
  */
 interface ReadRepositoryInterface
 {
     /**
      * Find a single read model by ID.
-     * Returns null if not found.
+     *
+     * @return T|null null if not found
      */
-    public function findById(string $id): ?array;
+    public function findById(string $id): mixed;
 
     /**
-     * Find multiple read models matching criteria.
-     * 
-     * $criteria is a key-value filter map.
+     * Find read models matching criteria.
+     *
+     * $criteria is a flat key-value equality filter.
      * $sort is ['field' => 'asc'|'desc'].
-     * $limit caps the result set.
-     * $offset enables pagination.
-     * 
-     * Returns raw arrays — mapping to ViewModels is the caller's responsibility.
+     *
+     * @return list<T>
      */
     public function findByCriteria(
         array $criteria,
@@ -39,6 +38,11 @@ interface ReadRepositoryInterface
         ?string $cursor = null,
     ): array;
 
+    /**
+     * Find a keyset-paginated page of read models.
+     *
+     * @return PageResult<T>
+     */
     public function findPage(
         array $criteria,
         int $limit,
@@ -48,7 +52,6 @@ interface ReadRepositoryInterface
 
     /**
      * Count records matching criteria.
-     * Use for pagination metadata without fetching full result sets.
      */
     public function countByCriteria(array $criteria): int;
 }

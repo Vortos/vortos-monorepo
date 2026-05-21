@@ -14,7 +14,6 @@ use Vortos\Migration\Generator\MigrationClassGenerator;
 use Vortos\Migration\Service\DependencyFactoryProvider;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\PersistenceOrm\Command\OrmDiffCommand;
-use Vortos\PersistenceOrm\Command\OrmSchemaCommand;
 use Vortos\PersistenceOrm\Factory\EntityManagerFactory;
 use Vortos\PersistenceOrm\Transaction\OrmUnitOfWork;
 
@@ -32,7 +31,6 @@ use Vortos\PersistenceOrm\Transaction\OrmUnitOfWork;
  *                                   (shared with OutboxWriter for atomic writes)
  *   OrmUnitOfWork::class          — transaction boundary via DBAL beginTransaction/commit/rollBack
  *   UnitOfWorkInterface::class    — alias (overrides DBAL's alias when only ORM is active)
- *   OrmSchemaCommand::class       — vortos:orm:schema console command
  *   OrmDiffCommand::class         — vortos:orm:diff  generate migration from entity diff
  *
  * ## Coexistence with DbalPersistenceExtension
@@ -82,11 +80,6 @@ final class PersistenceOrmExtension extends Extension
 
         $container->setAlias(UnitOfWorkInterface::class, OrmUnitOfWork::class)
             ->setPublic(false);
-
-        $container->register(OrmSchemaCommand::class, OrmSchemaCommand::class)
-            ->setArgument('$em', new Reference(EntityManagerInterface::class))
-            ->setPublic(false)
-            ->addTag('console.command');
 
         $container->register(OrmDiffCommand::class, OrmDiffCommand::class)
             ->setArgument('$em', new Reference(EntityManagerInterface::class))

@@ -8,7 +8,6 @@ use Doctrine\DBAL\Connection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
-use Vortos\Migration\Command\MigrateBaselineCommand;
 use Vortos\Migration\Command\MigrateAdoptCommand;
 use Vortos\Migration\Command\MigrateCommand;
 use Vortos\Migration\Command\MigrateFreshCommand;
@@ -45,8 +44,7 @@ use Vortos\Migration\Service\ModuleStubScanner;
  *   vortos:migrate:rollback   — undo last N migrations
  *   vortos:migrate:publish    — convert module SQL stubs → Doctrine migration classes
  *   vortos:migrate:fresh      — drop all tables and re-run (non-production only)
- *   vortos:migrate:baseline   — mark all available migrations as already executed
- *   vortos:migrate:adopt      — mark verified existing module schema as executed
+ *   vortos:migrate:adopt      — mark verified existing schema as executed (module or user-authored via --include-non-module)
  *
  * ## Services registered
  *
@@ -207,11 +205,6 @@ final class MigrationExtension extends Extension
             ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
             ->setArgument('$connection', new Reference(Connection::class))
             ->setArgument('$env', $env)
-            ->setPublic(true)
-            ->addTag('console.command');
-
-        $container->register(MigrateBaselineCommand::class, MigrateBaselineCommand::class)
-            ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
             ->setPublic(true)
             ->addTag('console.command');
 

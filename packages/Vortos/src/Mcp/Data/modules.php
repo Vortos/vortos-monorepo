@@ -63,7 +63,6 @@ return [
             'vortos:dlq:replay'       => 'Replay dead-lettered consumer messages back to Kafka. Flags: --latest --limit --transport --event-class --id --failed-from --failed-to --dry-run',
             'vortos:consumers:list'   => 'List all registered consumers',
             'vortos:transports:list'  => 'List all registered transports',
-            'vortos:setup:messaging'  => 'Publish outbox and DLQ migration files',
         ],
     ],
 
@@ -88,8 +87,7 @@ return [
             'vortos:migrate:make'       => 'Generate an empty migration class',
             'vortos:migrate:rollback'   => 'Undo the last N migrations',
             'vortos:migrate:fresh'      => 'Drop all tables and rerun (dev/test only)',
-            'vortos:migrate:baseline'   => 'Mark all migrations as executed (legacy schema import)',
-            'vortos:migrate:adopt'      => 'Mark verified existing schema as executed',
+            'vortos:migrate:adopt'      => 'Mark verified existing schema as executed. Flags: --all-compatible --include-non-module --verify --dry-run --force --json',
         ],
     ],
 

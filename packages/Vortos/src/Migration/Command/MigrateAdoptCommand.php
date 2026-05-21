@@ -42,6 +42,7 @@ final class MigrateAdoptCommand extends Command
         $this
             ->addArgument('version', InputArgument::OPTIONAL, 'Migration version/class to adopt')
             ->addOption('all-compatible', null, InputOption::VALUE_NONE, 'Adopt all pending module migrations whose schema is compatible and already present')
+            ->addOption('include-non-module', null, InputOption::VALUE_NONE, 'Also adopt user-authored (non-module) pending migrations — required for brownfield projects with hand-written SQL already applied')
             ->addOption('verify', null, InputOption::VALUE_NONE, 'Require compatible existing schema before adopting')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show what would be adopted without writing migration metadata')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Skip confirmation prompt')
@@ -66,6 +67,8 @@ final class MigrateAdoptCommand extends Command
         $executed = $storage->getExecutedMigrations();
         $descriptors = $this->moduleRegistry->descriptorsByClass();
         $candidates = [];
+        $nonModuleCandidates = [];
+        $includeNonModule = (bool) $input->getOption('include-non-module');
 
         foreach ($available->getItems() as $migration) {
             $version = (string) $migration->getVersion();
@@ -75,6 +78,9 @@ final class MigrateAdoptCommand extends Command
             }
 
             if (!isset($descriptors[$version])) {
+                if ($includeNonModule && ($allCompatible || $this->matchesVersion($version, $versionInput))) {
+                    $nonModuleCandidates[$version] = true;
+                }
                 continue;
             }
 
@@ -84,8 +90,8 @@ final class MigrateAdoptCommand extends Command
             }
         }
 
-        if ($candidates === []) {
-            $output->writeln('<comment>No pending module migration matched the adoption request.</comment>');
+        if ($candidates === [] && $nonModuleCandidates === []) {
+            $output->writeln('<comment>No pending migration matched the adoption request.</comment>');
             return Command::SUCCESS;
         }
 
@@ -109,18 +115,22 @@ final class MigrateAdoptCommand extends Command
             $adoptable[$version] = [$descriptor, $report];
         }
 
+        $nonModuleVersions = array_keys($nonModuleCandidates);
+
         if ($asJson) {
             $output->writeln(json_encode([
                 'dry_run' => $dryRun,
                 'adoptable' => $this->jsonRows($adoptable),
                 'blocked' => $this->jsonRows($blocked),
+                'non_module' => $nonModuleVersions,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         } else {
             $this->renderRows('Adoptable migration(s)', $adoptable, $output);
             $this->renderRows('Blocked migration(s)', $blocked, $output);
+            $this->renderNonModuleRows($nonModuleVersions, $output);
         }
 
-        if ($blocked !== [] || $adoptable === [] || $dryRun) {
+        if ($blocked !== [] || ($adoptable === [] && $nonModuleVersions === []) || $dryRun) {
             return $blocked === [] ? Command::SUCCESS : Command::FAILURE;
         }
 
@@ -135,17 +145,35 @@ final class MigrateAdoptCommand extends Command
         }
 
         $now = new \DateTimeImmutable();
-        foreach (array_keys($adoptable) as $version) {
+        $versionsToRecord = array_merge(array_keys($adoptable), $nonModuleVersions);
+
+        foreach ($versionsToRecord as $version) {
             $result = new ExecutionResult(new Version($version), Direction::UP);
             $result->setExecutedAt($now);
             $storage->complete($result);
         }
 
         if (!$asJson) {
-            $output->writeln(sprintf('<info>✔ Adopted %d migration(s).</info>', count($adoptable)));
+            $output->writeln(sprintf('<info>✔ Adopted %d migration(s).</info>', count($versionsToRecord)));
         }
 
         return Command::SUCCESS;
+    }
+
+    /** @param list<string> $versions */
+    private function renderNonModuleRows(array $versions, OutputInterface $output): void
+    {
+        if ($versions === []) {
+            return;
+        }
+
+        $output->writeln('<info>Non-module migration(s) (unverified):</info>');
+
+        foreach ($versions as $version) {
+            $output->writeln(sprintf('  <comment>→</comment> %s <fg=gray>(user-authored, drift not checked)</>', $version));
+        }
+
+        $output->writeln('');
     }
 
     private function matchesVersion(string $version, string $input): bool

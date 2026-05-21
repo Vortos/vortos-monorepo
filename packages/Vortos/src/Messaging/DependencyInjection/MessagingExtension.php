@@ -238,7 +238,6 @@ final class MessagingExtension extends Extension
             \Vortos\Messaging\Command\ConsumeCommand::class,
             \Vortos\Messaging\Command\OutboxRelayCommand::class,
             \Vortos\Messaging\Command\OutboxReplayCommand::class,
-            \Vortos\Messaging\Command\SetupMessagingCommand::class,
             \Vortos\Messaging\Command\ListConsumersCommand::class,
             \Vortos\Messaging\Command\ListTransportsCommand::class,
             \Vortos\Messaging\Command\ReplayDeadLetterCommand::class,

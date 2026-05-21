@@ -78,7 +78,7 @@ use Vortos\PersistenceOrm\Exception\UniqueConstraintException;
  */
 abstract class OrmWriteRepository implements WriteRepositoryInterface
 {
-    public function __construct(protected readonly EntityManagerInterface $em) {}
+    public function __construct(private readonly EntityManagerInterface $em) {}
 
     abstract protected function entityClass(): string;
 

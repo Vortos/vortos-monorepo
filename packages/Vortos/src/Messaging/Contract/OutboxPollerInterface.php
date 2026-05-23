@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Messaging\Contract;
 
 use DateTimeInterface;
+use Vortos\Messaging\Outbox\OutboxMessage;
 
 /**
  * Polling and state management contract for the transactional outbox.
@@ -57,4 +58,26 @@ interface OutboxPollerInterface
      * worker picks it up again. Resets attempt_count to 0 and clears next_attempt_at.
      */
     public function resetFailed(string $outboxId): void;
+
+    /**
+     * Read-only query for inspection commands. No row locking.
+     * Returns rows matching the given status ('pending', 'published', 'failed')
+     * or all rows if status is null.
+     *
+     * @return OutboxMessage[]
+     */
+    public function query(
+        ?string $status = null,
+        ?string $transport = null,
+        ?string $payloadType = null,
+        int $limit = 50,
+        bool $orderDesc = false,
+        ?DateTimeInterface $createdFrom = null,
+        ?DateTimeInterface $createdTo = null,
+    ): array;
+
+    /**
+     * Fetch a single outbox row by ID regardless of status. Returns null if not found.
+     */
+    public function findById(string $id): ?OutboxMessage;
 }

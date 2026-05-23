@@ -54,6 +54,9 @@ final class MakeRateLimitPolicyCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sRateLimitPolicy</info> in your DI config under <comment>rate_limit.policies</comment>', $name));
+
         return Command::SUCCESS;
     }
 }

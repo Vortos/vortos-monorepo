@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Vortos\Messaging\Command;
 
 use InvalidArgumentException;
+use Symfony\Component\Console\Helper\QuestionHelper;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Vortos\Messaging\Contract\ProducerInterface;
-use Vortos\Messaging\DeadLetter\DeadLetterRepository;
+use Vortos\Messaging\DeadLetter\DeadLetterRepositoryInterface;
 use Vortos\Messaging\Registry\HandlerRegistry;
 use Vortos\Messaging\Registry\TransportRegistry;
 use Vortos\Messaging\Serializer\SerializerLocator;
@@ -43,7 +45,7 @@ final class ReplayDeadLetterCommand extends Command
     }
 
     public function __construct(
-        private DeadLetterRepository $repository,
+        private DeadLetterRepositoryInterface $repository,
         private ProducerInterface $producer,
         private SerializerLocator $serializerLocator,
         private HandlerRegistry $handlerRegistry,
@@ -64,7 +66,8 @@ final class ReplayDeadLetterCommand extends Command
             ->addOption('latest', null, InputOption::VALUE_NONE, 'Process most recently failed messages first (default: oldest first)')
             ->addOption('failed-from', null, InputOption::VALUE_OPTIONAL, 'Filter messages failed at or after this timestamp')
             ->addOption('failed-to', null, InputOption::VALUE_OPTIONAL, 'Filter messages failed at or before this timestamp')
-            ->addOption('all-handlers', null, InputOption::VALUE_NONE, 'Re-broadcast the full event to all handlers, not just the one that failed. Deduplicates by event_id so each unique event is produced once.');
+            ->addOption('all-handlers', null, InputOption::VALUE_NONE, 'Re-broadcast the full event to all handlers, not just the one that failed. Deduplicates by event_id so each unique event is produced once.')
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Skip confirmation prompt');
     }
 
     public function execute(InputInterface $input, OutputInterface $output): int
@@ -112,6 +115,32 @@ final class ReplayDeadLetterCommand extends Command
             }
             $output->writeln('<comment>Dry run — no messages replayed.</comment>');
             return Command::SUCCESS;
+        }
+
+        if (!(bool) $input->getOption('force') && $input->isInteractive()) {
+            /** @var QuestionHelper $helper */
+            $helper = $this->getHelper('question');
+            $question = new ConfirmationQuestion(
+                sprintf('<question>Replay %d failed message(s) to Kafka? [y/N]</question> ', count($rows)),
+                false,
+            );
+            if (!$helper->ask($input, $output, $question)) {
+                $output->writeln('<comment>Aborted.</comment>');
+                return Command::SUCCESS;
+            }
+        }
+
+        if (!(bool) $input->getOption('force') && $input->isInteractive()) {
+            /** @var QuestionHelper $helper */
+            $helper = $this->getHelper('question');
+            $question = new ConfirmationQuestion(
+                sprintf('<question>Replay %d failed message(s) to Kafka? [y/N]</question> ', count($rows)),
+                false,
+            );
+            if (!$helper->ask($input, $output, $question)) {
+                $output->writeln('<comment>Aborted.</comment>');
+                return Command::SUCCESS;
+            }
         }
 
         $replayed    = 0;

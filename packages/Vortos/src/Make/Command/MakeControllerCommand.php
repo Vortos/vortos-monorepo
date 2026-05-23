@@ -69,6 +69,13 @@ final class MakeControllerCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf(
+            'Route <info>%s %s</info> auto-discovered via <comment>#[Route]</comment> attribute — no extra config needed',
+            $method,
+            '/' . ltrim($route, '/'),
+        ));
+
         return Command::SUCCESS;
     }
 

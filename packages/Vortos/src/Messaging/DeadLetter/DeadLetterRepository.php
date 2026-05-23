@@ -8,7 +8,7 @@ use DateTimeInterface;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\ParameterType;
 
-final class DeadLetterRepository
+final class DeadLetterRepository implements DeadLetterRepositoryInterface
 {
     public function __construct(
         private Connection $connection,
@@ -68,5 +68,15 @@ final class DeadLetterRepository
             'status'      => 'replayed',
             'replayed_at' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
         ], ['id' => $id]);
+    }
+
+    public function findById(string $id): ?array
+    {
+        $row = $this->connection->fetchAssociative(
+            "SELECT * FROM {$this->table} WHERE id = :id",
+            ['id' => $id],
+        );
+
+        return $row !== false ? $row : null;
     }
 }

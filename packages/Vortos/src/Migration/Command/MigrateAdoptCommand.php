@@ -17,10 +17,11 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Vortos\Migration\Schema\MigrationDriftReport;
 use Vortos\Migration\Schema\ModuleMigrationDescriptor;
-use Vortos\Migration\Service\DependencyFactoryProvider;
-use Vortos\Migration\Service\MigrationDriftDetector;
-use Vortos\Migration\Service\MigrationDriftFormatter;
-use Vortos\Migration\Service\ModuleMigrationRegistry;
+use Vortos\Migration\Service\DependencyFactoryProviderInterface;
+use Vortos\Migration\Service\MigrationDriftDetectorInterface;
+use Vortos\Migration\Service\MigrationDriftFormatterInterface;
+use Vortos\Migration\Service\ModuleMigrationRegistryInterface;
+use Vortos\Migration\Service\UserMigrationOwnershipExtractorInterface;
 
 #[AsCommand(
     name: 'vortos:migrate:adopt',
@@ -29,10 +30,11 @@ use Vortos\Migration\Service\ModuleMigrationRegistry;
 final class MigrateAdoptCommand extends Command
 {
     public function __construct(
-        private readonly DependencyFactoryProvider $factoryProvider,
-        private readonly ModuleMigrationRegistry $moduleRegistry,
-        private readonly MigrationDriftDetector $driftDetector,
-        private readonly MigrationDriftFormatter $driftFormatter,
+        private readonly DependencyFactoryProviderInterface $factoryProvider,
+        private readonly ModuleMigrationRegistryInterface $moduleRegistry,
+        private readonly MigrationDriftDetectorInterface $driftDetector,
+        private readonly MigrationDriftFormatterInterface $driftFormatter,
+        private readonly UserMigrationOwnershipExtractorInterface $ownershipExtractor,
     ) {
         parent::__construct();
     }
@@ -41,9 +43,10 @@ final class MigrateAdoptCommand extends Command
     {
         $this
             ->addArgument('version', InputArgument::OPTIONAL, 'Migration version/class to adopt')
-            ->addOption('all-compatible', null, InputOption::VALUE_NONE, 'Adopt all pending module migrations whose schema is compatible and already present')
-            ->addOption('include-non-module', null, InputOption::VALUE_NONE, 'Also adopt user-authored (non-module) pending migrations — required for brownfield projects with hand-written SQL already applied')
-            ->addOption('verify', null, InputOption::VALUE_NONE, 'Require compatible existing schema before adopting')
+            ->addOption('all-compatible', null, InputOption::VALUE_NONE, 'Adopt all pending migrations whose schema is compatible and already present')
+            ->addOption('module-only', null, InputOption::VALUE_NONE, 'Restrict adoption to framework module migrations only (skip user-authored migrations)')
+            ->addOption('allow-unverified', null, InputOption::VALUE_NONE, 'Allow adopting user-authored migrations that use raw SQL and cannot be auto-verified')
+            ->addOption('verify', null, InputOption::VALUE_NONE, 'Require compatible existing schema before adopting (implied by --all-compatible)')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show what would be adopted without writing migration metadata')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Skip confirmation prompt')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Output machine-readable JSON');
@@ -55,20 +58,21 @@ final class MigrateAdoptCommand extends Command
         $storage = $factory->getMetadataStorage();
         $storage->ensureInitialized();
 
-        $allCompatible = (bool) $input->getOption('all-compatible');
-        $versionInput = (string) ($input->getArgument('version') ?? '');
+        $allCompatible   = (bool) $input->getOption('all-compatible');
+        $moduleOnly      = (bool) $input->getOption('module-only');
+        $allowUnverified = (bool) $input->getOption('allow-unverified');
+        $versionInput    = (string) ($input->getArgument('version') ?? '');
 
         if (!$allCompatible && $versionInput === '') {
             $output->writeln('<error>Specify a migration version or pass --all-compatible.</error>');
             return Command::FAILURE;
         }
 
-        $available = $factory->getMigrationPlanCalculator()->getMigrations();
-        $executed = $storage->getExecutedMigrations();
+        $available   = $factory->getMigrationPlanCalculator()->getMigrations();
+        $executed    = $storage->getExecutedMigrations();
         $descriptors = $this->moduleRegistry->descriptorsByClass();
-        $candidates = [];
-        $nonModuleCandidates = [];
-        $includeNonModule = (bool) $input->getOption('include-non-module');
+        $candidates  = [];
+        $userCandidates = [];
 
         foreach ($available->getItems() as $migration) {
             $version = (string) $migration->getVersion();
@@ -78,8 +82,22 @@ final class MigrateAdoptCommand extends Command
             }
 
             if (!isset($descriptors[$version])) {
-                if ($includeNonModule && ($allCompatible || $this->matchesVersion($version, $versionInput))) {
-                    $nonModuleCandidates[$version] = true;
+                if (!$moduleOnly && ($allCompatible || $this->matchesVersion($version, $versionInput))) {
+                    $ownership = $this->ownershipExtractor->extract($version);
+
+                    if ($ownership !== null) {
+                        $syntheticDescriptor = new ModuleMigrationDescriptor(
+                            source: 'user',
+                            class: $version,
+                            module: 'user',
+                            filename: basename(str_replace('\\', '/', $version)) . '.php',
+                            ownership: $ownership,
+                        );
+                        $report = $this->driftDetector->detect($syntheticDescriptor);
+                        $candidates[$version] = [$syntheticDescriptor, $report];
+                    } else {
+                        $userCandidates[$version] = true;
+                    }
                 }
                 continue;
             }
@@ -90,16 +108,16 @@ final class MigrateAdoptCommand extends Command
             }
         }
 
-        if ($candidates === [] && $nonModuleCandidates === []) {
+        if ($candidates === [] && $userCandidates === []) {
             $output->writeln('<comment>No pending migration matched the adoption request.</comment>');
             return Command::SUCCESS;
         }
 
-        $verify = (bool) $input->getOption('verify') || $allCompatible;
-        $dryRun = (bool) $input->getOption('dry-run');
-        $asJson = (bool) $input->getOption('json');
+        $verify  = (bool) $input->getOption('verify') || $allCompatible;
+        $dryRun  = (bool) $input->getOption('dry-run');
+        $asJson  = (bool) $input->getOption('json');
         $adoptable = [];
-        $blocked = [];
+        $blocked   = [];
 
         foreach ($candidates as $version => [$descriptor, $report]) {
             if ($verify && $report->status() !== MigrationDriftReport::CompatibleExisting) {
@@ -115,23 +133,37 @@ final class MigrateAdoptCommand extends Command
             $adoptable[$version] = [$descriptor, $report];
         }
 
-        $nonModuleVersions = array_keys($nonModuleCandidates);
+        $userVersions  = array_keys($userCandidates);
+        $hasUnverified = $userVersions !== [] && !$allowUnverified;
 
         if ($asJson) {
             $output->writeln(json_encode([
-                'dry_run' => $dryRun,
-                'adoptable' => $this->jsonRows($adoptable),
-                'blocked' => $this->jsonRows($blocked),
-                'non_module' => $nonModuleVersions,
+                'dry_run'         => $dryRun,
+                'adoptable'       => $this->jsonRows($adoptable),
+                'blocked'         => $this->jsonRows($blocked),
+                'user_unverified' => $userVersions,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        } else {
-            $this->renderRows('Adoptable migration(s)', $adoptable, $output);
-            $this->renderRows('Blocked migration(s)', $blocked, $output);
-            $this->renderNonModuleRows($nonModuleVersions, $output);
+
+            return $blocked === [] && !$hasUnverified ? Command::SUCCESS : Command::FAILURE;
         }
 
-        if ($blocked !== [] || ($adoptable === [] && $nonModuleVersions === []) || $dryRun) {
+        $this->renderRows('Adoptable migration(s)', $adoptable, $output);
+        $this->renderRows('Blocked migration(s)', $blocked, $output);
+
+        if ($userVersions !== []) {
+            $this->renderUserRows($userVersions, $allowUnverified, $allCompatible, $output);
+        }
+
+        if ($blocked !== [] || $dryRun) {
             return $blocked === [] ? Command::SUCCESS : Command::FAILURE;
+        }
+
+        if ($hasUnverified) {
+            return Command::FAILURE;
+        }
+
+        if ($adoptable === [] && $userVersions === []) {
+            return Command::SUCCESS;
         }
 
         if (!(bool) $input->getOption('force') && $input->isInteractive()) {
@@ -145,7 +177,7 @@ final class MigrateAdoptCommand extends Command
         }
 
         $now = new \DateTimeImmutable();
-        $versionsToRecord = array_merge(array_keys($adoptable), $nonModuleVersions);
+        $versionsToRecord = array_merge(array_keys($adoptable), $allowUnverified ? $userVersions : []);
 
         foreach ($versionsToRecord as $version) {
             $result = new ExecutionResult(new Version($version), Direction::UP);
@@ -153,27 +185,51 @@ final class MigrateAdoptCommand extends Command
             $storage->complete($result);
         }
 
-        if (!$asJson) {
-            $output->writeln(sprintf('<info>✔ Adopted %d migration(s).</info>', count($versionsToRecord)));
+        $verifiedCount   = count($adoptable);
+        $unverifiedCount = $allowUnverified ? count($userVersions) : 0;
+        $totalCount      = $verifiedCount + $unverifiedCount;
+
+        if ($unverifiedCount > 0) {
+            $output->writeln(sprintf(
+                '<info>✔ Adopted %d migration(s) (%d verified, %d unverified).</info>',
+                $totalCount,
+                $verifiedCount,
+                $unverifiedCount,
+            ));
+            $output->writeln('');
+            $output->writeln('  Unverified migration(s) adopted on trust — no schema check was performed.');
+            $output->writeln('  If you discover a mismatch, recover with:');
+            $output->writeln('');
+            foreach ($userVersions as $uv) {
+                $output->writeln(sprintf('    <comment>php vortos migrate:unadopt %s</comment>', $uv));
+            }
+        } else {
+            $output->writeln(sprintf('<info>✔ Adopted %d migration(s).</info>', $totalCount));
         }
 
         return Command::SUCCESS;
     }
 
     /** @param list<string> $versions */
-    private function renderNonModuleRows(array $versions, OutputInterface $output): void
+    private function renderUserRows(array $versions, bool $allowUnverified, bool $allCompatible, OutputInterface $output): void
     {
-        if ($versions === []) {
-            return;
-        }
-
-        $output->writeln('<info>Non-module migration(s) (unverified):</info>');
+        $output->writeln('<comment>Unverified migration(s) — raw SQL, cannot auto-verify:</comment>');
+        $output->writeln('');
 
         foreach ($versions as $version) {
             $output->writeln(sprintf('  <comment>→</comment> %s <fg=gray>(user-authored, drift not checked)</>', $version));
         }
 
         $output->writeln('');
+
+        if (!$allowUnverified) {
+            $output->writeln('  Vortos cannot verify these migrations. Manually confirm your schema is');
+            $output->writeln('  correct, then re-run with <comment>--allow-unverified</comment>:');
+            $output->writeln('');
+            $flag = $allCompatible ? '--all-compatible --allow-unverified' : '--allow-unverified';
+            $output->writeln(sprintf('    <comment>php vortos migrate:adopt %s</comment>', $flag));
+            $output->writeln('');
+        }
     }
 
     private function matchesVersion(string $version, string $input): bool
@@ -192,9 +248,9 @@ final class MigrateAdoptCommand extends Command
         foreach ($rows as $version => [$descriptor, $report]) {
             $data[] = [
                 'version' => $version,
-                'module' => $descriptor->module(),
-                'source' => $descriptor->source(),
-                'schema' => $this->driftFormatter->toArray($report, executed: false),
+                'module'  => $descriptor->module(),
+                'source'  => $descriptor->source(),
+                'schema'  => $this->driftFormatter->toArray($report, executed: false),
             ];
         }
 

@@ -6,9 +6,12 @@ namespace Vortos\Messaging\DependencyInjection\Compiler;
 
 use Vortos\Messaging\Hook\Attribute\AfterConsume;
 use Vortos\Messaging\Hook\Attribute\AfterDispatch;
+use Vortos\Messaging\Hook\Attribute\AfterHandler;
 use Vortos\Messaging\Hook\Attribute\BeforeConsume;
 use Vortos\Messaging\Hook\Attribute\BeforeDispatch;
+use Vortos\Messaging\Hook\Attribute\BeforeHandler;
 use Vortos\Messaging\Hook\Attribute\PreSend;
+use Vortos\Messaging\Hook\HandlerOutcome;
 use Vortos\Messaging\Hook\HookDescriptor;
 use LogicException;
 use ReflectionClass;
@@ -30,6 +33,8 @@ final class HookDiscoveryCompilerPass implements CompilerPassInterface
         PreSend::class        => HookDescriptor::PRE_SEND,
         BeforeConsume::class  => HookDescriptor::BEFORE_CONSUME,
         AfterConsume::class   => HookDescriptor::AFTER_CONSUME,
+        BeforeHandler::class  => HookDescriptor::BEFORE_HANDLER,
+        AfterHandler::class   => HookDescriptor::AFTER_HANDLER,
     ];
 
     public function process(ContainerBuilder $container): void
@@ -48,14 +53,23 @@ final class HookDiscoveryCompilerPass implements CompilerPassInterface
                 foreach ($reflClass->getAttributes($attributeClass) as $attrRefl) {
                     $attr = $attrRefl->newInstance();
 
-                    $hooksByType[$hookType][] = [
+                    $entry = [
                         'hookType'       => $hookType,
                         'serviceId'      => $serviceId,
                         'eventFilter'    => $attr->event ?? null,
                         'consumerFilter' => $attr->consumer ?? null,
                         'priority'       => $attr->priority,
-                        'onFailureOnly'  => $attr->onFailureOnly ?? false,
+                        'onFailureOnly'  => false,
+                        'on'             => [],
                     ];
+
+                    if ($attributeClass === AfterHandler::class) {
+                        $entry['on'] = $attr->on;
+                    } else {
+                        $entry['onFailureOnly'] = $attr->onFailureOnly ?? false;
+                    }
+
+                    $hooksByType[$hookType][] = $entry;
                 }
             }
 

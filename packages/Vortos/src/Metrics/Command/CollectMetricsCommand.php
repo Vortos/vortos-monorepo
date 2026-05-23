@@ -36,6 +36,8 @@ final class CollectMetricsCommand extends Command
 
         foreach ($this->collectors as $collector) {
             $collector->collect();
+            $name = (new \ReflectionClass($collector))->getShortName();
+            $output->writeln(sprintf('  <info>✔</info> %s', $name));
             $count++;
         }
 

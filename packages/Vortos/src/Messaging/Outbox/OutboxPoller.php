@@ -145,4 +145,61 @@ final class OutboxPoller implements OutboxPollerInterface
             'next_attempt_at' => null,
         ], ['id' => $outboxId]);
     }
+
+    public function query(
+        ?string $status = null,
+        ?string $transport = null,
+        ?string $payloadType = null,
+        int $limit = 50,
+        bool $orderDesc = false,
+        ?DateTimeInterface $createdFrom = null,
+        ?DateTimeInterface $createdTo = null,
+    ): array {
+        $sql    = "SELECT * FROM {$this->tableName} WHERE 1=1";
+        $params = ['limit' => $limit];
+        $types  = ['limit' => ParameterType::INTEGER];
+
+        if ($status !== null) {
+            $sql .= ' AND status = :status';
+            $params['status'] = $status;
+        }
+
+        if ($transport !== null) {
+            $sql .= ' AND transport_name = :transport';
+            $params['transport'] = $transport;
+        }
+
+        if ($payloadType !== null) {
+            $sql .= ' AND payload_type = :payload_type';
+            $params['payload_type'] = $payloadType;
+        }
+
+        if ($createdFrom !== null) {
+            $sql .= ' AND created_at >= :created_from';
+            $params['created_from'] = $createdFrom->format('Y-m-d H:i:s');
+        }
+
+        if ($createdTo !== null) {
+            $sql .= ' AND created_at <= :created_to';
+            $params['created_to'] = $createdTo->format('Y-m-d H:i:s');
+        }
+
+        $sql .= $orderDesc
+            ? ' ORDER BY created_at DESC LIMIT :limit'
+            : ' ORDER BY created_at ASC LIMIT :limit';
+
+        $rows = $this->connection->fetchAllAssociative($sql, $params, $types);
+
+        return array_map(fn(array $row) => OutboxMessage::fromDatabaseRow($row), $rows);
+    }
+
+    public function findById(string $id): ?OutboxMessage
+    {
+        $row = $this->connection->fetchAssociative(
+            "SELECT * FROM {$this->tableName} WHERE id = :id",
+            ['id' => $id],
+        );
+
+        return $row !== false ? OutboxMessage::fromDatabaseRow($row) : null;
+    }
 }

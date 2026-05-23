@@ -10,7 +10,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Migration\Generator\MigrationClassGenerator;
-use Vortos\Migration\Service\DependencyFactoryProvider;
+use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 
 /**
  * Generates an empty Doctrine migration class ready to be filled in.
@@ -36,7 +36,7 @@ use Vortos\Migration\Service\DependencyFactoryProvider;
 final class MigrateMakeCommand extends Command
 {
     public function __construct(
-        private readonly DependencyFactoryProvider $factoryProvider,
+        private readonly DependencyFactoryProviderInterface $factoryProvider,
         private readonly MigrationClassGenerator $generator,
         private readonly string $projectDir,
     ) {

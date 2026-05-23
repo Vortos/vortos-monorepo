@@ -54,6 +54,9 @@ final class MakeQuotaPolicyCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sQuotaPolicy</info> in your DI config under <comment>quota.policies</comment>', $name));
+
         return Command::SUCCESS;
     }
 }

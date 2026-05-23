@@ -26,6 +26,8 @@ use Vortos\Messaging\Exception\DeadLetterWriteException;
 use Vortos\Messaging\Middleware\MiddlewareStack;
 use Vortos\Messaging\Registry\ConsumerRegistry;
 use Vortos\Messaging\Registry\HandlerRegistry;
+use Vortos\Messaging\Hook\HandlerOutcome;
+use Vortos\Messaging\Hook\HookRunner;
 use Vortos\Messaging\Retry\RetryDecider;
 use Vortos\Messaging\Retry\RetryPolicy;
 use Vortos\Messaging\Serializer\SerializerLocator;
@@ -59,7 +61,7 @@ use Vortos\Tracing\Contract\TracingInterface;
  * all broker communication is delegated to ConsumerInterface, all storage
  * to DeadLetterWriter and CacheInterface.
  */
-final class ConsumerRunner
+final class ConsumerRunner implements ConsumerRunnerInterface
 {
     private ?ConsumerInterface $activeConsumer = null;
     private string $replaySecret = '';
@@ -84,6 +86,7 @@ final class ConsumerRunner
         private int $defaultIdempotencyTtl = 86400,
         private ?FrameworkTelemetry $telemetry = null,
         private ?TracingInterface $tracer = null,
+        private ?HookRunner $hookRunner = null,
     ) {}
 
     public function run(string $consumerName, int $maxMessages = 0): void
@@ -230,6 +233,8 @@ final class ConsumerRunner
             return;
         }
 
+        $this->hookRunner?->runAfterConsume($domainEnvelope, $consumerName);
+
         if ($allSucceeded) {
             $consumer->acknowledge($message);
             $this->recordMessage($consumerLabel, $eventName, 'acknowledged', $start);
@@ -245,8 +250,11 @@ final class ConsumerRunner
 
     private function processHandler(string $consumerName, array $descriptor, Envelope $envelope, EventEnvelope $domainEnvelope, ReceivedMessage $message, bool $isTrustedReplay = false): bool
     {
-        $start = hrtime(true);
-        $eventId = $envelope->last(EventIdStamp::class)?->eventId ?? null;
+        $start     = hrtime(true);
+        $handlerId = $descriptor['handlerId'];
+        $eventId   = $envelope->last(EventIdStamp::class)?->eventId ?? null;
+
+        $this->hookRunner?->runBeforeHandler($domainEnvelope, $consumerName, $handlerId);
 
         // Load consumer config before the idempotency claim — TTL is needed for setNx
         try {
@@ -270,6 +278,7 @@ final class ConsumerRunner
             if (!$descriptor['idempotent']) {
                 if (!$this->cache->setNx($cacheKey, true, $idempotencyTtl)) {
                     $this->logger->debug('Skipping duplicate handler execution');
+                    $this->hookRunner?->runAfterHandler($domainEnvelope, $consumerName, $handlerId, HandlerOutcome::SkippedIdempotent, 1, 0.0);
                     return true;
                 }
             }
@@ -293,12 +302,13 @@ final class ConsumerRunner
             $consumerLabel = TelemetryLabels::safe($consumerName);
 
             $this->logger->error("Hard discarding message: exceeded global replay limit.", [
-                'handler'      => $descriptor['handlerId'],
+                'handler'      => $handlerId,
                 'payload_type' => $domainEnvelope->payloadType,
                 'limit'        => $retryPolicy->maxReplayLimit,
             ]);
 
             $this->recordMessage($consumerLabel, $eventName, 'discarded', $start);
+            $this->hookRunner?->runAfterHandler($domainEnvelope, $consumerName, $handlerId, HandlerOutcome::DiscardedReplayLimit, 1, (hrtime(true) - $start) / 1_000_000);
             return true;
         }
 
@@ -310,11 +320,14 @@ final class ConsumerRunner
                 $this->cache->set($cacheKey, true, $idempotencyTtl);
             }
 
+            $this->hookRunner?->runAfterHandler($domainEnvelope, $consumerName, $handlerId, HandlerOutcome::Succeeded, 1, (hrtime(true) - $start) / 1_000_000);
             return true;
         } catch (\Throwable $e) {
 
             $attempt = 1;
             $lastException = $e;
+
+            $this->hookRunner?->runAfterHandler($domainEnvelope, $consumerName, $handlerId, HandlerOutcome::AttemptFailed, 1, (hrtime(true) - $start) / 1_000_000, $e);
 
             $maxPollIntervalMs = $consumerConfig['kafka']['maxPollIntervalMs'] ?? 300000;
             $delayCap = (int) ($maxPollIntervalMs / max(1, $retryPolicy->maxAttempts));
@@ -331,6 +344,7 @@ final class ConsumerRunner
                         $this->cache->set($cacheKey, true, $idempotencyTtl);
                     }
 
+                    $this->hookRunner?->runAfterHandler($domainEnvelope, $consumerName, $handlerId, HandlerOutcome::SucceededAfterRetries, $attempt + 1, (hrtime(true) - $start) / 1_000_000);
                     return true;
                 } catch (\Throwable $e) {
                     $this->telemetry?->increment(
@@ -343,6 +357,7 @@ final class ConsumerRunner
                     );
                     $attempt++;
                     $lastException = $e;
+                    $this->hookRunner?->runAfterHandler($domainEnvelope, $consumerName, $handlerId, HandlerOutcome::AttemptFailed, $attempt, (hrtime(true) - $start) / 1_000_000, $e);
                 }
             }
 
@@ -354,7 +369,7 @@ final class ConsumerRunner
             $written = $this->deadLetterWriter->write(
                 transportName:  $message->transportName,
                 eventClass:     $domainEnvelope->payloadType,
-                handlerId:      $descriptor['handlerId'],
+                handlerId:      $handlerId,
                 payload:        $message->payload,
                 headers:        $message->headers,
                 failureReason:  $lastException->getMessage(),
@@ -378,6 +393,7 @@ final class ConsumerRunner
                 }
             }
 
+            $this->hookRunner?->runAfterHandler($domainEnvelope, $consumerName, $handlerId, HandlerOutcome::DeadLettered, $attempt, (hrtime(true) - $start) / 1_000_000, $lastException);
             return false;
         }
     }

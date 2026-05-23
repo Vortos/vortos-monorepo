@@ -10,6 +10,7 @@ use Psr\Log\NullLogger;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Domain\Event\EventEnvelope;
 use Vortos\Domain\Event\Metadata;
+use Vortos\Messaging\Hook\HandlerOutcome;
 use Vortos\Messaging\Hook\HookDescriptor;
 use Vortos\Messaging\Hook\HookRegistry;
 use Vortos\Messaging\Hook\HookRunner;
@@ -40,7 +41,7 @@ final class HookRunnerTest extends TestCase
         return new HookRunner($registry, $locator, new NullLogger());
     }
 
-    private function hookDescriptor(string $type, string $serviceId, ?string $eventFilter = null, ?string $consumerFilter = null, bool $onFailureOnly = false): array
+    private function hookDescriptor(string $type, string $serviceId, ?string $eventFilter = null, ?string $consumerFilter = null, bool $onFailureOnly = false, array $on = []): array
     {
         return [
             'hookType'       => $type,
@@ -49,6 +50,7 @@ final class HookRunnerTest extends TestCase
             'consumerFilter' => $consumerFilter,
             'priority'       => 0,
             'onFailureOnly'  => $onFailureOnly,
+            'on'             => $on,
         ];
     }
 

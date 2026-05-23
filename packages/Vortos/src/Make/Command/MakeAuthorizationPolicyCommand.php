@@ -57,6 +57,9 @@ final class MakeAuthorizationPolicyCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sPolicy</info> in your DI config under <comment>authorization.policies</comment>', $name));
+
         return Command::SUCCESS;
     }
 }

@@ -75,6 +75,9 @@ final class MakeProjectionHandlerCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sProjectionHandler</info> in your <comment>MessagingConfig</comment> handlers array', $name));
+
         return Command::SUCCESS;
     }
 

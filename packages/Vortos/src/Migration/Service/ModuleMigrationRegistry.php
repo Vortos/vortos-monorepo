@@ -8,7 +8,7 @@ use Vortos\Migration\Schema\MigrationOwnership;
 use Vortos\Migration\Schema\ModuleMigrationDescriptor;
 use Vortos\Migration\Schema\ModuleSchemaProviderInterface;
 
-final class ModuleMigrationRegistry
+final class ModuleMigrationRegistry implements ModuleMigrationRegistryInterface
 {
     private const MANIFEST_FILE = 'migrations/.vortos-published.json';
 

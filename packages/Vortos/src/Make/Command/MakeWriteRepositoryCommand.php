@@ -65,6 +65,13 @@ final class MakeWriteRepositoryCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf(
+            'Next: bind <info>%sRepositoryInterface</info> → <info>%sRepository</info> in your DI config',
+            $aggregate,
+            $aggregate,
+        ));
+
         return Command::SUCCESS;
     }
 

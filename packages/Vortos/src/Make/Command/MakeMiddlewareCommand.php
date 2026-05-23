@@ -57,6 +57,9 @@ final class MakeMiddlewareCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sMiddleware</info> in your <comment>MessagingConfig</comment> middleware array', $name));
+
         return Command::SUCCESS;
     }
 }

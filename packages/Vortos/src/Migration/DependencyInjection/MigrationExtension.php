@@ -15,6 +15,8 @@ use Vortos\Migration\Command\MigrateMakeCommand;
 use Vortos\Migration\Command\MigratePublishCommand;
 use Vortos\Migration\Command\MigrateRollbackCommand;
 use Vortos\Migration\Command\MigrateStatusCommand;
+use Vortos\Migration\Command\MigrateUnadoptCommand;
+use Vortos\Migration\Command\MigrateVerifyCommand;
 use Vortos\Migration\Generator\MigrationClassGenerator;
 use Vortos\Migration\Service\DependencyFactoryProvider;
 use Vortos\Foundation\Module\ModulePathResolver;
@@ -32,6 +34,7 @@ use Vortos\Migration\Service\MigrationSqlParser;
 use Vortos\Migration\Service\ModuleMigrationRegistry;
 use Vortos\Migration\Service\ModuleSchemaProviderScanner;
 use Vortos\Migration\Service\ModuleStubScanner;
+use Vortos\Migration\Service\UserMigrationOwnershipExtractor;
 
 /**
  * Wires all migration services and console commands.
@@ -44,7 +47,9 @@ use Vortos\Migration\Service\ModuleStubScanner;
  *   vortos:migrate:rollback   — undo last N migrations
  *   vortos:migrate:publish    — convert module SQL stubs → Doctrine migration classes
  *   vortos:migrate:fresh      — drop all tables and re-run (non-production only)
- *   vortos:migrate:adopt      — mark verified existing schema as executed (module or user-authored via --include-non-module)
+ *   vortos:migrate:adopt      — mark existing schema as executed without SQL (--module-only, --allow-unverified)
+ *   vortos:migrate:unadopt    — remove a migration tracking record without touching schema
+ *   vortos:migrate:verify     — CI check: all executed framework migrations match live schema (exit 0 = clean)
  *
  * ## Services registered
  *
@@ -126,6 +131,11 @@ final class MigrationExtension extends Extension
             ->setPublic(false);
 
         $container->register(MigrationDriftFormatter::class, MigrationDriftFormatter::class)
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(UserMigrationOwnershipExtractor::class, UserMigrationOwnershipExtractor::class)
+            ->setArgument('$connection', new Reference(Connection::class))
             ->setShared(true)
             ->setPublic(false);
 
@@ -213,6 +223,20 @@ final class MigrationExtension extends Extension
             ->setArgument('$moduleRegistry', new Reference(ModuleMigrationRegistry::class))
             ->setArgument('$driftDetector', new Reference(MigrationDriftDetector::class))
             ->setArgument('$driftFormatter', new Reference(MigrationDriftFormatter::class))
+            ->setArgument('$ownershipExtractor', new Reference(UserMigrationOwnershipExtractor::class))
+            ->setPublic(true)
+            ->addTag('console.command');
+
+        $container->register(MigrateUnadoptCommand::class, MigrateUnadoptCommand::class)
+            ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
+            ->setArgument('$moduleRegistry', new Reference(ModuleMigrationRegistry::class))
+            ->setPublic(true)
+            ->addTag('console.command');
+
+        $container->register(MigrateVerifyCommand::class, MigrateVerifyCommand::class)
+            ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
+            ->setArgument('$moduleRegistry', new Reference(ModuleMigrationRegistry::class))
+            ->setArgument('$driftDetector', new Reference(MigrationDriftDetector::class))
             ->setPublic(true)
             ->addTag('console.command');
     }

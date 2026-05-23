@@ -54,6 +54,9 @@ final class MakeOwnershipPolicyCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sOwnershipPolicy</info> in your DI config under <comment>authorization.ownership_policies</comment>', $name));
+
         return Command::SUCCESS;
     }
 }

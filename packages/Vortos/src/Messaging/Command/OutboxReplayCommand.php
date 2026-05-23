@@ -9,9 +9,11 @@ use Vortos\Messaging\Contract\OutboxPollerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 /**
  * Resets permanently failed outbox messages back to pending so the relay
@@ -51,7 +53,8 @@ final class OutboxReplayCommand extends Command
             ->addOption('id', null, InputOption::VALUE_OPTIONAL, 'Reset a single message by ID')
             ->addOption('latest', null, InputOption::VALUE_NONE, 'Process most recently failed messages first (default: oldest first)')
             ->addOption('created-from', null, InputOption::VALUE_OPTIONAL, 'Filter rows created at or after this timestamp')
-            ->addOption('created-to', null, InputOption::VALUE_OPTIONAL, 'Filter rows created at or before this timestamp');
+            ->addOption('created-to', null, InputOption::VALUE_OPTIONAL, 'Filter rows created at or before this timestamp')
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Skip confirmation prompt');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -98,6 +101,19 @@ final class OutboxReplayCommand extends Command
             }
             $output->writeln('<comment>Dry run — no messages reset.</comment>');
             return Command::SUCCESS;
+        }
+
+        if (!(bool) $input->getOption('force') && $input->isInteractive()) {
+            /** @var QuestionHelper $helper */
+            $helper = $this->getHelper('question');
+            $question = new ConfirmationQuestion(
+                sprintf('<question>Reset %d failed message(s) back to pending? [y/N]</question> ', count($messages)),
+                false,
+            );
+            if (!$helper->ask($input, $output, $question)) {
+                $output->writeln('<comment>Aborted.</comment>');
+                return Command::SUCCESS;
+            }
         }
 
         $reset  = 0;

@@ -13,7 +13,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
-use Vortos\Migration\Service\DependencyFactoryProvider;
+use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 
 /**
  * Rolls back the last N executed migrations.
@@ -39,7 +39,7 @@ use Vortos\Migration\Service\DependencyFactoryProvider;
 )]
 final class MigrateRollbackCommand extends Command
 {
-    public function __construct(private readonly DependencyFactoryProvider $factoryProvider)
+    public function __construct(private readonly DependencyFactoryProviderInterface $factoryProvider)
     {
         parent::__construct();
     }

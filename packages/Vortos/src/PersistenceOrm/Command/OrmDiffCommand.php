@@ -9,9 +9,10 @@ use Doctrine\ORM\Tools\SchemaTool;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Migration\Generator\MigrationClassGenerator;
-use Vortos\Migration\Service\DependencyFactoryProvider;
+use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 
 #[AsCommand(
     name: 'vortos:orm:diff',
@@ -21,14 +22,21 @@ final class OrmDiffCommand extends Command
 {
     public function __construct(
         private readonly EntityManagerInterface $em,
-        private readonly DependencyFactoryProvider $factoryProvider,
+        private readonly DependencyFactoryProviderInterface $factoryProvider,
         private readonly MigrationClassGenerator $generator,
     ) {
         parent::__construct();
     }
 
+    protected function configure(): void
+    {
+        $this->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print the SQL diff without writing a migration file');
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $dryRun = (bool) $input->getOption('dry-run');
+
         $tool  = new SchemaTool($this->em);
         $metas = $this->em->getMetadataFactory()->getAllMetadata();
         $sqls = array_values(array_filter(
@@ -38,6 +46,15 @@ final class OrmDiffCommand extends Command
 
         if (empty($sqls)) {
             $output->writeln('<info>Schema is up to date — nothing to generate.</info>');
+            return Command::SUCCESS;
+        }
+
+        if ($dryRun) {
+            $output->writeln(sprintf('<comment>Dry run — %d SQL statement(s), no file written:</comment>', count($sqls)));
+            $output->writeln('');
+            foreach ($sqls as $sql) {
+                $output->writeln('  ' . $sql . ';');
+            }
             return Command::SUCCESS;
         }
 

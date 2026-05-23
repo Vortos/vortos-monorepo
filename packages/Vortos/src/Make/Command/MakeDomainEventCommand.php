@@ -54,6 +54,9 @@ final class MakeDomainEventCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: record in your aggregate — <info>$this->recordEvent(new %s(...))</info>', $name));
+
         return Command::SUCCESS;
     }
 }

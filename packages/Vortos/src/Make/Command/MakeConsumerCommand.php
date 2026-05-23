@@ -102,6 +102,9 @@ final class MakeConsumerCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sHandler</info> in your <comment>MessagingConfig</comment> handlers array', $name));
+
         return Command::SUCCESS;
     }
 

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Vortos\Messaging\Health;
+namespace Vortos\Messaging\Driver\Kafka\Health;
 
 use Vortos\Foundation\Health\Attribute\AsHealthCheck;
 use Vortos\Foundation\Health\Contract\HealthCheckInterface;

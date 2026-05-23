@@ -65,6 +65,9 @@ final class MakeMessagingConfigCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sMessagingConfig</info> in your DI config', $context));
+
         return Command::SUCCESS;
     }
 }

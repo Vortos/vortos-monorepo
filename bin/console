@@ -6,12 +6,20 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Output\ConsoleOutput;
+use Vortos\Foundation\BootErrorRenderer;
 use Vortos\Foundation\Runner;
 
 $config = require __DIR__ . '/../bootstrap/app.php';
 
 $runner = new Runner(...$config, context: 'console');
-$container = $runner->getContainer();
+
+try {
+    $container = $runner->getContainer();
+} catch (\Throwable $e) {
+    (new BootErrorRenderer())->render($e, new ConsoleOutput());
+    exit(1);
+}
 
 $application = $container->get(Application::class);
 

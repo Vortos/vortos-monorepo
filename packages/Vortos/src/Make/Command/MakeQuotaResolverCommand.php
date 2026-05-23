@@ -63,6 +63,9 @@ final class MakeQuotaResolverCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sQuotaResolver</info> in your DI config under <comment>quota.resolvers</comment>', $name));
+
         return Command::SUCCESS;
     }
 }

@@ -54,6 +54,9 @@ final class MakeSessionPolicyCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sSessionPolicy</info> in your DI config under <comment>session.policies</comment>', $name));
+
         return Command::SUCCESS;
     }
 }

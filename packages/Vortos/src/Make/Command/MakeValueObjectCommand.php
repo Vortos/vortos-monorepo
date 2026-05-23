@@ -54,6 +54,9 @@ final class MakeValueObjectCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: use <info>%s</info> as a typed constructor parameter in your domain model', $name));
+
         return Command::SUCCESS;
     }
 }

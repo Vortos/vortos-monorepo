@@ -18,7 +18,7 @@ use Doctrine\Migrations\DependencyFactory;
  * Lazy: the factory is created on first call to create(), not at container compile time,
  * so no DB connection is attempted until a migration command actually runs.
  */
-final class DependencyFactoryProvider
+final class DependencyFactoryProvider implements DependencyFactoryProviderInterface
 {
     private ?DependencyFactory $factory = null;
 

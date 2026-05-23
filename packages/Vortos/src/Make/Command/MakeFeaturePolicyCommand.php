@@ -54,6 +54,9 @@ final class MakeFeaturePolicyCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: register <info>%sFeaturePolicy</info> in your DI config under <comment>feature_access.policies</comment>', $name));
+
         return Command::SUCCESS;
     }
 }

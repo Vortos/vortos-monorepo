@@ -10,6 +10,7 @@ use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\Foundation\DependencyInjection\Compiler\ConsoleCommandPass;
 use Vortos\Foundation\DependencyInjection\Compiler\DefaultImplCompilerPass;
+use Vortos\Foundation\DependencyInjection\Compiler\DoctorCheckPass;
 use Vortos\Foundation\DependencyInjection\Compiler\HealthCheckPass;
 use Vortos\Foundation\DependencyInjection\Compiler\ResettableServicesPass;
 
@@ -25,6 +26,7 @@ final class FoundationPackage implements PackageInterface
         $container->addCompilerPass(new ResettableServicesPass());
         $container->addCompilerPass(new ConsoleCommandPass());
         $container->addCompilerPass(new HealthCheckPass());
+        $container->addCompilerPass(new DoctorCheckPass());
         $container->addCompilerPass(new DefaultImplCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 5);
     }
 }

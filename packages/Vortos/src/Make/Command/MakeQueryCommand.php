@@ -59,6 +59,9 @@ final class MakeQueryCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: dispatch via <info>$queryBus->ask(new %s(...))</info>', $name));
+
         return Command::SUCCESS;
     }
 }

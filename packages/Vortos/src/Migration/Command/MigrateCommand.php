@@ -16,7 +16,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Vortos\Migration\Schema\MigrationPlanItemAnalysis;
-use Vortos\Migration\Service\DependencyFactoryProvider;
+use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 use Vortos\Migration\Service\MigrationLock;
 use Vortos\Migration\Service\MigrationPlanAnalyzer;
 
@@ -43,7 +43,7 @@ use Vortos\Migration\Service\MigrationPlanAnalyzer;
 final class MigrateCommand extends Command
 {
     public function __construct(
-        private readonly DependencyFactoryProvider $factoryProvider,
+        private readonly DependencyFactoryProviderInterface $factoryProvider,
         private readonly ?MigrationPlanAnalyzer $planAnalyzer = null,
         private readonly ?MigrationLock $lock = null,
     ) {

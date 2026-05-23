@@ -58,6 +58,9 @@ final class MakeDomainErrorCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: throw from domain methods — <info>throw %sError::new()</info>', $name));
+
         return Command::SUCCESS;
     }
 

@@ -13,7 +13,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
-use Vortos\Migration\Service\DependencyFactoryProvider;
+use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 
 /**
  * Drops all database tables and re-runs all migrations from scratch.
@@ -46,7 +46,7 @@ use Vortos\Migration\Service\DependencyFactoryProvider;
 final class MigrateFreshCommand extends Command
 {
     public function __construct(
-        private readonly DependencyFactoryProvider $factoryProvider,
+        private readonly DependencyFactoryProviderInterface $factoryProvider,
         private readonly Connection $connection,
         private readonly string $env,
     ) {

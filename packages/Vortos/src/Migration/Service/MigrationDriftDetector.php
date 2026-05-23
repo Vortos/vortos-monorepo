@@ -7,7 +7,7 @@ namespace Vortos\Migration\Service;
 use Vortos\Migration\Schema\MigrationDriftReport;
 use Vortos\Migration\Schema\ModuleMigrationDescriptor;
 
-final class MigrationDriftDetector
+final class MigrationDriftDetector implements MigrationDriftDetectorInterface
 {
     public function __construct(private readonly MigrationSchemaInspectorInterface $inspector)
     {

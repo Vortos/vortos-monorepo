@@ -26,7 +26,7 @@ final class AuthAssignUserRoleCommand extends Command
         $this
             ->addArgument('user', InputArgument::REQUIRED, 'Target user ID')
             ->addArgument('role', InputArgument::REQUIRED, 'Role name')
-            ->addOption('actor', null, InputOption::VALUE_REQUIRED, 'Admin user ID performing the change')
+            ->addOption('actor', null, InputOption::VALUE_REQUIRED, 'Admin user ID performing this change (required — stored in the audit log)')
             ->addOption('reason', null, InputOption::VALUE_REQUIRED, 'Audit reason')
             ->addOption('metadata', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Audit metadata as key=value')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Output as JSON');

@@ -59,6 +59,9 @@ final class MakeCqrsCommandCommand extends Command
             $output,
         );
 
+        $output->writeln('');
+        $output->writeln(sprintf('Next: dispatch via <info>$commandBus->dispatch(new %s(...))</info>', $name));
+
         return Command::SUCCESS;
     }
 }

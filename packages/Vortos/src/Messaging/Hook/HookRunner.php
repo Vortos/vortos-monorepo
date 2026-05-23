@@ -9,6 +9,9 @@ use Symfony\Component\DependencyInjection\ServiceLocator;
 use Throwable;
 use Vortos\Domain\Event\EventEnvelope;
 use Vortos\Messaging\Hook\Exception\HookExecutionException;
+use Vortos\Messaging\Hook\Attribute\BeforeHandler;
+use Vortos\Messaging\Hook\Attribute\AfterHandler;
+use Vortos\Messaging\Hook\HandlerOutcome;
 
 /**
  * Executes registered hooks at the correct lifecycle moments.
@@ -103,6 +106,50 @@ final class HookRunner
             }
 
             $this->invoke($hook, fn($hook) => $hook->__invoke($envelope, $consumerName, $throwable));
+        }
+    }
+
+    public function runBeforeHandler(EventEnvelope $envelope, string $consumerName, string $handlerId): void
+    {
+        $hooks = $this->registry->getHooks(HookDescriptor::BEFORE_HANDLER);
+
+        foreach ($hooks as $hook) {
+            if ($this->matchesConsume($hook, $envelope->payloadType, $consumerName)) {
+                $this->invoke($hook, fn($hook) => $hook->__invoke($envelope, $consumerName, $handlerId));
+            }
+        }
+    }
+
+    public function runAfterHandler(
+        EventEnvelope  $envelope,
+        string         $consumerName,
+        string         $handlerId,
+        HandlerOutcome $outcome,
+        int            $attempts,
+        float          $latencyMs,
+        ?Throwable     $throwable = null,
+    ): void {
+        $hooks = $this->registry->getHooks(HookDescriptor::AFTER_HANDLER);
+
+        foreach ($hooks as $hook) {
+            if (!$this->matchesConsume($hook, $envelope->payloadType, $consumerName)) {
+                continue;
+            }
+
+            // Empty `on` = all terminal outcomes; AttemptFailed is always opt-in.
+            if ($hook->on === [] && $outcome === HandlerOutcome::AttemptFailed) {
+                continue;
+            }
+
+            // Non-empty `on` = only fire for explicitly listed outcomes.
+            if ($hook->on !== [] && !in_array($outcome, $hook->on, true)) {
+                continue;
+            }
+
+            $this->invoke(
+                $hook,
+                fn($hook) => $hook->__invoke($envelope, $consumerName, $handlerId, $outcome, $attempts, $latencyMs, $throwable),
+            );
         }
     }
 

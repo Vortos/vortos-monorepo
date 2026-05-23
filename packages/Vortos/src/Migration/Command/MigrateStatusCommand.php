@@ -12,10 +12,10 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Migration\Schema\MigrationDriftReport;
-use Vortos\Migration\Service\MigrationDriftDetector;
-use Vortos\Migration\Service\MigrationDriftFormatter;
-use Vortos\Migration\Service\DependencyFactoryProvider;
-use Vortos\Migration\Service\ModuleMigrationRegistry;
+use Vortos\Migration\Service\MigrationDriftDetectorInterface;
+use Vortos\Migration\Service\MigrationDriftFormatterInterface;
+use Vortos\Migration\Service\DependencyFactoryProviderInterface;
+use Vortos\Migration\Service\ModuleMigrationRegistryInterface;
 use Vortos\Migration\Service\ModuleSchemaProviderScanner;
 use Vortos\Migration\Service\ModuleStubScanner;
 
@@ -45,12 +45,12 @@ final class MigrateStatusCommand extends Command
     private const MANIFEST_FILE = 'migrations/.vortos-published.json';
 
     public function __construct(
-        private readonly DependencyFactoryProvider $factoryProvider,
+        private readonly DependencyFactoryProviderInterface $factoryProvider,
         private readonly ModuleStubScanner $scanner,
         private readonly string $projectDir,
-        private readonly ?ModuleMigrationRegistry $moduleRegistry = null,
-        private readonly ?MigrationDriftDetector $driftDetector = null,
-        private readonly ?MigrationDriftFormatter $driftFormatter = null,
+        private readonly ?ModuleMigrationRegistryInterface $moduleRegistry = null,
+        private readonly ?MigrationDriftDetectorInterface $driftDetector = null,
+        private readonly ?MigrationDriftFormatterInterface $driftFormatter = null,
         private readonly ?ModuleSchemaProviderScanner $schemaScanner = null,
     ) {
         parent::__construct();
@@ -87,7 +87,7 @@ final class MigrateStatusCommand extends Command
                     'executed_at' => $isExecuted
                         ? $executed->getMigration($migration->getVersion())->getExecutedAt()?->format(\DateTimeInterface::ATOM)
                         : null,
-                    'schema' => ($this->driftFormatter ?? new MigrationDriftFormatter())->toArray($report, $isExecuted),
+                    'schema' => ($this->driftFormatter ?? new \Vortos\Migration\Service\MigrationDriftFormatter())->toArray($report, $isExecuted),
                 ];
             }
 
@@ -181,7 +181,7 @@ final class MigrateStatusCommand extends Command
 
     private function schemaLabel(?MigrationDriftReport $report, bool $isExecuted): string
     {
-        $label = ($this->driftFormatter ?? new MigrationDriftFormatter())->label($report, $isExecuted);
+        $label = ($this->driftFormatter ?? new \Vortos\Migration\Service\MigrationDriftFormatter())->label($report, $isExecuted);
 
         return match ($report?->status()) {
             MigrationDriftReport::Clean => '<info>' . $label . '</info>',

@@ -24,12 +24,13 @@ final class HookRegistry
         foreach ($hooks as $hookType => $descriptors) {
             foreach ($descriptors as $descriptor) {
                 $this->hooks[$hookType][] = new HookDescriptor(
-                    hookType: $descriptor['hookType'],
-                    serviceId: $descriptor['serviceId'],
-                    eventFilter: $descriptor['eventFilter'] ?? null,
+                    hookType:       $descriptor['hookType'],
+                    serviceId:      $descriptor['serviceId'],
+                    eventFilter:    $descriptor['eventFilter'] ?? null,
                     consumerFilter: $descriptor['consumerFilter'] ?? null,
-                    priority: $descriptor['priority'] ?? 0,
-                    onFailureOnly: $descriptor['onFailureOnly'] ?? false,
+                    priority:       $descriptor['priority'] ?? 0,
+                    onFailureOnly:  $descriptor['onFailureOnly'] ?? false,
+                    on:             $descriptor['on'] ?? [],
                 );
             }
         }

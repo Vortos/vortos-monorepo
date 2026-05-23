@@ -23,13 +23,15 @@ use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryConsumer;
 use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryProducer;
 use Vortos\Messaging\Driver\Kafka\Factory\KafkaConsumerFactory;
 use Vortos\Messaging\Driver\Kafka\Factory\KafkaProducerFactory;
-use Vortos\Messaging\Health\KafkaHealthCheck;
+use Vortos\Messaging\Driver\Kafka\Health\KafkaHealthCheck;
 use Vortos\Messaging\Driver\Kafka\Runtime\KafkaProducer;
 use Vortos\Messaging\Driver\Kafka\Runtime\LazyKafkaProducer;
 use Vortos\Messaging\Hook\Attribute\AfterConsume;
 use Vortos\Messaging\Hook\Attribute\AfterDispatch;
+use Vortos\Messaging\Hook\Attribute\AfterHandler;
 use Vortos\Messaging\Hook\Attribute\BeforeConsume;
 use Vortos\Messaging\Hook\Attribute\BeforeDispatch;
+use Vortos\Messaging\Hook\Attribute\BeforeHandler;
 use Vortos\Messaging\Hook\Attribute\PreSend;
 use Vortos\Messaging\Hook\HookDescriptor;
 use Vortos\Messaging\Hook\HookRegistry;
@@ -48,7 +50,9 @@ use Vortos\Messaging\Registry\ProducerRegistry;
 use Vortos\Messaging\Registry\TransportRegistry;
 use Vortos\Messaging\Runtime\ConsumerLocator;
 use Vortos\Messaging\Dev\SyncProjectionEventBusDecorator;
+use Vortos\Messaging\DeadLetter\DeadLetterRepositoryInterface;
 use Vortos\Messaging\Runtime\ConsumerRunner;
+use Vortos\Messaging\Runtime\ConsumerRunnerInterface;
 use Vortos\Messaging\Runtime\OutboxRelayRunner;
 use Vortos\Messaging\Serializer\JsonSerializer;
 use Vortos\Messaging\Serializer\SerializerLocator;
@@ -57,6 +61,7 @@ use Reflector;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
@@ -120,14 +125,59 @@ final class MessagingExtension extends Extension
         $this->registerDefaultDriverInterfaces($container, $resolvedConfig['driver']);
         $this->registerHooks($container);
         $this->registerRetry($container);
-        $this->registerHealthCheck($container);
+        $this->registerHealthCheck($container, $env);
     }
 
-    private function registerHealthCheck(ContainerBuilder $container): void
+    private function registerHealthCheck(ContainerBuilder $container, string $env): void
     {
         $container->register(KafkaHealthCheck::class, KafkaHealthCheck::class)
             ->setArgument('$transports', new Reference(TransportRegistry::class))
             ->setPublic(false);
+
+        $container->register(\Vortos\Messaging\Doctor\MessagingDoctorCheck::class, \Vortos\Messaging\Doctor\MessagingDoctorCheck::class)
+            ->setPublic(false);
+
+        $container->register(\Vortos\Messaging\Driver\Kafka\Command\KafkaTailCommand::class, \Vortos\Messaging\Driver\Kafka\Command\KafkaTailCommand::class)
+            ->setArgument('$transports', new Reference(TransportRegistry::class))
+            ->setArgument('$sanitizer', new Reference(PayloadSanitizerInterface::class))
+            ->addTag('console.command')
+            ->setPublic(true);
+
+        if ($env === 'prod') {
+            return;
+        }
+
+        $container->register(\Vortos\Messaging\Dev\TailState::class, \Vortos\Messaging\Dev\TailState::class)
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(\Vortos\Messaging\Dev\Hook\ConsumerTailBeforeHandlerHook::class, \Vortos\Messaging\Dev\Hook\ConsumerTailBeforeHandlerHook::class)
+            ->setArgument('$state', new Reference(\Vortos\Messaging\Dev\TailState::class))
+            ->addTag('vortos.hook')
+            ->setPublic(true);
+
+        $container->register(\Vortos\Messaging\Dev\Hook\ConsumerTailAfterHandlerHook::class, \Vortos\Messaging\Dev\Hook\ConsumerTailAfterHandlerHook::class)
+            ->setArgument('$state', new Reference(\Vortos\Messaging\Dev\TailState::class))
+            ->addTag('vortos.hook')
+            ->setPublic(true);
+
+        $container->register(\Vortos\Messaging\Dev\Hook\ConsumerTailControlHook::class, \Vortos\Messaging\Dev\Hook\ConsumerTailControlHook::class)
+            ->setArgument('$state', new Reference(\Vortos\Messaging\Dev\TailState::class))
+            ->setArgument('$redis', new Reference(\Redis::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('vortos.hook')
+            ->setPublic(true);
+
+        $container->register(\Vortos\Messaging\Dev\Hook\ConsumerTailFlushHook::class, \Vortos\Messaging\Dev\Hook\ConsumerTailFlushHook::class)
+            ->setArgument('$state', new Reference(\Vortos\Messaging\Dev\TailState::class))
+            ->addTag('vortos.hook')
+            ->setPublic(true);
+
+        // TailConsumerCommand is the Redis pub/sub observer — null Redis means it
+        // fails at runtime with a clear message rather than failing at boot.
+        $container->register(\Vortos\Messaging\Command\TailConsumerCommand::class, \Vortos\Messaging\Command\TailConsumerCommand::class)
+            ->setArgument('$redis', new Reference(\Redis::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('console.command')
+            ->setPublic(true);
     }
 
     private function registerRetry(ContainerBuilder $container): void
@@ -214,6 +264,8 @@ final class MessagingExtension extends Extension
             PreSend::class        => HookDescriptor::PRE_SEND,
             BeforeConsume::class  => HookDescriptor::BEFORE_CONSUME,
             AfterConsume::class   => HookDescriptor::AFTER_CONSUME,
+            BeforeHandler::class  => HookDescriptor::BEFORE_HANDLER,
+            AfterHandler::class   => HookDescriptor::AFTER_HANDLER,
         ];
     }
 
@@ -234,12 +286,24 @@ final class MessagingExtension extends Extension
 
     private function registerCLICommands(ContainerBuilder $container): void
     {
+        // ConsumeCommand gets explicit injection so optional TailState/Redis are wired
+        // by NULL_ON_INVALID_REFERENCE (null in prod or when Redis driver is inactive).
+        $container->register(\Vortos\Messaging\Command\ConsumeCommand::class, \Vortos\Messaging\Command\ConsumeCommand::class)
+            ->setArgument('$consumerRunner', new Reference(ConsumerRunnerInterface::class))
+            ->setArgument('$logger', new Reference(\Psr\Log\LoggerInterface::class))
+            ->setArgument('$tailState', new Reference(\Vortos\Messaging\Dev\TailState::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setPublic(true)
+            ->addTag('console.command');
+
         $commands = [
-            \Vortos\Messaging\Command\ConsumeCommand::class,
             \Vortos\Messaging\Command\OutboxRelayCommand::class,
             \Vortos\Messaging\Command\OutboxReplayCommand::class,
+            \Vortos\Messaging\Command\ListOutboxCommand::class,
+            \Vortos\Messaging\Command\ShowOutboxCommand::class,
             \Vortos\Messaging\Command\ListConsumersCommand::class,
             \Vortos\Messaging\Command\ListTransportsCommand::class,
+            \Vortos\Messaging\Command\ListDeadLetterCommand::class,
+            \Vortos\Messaging\Command\ShowDeadLetterCommand::class,
             \Vortos\Messaging\Command\ReplayDeadLetterCommand::class,
         ];
 
@@ -270,6 +334,10 @@ final class MessagingExtension extends Extension
             ->setAutoconfigured(true)
             ->setArgument('$handlerLocator', new Reference('vortos.handler_locator'))
             ->setArgument('$defaultIdempotencyTtl', $defaultIdempotencyTtl)
+            ->setArgument('$hookRunner', new Reference(HookRunner::class))
+            ->setPublic(false);
+
+        $container->setAlias(ConsumerRunnerInterface::class, ConsumerRunner::class)
             ->setPublic(false);
     }
 
@@ -348,6 +416,9 @@ final class MessagingExtension extends Extension
         $container->register(\Vortos\Messaging\DeadLetter\DeadLetterRepository::class, \Vortos\Messaging\DeadLetter\DeadLetterRepository::class)
             ->setAutowired(true)
             ->setArgument('$table', $dlqTable)
+            ->setPublic(false);
+
+        $container->setAlias(DeadLetterRepositoryInterface::class, \Vortos\Messaging\DeadLetter\DeadLetterRepository::class)
             ->setPublic(false);
 
         $container->register(NullPayloadSanitizer::class, NullPayloadSanitizer::class)

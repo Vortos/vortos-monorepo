@@ -6,7 +6,7 @@ namespace Vortos\Migration\Service;
 
 use Vortos\Migration\Schema\MigrationDriftReport;
 
-final class MigrationDriftFormatter
+final class MigrationDriftFormatter implements MigrationDriftFormatterInterface
 {
     public function label(?MigrationDriftReport $report, bool $executed): string
     {

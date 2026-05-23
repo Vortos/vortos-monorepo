@@ -12,6 +12,9 @@ use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Vortos\Foundation\Command\DebugBindingsCommand;
+use Vortos\Foundation\Command\DoctorCommand;
+use Vortos\Foundation\Command\HealthCommand;
+use Vortos\Foundation\Doctor\DoctorRegistry;
 use Vortos\Foundation\DependencyInjection\Attribute\DefaultImpl;
 use Vortos\Foundation\Health\HealthDetailPolicy;
 use Vortos\Foundation\Health\HealthRegistry;
@@ -62,6 +65,20 @@ final class FoundationExtension extends Extension
 
         $container->register(DebugBindingsCommand::class, DebugBindingsCommand::class)
             ->setArgument('$bindings', '%vortos.default_impl.bindings%')
+            ->addTag('console.command')
+            ->setPublic(true);
+
+        $container->register(HealthCommand::class, HealthCommand::class)
+            ->setArgument('$registry', new Reference(HealthRegistry::class))
+            ->addTag('console.command')
+            ->setPublic(true);
+
+        $container->register(DoctorRegistry::class, DoctorRegistry::class)
+            ->setArgument('$checks', [])
+            ->setPublic(true);
+
+        $container->register(DoctorCommand::class, DoctorCommand::class)
+            ->setArgument('$registry', new Reference(DoctorRegistry::class))
             ->addTag('console.command')
             ->setPublic(true);
     }

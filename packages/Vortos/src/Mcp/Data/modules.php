@@ -47,7 +47,7 @@ return [
             'Header injection'       => '#[MessageId], #[CorrelationId], #[CausationId], #[TraceId], #[Timestamp], #[TenantId], #[UserId], #[Header("name")] — inject specific envelope fields as handler parameters.',
             'OutboxRelayWorker'      => 'Polls vortos_outbox and produces pending messages to Kafka.',
             'DeadLetterWriter'       => 'Writes permanently failed consumer messages to vortos_failed_messages.',
-            'Hooks'                  => '#[BeforeDispatch], #[AfterDispatch], #[PreSend], #[BeforeConsume], #[AfterConsume] — all receive EventEnvelope.',
+            'Hooks'                  => '#[BeforeDispatch], #[AfterDispatch], #[PreSend], #[BeforeConsume], #[AfterConsume] — consumer hooks receive EventEnvelope + consumerName. #[BeforeHandler], #[AfterHandler] — per-handler hooks fired directly by ConsumerRunner (not middleware stack); AfterHandler also receives handlerId, skipped bool, latencyMs, and optional Throwable.',
         ],
         'config' => [
             'driver'              => 'kafka (default) | in-memory',
@@ -59,12 +59,15 @@ return [
             'dlq_table'           => 'vortos_failed_messages (default)',
         ],
         'commands' => [
-            'vortos:consume'          => 'Start the Kafka consumer worker process',
-            'vortos:outbox:relay'     => 'Start the outbox relay worker (polls and produces to Kafka)',
-            'vortos:outbox:replay'    => 'Reset permanently failed outbox rows back to pending. Flags: --latest --limit --transport --event-class --id --created-from --created-to --dry-run',
-            'vortos:dlq:replay'       => 'Replay dead-lettered consumer messages back to Kafka. Flags: --latest --limit --transport --event-class --id --failed-from --failed-to --dry-run',
-            'vortos:consumers:list'   => 'List all registered consumers',
-            'vortos:transports:list'  => 'List all registered transports',
+            'vortos:consume'            => 'Start the Kafka consumer worker process',
+            'vortos:outbox:relay'       => 'Start the outbox relay worker (polls and produces to Kafka)',
+            'vortos:outbox:replay'      => 'Reset permanently failed outbox rows back to pending. Flags: --latest --limit --transport --event-class --id --created-from --created-to --dry-run',
+            'vortos:dlq:replay'         => 'Replay dead-lettered consumer messages back to Kafka. Flags: --latest --limit --transport --event-class --id --failed-from --failed-to --dry-run',
+            'vortos:consumers:list'     => 'List all registered consumers with their transports and handler counts',
+            'vortos:transports:list'    => 'List all registered transports with driver and topic details',
+            'vortos:kafka:tail'         => 'Dev tool — stream raw Vortos events from a Kafka transport to the terminal. Payload is sanitized via PayloadSanitizerInterface. Args: <transport>. Flags: --brokers --group-id --from-beginning --limit. Verbose (-v) shows partition, offset, timestamp, all headers.',
+            'vortos:consumer:tail'      => 'Dev tool (non-prod only) — observe a running consumer worker in real time via Redis pub/sub. Sets vortos:tail-ctrl:{consumer} Redis key; ConsumerTailControlHook on the worker polls for it and publishes per-handler events to vortos:tail:{consumer} channel. Ctrl+C deletes the key to deactivate. Shows per-handler outcomes (Succeeded/SucceededAfterRetries/SkippedIdempotent/DeadLettered/etc) with latency. Requires Redis cache driver. Args: <consumer>.',
+            'vortos:consume --tail'     => 'Dev option on vortos:consume — activates ConsoleTailChannel for live per-handler output in the same process. Worker still runs normally; no Redis required.',
         ],
     ],
 
@@ -89,7 +92,9 @@ return [
             'vortos:migrate:make'       => 'Generate an empty migration class',
             'vortos:migrate:rollback'   => 'Undo the last N migrations',
             'vortos:migrate:fresh'      => 'Drop all tables and rerun (dev/test only)',
-            'vortos:migrate:adopt'      => 'Mark verified existing schema as executed. Flags: --all-compatible --include-non-module --verify --dry-run --force --json',
+            'vortos:migrate:adopt'      => 'Mark existing schema as executed without running SQL. Flags: --all-compatible --module-only --allow-unverified --verify --dry-run --force --json',
+            'vortos:migrate:unadopt'    => 'Remove a migration tracking record without touching the schema. Omit version to unadopt the latest. Flags: --force',
+            'vortos:migrate:verify'     => 'CI check: verify all executed framework migrations match the live database schema. Exit 0 = clean, Exit 1 = drift. Flags: --json',
         ],
     ],
 
@@ -296,13 +301,20 @@ return [
     ],
 
     'foundation' => [
-        'description' => 'Health checks and worker mode service resetter.',
+        'description' => 'Health checks, pre-flight diagnostics, boot error rendering, and worker mode service resetter.',
         'provides'    => [
-            'HealthRegistry'   => 'Register HealthCheckInterface implementations. Exposed via /health/ready and /health/live.',
-            'ServicesResetter' => 'Calls reset() on all ResettableInterface services after each request in worker mode.',
+            'HealthRegistry'         => 'Register HealthCheckInterface implementations. Exposed via /health/ready and /health/live.',
+            'ServicesResetter'       => 'Calls reset() on all ResettableInterface services after each request in worker mode.',
+            'DoctorRegistry'         => 'Runs all registered DoctorCheckInterface implementations. Tag with #[AsDoctor].',
+            '#[AsDoctor]'            => 'Attribute to register a DoctorCheckInterface as a pre-flight diagnostic check.',
+            'DoctorCheckInterface'   => 'run(): DoctorResult — implement to add a custom doctor check.',
+            'BootErrorRenderer'      => 'Formats boot exceptions in CLI with human-readable hints for common failures.',
         ],
         'config'   => null,
-        'commands' => [],
+        'commands' => [
+            'vortos:health'  => 'Check all registered HealthCheckInterface services. Flags: --json (machine-readable output)',
+            'vortos:doctor'  => 'Run all registered pre-flight diagnostic checks. Flags: --fail-on-warning (exit 1 on warnings)',
+        ],
     ],
 
     'setup' => [

@@ -4,13 +4,19 @@ declare(strict_types=1);
 
 namespace {{Namespace}};
 
+use Doctrine\ORM\Mapping as ORM;
 use Vortos\Domain\ValueObject\ValueObject;
 
-final readonly class {{ClassName}} extends ValueObject
+#[ORM\Embeddable]
+final class {{ClassName}} extends ValueObject
 {
-    private function __construct(
-        private string $value,
-    ) {}
+    #[ORM\Column(type: 'string')]
+    private string $value;
+
+    private function __construct(string $value)
+    {
+        $this->value = $value;
+    }
 
     public static function fromString(string $value): self
     {

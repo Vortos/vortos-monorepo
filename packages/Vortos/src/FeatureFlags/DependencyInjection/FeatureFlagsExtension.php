@@ -17,6 +17,7 @@ use Vortos\FeatureFlags\Command\FlagsDeleteCommand;
 use Vortos\FeatureFlags\Command\FlagsDisableCommand;
 use Vortos\FeatureFlags\Command\FlagsEnableCommand;
 use Vortos\FeatureFlags\Command\FlagsListCommand;
+use Vortos\FeatureFlags\Command\FlagsShowCommand;
 use Vortos\FeatureFlags\FlagEvaluator;
 use Vortos\FeatureFlags\FlagRegistry;
 use Vortos\FeatureFlags\FlagRegistryInterface;
@@ -103,6 +104,7 @@ final class FeatureFlagsExtension extends Extension
 
         foreach ([
             FlagsListCommand::class,
+            FlagsShowCommand::class,
             FlagsCreateCommand::class,
             FlagsEnableCommand::class,
             FlagsDisableCommand::class,

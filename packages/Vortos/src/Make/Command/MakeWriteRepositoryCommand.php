@@ -27,7 +27,7 @@ final class MakeWriteRepositoryCommand extends Command
     {
         $this
             ->addArgument('aggregate', InputArgument::REQUIRED, 'Aggregate class name (e.g. User)')
-            ->addOption('context', 'c', InputOption::VALUE_REQUIRED, 'Domain context folder (e.g. User)');
+            ->addOption('context', 'c', InputOption::VALUE_REQUIRED, 'Bounded context folder (e.g. User)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -35,28 +35,28 @@ final class MakeWriteRepositoryCommand extends Command
         $aggregate = (string) $input->getArgument('aggregate');
         $context   = (string) ($input->getOption('context') ?: $aggregate);
 
-        if ($context === '') {
-            $output->writeln('<error>--context is required. Example: --context=User</error>');
-            return Command::FAILURE;
-        }
-
         $ormActive = class_exists(\Vortos\PersistenceOrm\Aggregate\AggregateRoot::class);
         $stubName  = $ormActive ? 'write-repository-orm' : 'write-repository';
 
         $vars = [
-            'Namespace'          => "App\\{$context}",
-            'ClassName'          => $aggregate,
-            'AggregateNamespace' => "App\\{$context}",
-            'AggregateClass'     => $aggregate,
-            'TableName'          => $this->toTableName($aggregate),
+            'Namespace'                => "App\\{$context}\\Infrastructure\\Repository",
+            'AggregateEntityNamespace' => "App\\{$context}\\Domain\\{$aggregate}",
+            'AggregateRepositoryNamespace' => "App\\{$context}\\Domain\\{$aggregate}\\Repository",
+            'AggregateClass'           => $aggregate,
+            'TableName'                => $this->toTableName($aggregate),
+        ];
+
+        $repoInterfaceVars = [
+            'Namespace' => "App\\{$context}\\Domain\\{$aggregate}\\Repository",
+            'ClassName' => $aggregate,
         ];
 
         $output->writeln("<info>vortos:make:write-repository</info> {$aggregate} --context={$context}" . ($ormActive ? ' <fg=cyan>[ORM]</>' : ''));
         $output->writeln('');
 
         $this->engine->write(
-            "{$context}/Domain/Repository/{$aggregate}RepositoryInterface.php",
-            $this->engine->render('repository-interface', $vars),
+            "{$context}/Domain/{$aggregate}/Repository/{$aggregate}RepositoryInterface.php",
+            $this->engine->render('repository-interface', $repoInterfaceVars),
             $output,
         );
         $this->engine->write(

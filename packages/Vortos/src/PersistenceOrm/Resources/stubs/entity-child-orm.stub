@@ -1,0 +1,29 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}};
+
+use Doctrine\ORM\Mapping as ORM;
+
+#[ORM\Entity]
+final class {{ClassName}}
+{
+    #[ORM\Id]
+    #[ORM\Column(type: 'string', length: 36)]
+    private string $id;
+
+    // Add the back-reference to your aggregate root:
+    // #[ORM\ManyToOne(targetEntity: YourRoot::class, inversedBy: 'yourCollection')]
+    // private YourRoot $root;
+
+    public function __construct({{ClassName}}Id $id)
+    {
+        $this->id = (string) $id;
+    }
+
+    public function getId(): {{ClassName}}Id
+    {
+        return {{ClassName}}Id::fromString($this->id);
+    }
+}

@@ -260,4 +260,133 @@ final class HookRunnerTest extends TestCase
 
         $this->assertTrue($called, 'Second hook must run even when first hook throws');
     }
+
+    // --- Per-handler hooks ---
+
+    public function test_run_before_handler_calls_hook_with_consumer_and_handler_id(): void
+    {
+        $receivedConsumer  = null;
+        $receivedHandlerId = null;
+        $hook = new class($receivedConsumer, $receivedHandlerId) {
+            public function __construct(private mixed &$consumer, private mixed &$handlerId) {}
+            public function __invoke(EventEnvelope $e, string $consumer, string $handlerId): void
+            {
+                $this->consumer   = $consumer;
+                $this->handlerId  = $handlerId;
+            }
+        };
+
+        $runner = $this->makeRunner(
+            [HookDescriptor::BEFORE_HANDLER => [$this->hookDescriptor(HookDescriptor::BEFORE_HANDLER, 'svc')]],
+            ['svc' => $hook],
+        );
+
+        $runner->runBeforeHandler($this->makeEnvelope(), 'user.events', 'send.welcome.email');
+
+        $this->assertSame('user.events', $receivedConsumer);
+        $this->assertSame('send.welcome.email', $receivedHandlerId);
+    }
+
+    public function test_run_after_handler_calls_hook_with_outcome_and_latency(): void
+    {
+        $receivedOutcome = null;
+        $receivedLatency = null;
+        $hook = new class($receivedOutcome, $receivedLatency) {
+            public function __construct(private mixed &$outcome, private mixed &$latency) {}
+            public function __invoke(
+                EventEnvelope  $e,
+                string         $consumer,
+                string         $handlerId,
+                HandlerOutcome $outcome,
+                int            $attempts,
+                float          $latencyMs,
+                ?\Throwable    $throwable = null,
+            ): void {
+                $this->outcome = $outcome;
+                $this->latency = $latencyMs;
+            }
+        };
+
+        $runner = $this->makeRunner(
+            [HookDescriptor::AFTER_HANDLER => [$this->hookDescriptor(HookDescriptor::AFTER_HANDLER, 'svc')]],
+            ['svc' => $hook],
+        );
+
+        $runner->runAfterHandler(
+            $this->makeEnvelope(),
+            'user.events',
+            'send.welcome.email',
+            HandlerOutcome::Succeeded,
+            1,
+            42.5,
+        );
+
+        $this->assertSame(HandlerOutcome::Succeeded, $receivedOutcome);
+        $this->assertSame(42.5, $receivedLatency);
+    }
+
+    public function test_run_after_handler_filters_by_on_outcomes(): void
+    {
+        $called = false;
+        $hook   = new class($called) {
+            public function __construct(private bool &$called) {}
+            public function __invoke(
+                EventEnvelope $e, string $c, string $h, HandlerOutcome $o, int $a, float $l, ?\Throwable $t = null,
+            ): void { $this->called = true; }
+        };
+
+        $runner = $this->makeRunner(
+            [HookDescriptor::AFTER_HANDLER => [
+                $this->hookDescriptor(HookDescriptor::AFTER_HANDLER, 'svc', on: [HandlerOutcome::DeadLettered->value]),
+            ]],
+            ['svc' => $hook],
+        );
+
+        $runner->runAfterHandler($this->makeEnvelope(), 'c', 'h', HandlerOutcome::Succeeded, 1, 1.0);
+
+        $this->assertFalse($called, 'Hook with on:[DeadLettered] must not fire for Succeeded outcome');
+    }
+
+    public function test_run_after_handler_fires_when_outcome_matches_on_filter(): void
+    {
+        $called = false;
+        $hook   = new class($called) {
+            public function __construct(private bool &$called) {}
+            public function __invoke(
+                EventEnvelope $e, string $c, string $h, HandlerOutcome $o, int $a, float $l, ?\Throwable $t = null,
+            ): void { $this->called = true; }
+        };
+
+        $runner = $this->makeRunner(
+            [HookDescriptor::AFTER_HANDLER => [
+                $this->hookDescriptor(HookDescriptor::AFTER_HANDLER, 'svc', on: [HandlerOutcome::DeadLettered->value]),
+            ]],
+            ['svc' => $hook],
+        );
+
+        $runner->runAfterHandler($this->makeEnvelope(), 'c', 'h', HandlerOutcome::DeadLettered, 3, 50.0);
+
+        $this->assertTrue($called);
+    }
+
+    public function test_run_after_handler_passes_throwable_to_hook(): void
+    {
+        $received = null;
+        $hook     = new class($received) {
+            public function __construct(private mixed &$received) {}
+            public function __invoke(
+                EventEnvelope $e, string $c, string $h, HandlerOutcome $o, int $a, float $l, ?\Throwable $t = null,
+            ): void { $this->received = $t; }
+        };
+
+        $runner = $this->makeRunner(
+            [HookDescriptor::AFTER_HANDLER => [$this->hookDescriptor(HookDescriptor::AFTER_HANDLER, 'svc')]],
+            ['svc' => $hook],
+        );
+
+        $error = new \RuntimeException('handler crashed');
+        $runner->runAfterHandler($this->makeEnvelope(), 'c', 'h', HandlerOutcome::DeadLettered, 3, 99.0, $error);
+
+        $this->assertSame($error, $received);
+    }
 }

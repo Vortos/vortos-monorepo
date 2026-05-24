@@ -6,8 +6,8 @@ namespace {{Namespace}}\Infrastructure\Repository;
 
 use Doctrine\ORM\QueryBuilder;
 use Vortos\PersistenceOrm\Write\OrmWriteRepository;
-use {{AggregateNamespace}}\Domain\Entity\{{AggregateClass}};
-use {{AggregateNamespace}}\Domain\Repository\{{AggregateClass}}RepositoryInterface;
+use {{AggregateEntityNamespace}}\{{AggregateClass}};
+use {{AggregateRepositoryNamespace}}\{{AggregateClass}}RepositoryInterface;
 
 final class {{AggregateClass}}Repository extends OrmWriteRepository implements {{AggregateClass}}RepositoryInterface
 {

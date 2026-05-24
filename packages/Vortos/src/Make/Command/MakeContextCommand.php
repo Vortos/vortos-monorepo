@@ -18,18 +18,17 @@ use Vortos\Make\Engine\GeneratorEngine;
 final class MakeContextCommand extends Command
 {
     private const array DIRECTORIES = [
-        'Domain/Entity',
-        'Domain/Event',
-        'Domain/Exception',
-        'Domain/Repository',
-        'Domain/ValueObject',
+        'Domain/Shared/ValueObjects',
         'Application/Command',
         'Application/Query',
         'Application/EventHandler',
         'Application/Projection',
         'Application/Policy',
+        'Application/ReadModel',
         'Infrastructure/Repository',
         'Infrastructure/Messaging',
+        'Infrastructure/Quota',
+        'Infrastructure/Persistence/Mongo',
         'Representation/Controller',
         'Representation/Request',
     ];
@@ -57,7 +56,7 @@ final class MakeContextCommand extends Command
 
         $output->writeln('');
         $output->writeln(sprintf(
-            'Next: <comment>vortos:make:entity %s --context=%s</comment>',
+            'Next: <comment>vortos:make:aggregate %s --context=%s</comment>',
             $name,
             $name,
         ));

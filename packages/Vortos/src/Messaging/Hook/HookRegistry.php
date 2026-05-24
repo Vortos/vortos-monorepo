@@ -30,7 +30,10 @@ final class HookRegistry
                     consumerFilter: $descriptor['consumerFilter'] ?? null,
                     priority:       $descriptor['priority'] ?? 0,
                     onFailureOnly:  $descriptor['onFailureOnly'] ?? false,
-                    on:             $descriptor['on'] ?? [],
+                    on:             array_map(
+                        static fn(mixed $v) => $v instanceof HandlerOutcome ? $v : HandlerOutcome::from((string) $v),
+                        $descriptor['on'] ?? [],
+                    ),
                 );
             }
         }

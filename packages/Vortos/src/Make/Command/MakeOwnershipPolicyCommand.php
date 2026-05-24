@@ -49,13 +49,10 @@ final class MakeOwnershipPolicyCommand extends Command
         $output->writeln('');
 
         $this->engine->write(
-            "{$context}/Infrastructure/Policy/{$name}OwnershipPolicy.php",
+            "{$context}/Application/Policy/{$name}OwnershipPolicy.php",
             $this->engine->render('ownership-policy', $vars),
             $output,
         );
-
-        $output->writeln('');
-        $output->writeln(sprintf('Next: register <info>%sOwnershipPolicy</info> in your DI config under <comment>authorization.ownership_policies</comment>', $name));
 
         return Command::SUCCESS;
     }

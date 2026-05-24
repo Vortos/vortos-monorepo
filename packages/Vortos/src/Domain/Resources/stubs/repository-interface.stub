@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace {{Namespace}}\Domain\Repository;
+namespace {{Namespace}};
 
 use Vortos\Domain\Repository\WriteRepositoryInterface;
 

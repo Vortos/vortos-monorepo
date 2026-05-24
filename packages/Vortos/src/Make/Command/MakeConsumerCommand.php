@@ -103,7 +103,7 @@ final class MakeConsumerCommand extends Command
         );
 
         $output->writeln('');
-        $output->writeln(sprintf('Next: register <info>%sHandler</info> in your <comment>MessagingConfig</comment> handlers array', $name));
+        $output->writeln(sprintf('<info>%sHandler</info> is auto-registered via <info>#[AsEventHandler]</info> — no MessagingConfig wiring needed.', $name));
 
         return Command::SUCCESS;
     }

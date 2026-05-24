@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace {{Namespace}}\Infrastructure\Policy;
+namespace {{Namespace}}\Application\Policy;
 
 use Vortos\Http\Request;
 use Vortos\Auth\Contract\UserIdentityInterface;

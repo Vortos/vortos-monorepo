@@ -26,36 +26,43 @@ final class MakeDomainEventCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('name', InputArgument::REQUIRED, 'Event name without "Event" suffix (e.g. UserRegistered)')
-            ->addOption('context', 'c', InputOption::VALUE_REQUIRED, 'Domain context folder (e.g. User)');
+            ->addArgument('name', InputArgument::REQUIRED, 'Event name without "Event" suffix (e.g. UserRegistered → UserRegisteredEvent)')
+            ->addOption('context', 'c', InputOption::VALUE_REQUIRED, 'Bounded context folder (e.g. User)')
+            ->addOption('aggregate', 'a', InputOption::VALUE_REQUIRED, 'Aggregate root that emits this event (e.g. User)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $name    = (string) $input->getArgument('name');
-        $context = (string) $input->getOption('context');
+        $name      = (string) $input->getArgument('name');
+        $aggregate = (string) $input->getOption('aggregate');
+        $context   = (string) ($input->getOption('context') ?: $aggregate);
 
-        if ($context === '') {
-            $output->writeln('<error>--context is required. Example: --context=User</error>');
+        if ($aggregate === '') {
+            $output->writeln('<error>--aggregate is required.</error>');
+            $output->writeln('');
+            $output->writeln('  Provide the aggregate root that emits this event:');
+            $output->writeln('  <info>--aggregate=TrainingSession</info>   Event lives inside the TrainingSession aggregate boundary.');
             return Command::FAILURE;
         }
 
+        $className = $name . 'Event';
+
         $vars = [
-            'Namespace' => "App\\{$context}",
-            'ClassName' => $name,
+            'Namespace' => "App\\{$context}\\Domain\\{$aggregate}\\Event",
+            'ClassName' => $className,
         ];
 
-        $output->writeln("<info>vortos:make:domain-event</info> {$name} --context={$context}");
+        $output->writeln("<info>vortos:make:domain-event</info> {$name} --context={$context} --aggregate={$aggregate}");
         $output->writeln('');
 
         $this->engine->write(
-            "{$context}/Domain/Event/{$name}.php",
+            "{$context}/Domain/{$aggregate}/Event/{$className}.php",
             $this->engine->render('domain-event', $vars),
             $output,
         );
 
         $output->writeln('');
-        $output->writeln(sprintf('Next: record in your aggregate — <info>$this->recordEvent(new %s(...))</info>', $name));
+        $output->writeln(sprintf('Next: record in your aggregate — <info>$this->recordEvent(new %s(...))</info>', $className));
 
         return Command::SUCCESS;
     }

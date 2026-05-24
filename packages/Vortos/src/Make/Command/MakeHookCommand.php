@@ -20,7 +20,8 @@ final class MakeHookCommand extends Command
 {
     private const array DISPATCH_TYPES = ['before-dispatch', 'after-dispatch'];
     private const array CONSUME_TYPES  = ['before-consume', 'after-consume'];
-    private const array VALID_TYPES    = ['before-dispatch', 'after-dispatch', 'before-consume', 'after-consume', 'pre-send'];
+    private const array HANDLER_TYPES  = ['before-handler', 'after-handler'];
+    private const array VALID_TYPES    = ['before-dispatch', 'after-dispatch', 'before-consume', 'after-consume', 'pre-send', 'before-handler', 'after-handler'];
 
     public function __construct(private readonly GeneratorEngine $engine)
     {
@@ -32,7 +33,7 @@ final class MakeHookCommand extends Command
         $this
             ->addArgument('name', InputArgument::REQUIRED, 'Hook name without "Hook" suffix (e.g. LogDispatch)')
             ->addOption('context', 'c', InputOption::VALUE_REQUIRED, 'Domain context folder (e.g. User)')
-            ->addOption('type', 't', InputOption::VALUE_REQUIRED, 'Hook type: before-dispatch | after-dispatch | before-consume | after-consume | pre-send');
+            ->addOption('type', 't', InputOption::VALUE_REQUIRED, 'Hook type: before-dispatch | after-dispatch | before-consume | after-consume | pre-send | before-handler | after-handler');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -54,9 +55,11 @@ final class MakeHookCommand extends Command
         $attribute = $this->toAttributeName($type);
 
         [$stub, $vars] = match (true) {
-            in_array($type, self::DISPATCH_TYPES, true) => ['hook-dispatch', ['HookAttribute' => $attribute]],
-            in_array($type, self::CONSUME_TYPES, true)  => ['hook-consume',  ['HookAttribute' => $attribute]],
-            default                                      => ['hook-presend',  []],
+            in_array($type, self::DISPATCH_TYPES, true) => ['hook-dispatch',        ['HookAttribute' => $attribute]],
+            in_array($type, self::CONSUME_TYPES, true)  => ['hook-consume',         ['HookAttribute' => $attribute]],
+            $type === 'before-handler'                   => ['hook-handler-before',  []],
+            $type === 'after-handler'                    => ['hook-handler-after',   []],
+            default                                      => ['hook-presend',         []],
         };
 
         $vars = array_merge([

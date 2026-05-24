@@ -327,6 +327,30 @@ return [
         ],
     ],
 
+    'feature_flags' => [
+        'description' => 'Runtime feature flags with per-user, attribute, and percentage-rollout targeting rules.',
+        'provides'    => [
+            'FlagRegistry'              => 'isEnabled(name): bool, getVariant(name): ?string — evaluate flags against the current request context.',
+            'FlagEvaluator'             => 'Evaluates flag rules against a FlagContext in priority order: users → attribute → percentage.',
+            '#[FeatureFlag("name")]'    => 'Attribute on a Controller or handler method to gate access behind a flag. Returns 403 when the flag is off.',
+            'FeatureFlagMiddleware'     => 'HTTP middleware that evaluates #[FeatureFlag] attributes per request.',
+            'FlagStorageInterface'      => 'findAll(): FeatureFlag[], findByName(name): ?FeatureFlag, save(flag): void, delete(name): void',
+        ],
+        'config' => [
+            'storage'    => 'database (default) — stores flags in vortos_feature_flags table',
+            'cache_ttl'  => 'seconds to cache flag state in Redis (default: 60). Set 0 to disable caching.',
+        ],
+        'commands' => [
+            'vortos:flags:list'     => 'List all feature flags with status, rule count, and description. Flags: --json',
+            'vortos:flags:show'     => 'Show full details of a feature flag including all targeting rules. Args: <name>. Flags: --json',
+            'vortos:flags:create'   => 'Create a new feature flag. Args: <name>. Options: --description, --enable',
+            'vortos:flags:enable'   => 'Enable a feature flag globally. Args: <name>.',
+            'vortos:flags:disable'  => 'Disable a feature flag (kill switch — off for everyone instantly). Args: <name>.',
+            'vortos:flags:delete'   => 'Permanently delete a feature flag. Args: <name>.',
+            'vortos:flags:add-rule' => 'Add a targeting rule to a flag. Args: <name>. Options: --type=users|attribute|percentage, --users, --attribute, --operator, --value, --percentage, --clear',
+        ],
+    ],
+
     'mcp' => [
         'description' => 'MCP server for AI-assisted Vortos development. Exposes framework and project knowledge as MCP tools.',
         'provides'    => ['vortos:mcp:serve (stdio MCP server)', 'vortos:mcp:install (client config writer)', 'vortos:mcp:doctor (status check)'],

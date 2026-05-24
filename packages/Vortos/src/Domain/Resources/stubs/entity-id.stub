@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace {{Namespace}}\Domain\Entity;
+namespace {{Namespace}};
 
 use Vortos\Domain\Identity\AggregateId;
 

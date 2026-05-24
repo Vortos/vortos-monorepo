@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Foundation\Module\ModulePathResolver;
+use Vortos\Make\Command\MakeAggregateCommand;
 use Vortos\Make\Command\MakeAuthorizationPolicyCommand;
 use Vortos\Make\Command\MakeConsumerCommand;
 use Vortos\Make\Command\MakeContextCommand;
@@ -61,6 +62,7 @@ final class MakeExtension extends Extension
 
         $commands = [
             MakeContextCommand::class,
+            MakeAggregateCommand::class,
             MakeEntityCommand::class,
             MakeValueObjectCommand::class,
             MakeDomainEventCommand::class,

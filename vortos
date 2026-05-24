@@ -176,14 +176,15 @@ function commandSections(): array
         'Scaffolding' => [
             'description' => 'DDD/CQRS generators',
             'commands' => [
-                'make:context Name'                    => 'Scaffold a full bounded context',
-                'make:entity Name -c Ctx'              => 'Entity + EntityId + RepositoryInterface',
-                'make:command Name -c Ctx'             => 'CQRS command + handler',
-                'make:query Name -c Ctx'               => 'CQRS query + handler',
-                'make:consumer Name -c Ctx'            => 'Kafka event handler',
-                'make:domain-event Name -c Ctx'        => 'Domain event',
-                'make:domain-exception Name -c Ctx'    => 'Domain exception',
-                'make:value-object Name -c Ctx'        => 'Value object',
+                'make:context Name'                         => 'Scaffold a full bounded context',
+                'make:aggregate Name -c Ctx'                => 'Aggregate root + AggregateId + repository interface',
+                'make:entity Name --aggregate=Agg -c Ctx'   => 'Child entity + EntityId within an aggregate',
+                'make:command Name -c Ctx'                  => 'CQRS command + handler',
+                'make:query Name -c Ctx'                    => 'CQRS query + handler',
+                'make:consumer Name -c Ctx'                 => 'Kafka event handler',
+                'make:domain-event Name --aggregate=Agg'    => 'Domain event',
+                'make:domain-error Name --aggregate=Agg'    => 'Domain error with HTTP status mapping',
+                'make:value-object Name --aggregate=Agg'    => 'Value object (use --shared for cross-aggregate VOs)',
                 'make:controller Name -c Ctx'          => 'HTTP controller + request',
                 'make:write-repository Agg -c Ctx'     => 'Postgres write repository',
                 'make:read-repository Agg -c Ctx'      => 'Mongo read repository',
@@ -355,14 +356,15 @@ function showHelp(): void
     echo PHP_EOL;
 
     echo bold('Scaffold  ' . dim('(php vortos make:* -c Context)')) . PHP_EOL;
-    echo $b('make:context Name',                'Scaffold a full bounded context');
-    echo $b('make:entity Name -c Ctx',          'Entity + EntityId + RepositoryInterface');
-    echo $b('make:command Name -c Ctx',         'CQRS command + handler');
-    echo $b('make:query Name -c Ctx',           'CQRS query + handler');
-    echo $b('make:consumer Name -c Ctx',        'Kafka event handler');
-    echo $b('make:domain-event Name -c Ctx',    'Domain event');
-    echo $b('make:domain-exception Name -c Ctx','Domain exception');
-    echo $b('make:value-object Name -c Ctx',    'Value object');
+    echo $b('make:context Name',                        'Scaffold a full bounded context');
+    echo $b('make:aggregate Name -c Ctx',               'Aggregate root + AggregateId + repository interface');
+    echo $b('make:entity Name --aggregate=Agg -c Ctx',  'Child entity + EntityId within an aggregate');
+    echo $b('make:command Name -c Ctx',                 'CQRS command + handler');
+    echo $b('make:query Name -c Ctx',                   'CQRS query + handler');
+    echo $b('make:consumer Name -c Ctx',                'Kafka event handler');
+    echo $b('make:domain-event Name --aggregate=Agg',   'Domain event');
+    echo $b('make:domain-error Name --aggregate=Agg',   'Domain error with HTTP status mapping');
+    echo $b('make:value-object Name --aggregate=Agg',   'Value object (--shared for cross-aggregate VOs)');
     echo $b('make:controller Name -c Ctx',      'HTTP controller + request');
     echo $b('make:write-repository Agg -c Ctx', 'Postgres write repository');
     echo $b('make:read-repository Agg -c Ctx',  'Mongo read repository');

@@ -63,6 +63,21 @@ services:
     env_file:
       - ./.env
 
+  read_pg:
+    image: postgres:18-alpine
+    ports:
+      - 5433:5432
+    volumes:
+      - read_pg_data:/var/lib/postgresql
+    networks:
+      - vortos-net
+    environment:
+      POSTGRES_USER:     ${VORTOS_READ_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${VORTOS_READ_DB_PASSWORD}
+      POSTGRES_DB:       ${VORTOS_READ_DB_NAME}
+    env_file:
+      - ./.env
+
   kafka:
     image: apache/kafka:latest
     environment:
@@ -108,6 +123,7 @@ networks:
 volumes:
   write_db_data:
   read_db_data:
+  read_pg_data:
   redis_data:
   caddy_data:
   caddy_config:

@@ -570,6 +570,7 @@ final class SetupCommandTest extends TestCase
         $compose = (string) file_get_contents($this->projectDir . '/docker-compose.yaml');
 
         $this->assertStringNotContainsString('  read_db:', $compose);
+        $this->assertStringNotContainsString('  read_pg:', $compose);
         $this->assertStringNotContainsString('  redis:', $compose);
         $this->assertStringNotContainsString('  kafka:', $compose);
         $this->assertStringNotContainsString('  worker:', $compose);
@@ -643,7 +644,7 @@ final class SetupCommandTest extends TestCase
         $this->assertSame('custom', $state['profile']);
         $this->assertSame('local', $state['preset']);
         $this->assertSame('local-postgres', $state['database']);
-        $this->assertFalse($state['mongo']);
+        $this->assertSame('none', $state['read_db']);
         $this->assertSame('in-memory', $state['cache']);
         $this->assertSame('in-memory', $state['messaging']);
         $this->assertFalse($state['mcp']);
@@ -681,7 +682,7 @@ final class SetupCommandTest extends TestCase
         $this->assertSame('docker-phpfpm', $state['preset']);
         $this->assertSame('phpfpm', $state['runtime']);
         $this->assertSame('docker-postgres', $state['database']);
-        $this->assertTrue($state['mongo']);
+        $this->assertSame('mongo', $state['read_db']);
         $this->assertSame('redis', $state['cache']);
         $this->assertSame('kafka', $state['messaging']);
         $this->assertSame('normal', $state['observability']);

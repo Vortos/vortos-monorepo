@@ -39,7 +39,8 @@
     "symfony/validator": "^7.0",
     "open-telemetry/sdk": "^1.0",
     "open-telemetry/exporter-otlp": "^1.0",
-    "guzzlehttp/guzzle": "^7.0"
+    "guzzlehttp/guzzle": "^7.0",
+    "aws/aws-sdk-php": "^3.382"
   },
   "require-dev": {
     "vortos/vortos-make": "@dev",
@@ -62,7 +63,8 @@
       "Vortos\\Config\\": "packages/Vortos/src/Config/",
       "Vortos\\Security\\": "packages/Vortos/src/Security/",
       "Vortos\\Mcp\\": "packages/Vortos/src/Mcp/",
-      "Vortos\\Observability\\": "packages/Vortos/src/Observability/"
+      "Vortos\\Observability\\": "packages/Vortos/src/Observability/",
+      "Vortos\\Ses\\": "packages/Vortos/src/Ses/"
     }
   },
   "autoload-dev": {

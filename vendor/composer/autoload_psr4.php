@@ -9,6 +9,7 @@ return array(
     'Vortos\\Tracing\\' => array($vendorDir . '/vortos/vortos-tracing'),
     'Vortos\\Tests\\' => array($baseDir . '/packages/Vortos/Tests'),
     'Vortos\\Setup\\' => array($baseDir . '/packages/Vortos/src/Setup'),
+    'Vortos\\Ses\\' => array($baseDir . '/packages/Vortos/src/Ses'),
     'Vortos\\Security\\' => array($baseDir . '/packages/Vortos/src/Security'),
     'Vortos\\Persistence\\' => array($vendorDir . '/vortos/vortos-persistence'),
     'Vortos\\PersistenceOrm\\' => array($baseDir . '/packages/Vortos/src/PersistenceOrm'),
@@ -93,6 +94,7 @@ return array(
     'Monolog\\' => array($vendorDir . '/monolog/monolog/src/Monolog'),
     'MongoDB\\' => array($vendorDir . '/mongodb/mongodb/src'),
     'Koco\\Kafka\\' => array($vendorDir . '/koco/messenger-kafka/src'),
+    'JmesPath\\' => array($vendorDir . '/mtdowling/jmespath.php/src'),
     'Http\\Discovery\\' => array($vendorDir . '/php-http/discovery/src'),
     'GuzzleHttp\\Psr7\\' => array($vendorDir . '/guzzlehttp/psr7/src'),
     'GuzzleHttp\\Promise\\' => array($vendorDir . '/guzzlehttp/promises/src'),
@@ -114,6 +116,7 @@ return array(
     'DeepCopy\\' => array($vendorDir . '/myclabs/deep-copy/src/DeepCopy'),
     'Composer\\Semver\\' => array($vendorDir . '/composer/semver/src'),
     'Brick\\Math\\' => array($vendorDir . '/brick/math/src'),
+    'Aws\\' => array($vendorDir . '/aws/aws-sdk-php/src'),
     'App\\Migrations\\' => array($baseDir . '/migrations'),
     'App\\' => array($baseDir . '/src'),
 );

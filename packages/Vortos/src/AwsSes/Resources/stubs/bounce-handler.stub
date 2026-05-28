@@ -1,0 +1,24 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure\Email;
+
+use Psr\Log\LoggerInterface;
+use Vortos\AwsSes\Contract\BounceHandlerInterface;
+use Vortos\AwsSes\Webhook\BounceNotification;
+
+final class {{ClassName}}BounceHandler implements BounceHandlerInterface
+{
+    public function __construct(private readonly LoggerInterface $logger)
+    {}
+
+    public function handle(BounceNotification $notification): void
+    {
+        // TODO: handle the bounce
+        // $notification->recipient()->address() — the bounced address
+        // $notification->isHardBounce()         — true for Permanent bounces
+        // $notification->bounceType()            — BounceType enum
+        // $notification->diagnosticCode()        — SMTP diagnostic message
+    }
+}

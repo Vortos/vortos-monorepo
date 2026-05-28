@@ -13,6 +13,14 @@ use Vortos\Messaging\DependencyInjection\VortosMessagingConfig;
 // registered per-consumer using #[AsConsumer] attributes.
 //
 // For per-environment overrides create config/{env}/messaging.php.
+//
+// Service guarantees are explicit by injected type:
+// - EventBusInterface:
+//     transactional outbox, active CommandBus transaction required.
+// - StandaloneEventBusInterface:
+//     standalone async outbox, opens a short transaction for the outbox row only.
+// - ProducerInterface:
+//     direct broker producer path, no outbox.
 
 return static function (VortosMessagingConfig $config): void {
     // Transactional outbox — guarantees at-least-once delivery by writing

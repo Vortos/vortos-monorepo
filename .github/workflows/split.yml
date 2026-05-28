@@ -85,6 +85,10 @@ jobs:
             split_repository: 'vortos-mcp'
           - local_path: 'packages/Vortos/src/Observability'
             split_repository: 'vortos-observability'
+          - local_path: 'packages/Vortos/src/AwsSes'
+            split_repository: 'vortos-aws-ses'
+          - local_path: 'packages/Vortos/src/ObjectStore'
+            split_repository: 'vortos-object-store'
 
     steps:
       - uses: actions/checkout@v4

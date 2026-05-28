@@ -47,13 +47,13 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Tracing\\' => 15,
             'Vortos\\Tests\\' => 13,
             'Vortos\\Setup\\' => 13,
-            'Vortos\\Ses\\' => 11,
             'Vortos\\Security\\' => 16,
             'Vortos\\Persistence\\' => 19,
             'Vortos\\PersistenceOrm\\' => 22,
             'Vortos\\PersistenceMongo\\' => 24,
             'Vortos\\PersistenceDbal\\' => 23,
             'Vortos\\Observability\\' => 21,
+            'Vortos\\ObjectStore\\' => 19,
             'Vortos\\Migration\\' => 17,
             'Vortos\\Metrics\\' => 15,
             'Vortos\\Messaging\\' => 17,
@@ -69,6 +69,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Cqrs\\' => 12,
             'Vortos\\Config\\' => 14,
             'Vortos\\Cache\\' => 13,
+            'Vortos\\AwsSes\\' => 14,
             'Vortos\\Authorization\\' => 21,
             'Vortos\\Auth\\' => 12,
         ),
@@ -218,10 +219,6 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Setup',
         ),
-        'Vortos\\Ses\\' =>
-        array (
-            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Ses',
-        ),
         'Vortos\\Security\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Security',
@@ -245,6 +242,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Observability\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Observability',
+        ),
+        'Vortos\\ObjectStore\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/ObjectStore',
         ),
         'Vortos\\Migration\\' =>
         array (
@@ -305,6 +306,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Cache\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-cache',
+        ),
+        'Vortos\\AwsSes\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/AwsSes',
         ),
         'Vortos\\Authorization\\' =>
         array (

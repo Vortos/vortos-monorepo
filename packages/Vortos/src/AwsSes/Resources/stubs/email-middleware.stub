@@ -1,0 +1,21 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure\Email;
+
+use Vortos\AwsSes\Attribute\AsEmailMiddleware;
+use Vortos\AwsSes\Contract\EmailMiddlewareInterface;
+use Vortos\AwsSes\ValueObject\Email;
+use Vortos\AwsSes\ValueObject\SentEmail;
+
+#[AsEmailMiddleware(priority: {{Priority}})]
+final class {{ClassName}}Middleware implements EmailMiddlewareInterface
+{
+    public function process(Email $email, callable $next): SentEmail
+    {
+        // TODO: add your middleware logic here
+
+        return $next($email);
+    }
+}

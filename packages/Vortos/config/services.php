@@ -112,6 +112,8 @@ return static function (ContainerConfigurator $configurator): void {
         '../src/Security/',
         '../src/Mcp/',
         '../src/Observability/',
+        '../src/AwsSes/',
+        '../src/ObjectStore/',
         ]);
 
     $services->set(ModulePathResolver::class)

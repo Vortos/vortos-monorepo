@@ -1,0 +1,22 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure\Email;
+
+use Psr\Log\LoggerInterface;
+use Vortos\AwsSes\Contract\ComplaintHandlerInterface;
+use Vortos\AwsSes\Webhook\ComplaintNotification;
+
+final class {{ClassName}}ComplaintHandler implements ComplaintHandlerInterface
+{
+    public function __construct(private readonly LoggerInterface $logger)
+    {}
+
+    public function handle(ComplaintNotification $notification): void
+    {
+        // TODO: handle the complaint
+        // $notification->recipient()->address()      — the complained address
+        // $notification->complaintFeedbackType()     — 'abuse', 'fraud', 'virus', 'other', or null
+    }
+}

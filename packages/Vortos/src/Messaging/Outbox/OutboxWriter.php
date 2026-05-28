@@ -11,6 +11,7 @@ use Vortos\Domain\Event\EventEnvelope;
 use Vortos\Messaging\Contract\OutboxInterface;
 use Vortos\Messaging\Outbox\Exception\OutboxWriteException;
 use Vortos\Messaging\Serializer\SerializerLocator;
+use Vortos\Persistence\Transaction\ActiveTransactionGuard;
 
 /**
  * Writes event envelopes to the outbox table within the caller's active
@@ -30,10 +31,13 @@ final class OutboxWriter implements OutboxInterface
         private Connection $connection,
         private SerializerLocator $serializerLocator,
         private string $table = 'vortos_outbox',
+        private ?ActiveTransactionGuard $transactionGuard = null,
     ) {}
 
     public function store(EventEnvelope $envelope, string $transportName): void
     {
+        $this->guard()->assertActive('Messaging transactional outbox write', \Vortos\Messaging\Contract\StandaloneEventBusInterface::class, \Vortos\Messaging\Contract\ProducerInterface::class);
+
         try {
             $id = new UuidV7()->toRfc4122();
             $serializer = $this->serializerLocator->locate('json');
@@ -82,5 +86,10 @@ final class OutboxWriter implements OutboxInterface
                 $e,
             );
         }
+    }
+
+    private function guard(): ActiveTransactionGuard
+    {
+        return $this->transactionGuard ??= new ActiveTransactionGuard($this->connection);
     }
 }

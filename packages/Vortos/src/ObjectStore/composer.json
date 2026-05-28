@@ -1,0 +1,30 @@
+{
+    "name": "vortos/vortos-object-store",
+    "description": "Vortos object storage — S3-compatible storage with first-class Cloudflare R2 defaults",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\ObjectStore\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-logger": "^1.0",
+        "vortos/vortos-persistence": "^1.0",
+        "aws/aws-sdk-php": "^3.0",
+        "doctrine/dbal": "^4.4"
+    },
+    "suggest": {
+        "vortos/vortos-tracing": "Required for object-store tracing middleware",
+        "vortos/vortos-metrics": "Required for object-store metrics middleware",
+        "vortos/vortos-docker": "Required for vortos:worker:* supervisor management commands"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\ObjectStore\\DependencyInjection\\ObjectStorePackage",
+            "order": 90
+        }
+    }
+}

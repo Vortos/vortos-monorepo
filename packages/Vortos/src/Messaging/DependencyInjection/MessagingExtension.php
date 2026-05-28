@@ -9,6 +9,7 @@ use Vortos\Messaging\Attribute\AsMiddleware;
 use Vortos\Messaging\Attribute\MessagingConfig;
 use Vortos\Messaging\Attribute\RegisterTransport;
 use Vortos\Messaging\Bus\EventBus;
+use Vortos\Messaging\Bus\StandaloneEventBus;
 use Vortos\Messaging\Contract\ConsumerInterface;
 use Vortos\Messaging\Contract\ConsumerLocatorInterface;
 use Vortos\Messaging\Contract\EventBusInterface;
@@ -16,6 +17,7 @@ use Vortos\Messaging\Contract\OutboxInterface;
 use Vortos\Messaging\Contract\OutboxPollerInterface;
 use Vortos\Messaging\Contract\PayloadSanitizerInterface;
 use Vortos\Messaging\Contract\ProducerInterface;
+use Vortos\Messaging\Contract\StandaloneEventBusInterface;
 use Vortos\Messaging\DeadLetter\DeadLetterWriter;
 use Vortos\Messaging\DeadLetter\NullPayloadSanitizer;
 use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryBroker;
@@ -120,6 +122,7 @@ final class MessagingExtension extends Extension
         $this->registerKafkaDrivers($container);
         $this->registerEventBus($container);
         $this->registerSyncProjectionDecorator($container, $env);
+        $this->registerStandaloneEventBus($container);
         $this->registerConsumerRunner($container, $resolvedConfig['consumer_defaults']['idempotency_ttl']);
         $this->registerCLICommands($container);
         $this->registerDefaultDriverInterfaces($container, $resolvedConfig['driver']);
@@ -313,6 +316,17 @@ final class MessagingExtension extends Extension
                 ->setPublic(true)
                 ->addTag('console.command');
         }
+
+        if (class_exists(\Vortos\Docker\Worker\WorkerProcessDefinition::class)) {
+            $container->register('vortos_messaging.worker.outbox_relay', \Vortos\Docker\Worker\WorkerProcessDefinition::class)
+                ->setArguments([
+                    'messaging-outbox-relay',
+                    'php /var/www/html/bin/console vortos:outbox:relay',
+                    'Relay pending messaging outbox events.',
+                ])
+                ->addTag('vortos.worker')
+                ->setPublic(false);
+        }
     }
 
     private function registerConsumerRunner(ContainerBuilder $container, int $defaultIdempotencyTtl): void
@@ -375,6 +389,20 @@ final class MessagingExtension extends Extension
 
         $container->setAlias(EventBusInterface::class, SyncProjectionEventBusDecorator::class)
             ->setPublic(true);
+    }
+
+    private function registerStandaloneEventBus(ContainerBuilder $container): void
+    {
+        $container->register(StandaloneEventBus::class, StandaloneEventBus::class)
+            ->setArguments([
+                new Reference(\Doctrine\DBAL\Connection::class),
+                new Reference(EventBusInterface::class),
+            ])
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(StandaloneEventBusInterface::class, StandaloneEventBus::class)
+            ->setPublic(false);
     }
 
     private function registerKafkaDrivers(ContainerBuilder $container): void

@@ -42,13 +42,19 @@ final class MakeAggregateCommand extends Command
         $stubName    = $ormActive ? 'aggregate-orm' : 'aggregate';
         $tableName   = strtolower(preg_replace('/(?<!^)[A-Z]/', '_$0', $name) ?? $name) . 's';
 
-        $aggregateNamespace    = "App\\{$context}\\Domain\\{$name}";
-        $repositoryNamespace   = "App\\{$context}\\Domain\\{$name}\\Repository";
+        $aggregateNamespace  = "App\\{$context}\\Domain\\{$name}";
+        $valueObjectNamespace = "App\\{$context}\\Domain\\{$name}\\ValueObject";
+        $repositoryNamespace  = "App\\{$context}\\Domain\\{$name}\\Repository";
 
         $vars = [
             'Namespace' => $aggregateNamespace,
             'ClassName' => $name,
             'TableName' => $tableName,
+        ];
+
+        $idVars = [
+            'Namespace' => $valueObjectNamespace,
+            'ClassName' => $name,
         ];
 
         $repoVars = [
@@ -66,7 +72,7 @@ final class MakeAggregateCommand extends Command
         }
 
         $this->engine->write("{$context}/Domain/{$name}/{$name}.php", $this->engine->render($stubName, $vars), $output);
-        $this->engine->write("{$context}/Domain/{$name}/{$name}Id.php", $this->engine->render('entity-id', $vars), $output);
+        $this->engine->write("{$context}/Domain/{$name}/ValueObject/{$name}Id.php", $this->engine->render('entity-id', $idVars), $output);
         $this->engine->write("{$context}/Domain/{$name}/Repository/{$name}RepositoryInterface.php", $this->engine->render('repository-interface', $repoVars), $output);
 
         $output->writeln('');

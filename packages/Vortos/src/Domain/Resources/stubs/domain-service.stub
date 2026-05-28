@@ -1,0 +1,15 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}};
+
+use Vortos\Domain\Attribute\AsDomainService;
+
+#[AsDomainService]
+final class {{ClassName}}
+{
+    public function __construct(
+        // inject domain dependencies here
+    ) {}
+}

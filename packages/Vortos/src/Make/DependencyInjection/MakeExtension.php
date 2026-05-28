@@ -16,6 +16,7 @@ use Vortos\Make\Command\MakeCqrsCommandCommand;
 use Vortos\Make\Command\MakeControllerCommand;
 use Vortos\Make\Command\MakeDomainEventCommand;
 use Vortos\Make\Command\MakeDomainErrorCommand;
+use Vortos\Make\Command\MakeDomainServiceCommand;
 use Vortos\Make\Command\MakeEntityCommand;
 use Vortos\Make\Command\MakeFeaturePolicyCommand;
 use Vortos\Make\Command\MakeHookCommand;
@@ -67,6 +68,7 @@ final class MakeExtension extends Extension
             MakeValueObjectCommand::class,
             MakeDomainEventCommand::class,
             MakeDomainErrorCommand::class,
+            MakeDomainServiceCommand::class,
             MakeCqrsCommandCommand::class,
             MakeQueryCommand::class,
             MakeProjectionHandlerCommand::class,

@@ -54,10 +54,16 @@ final class MakeEntityCommand extends Command
         $ormActive   = $ormDetected && !$noOrm;
         $stubName    = $ormActive ? 'entity-child-orm' : 'entity';
 
-        $namespace = "App\\{$context}\\Domain\\{$aggregate}\\Entities";
+        $entityNamespace = "App\\{$context}\\Domain\\{$aggregate}\\Entity";
+        $idNamespace     = "App\\{$context}\\Domain\\{$aggregate}\\ValueObject";
 
         $vars = [
-            'Namespace' => $namespace,
+            'Namespace' => $entityNamespace,
+            'ClassName' => $name,
+        ];
+
+        $idVars = [
+            'Namespace' => $idNamespace,
             'ClassName' => $name,
         ];
 
@@ -71,8 +77,8 @@ final class MakeEntityCommand extends Command
             $output->writeln('');
         }
 
-        $this->engine->write("{$context}/Domain/{$aggregate}/Entities/{$name}.php", $this->engine->render($stubName, $vars), $output);
-        $this->engine->write("{$context}/Domain/{$aggregate}/Entities/{$name}Id.php", $this->engine->render('entity-id', $vars), $output);
+        $this->engine->write("{$context}/Domain/{$aggregate}/Entity/{$name}.php", $this->engine->render($stubName, $vars), $output);
+        $this->engine->write("{$context}/Domain/{$aggregate}/ValueObject/{$name}Id.php", $this->engine->render('entity-id', $idVars), $output);
 
         return Command::SUCCESS;
     }

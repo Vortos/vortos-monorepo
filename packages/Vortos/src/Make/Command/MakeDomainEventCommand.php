@@ -45,24 +45,22 @@ final class MakeDomainEventCommand extends Command
             return Command::FAILURE;
         }
 
-        $className = $name . 'Event';
-
         $vars = [
             'Namespace' => "App\\{$context}\\Domain\\{$aggregate}\\Event",
-            'ClassName' => $className,
+            'ClassName' => $name,
         ];
 
         $output->writeln("<info>vortos:make:domain-event</info> {$name} --context={$context} --aggregate={$aggregate}");
         $output->writeln('');
 
         $this->engine->write(
-            "{$context}/Domain/{$aggregate}/Event/{$className}.php",
+            "{$context}/Domain/{$aggregate}/Event/{$name}.php",
             $this->engine->render('domain-event', $vars),
             $output,
         );
 
         $output->writeln('');
-        $output->writeln(sprintf('Next: record in your aggregate — <info>$this->recordEvent(new %s(...))</info>', $className));
+        $output->writeln(sprintf('Next: record in your aggregate — <info>$this->recordEvent(new %s(...))</info>', $name));
 
         return Command::SUCCESS;
     }

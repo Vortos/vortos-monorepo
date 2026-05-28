@@ -64,7 +64,8 @@
       "Vortos\\Security\\": "packages/Vortos/src/Security/",
       "Vortos\\Mcp\\": "packages/Vortos/src/Mcp/",
       "Vortos\\Observability\\": "packages/Vortos/src/Observability/",
-      "Vortos\\Ses\\": "packages/Vortos/src/Ses/"
+      "Vortos\\AwsSes\\": "packages/Vortos/src/AwsSes/",
+      "Vortos\\ObjectStore\\": "packages/Vortos/src/ObjectStore/"
     }
   },
   "autoload-dev": {

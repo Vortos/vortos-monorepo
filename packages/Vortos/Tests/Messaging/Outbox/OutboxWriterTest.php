@@ -12,6 +12,7 @@ use Vortos\Domain\Event\Metadata;
 use Vortos\Messaging\Contract\SerializerInterface;
 use Vortos\Messaging\Outbox\OutboxWriter;
 use Vortos\Messaging\Serializer\SerializerLocator;
+use Vortos\Persistence\Transaction\TransactionRequiredException;
 
 // Pure POPO payload
 final readonly class WriterTestPayload
@@ -41,6 +42,7 @@ final class OutboxWriterTest extends TestCase
 
     private function makeWriter(Connection $connection): OutboxWriter
     {
+        $connection->method('isTransactionActive')->willReturn(true);
         $serializer = new class implements SerializerInterface {
             public function supports(string $format): bool { return true; }
             public function serialize(object $payload): string { return '{"serialized":true}'; }
@@ -190,5 +192,24 @@ final class OutboxWriterTest extends TestCase
 
         $this->assertSame('pending', $captured['status']);
         $this->assertSame(0, $captured['attempt_count']);
+    }
+
+    public function test_store_requires_active_transaction(): void
+    {
+        $connection = $this->createMock(Connection::class);
+        $connection->method('isTransactionActive')->willReturn(false);
+        $connection->expects($this->never())->method('insert');
+
+        $serializer = new class implements SerializerInterface {
+            public function supports(string $format): bool { return true; }
+            public function serialize(object $payload): string { return '{"serialized":true}'; }
+            public function deserialize(string $payload, string $payloadClass): object { return new \stdClass(); }
+        };
+
+        $this->expectException(TransactionRequiredException::class);
+        (new OutboxWriter($connection, new SerializerLocator([$serializer])))->store(
+            $this->makeEnvelope(new WriterTestPayload('u1', 'u@x.com')),
+            'user.events',
+        );
     }
 }

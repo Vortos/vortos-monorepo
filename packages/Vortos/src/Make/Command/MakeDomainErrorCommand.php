@@ -29,6 +29,7 @@ final class MakeDomainErrorCommand extends Command
             ->addArgument('name', InputArgument::REQUIRED, 'Error name without "Error" suffix (e.g. UserNotFound)')
             ->addOption('context', 'c', InputOption::VALUE_REQUIRED, 'Bounded context folder (e.g. User)')
             ->addOption('aggregate', 'a', InputOption::VALUE_REQUIRED, 'Aggregate root this error belongs to (e.g. User)')
+            ->addOption('shared', null, InputOption::VALUE_NONE, 'Generate into Domain/Shared/Error/ — shared across aggregates in this context')
             ->addOption('status', 's', InputOption::VALUE_REQUIRED, 'HTTP status code', '422');
     }
 
@@ -36,32 +37,47 @@ final class MakeDomainErrorCommand extends Command
     {
         $name      = (string) $input->getArgument('name');
         $aggregate = (string) $input->getOption('aggregate');
+        $shared    = (bool) $input->getOption('shared');
         $context   = (string) ($input->getOption('context') ?: $aggregate);
         $status    = (string) $input->getOption('status');
 
-        if ($aggregate === '') {
-            $output->writeln('<error>--aggregate is required.</error>');
+        if ($aggregate === '' && !$shared) {
+            $output->writeln('<error>Provide --aggregate or --shared.</error>');
             $output->writeln('');
-            $output->writeln('  Provide the aggregate root this error belongs to:');
-            $output->writeln('  <info>--aggregate=TrainingSession</info>   Error lives inside the TrainingSession aggregate boundary.');
+            $output->writeln('  <info>--aggregate=<name></info>   The error belongs to one aggregate.');
+            $output->writeln('                       Generates into <comment>Domain/{Aggregate}/Error/</comment>');
+            $output->writeln('');
+            $output->writeln('  <info>--shared</info>             The error is shared across aggregates in this context.');
+            $output->writeln('                       Generates into <comment>Domain/Shared/Error/</comment>');
             return Command::FAILURE;
         }
 
+        if ($aggregate !== '' && $shared) {
+            $output->writeln('<error>--aggregate and --shared are mutually exclusive. Provide only one.</error>');
+            return Command::FAILURE;
+        }
+
+        if ($shared) {
+            $namespace = "App\\{$context}\\Domain\\Shared\\Error";
+            $path      = "{$context}/Domain/Shared/Error/{$name}Error.php";
+            $label     = '--shared';
+        } else {
+            $namespace = "App\\{$context}\\Domain\\{$aggregate}\\Error";
+            $path      = "{$context}/Domain/{$aggregate}/Error/{$name}Error.php";
+            $label     = "--aggregate={$aggregate}";
+        }
+
         $vars = [
-            'Namespace'  => "App\\{$context}\\Domain\\{$aggregate}\\Error",
+            'Namespace'  => $namespace,
             'ClassName'  => $name,
             'HttpStatus' => $status,
             'ErrorCode'  => $this->toErrorCode($name),
         ];
 
-        $output->writeln("<info>vortos:make:domain-error</info> {$name} --context={$context} --aggregate={$aggregate} --status={$status}");
+        $output->writeln("<info>vortos:make:domain-error</info> {$name} --context={$context} {$label} --status={$status}");
         $output->writeln('');
 
-        $this->engine->write(
-            "{$context}/Domain/{$aggregate}/Error/{$name}Error.php",
-            $this->engine->render('domain-error', $vars),
-            $output,
-        );
+        $this->engine->write($path, $this->engine->render('domain-error', $vars), $output);
 
         $output->writeln('');
         $output->writeln(sprintf('Next: throw from domain methods — <info>throw %sError::because(\'...\')</info>', $name));

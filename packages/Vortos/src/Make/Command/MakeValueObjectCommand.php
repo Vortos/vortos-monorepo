@@ -67,12 +67,12 @@ final class MakeValueObjectCommand extends Command
         $stubName = $embeddable ? 'value-object-embeddable' : 'value-object';
 
         if ($shared) {
-            $namespace = "App\\{$context}\\Domain\\Shared\\ValueObjects";
-            $path      = "{$context}/Domain/Shared/ValueObjects/{$name}.php";
+            $namespace = "App\\{$context}\\Domain\\Shared\\ValueObject";
+            $path      = "{$context}/Domain/Shared/ValueObject/{$name}.php";
             $label     = '--shared';
         } else {
-            $namespace = "App\\{$context}\\Domain\\{$aggregate}\\ValueObjects";
-            $path      = "{$context}/Domain/{$aggregate}/ValueObjects/{$name}.php";
+            $namespace = "App\\{$context}\\Domain\\{$aggregate}\\ValueObject";
+            $path      = "{$context}/Domain/{$aggregate}/ValueObject/{$name}.php";
             $label     = "--aggregate={$aggregate}";
         }
 

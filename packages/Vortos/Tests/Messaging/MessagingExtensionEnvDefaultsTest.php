@@ -6,7 +6,9 @@ namespace Vortos\Tests\Messaging;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Vortos\Messaging\Bus\StandaloneEventBus;
 use Vortos\Messaging\Contract\ProducerInterface;
+use Vortos\Messaging\Contract\StandaloneEventBusInterface;
 use Vortos\Messaging\DependencyInjection\MessagingExtension;
 use Vortos\Messaging\Driver\Kafka\Runtime\LazyKafkaProducer;
 
@@ -40,5 +42,6 @@ final class MessagingExtensionEnvDefaultsTest extends TestCase
         (new MessagingExtension())->load([], $container);
 
         $this->assertSame(LazyKafkaProducer::class, (string) $container->getAlias(ProducerInterface::class));
+        $this->assertSame(StandaloneEventBus::class, (string) $container->getAlias(StandaloneEventBusInterface::class));
     }
 }

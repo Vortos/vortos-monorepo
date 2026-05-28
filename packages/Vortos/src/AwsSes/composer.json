@@ -1,0 +1,33 @@
+{
+    "name": "vortos/vortos-aws-ses",
+    "description": "Vortos AWS SES email delivery with transactional outbox, suppression lists, webhooks, and observability",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\AwsSes\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-cache": "^1.0",
+        "vortos/vortos-logger": "^1.0",
+        "vortos/vortos-persistence": "^1.0",
+        "aws/aws-sdk-php": "^3.0",
+        "doctrine/dbal": "^4.4",
+        "psr/simple-cache": "^3.0"
+    },
+    "suggest": {
+        "vortos/vortos-tracing": "Required for AWS SES tracing middleware",
+        "vortos/vortos-metrics": "Required for AWS SES metrics middleware",
+        "vortos/vortos-docker": "Required for vortos:worker:* supervisor management commands",
+        "vortos/vortos-make": "Required for vortos:ses:make:* generator commands"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\AwsSes\\DependencyInjection\\AwsSesPackage",
+            "order": 90
+        }
+    }
+}

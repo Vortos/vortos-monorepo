@@ -1,0 +1,15 @@
+; Vortos Object Store — Outbox Relay Worker
+;
+; Prefer managed installation:
+;   php bin/console vortos:worker:install --worker=object-store-outbox-relay
+;
+; Manual supervisor block:
+
+[program:object-store-outbox-relay]
+command=php /var/www/html/bin/console vortos:object-store:relay
+autostart=true
+autorestart=true
+startsecs=3
+stopwaitsecs=30
+stdout_logfile=/var/log/supervisor/object-store-outbox-relay.out.log
+stderr_logfile=/var/log/supervisor/object-store-outbox-relay.err.log

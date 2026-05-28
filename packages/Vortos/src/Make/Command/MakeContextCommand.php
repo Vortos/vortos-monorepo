@@ -18,7 +18,9 @@ use Vortos\Make\Engine\GeneratorEngine;
 final class MakeContextCommand extends Command
 {
     private const array DIRECTORIES = [
-        'Domain/Shared/ValueObjects',
+        'Domain/Shared/ValueObject',
+        'Domain/Shared/Error',
+        'Domain/Shared/Service',
         'Application/Command',
         'Application/Query',
         'Application/EventHandler',

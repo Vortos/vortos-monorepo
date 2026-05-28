@@ -16,7 +16,6 @@ use Vortos\AwsSes\Config\AwsSesObservabilitySection;
 //   AWS_SECRET_ACCESS_KEY
 //   SES_FROM_ADDRESS
 //
-// All other settings have production-ready defaults. Only override what you need.
 // For per-environment overrides create config/{env}/aws_ses.php.
 //
 // Service guarantees are explicit by injected type:

@@ -38,6 +38,8 @@ use Vortos\ObjectStore\DirectUpload\ImmediateDirectUploadManager;
 use Vortos\ObjectStore\DirectUpload\S3DirectUploadManager;
 use Vortos\ObjectStore\DirectUpload\StandaloneDirectUploadManager;
 use Vortos\ObjectStore\DirectUpload\TransactionalOutboxDirectUploadManager;
+use Vortos\ObjectStore\Failover\CircuitBreaker;
+use Vortos\ObjectStore\Failover\CircuitBreakerObjectStore;
 use Vortos\ObjectStore\Driver\Log\LogObjectStore;
 use Vortos\ObjectStore\Driver\ImmediateObjectStore;
 use Vortos\ObjectStore\Driver\Null\NullObjectStore;
@@ -152,13 +154,33 @@ final class ObjectStoreExtension extends Extension
                 ->setPublic(false);
         }
 
-        $driverClass = match ($config['driver']) {
-            's3' => S3CompatibleObjectStore::class,
+        $rawDriverClass = match ($config['driver']) {
+            's3'  => S3CompatibleObjectStore::class,
             'null' => NullObjectStore::class,
             default => LogObjectStore::class,
         };
 
-        $container->setAlias('vortos_object_store.driver', $driverClass)->setPublic(false);
+        if ($config['circuit_breaker']['enabled']) {
+            $container->register(CircuitBreaker::class, CircuitBreaker::class)
+                ->setArguments([
+                    $config['circuit_breaker']['failure_threshold'],
+                    $config['circuit_breaker']['reset_timeout_seconds'],
+                ])
+                ->setShared(true)
+                ->setPublic(false);
+
+            $container->register(CircuitBreakerObjectStore::class, CircuitBreakerObjectStore::class)
+                ->setArguments([
+                    new Reference($rawDriverClass),
+                    new Reference(CircuitBreaker::class),
+                ])
+                ->setShared(true)
+                ->setPublic(false);
+
+            $container->setAlias('vortos_object_store.driver', CircuitBreakerObjectStore::class)->setPublic(false);
+        } else {
+            $container->setAlias('vortos_object_store.driver', $rawDriverClass)->setPublic(false);
+        }
     }
 
     private function registerMiddlewareStack(ContainerBuilder $container, array $config): void
@@ -598,6 +620,9 @@ final class ObjectStoreExtension extends Extension
         $container->setParameter('vortos_object_store.outbox.backoff_base_seconds', $config['outbox']['backoff_base_seconds']);
         $container->setParameter('vortos_object_store.outbox.backoff_cap_seconds', $config['outbox']['backoff_cap_seconds']);
         $container->setParameter('vortos_object_store.outbox.max_inline_payload_bytes', $config['outbox']['max_inline_payload_bytes']);
+        $container->setParameter('vortos_object_store.circuit_breaker.enabled',               $config['circuit_breaker']['enabled']);
+        $container->setParameter('vortos_object_store.circuit_breaker.failure_threshold',     $config['circuit_breaker']['failure_threshold']);
+        $container->setParameter('vortos_object_store.circuit_breaker.reset_timeout_seconds', $config['circuit_breaker']['reset_timeout_seconds']);
         $container->setParameter('vortos_object_store.lifecycle.enabled', $config['lifecycle']['enabled']);
         $container->setParameter('vortos_object_store.lifecycle.manage_temporary_uploads', $config['lifecycle']['manage_temporary_uploads']);
         $container->setParameter('vortos_object_store.lifecycle.rule_id', $config['lifecycle']['rule_id']);

@@ -64,14 +64,16 @@ return static function (VortosObjectStoreConfig $config): void {
     // It never mutates bucket infrastructure during HTTP requests or boot.
     // $config->lifecycle()->enabled(true)->requireConfirmation(true);
 
+    // Circuit breaker — fast-fail when the provider is unavailable instead of
+    // waiting for SDK timeouts. Application exceptions (not found, size limit,
+    // policy violation) do not trip the circuit.
+    // $config->circuitBreaker()->enabled(true)->failureThreshold(5)->resetTimeoutSeconds(60);
+
     // Install the outbox relay worker into Docker supervisor:
     // php bin/console vortos:worker:install --worker=object-store-outbox-relay
 
-    // The framework's logger, tracing, and metrics packages already have no-op
-    // implementations. These flags let applications opt out at this package level.
     // $config->observability()->logging(true)->tracing(true)->metrics(true);
     //
-    // Section-level opt-outs are type-safe. No stringly-typed "presign" values.
     // $config->observability()
     //     ->disableLoggingFor(ObjectStoreObservabilitySection::Presign)
     //     ->disableTracingFor(ObjectStoreObservabilitySection::DirectUpload)

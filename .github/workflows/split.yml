@@ -102,6 +102,6 @@ jobs:
           package_directory: ${{ matrix.package.local_path }}
           repository_organization: 'Vortos'
           repository_name: ${{ matrix.package.split_repository }}
-          user_name: 'vortos-bot'
-          user_email: 'bot@vortos.dev'
+          user_name: 'Sachintha De Silva'
+          user_email: 'yslaksura@gmail.com'
           tag: ${{ github.ref_type == 'tag' && github.ref_name || '' }}

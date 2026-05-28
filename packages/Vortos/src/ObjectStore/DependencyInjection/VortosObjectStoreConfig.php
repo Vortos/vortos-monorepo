@@ -16,6 +16,7 @@ final class VortosObjectStoreConfig
     private ObjectStoreMultipartConfig $multipartConfig;
     private ObjectStoreOutboxConfig $outboxConfig;
     private ObjectStoreLifecycleConfig $lifecycleConfig;
+    private ObjectStoreCircuitBreakerConfig $circuitBreakerConfig;
     private ObjectStoreObservabilityConfig $observabilityConfig;
 
     public function __construct()
@@ -30,6 +31,7 @@ final class VortosObjectStoreConfig
         $this->multipartConfig = new ObjectStoreMultipartConfig();
         $this->outboxConfig = new ObjectStoreOutboxConfig();
         $this->lifecycleConfig = new ObjectStoreLifecycleConfig();
+        $this->circuitBreakerConfig = new ObjectStoreCircuitBreakerConfig();
         $this->observabilityConfig = new ObjectStoreObservabilityConfig();
 
         $this->clientConfig
@@ -112,6 +114,11 @@ final class VortosObjectStoreConfig
         return $this->lifecycleConfig;
     }
 
+    public function circuitBreaker(): ObjectStoreCircuitBreakerConfig
+    {
+        return $this->circuitBreakerConfig;
+    }
+
     public function observability(): ObjectStoreObservabilityConfig
     {
         return $this->observabilityConfig;
@@ -130,8 +137,9 @@ final class VortosObjectStoreConfig
             'audit'     => $this->auditConfig->toArray(),
             'multipart' => $this->multipartConfig->toArray(),
             'outbox' => $this->outboxConfig->toArray(),
-            'lifecycle' => $this->lifecycleConfig->toArray(),
-            'observability' => $this->observabilityConfig->toArray(),
+            'lifecycle'       => $this->lifecycleConfig->toArray(),
+            'circuit_breaker' => $this->circuitBreakerConfig->toArray(),
+            'observability'   => $this->observabilityConfig->toArray(),
         ];
     }
 }

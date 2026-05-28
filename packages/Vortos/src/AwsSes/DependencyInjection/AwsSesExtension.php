@@ -126,18 +126,15 @@ final class AwsSesExtension extends Extension
 
     private function registerDrivers(ContainerBuilder $container, array $c): void
     {
-        // NullMailer — always registered (safe to inject by class in tests)
         $container->register(NullMailer::class, NullMailer::class)
             ->setShared(true)
             ->setPublic(false);
 
-        // LogMailer — always registered
         $container->register(LogMailer::class, LogMailer::class)
             ->setArgument('$logger', new Reference(LoggerInterface::class))
             ->setShared(true)
             ->setPublic(false);
 
-        // SesMailer + SesV2Client — only when driver=ses
         if ($c['driver'] === 'ses') {
             $container->register(SesV2Client::class, SesV2Client::class)
                 ->setFactory([SesClientFactory::class, 'create'])
@@ -167,15 +164,12 @@ final class AwsSesExtension extends Extension
                 ->setShared(true)
                 ->setPublic(false);
 
-            // Also register a fallback SesV2Client for the fallback region if configured
             if ($c['fallback_region'] !== null) {
                 $this->registerFallbackSesClient($container, $c);
             }
         }
 
-        // vortos_aws_ses.driver — the raw transport (not wrapped in middleware stack)
         if ($c['driver'] === 'ses' && $c['fallback_region'] !== null) {
-            // Multi-region: wrap primary + fallback in circuit-breaking failover mailer
             $container->register('vortos_aws_ses.primary_circuit_breaker', CircuitBreaker::class)
                 ->setArguments([
                     $c['circuit_breaker']['failure_threshold'],
@@ -217,7 +211,6 @@ final class AwsSesExtension extends Extension
 
     private function registerMiddlewareStack(ContainerBuilder $container, array $c): void
     {
-        // Autoconfigure: any EmailMiddlewareInterface gets the email_middleware tag automatically
         $container->registerForAutoconfiguration(EmailMiddlewareInterface::class)
             ->addTag('vortos_aws_ses.email_middleware');
 
@@ -256,7 +249,6 @@ final class AwsSesExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        // EmailMiddlewareStack wraps all middleware around the raw driver
         // MiddlewareCompilerPass populates $middlewares in priority order
         $container->register(EmailMiddlewareStack::class, EmailMiddlewareStack::class)
             ->setArgument('$driver', new Reference('vortos_aws_ses.driver'))
@@ -279,13 +271,11 @@ final class AwsSesExtension extends Extension
 
     private function registerBounceAndComplaint(ContainerBuilder $container): void
     {
-        // Autoconfigure
         $container->registerForAutoconfiguration(BounceHandlerInterface::class)
             ->addTag('vortos_aws_ses.bounce_handler');
         $container->registerForAutoconfiguration(ComplaintHandlerInterface::class)
             ->addTag('vortos_aws_ses.complaint_handler');
 
-        // Auto-suppression handlers (always registered — needed by the runners)
         $container->register(AutoSuppressionBounceHandler::class, AutoSuppressionBounceHandler::class)
             ->setArgument('$suppressionList', new Reference(SuppressionListInterface::class))
             ->setArgument('$logger', new Reference(LoggerInterface::class))
@@ -333,7 +323,6 @@ final class AwsSesExtension extends Extension
     private function registerOutbox(ContainerBuilder $container, array $c): void
     {
         if (!$c['outbox']['enabled']) {
-            // Outbox disabled: MailerInterface → sending stack directly (synchronous)
             $container->setAlias(MailerInterface::class, EmailMiddlewareStack::class)->setPublic(false);
             return;
         }
@@ -346,13 +335,11 @@ final class AwsSesExtension extends Extension
 
         $container->setAlias(EmailOutboxWriterInterface::class, EmailOutboxWriter::class)->setPublic(false);
 
-        // TransactionalOutboxMailer: MailerInterface::send() writes to DB and returns immediately.
         $container->register(TransactionalOutboxMailer::class, TransactionalOutboxMailer::class)
             ->setArgument('$writer', new Reference(EmailOutboxWriterInterface::class))
             ->setShared(true)
             ->setPublic(false);
 
-        // Outbox enabled: MailerInterface → TransactionalOutboxMailer (pit of success)
         $container->setAlias(MailerInterface::class, TransactionalOutboxMailer::class)->setPublic(false);
 
         $container->register(StandaloneMailer::class, StandaloneMailer::class)
@@ -465,7 +452,6 @@ final class AwsSesExtension extends Extension
 
     private function registerSuppression(ContainerBuilder $container, array $c): void
     {
-        // DbalSuppressionList — always registered; needs DBAL Connection
         $container->register(DbalSuppressionList::class, DbalSuppressionList::class)
             ->setArgument('$connection', new Reference(\Doctrine\DBAL\Connection::class))
             ->setArgument('$tableName',  $c['suppression']['table_name'])
@@ -474,7 +460,6 @@ final class AwsSesExtension extends Extension
 
         $container->setAlias(SuppressionListInterface::class, DbalSuppressionList::class)->setPublic(false);
 
-        // SuppressionCheckMiddleware — wired with config-driven OnSuppressed enum value
         $onSuppressed = OnSuppressed::from($c['suppression']['on_suppressed']);
 
         $container->register(SuppressionCheckMiddleware::class, SuppressionCheckMiddleware::class)
@@ -484,7 +469,6 @@ final class AwsSesExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        // SuppressionSyncCommand — only registered when driver=ses (needs SesV2Client)
         if ($c['driver'] === 'ses') {
             $container->register(SuppressionSyncCommand::class, SuppressionSyncCommand::class)
                 ->setArgument('$client',          new Reference(SesV2Client::class))
@@ -497,7 +481,6 @@ final class AwsSesExtension extends Extension
 
     private function registerObservability(ContainerBuilder $container, array $c): void
     {
-        // AuditLogMiddleware — only when audit_log.enabled=true
         if ($c['audit_log']['enabled']) {
             $container->register(AuditLogMiddleware::class, AuditLogMiddleware::class)
                 ->setArguments([
@@ -510,7 +493,6 @@ final class AwsSesExtension extends Extension
                 ->setPublic(false);
         }
 
-        // vortos:ses:quota — only when driver=ses (needs SesV2Client)
         if ($c['driver'] === 'ses') {
             $container->register(SesQuotaCommand::class, SesQuotaCommand::class)
                 ->setArgument('$client', new Reference(SesV2Client::class))
@@ -519,7 +501,6 @@ final class AwsSesExtension extends Extension
                 ->setPublic(false);
         }
 
-        // vortos:ses:send:test — always available (uses active MailerInterface)
         $container->register(SesSendTestCommand::class, SesSendTestCommand::class)
             ->setArguments([
                 new Reference(MailerInterface::class),
@@ -529,7 +510,6 @@ final class AwsSesExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        // vortos:ses:suppression:list — always available
         $container->register(SesSuppressionListCommand::class, SesSuppressionListCommand::class)
             ->setArgument('$suppressionList', new Reference(SuppressionListInterface::class))
             ->addTag('console.command')

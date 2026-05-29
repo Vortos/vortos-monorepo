@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\PersistenceOrm\Write;
 
+use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\ConnectionException as DbalConnectionException;
 use Doctrine\DBAL\Exception\DeadlockException as DbalDeadlockException;
 use Doctrine\DBAL\Exception\ForeignKeyConstraintViolationException as DbalForeignKeyException;
@@ -169,6 +170,24 @@ final class OrmStore
     public function getReference(AggregateId $id): object
     {
         return $this->em->getReference($this->entityClass, (string) $id);
+    }
+
+    /**
+     * Returns the underlying DBAL connection for raw SQL queries.
+     *
+     * Use this when DQL or the QueryBuilder cannot express the query —
+     * aggregations, window functions, CTEs, or queries that span multiple
+     * entity classes without a DQL join path.
+     *
+     * Example:
+     *   $this->store->connection()->executeQuery(
+     *       'SELECT MAX(version_number) FROM form_versions WHERE form_id = ?',
+     *       [$formId],
+     *   )->fetchOne();
+     */
+    public function connection(): Connection
+    {
+        return $this->em->getConnection();
     }
 
     private function translateException(\Throwable $e): \Throwable

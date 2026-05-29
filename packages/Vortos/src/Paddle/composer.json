@@ -1,0 +1,31 @@
+{
+    "name": "vortos/vortos-paddle",
+    "description": "Vortos Paddle integration — billing, subscriptions, webhooks, and catalog management via Paddle",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Paddle\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "paddlehq/paddle-php-sdk": "^1.0",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-http": "^1.0",
+        "vortos/vortos-logger": "^1.0",
+        "vortos/vortos-persistence": "^1.0",
+        "doctrine/dbal": "^4.4"
+    },
+    "suggest": {
+        "vortos/vortos-tracing": "Required for Paddle tracing middleware",
+        "vortos/vortos-metrics": "Required for Paddle metrics middleware",
+        "vortos/vortos-make": "Required for vortos:paddle:make:* generator commands"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Paddle\\DependencyInjection\\PaddlePackage",
+            "order": 130
+        }
+    }
+}

@@ -2,10 +2,13 @@
 
 declare(strict_types=1);
 
-namespace {{Namespace}};
+namespace {{Namespace}}\Domain;
 
-use Vortos\Domain\Repository\WriteRepositoryInterface;
-
-interface {{ClassName}}RepositoryInterface extends WriteRepositoryInterface
+interface {{ClassName}}RepositoryInterface
 {
+    public function save({{AggregateClass}} ${{aggregateVar}}): void;
+
+    public function delete({{AggregateClass}} ${{aggregateVar}}): void;
+
+    public function findById({{AggregateClass}}Id $id): ?{{AggregateClass}};
 }

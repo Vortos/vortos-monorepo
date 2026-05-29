@@ -13,8 +13,8 @@ use Vortos\Domain\Aggregate\AggregateRoot;
  * The domain never depends on DBAL, ORM, or any persistence technology.
  * Only this interface is visible to application layer code.
  *
- * The default implementation is DbalWriteRepository in vortos-persistence.
- * Doctrine ORM implementation is available in vortos-persistence-orm.
+ * The default implementation uses DbalStore via #[UsesDbalMapper] in vortos-persistence.
+ * Doctrine ORM implementation uses OrmStore via #[UsesOrmEntity] in vortos-persistence-orm.
  * InMemoryWriteRepository ships for testing.
  */
 interface WriteRepositoryInterface

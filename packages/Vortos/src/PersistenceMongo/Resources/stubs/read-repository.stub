@@ -5,18 +5,45 @@ declare(strict_types=1);
 namespace {{Namespace}}\Infrastructure\Persistence\Mongo;
 
 use {{Namespace}}\Application\ReadModel\{{AggregateClass}}ReadModel;
-use Vortos\PersistenceMongo\Read\MongoReadRepository;
+use {{Namespace}}\Application\{{AggregateClass}}ReadRepositoryInterface;
+use Vortos\PersistenceMongo\Read\MongoStore;
 use Vortos\PersistenceMongo\Schema\Attribute\MongoCollection;
 use Vortos\PersistenceMongo\Schema\Attribute\MongoIndex;
 
-/**
- * @extends MongoReadRepository<{{AggregateClass}}ReadModel>
- */
 #[MongoCollection('{{CollectionName}}')]
 #[MongoIndex(key: ['_id' => 1])]
-final class {{AggregateClass}}ReadRepository extends MongoReadRepository
+final class {{AggregateClass}}ReadRepository implements {{AggregateClass}}ReadRepositoryInterface
 {
-    protected function fromDocument(array $doc): {{AggregateClass}}ReadModel
+    public function __construct(private readonly MongoStore $store) {}
+
+    public function findById(string $id): ?{{AggregateClass}}ReadModel
+    {
+        $doc = $this->store->findById($id);
+
+        return $doc !== null ? $this->fromDocument($doc) : null;
+    }
+
+    // Add custom query methods here. Example:
+    //
+    // public function findByStatus(string $status, int $limit = 50): array
+    // {
+    //     $docs = $this->store->findByCriteria(['status' => $status], limit: $limit);
+    //     return array_map(fn(array $doc) => $this->fromDocument($doc), $docs);
+    // }
+    //
+    // For paginated results:
+    //
+    // public function findPage(array $criteria, int $limit, ?string $cursor = null): PageResult
+    // {
+    //     $raw = $this->store->findPage($criteria, $limit, $cursor);
+    //     return new PageResult(
+    //         items: array_map(fn(array $doc) => $this->fromDocument($doc), $raw->items),
+    //         nextCursor: $raw->nextCursor,
+    //         hasMore: $raw->hasMore,
+    //     );
+    // }
+
+    private function fromDocument(array $doc): {{AggregateClass}}ReadModel
     {
         return new {{AggregateClass}}ReadModel(
             id: $doc['_id'],

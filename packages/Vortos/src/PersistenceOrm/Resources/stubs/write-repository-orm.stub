@@ -4,23 +4,39 @@ declare(strict_types=1);
 
 namespace {{Namespace}}\Infrastructure\Repository;
 
-use Doctrine\ORM\QueryBuilder;
-use Vortos\PersistenceOrm\Write\OrmWriteRepository;
+use Vortos\PersistenceOrm\Attribute\UsesOrmEntity;
+use Vortos\PersistenceOrm\Write\OrmStore;
 use {{AggregateEntityNamespace}}\{{AggregateClass}};
+use {{AggregateEntityNamespace}}\{{AggregateClass}}Id;
 use {{AggregateRepositoryNamespace}}\{{AggregateClass}}RepositoryInterface;
 
-final class {{AggregateClass}}Repository extends OrmWriteRepository implements {{AggregateClass}}RepositoryInterface
+#[UsesOrmEntity({{AggregateClass}}::class)]
+final class {{AggregateClass}}Repository implements {{AggregateClass}}RepositoryInterface
 {
-    protected function entityClass(): string
+    public function __construct(private readonly OrmStore $store) {}
+
+    public function save({{AggregateClass}} ${{aggregateVar}}): void
     {
-        return {{AggregateClass}}::class;
+        $this->store->save(${{aggregateVar}});
     }
 
-    // Add custom query methods as needed. Use the protected $em property:
+    public function delete({{AggregateClass}} ${{aggregateVar}}): void
+    {
+        $this->store->delete(${{aggregateVar}});
+    }
+
+    public function findById({{AggregateClass}}Id $id): ?{{AggregateClass}}
+    {
+        /** @var {{AggregateClass}}|null */
+        return $this->store->find($id);
+    }
+
+    // Add custom query methods here. Use the store's query helpers:
     //
     // public function findByEmail(string $email): ?{{AggregateClass}}
     // {
-    //     return $this->em()->createQueryBuilder()
+    //     /** @var {{AggregateClass}}|null */
+    //     return $this->store->createQueryBuilder()
     //         ->select('e')
     //         ->from({{AggregateClass}}::class, 'e')
     //         ->where('e.email = :email')

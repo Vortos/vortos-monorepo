@@ -8,66 +8,41 @@ use App\User\Domain\Email;
 use App\User\Domain\User;
 use App\User\Domain\UserId;
 use App\User\Domain\UserRepositoryInterface;
-use Doctrine\DBAL\Types\Types;
-use Vortos\Domain\Aggregate\AggregateRoot;
-use Vortos\PersistenceDbal\Write\DbalWriteRepository;
+use Vortos\PersistenceDbal\Attribute\UsesDbalMapper;
+use Vortos\PersistenceDbal\Write\DbalStore;
 
-final class UserWriteRepository extends DbalWriteRepository implements UserRepositoryInterface
+#[UsesDbalMapper(UserMapper::class)]
+final class UserWriteRepository implements UserRepositoryInterface
 {
-    protected function tableName(): string
-    {
-        return 'users';
-    }
-
-    protected function columnMap(): array
-    {
-        return [
-            'id'            => Types::STRING,
-            'name'          => Types::STRING,
-            'email'         => Types::STRING,
-            'password_hash' => Types::STRING,
-            'version'       => Types::INTEGER,
-        ];
-    }
-
-    protected function toRow(AggregateRoot $aggregate): array
-    {
-        /** @var User $aggregate */
-        return [
-            'id'            => (string) $aggregate->getId(),
-            'name'          => $aggregate->getName(),
-            'email'         => (string) $aggregate->getEmail(),
-            'password_hash' => $aggregate->getPasswordHash(),
-            'version'       => $aggregate->getVersion(),
-        ];
-    }
-
-    protected function fromRow(array $row): AggregateRoot
-    {
-        return User::reconstruct(
-            id:           UserId::fromString($row['id']),
-            email:        new Email($row['email']),
-            name:         $row['name'],
-            passwordHash: $row['password_hash'],
-            version:      (int) $row['version'],
-        );
-    }
+    public function __construct(private readonly DbalStore $store) {}
 
     public function save(User $user): void
     {
-        parent::save($user);
+        $this->store->save($user);
+    }
+
+    public function delete(User $user): void
+    {
+        $this->store->delete($user);
+    }
+
+    public function findById(UserId $id): ?User
+    {
+        /** @var User|null */
+        return $this->store->find($id);
     }
 
     public function findByEmail(Email $email): ?User
     {
-        $row = $this->connection()->createQueryBuilder()
+        $row = $this->store->createQueryBuilder()
             ->select('*')
-            ->from($this->tableName())
+            ->from($this->store->mapper()->tableName())
             ->where('email = :email')
             ->setParameter('email', (string) $email)
             ->executeQuery()
             ->fetchAssociative();
 
-        return $row !== false ? $this->fromRow($row) : null;
+        /** @var User|null */
+        return $row !== false ? $this->store->mapper()->fromRow($row) : null;
     }
 }

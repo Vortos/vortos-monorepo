@@ -9,61 +9,39 @@ use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Repository\Exception\OptimisticLockException;
 
 /**
- * PostgreSQL-optimised write repository.
+ * PostgreSQL-optimised DBAL store.
  *
- * Extends DbalWriteRepository with two PostgreSQL-specific batch operations:
+ * Extends DbalStore with two PostgreSQL-specific batch operations:
  *
  *   batchUpdate() — overrides the base loop with a single UPDATE FROM VALUES query
  *   batchUpsert() — INSERT ... ON CONFLICT (id) DO UPDATE SET for projections and bulk imports
  *
- * Both use DBAL's type system for all column bindings — JSON, integers,
- * and other typed columns are encoded correctly without manual conversion.
+ * ## When to use this instead of DbalStore
  *
- * ## When to use this instead of DbalWriteRepository
- *
- * Use PostgresWriteRepository when:
+ * Use PostgresStore when:
  *   - Your application runs on PostgreSQL (the default Vortos stack)
  *   - You have use cases that update or upsert large batches of aggregates at once
  *
- * Use DbalWriteRepository when:
- *   - You need database portability (MySQL, SQLite, SQL Server)
- *   - Your batch sizes are small (< 50 aggregates) — the difference is negligible
+ * Declare it via the storeClass parameter on the attribute:
+ *   #[UsesDbalMapper(mapper: OrderMapper::class, store: PostgresStore::class)]
  *
- * ## All other methods are inherited from DbalWriteRepository
+ * ## All other methods are inherited from DbalStore
  *
- * save(), delete(), batchInsert(), batchDelete(), batchForceDeleteByIds()
+ * save(), delete(), batchInsert(), batchDelete(), batchForceDeleteByIds(), find()
  * behave identically.
  */
-abstract class PostgresWriteRepository extends DbalWriteRepository
+class PostgresStore extends DbalStore
 {
     /**
      * Update multiple aggregates using PostgreSQL's UPDATE FROM VALUES syntax.
      *
-     * Executes a single SQL statement regardless of how many aggregates are passed:
+     * Executes a single SQL statement regardless of how many aggregates are passed.
+     * Applies optimistic locking via WHERE version = v.version per row.
      *
-     *   UPDATE users SET
-     *       email = v.email,
-     *       name  = v.name,
-     *       version = users.version + 1
-     *   FROM (VALUES
-     *       ('id-1', 'a@example.com', 'Alice', 1),
-     *       ('id-2', 'b@example.com', 'Bob',   2)
-     *   ) AS v(id, email, name, version)
-     *   WHERE users.id = v.id
-     *   AND   users.version = v.version
-     *
-     * ## Optimistic locking
-     *
-     * The WHERE clause includes version = v.version — the expected version
-     * from each aggregate. If any aggregate has a version mismatch, its row
-     * is silently skipped (zero rows affected for that aggregate).
-     *
-     * Unlike the single save() path, this does NOT throw OptimisticLockException
-     * per aggregate — detecting which specific aggregates conflicted requires
-     * a follow-up SELECT. For strict per-aggregate conflict detection,
-     * use batchUpdate() from DbalWriteRepository (calls save() per aggregate).
-     *
-     * After execution, incrementVersion() is called on each aggregate.
+     * Unlike the per-aggregate save() path, this does NOT throw per-aggregate
+     * OptimisticLockException — it throws if the total affected count mismatches,
+     * but does not identify which specific aggregate conflicted.
+     * For strict per-aggregate detection, use DbalStore::batchUpdate() (loops save()).
      *
      * @param AggregateRoot[] $aggregates
      */
@@ -73,8 +51,8 @@ abstract class PostgresWriteRepository extends DbalWriteRepository
             return;
         }
 
-        $types   = $this->columnMap();
-        $rows    = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
+        $types   = $this->mapper()->columnMap();
+        $rows    = array_map(fn(AggregateRoot $a) => $this->mapper()->toRow($a), $aggregates);
         $columns = array_keys($rows[0]);
 
         $updateColumns = array_filter(
@@ -82,7 +60,7 @@ abstract class PostgresWriteRepository extends DbalWriteRepository
             fn(string $col) => !in_array($col, ['id', 'version'], true),
         );
 
-        $quotedTable = $this->connection()->quoteIdentifier($this->tableName());
+        $quotedTable = $this->connection()->quoteIdentifier($this->mapper()->tableName());
 
         $setClauses   = array_map(
             fn(string $col) => $this->connection()->quoteIdentifier($col) . ' = v.' . $this->connection()->quoteIdentifier($col),
@@ -136,18 +114,10 @@ abstract class PostgresWriteRepository extends DbalWriteRepository
      *
      * Uses PostgreSQL's INSERT ... ON CONFLICT (id) DO UPDATE SET syntax.
      * On conflict, all columns except id are updated to the new values.
-     * Uses DBAL's type system for all column bindings.
      *
-     * WARNING: This method does NOT apply optimistic locking.
-     * It will silently overwrite any version in the database.
-     * Use only for:
-     *   - Read model projections (eventual consistency is acceptable)
-     *   - Idempotent bulk imports where last-write-wins is intentional
-     *   - Seeding data in tests
-     *
-     * Never use this for commands where concurrent modification must be detected.
-     * After execution, incrementVersion() is called on each aggregate to signal
-     * that the aggregate has been persisted.
+     * WARNING: Does NOT apply optimistic locking.
+     * Use only for read model projections, idempotent bulk imports, or test seeding.
+     * Never use for commands where concurrent modification must be detected.
      *
      * @param AggregateRoot[] $aggregates
      */
@@ -157,14 +127,14 @@ abstract class PostgresWriteRepository extends DbalWriteRepository
             return;
         }
 
-        $types   = $this->columnMap();
-        $rows    = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
+        $types   = $this->mapper()->columnMap();
+        $rows    = array_map(fn(AggregateRoot $a) => $this->mapper()->toRow($a), $aggregates);
         $columns = array_keys($rows[0]);
 
         $placeholder  = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
         $placeholders = implode(', ', array_fill(0, count($rows), $placeholder));
 
-        $quotedTable   = $this->connection()->quoteIdentifier($this->tableName());
+        $quotedTable   = $this->connection()->quoteIdentifier($this->mapper()->tableName());
         $quotedColumns = implode(', ', array_map(
             fn(string $c) => $this->connection()->quoteIdentifier($c),
             $columns,

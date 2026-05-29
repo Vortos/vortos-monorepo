@@ -13,8 +13,8 @@ use Vortos\Tracing\Contract\TracingInterface;
  * Injects TracingInterface into all tagged read repositories.
  *
  * All services tagged 'vortos.read_repository' receive a setTracer() call
- * at compile time. At runtime, MongoReadRepository::setTracer() stores
- * the tracer and wraps key operations in spans.
+ * at compile time. At runtime, MongoStore::setTracer() stores the tracer
+ * and wraps all operations in spans.
  *
  * When TracingModule::Persistence is disabled via VortosTracingConfig::disable(),
  * ModuleAwareTracer returns NoOpSpan for every startSpan() call — the overhead

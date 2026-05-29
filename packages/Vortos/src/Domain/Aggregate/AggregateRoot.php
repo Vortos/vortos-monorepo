@@ -65,7 +65,7 @@ abstract class AggregateRoot
      * Increments on every state change.
      * Write repository uses this to detect concurrent modifications.
      *
-     * @see DbalWriteRepository::save() — uses WHERE version = $currentVersion
+     * @see DbalStore::save() — uses WHERE version = $currentVersion
      */
     private int $version = 0;
 
@@ -158,7 +158,7 @@ abstract class AggregateRoot
 
     /**
      * Current version number for optimistic locking.
-     * Read by DbalWriteRepository before issuing UPDATE.
+     * Read by DbalStore before issuing UPDATE.
      */
     public function getVersion(): int
     {
@@ -171,7 +171,7 @@ abstract class AggregateRoot
      *
      * Note: only reliable for DBAL-backed aggregates. ORM-backed aggregates are hydrated
      * by Doctrine directly via reflection and do not go through restoreVersion(), so this
-     * flag is not set by Doctrine hydration. OrmWriteRepository uses $em->contains() instead.
+     * flag is not set by Doctrine hydration. OrmStore uses $em->contains() instead.
      */
     public function isNew(): bool
     {
@@ -191,7 +191,7 @@ abstract class AggregateRoot
     }
 
     /**
-     * Increments version. Called by DbalWriteRepository after successful save.
+     * Increments version. Called by DbalStore after successful save.
      * Not called by user code directly.
      *
      * @internal

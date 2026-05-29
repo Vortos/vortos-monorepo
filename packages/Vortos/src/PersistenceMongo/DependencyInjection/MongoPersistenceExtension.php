@@ -25,10 +25,11 @@ use Vortos\PersistenceMongo\Schema\MongoIndexAttributeScanner;
  *
  * ## Read repository auto-wiring
  *
- * Subclasses of MongoReadRepository registered in services.php are detected at compile time
- * by MongoReadRepositoryAutowirePass. The pass injects MongoDB\Client and the database name
- * parameter automatically, adds the 'vortos.read_repository' tag, and registers the class
- * name with MongoIndexAttributeScanner so vortos:mongo:sync can find #[MongoIndex] attributes.
+ * Repository classes carrying #[MongoCollection] are detected at compile time
+ * by MongoReadRepositoryAutowirePass. The pass creates a named MongoStore service per
+ * repository, injects it as the $store constructor argument, tags it with
+ * 'vortos.read_repository', and registers the class with MongoIndexAttributeScanner
+ * so vortos:mongo:sync can discover #[MongoIndex] attributes.
  *
  *   // services.php — this is all that is required:
  *   $services->set(UserReadRepository::class);
@@ -39,7 +40,7 @@ use Vortos\PersistenceMongo\Schema\MongoIndexAttributeScanner;
  *
  *   #[MongoCollection('users')]
  *   #[MongoIndex(key: ['email' => 1], unique: true)]
- *   final class UserReadRepository extends MongoReadRepository { ... }
+ *   final class UserReadRepository implements UserReadRepositoryInterface { ... }
  *
  * Apply on every deploy:
  *   php bin/console vortos:mongo:sync

@@ -10,6 +10,7 @@ use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\PersistenceMongo\Cursor\MongoCursorSecretCompilerPass;
 use Vortos\PersistenceMongo\DependencyInjection\Compiler\MongoReadRepositoryAutowirePass;
+use Vortos\PersistenceMongo\Metrics\MongoMetricsCompilerPass;
 use Vortos\PersistenceMongo\Tracing\MongoTracingCompilerPass;
 
 /**
@@ -46,6 +47,12 @@ final class MongoPersistencePackage implements PackageInterface
 
         $container->addCompilerPass(
             new MongoCursorSecretCompilerPass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            0,
+        );
+
+        $container->addCompilerPass(
+            new MongoMetricsCompilerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
             0,
         );

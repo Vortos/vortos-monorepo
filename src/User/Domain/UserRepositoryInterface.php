@@ -6,7 +6,11 @@ namespace App\User\Domain;
 
 interface UserRepositoryInterface
 {
-    public function findByEmail(Email $email): ?User;
-
     public function save(User $user): void;
+
+    public function delete(User $user): void;
+
+    public function findById(UserId $id): ?User;
+
+    public function findByEmail(Email $email): ?User;
 }

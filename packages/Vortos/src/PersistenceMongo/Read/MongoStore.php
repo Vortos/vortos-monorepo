@@ -7,64 +7,83 @@ namespace Vortos\PersistenceMongo\Read;
 use MongoDB\Client;
 use MongoDB\Collection;
 use MongoDB\Database;
+use Psr\Log\LoggerInterface;
 use Vortos\Domain\Repository\PageResult;
-use Vortos\Domain\Repository\ReadRepositoryInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
+use Vortos\Observability\Telemetry\MetricOperation;
 use Vortos\Tracing\Config\TracingModule;
 use Vortos\Tracing\Contract\TracingInterface;
 
 /**
- * Abstract MongoDB-backed read repository.
+ * MongoDB-backed read store.
  *
- * ## Declaring the collection
+ * Contains all persistence logic for MongoDB read repositories.
+ * Injected into user repositories by MongoReadRepositoryAutowirePass when
+ * the repository declares #[MongoCollection('collection_name')].
  *
- * Annotate your subclass with #[MongoCollection]:
- *
- *   #[MongoCollection('users')]
- *   final class UserReadRepository extends MongoReadRepository { ... }
- *
- * ## Declaring indexes
- *
- * Use the repeatable #[MongoIndex] attribute on the same class:
+ * ## Usage in your repository
  *
  *   #[MongoCollection('users')]
  *   #[MongoIndex(key: ['email' => 1], unique: true)]
- *   #[MongoIndex(key: ['createdAt' => -1, '_id' => -1])]
- *   final class UserReadRepository extends MongoReadRepository { ... }
- *
- * Apply them with: php bin/console vortos:mongo:sync
- *
- * ## Typed read models
- *
- * fromDocument() can return any type — a plain array or a typed read model DTO:
- *
- *   protected function fromDocument(array $doc): UserReadModel
+ *   final class UserReadRepository implements UserReadRepositoryInterface
  *   {
- *       return new UserReadModel(id: $doc['_id'], email: $doc['email']);
+ *       public function __construct(private readonly MongoStore $store) {}
+ *
+ *       public function findById(string $id): ?UserReadModel
+ *       {
+ *           $doc = $this->store->findById($id);
+ *           return $doc !== null ? $this->fromDocument($doc) : null;
+ *       }
+ *
+ *       private function fromDocument(array $doc): UserReadModel
+ *       {
+ *           return new UserReadModel(id: $doc['_id'], email: $doc['email'] ?? '');
+ *       }
  *   }
  *
- * findById() and findByCriteria() return whatever fromDocument() returns.
- * Use @extends MongoReadRepository<UserReadModel> on your subclass for IDE generics.
+ * ## Return types
+ *
+ * All find methods return raw document arrays — mapping to read models is done
+ * in the user repository's private fromDocument() method. findPage() returns
+ * PageResult<array> — map items to typed models with array_map before returning.
  *
  * ## Keyset pagination
  *
  * findPage() uses keyset (cursor-based) pagination — not offset.
  * The cursor is opaque — pass it back verbatim to fetch the next page.
  *
- * @template T
- * @implements ReadRepositoryInterface<T>
+ * ## Observability
+ *
+ * Tracing, metrics, and slow-query logging are injected at compile time via
+ * MongoTracingCompilerPass, MongoMetricsCompilerPass, and MongoReadRepositoryAutowirePass.
+ * Operations are wrapped in spans, metrics are recorded per operation, and queries
+ * exceeding the slow query threshold are logged as warnings.
+ *
+ * ## Per-repository opt-out
+ *
+ * Annotate the repository class (not the store) with #[DisableTracing] or
+ * #[DisableMetrics] to suppress injection for that specific repository.
  */
-abstract class MongoReadRepository implements ReadRepositoryInterface
+final class MongoStore
 {
     private Database $database;
-    private string $collectionName;
-    private ?TracingInterface $tracer = null;
-    private string $cursorSecret = '';
+    private ?TracingInterface $tracer     = null;
+    private ?FrameworkTelemetry $telemetry = null;
+    private ?LoggerInterface $logger       = null;
+    private int $slowQueryThresholdMs      = 100;
 
     public function __construct(Client $client, string $databaseName, string $collectionName)
     {
         $this->database       = $client->selectDatabase($databaseName);
         $this->collectionName = $collectionName;
     }
+
+    private string $collectionName;
 
     /** @internal Injected by MongoTracingCompilerPass at compile time */
     public function setTracer(TracingInterface $tracer): void
@@ -78,37 +97,40 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
         $this->cursorSecret = $secret;
     }
 
-    /**
-     * Map a raw MongoDB document to your read model.
-     *
-     * Return a typed DTO or a plain array — your choice.
-     * The return value is passed through as-is from findById() and findByCriteria().
-     *
-     * @param array<string, mixed> $doc Raw BSON document cast to array
-     * @return T
-     */
-    abstract protected function fromDocument(array $doc): mixed;
+    private string $cursorSecret = '';
 
-    /**
-     * @return T|null
-     * {@inheritdoc}
-     */
-    public function findById(string $id): mixed
+    /** @internal Injected by MongoMetricsCompilerPass at compile time */
+    public function setMetrics(FrameworkTelemetry $telemetry): void
     {
-        return $this->traced('findOne', function () use ($id): mixed {
+        $this->telemetry = $telemetry;
+    }
+
+    /** @internal Injected by MongoReadRepositoryAutowirePass at compile time */
+    public function setLogger(LoggerInterface $logger, int $slowQueryThresholdMs = 100): void
+    {
+        $this->logger              = $logger;
+        $this->slowQueryThresholdMs = $slowQueryThresholdMs;
+    }
+
+    /**
+     * Find a single document by _id. Returns raw array or null.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findById(string $id): ?array
+    {
+        return $this->traced('findOne', function () use ($id): ?array {
             $doc = $this->collection()->findOne(['_id' => $id]);
-
-            if ($doc === null) {
-                return null;
-            }
-
-            return $this->fromDocument((array) $doc);
+            return $doc !== null ? (array) $doc : null;
         });
     }
 
     /**
-     * @return list<T>
-     * {@inheritdoc}
+     * Find documents matching criteria. Returns list of raw arrays.
+     *
+     * @param array<string, mixed> $criteria
+     * @param array<string, mixed> $sort
+     * @return list<array<string, mixed>>
      */
     public function findByCriteria(
         array $criteria,
@@ -117,15 +139,24 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
         ?string $cursor = null,
     ): array {
         return $this->traced('find', function () use ($criteria, $sort, $limit, $cursor): array {
-            $rawDocs = $this->fetchRaw($criteria, $sort, $limit, $cursor);
-
-            return array_map(fn(array $doc) => $this->fromDocument($doc), $rawDocs);
+            return $this->fetchRaw($criteria, $sort, $limit, $cursor);
         });
     }
 
     /**
-     * @return PageResult<T>
-     * {@inheritdoc}
+     * Paginated find. Returns PageResult with raw array items.
+     * Map items to typed models in your repository:
+     *
+     *   $raw = $this->store->findPage($criteria, $limit, $cursor);
+     *   return new PageResult(
+     *       items: array_map(fn(array $doc) => $this->fromDocument($doc), $raw->items),
+     *       nextCursor: $raw->nextCursor,
+     *       hasMore: $raw->hasMore,
+     *   );
+     *
+     * @param array<string, mixed> $criteria
+     * @param array<string, mixed> $sort
+     * @return PageResult<array<string, mixed>>
      */
     public function findPage(
         array $criteria,
@@ -146,16 +177,17 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
                 $rawDocs = array_slice($rawDocs, 0, $limit);
             }
 
-            $items      = array_map(fn(array $doc) => $this->fromDocument($doc), $rawDocs);
             $lastRaw    = end($rawDocs);
             $nextCursor = $hasMore ? $this->encodeCursor($lastRaw, $sort) : null;
 
-            return new PageResult(items: $items, nextCursor: $nextCursor, hasMore: $hasMore);
+            return new PageResult(items: $rawDocs, nextCursor: $nextCursor, hasMore: $hasMore);
         });
     }
 
     /**
-     * {@inheritdoc}
+     * Count documents matching criteria.
+     *
+     * @param array<string, mixed> $criteria
      */
     public function countByCriteria(array $criteria): int
     {
@@ -164,6 +196,8 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
 
     /**
      * Insert or replace a single document by _id.
+     *
+     * @param array<string, mixed> $document Must contain '_id'
      */
     public function upsert(string $id, array $document): void
     {
@@ -227,17 +261,15 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
     }
 
     /**
-     * Exposes the raw MongoDB Collection for custom queries in subclasses.
-     * Use for aggregation pipelines, geospatial queries, text search, etc.
+     * Returns the raw MongoDB Collection for custom queries (aggregation pipelines,
+     * geospatial queries, text search, etc.).
      */
-    protected function collection(): Collection
+    public function collection(): Collection
     {
         return $this->database->selectCollection($this->collectionName);
     }
 
     /**
-     * Fetch raw BSON documents as arrays. Used internally by findByCriteria and findPage.
-     *
      * @return list<array<string, mixed>>
      */
     private function fetchRaw(array $criteria, array $sort, int $limit, ?string $cursor = null): array
@@ -264,28 +296,69 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
 
     private function traced(string $operation, callable $fn): mixed
     {
-        if ($this->tracer === null) {
+        if ($this->tracer === null && $this->telemetry === null && $this->logger === null) {
             return $fn();
         }
 
-        $span = $this->tracer->startSpan('db.mongo.' . $operation, [
+        $span  = $this->tracer?->startSpan('db.mongo.' . $operation, [
             'db.collection' => $this->collectionName,
             'db.operation'  => $operation,
             'db.system'     => 'mongodb',
             'vortos.module' => TracingModule::Persistence,
         ]);
+        $start = hrtime(true);
 
         try {
             $result = $fn();
-            $span->setStatus('ok');
+            $span?->setStatus('ok');
             return $result;
         } catch (\Throwable $e) {
-            $span->recordException($e);
-            $span->setStatus('error');
+            $span?->recordException($e);
+            $span?->setStatus('error');
             throw $e;
         } finally {
-            $span->end();
+            $span?->end();
+            $durationMs = (hrtime(true) - $start) / 1_000_000;
+            $this->recordMetrics($operation, $durationMs);
+            $this->logIfSlow($operation, $durationMs);
         }
+    }
+
+    private function recordMetrics(string $operation, float $durationMs): void
+    {
+        if ($this->telemetry === null) {
+            return;
+        }
+
+        $this->telemetry->increment(
+            ObservabilityModule::Persistence,
+            FrameworkMetric::DbQueriesTotal,
+            FrameworkMetricLabels::of(
+                MetricLabelValue::of(MetricLabel::Driver, 'mongodb'),
+                MetricLabelValue::operation(MetricOperation::Query),
+            ),
+        );
+
+        $this->telemetry->observe(
+            ObservabilityModule::Persistence,
+            FrameworkMetric::DbQueryDurationMs,
+            FrameworkMetricLabels::of(MetricLabelValue::of(MetricLabel::Driver, 'mongodb')),
+            $durationMs,
+        );
+    }
+
+    private function logIfSlow(string $operation, float $durationMs): void
+    {
+        if ($this->logger === null || $durationMs < $this->slowQueryThresholdMs) {
+            return;
+        }
+
+        $this->logger->warning('Slow MongoDB operation detected', [
+            'collection'   => $this->collectionName,
+            'operation'    => $operation,
+            'duration_ms'  => round($durationMs, 2),
+            'threshold_ms' => $this->slowQueryThresholdMs,
+        ]);
     }
 
     private function encodeCursor(array $lastRaw, array $sort): string
@@ -340,7 +413,7 @@ abstract class MongoReadRepository implements ReadRepositoryInterface
             if (!is_scalar($value) && $value !== null) {
                 throw new \InvalidArgumentException('Invalid pagination cursor.');
             }
-            $op            = ($sort[$field] ?? 'asc') === 'desc' ? '$lt' : '$gt';
+            $op             = ($sort[$field] ?? 'asc') === 'desc' ? '$lt' : '$gt';
             $filter[$field] = [$op => $value];
         }
 

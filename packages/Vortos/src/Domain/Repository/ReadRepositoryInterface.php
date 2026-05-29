@@ -10,7 +10,7 @@ namespace Vortos\Domain\Repository;
  * Read repositories return typed read model DTOs, never domain aggregates.
  * The read side is optimized for query performance, not transactional integrity.
  *
- * Implementations: MongoReadRepository (MongoDB), DbalReadRepository (PostgreSQL).
+ * Implementations: MongoStore-backed repositories (MongoDB), DbalReadRepository (PostgreSQL).
  *
  * @template T The read model type returned by this repository
  */

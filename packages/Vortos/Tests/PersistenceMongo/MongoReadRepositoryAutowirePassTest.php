@@ -8,18 +8,33 @@ use MongoDB\Client;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\Reference;
+use Vortos\Metrics\Attribute\DisableMetrics;
 use Vortos\PersistenceMongo\DependencyInjection\Compiler\MongoReadRepositoryAutowirePass;
-use Vortos\PersistenceMongo\Read\MongoReadRepository;
+use Vortos\PersistenceMongo\Read\MongoStore;
 use Vortos\PersistenceMongo\Schema\Attribute\MongoCollection;
+use Vortos\Tracing\Attribute\DisableTracing;
 
-// --- fixture ---
+// --- fixtures ---
 
 #[MongoCollection('fakes')]
-final class FakeReadRepository extends MongoReadRepository
+final class FakeReadRepository
 {
-    protected function collectionName(): string { return 'fakes'; }
-    protected function fromDocument(array $doc): mixed { return $doc; }
-    protected function indexes(): array { return []; }
+    public function __construct(private readonly MongoStore $store) {}
+}
+
+#[MongoCollection('traced_off')]
+#[DisableTracing]
+final class FakeReadRepositoryNoTracing
+{
+    public function __construct(private readonly MongoStore $store) {}
+}
+
+#[MongoCollection('metrics_off')]
+#[DisableMetrics]
+final class FakeReadRepositoryNoMetrics
+{
+    public function __construct(private readonly MongoStore $store) {}
 }
 
 // --- tests ---
@@ -30,6 +45,7 @@ final class MongoReadRepositoryAutowirePassTest extends TestCase
     {
         $container = new ContainerBuilder();
         $container->setParameter('vortos.persistence.mongo.database_name', 'testdb');
+        $container->setParameter('vortos.persistence.slow_query_threshold_ms', 100);
 
         if ($hasClient) {
             $container->setDefinition(Client::class, new Definition(Client::class));
@@ -38,54 +54,88 @@ final class MongoReadRepositoryAutowirePassTest extends TestCase
         return $container;
     }
 
-    public function test_injects_client_and_database_name_into_subclass(): void
+    public function test_creates_mongo_store_service_for_annotated_repository(): void
     {
         $container = $this->container();
         $container->setDefinition(FakeReadRepository::class, new Definition(FakeReadRepository::class));
 
         (new MongoReadRepositoryAutowirePass())->process($container);
 
-        $def = $container->getDefinition(FakeReadRepository::class);
-        $this->assertInstanceOf(\Symfony\Component\DependencyInjection\Reference::class, $def->getArgument('$client'));
-        $this->assertSame('%vortos.persistence.mongo.database_name%', $def->getArgument('$databaseName'));
+        $storeId = 'vortos.mongo_store.' . FakeReadRepository::class;
+        $this->assertTrue($container->hasDefinition($storeId));
+        $this->assertSame(MongoStore::class, $container->getDefinition($storeId)->getClass());
     }
 
-    public function test_adds_read_repository_tag_to_subclass(): void
+    public function test_injects_store_as_store_argument_of_repository(): void
     {
         $container = $this->container();
         $container->setDefinition(FakeReadRepository::class, new Definition(FakeReadRepository::class));
 
         (new MongoReadRepositoryAutowirePass())->process($container);
 
-        $tags = $container->getDefinition(FakeReadRepository::class)->getTags();
-        $this->assertArrayHasKey('vortos.read_repository', $tags);
+        $repoDef  = $container->getDefinition(FakeReadRepository::class);
+        $storeArg = $repoDef->getArgument('$store');
+
+        $this->assertInstanceOf(Reference::class, $storeArg);
+        $this->assertSame('vortos.mongo_store.' . FakeReadRepository::class, (string) $storeArg);
     }
 
-    public function test_does_not_modify_non_read_repository_services(): void
+    public function test_store_is_wired_with_client_and_database(): void
+    {
+        $container = $this->container();
+        $container->setDefinition(FakeReadRepository::class, new Definition(FakeReadRepository::class));
+
+        (new MongoReadRepositoryAutowirePass())->process($container);
+
+        $storeDef = $container->getDefinition('vortos.mongo_store.' . FakeReadRepository::class);
+        $this->assertSame(Client::class, (string) $storeDef->getArgument('$client'));
+        $this->assertSame('%vortos.persistence.mongo.database_name%', $storeDef->getArgument('$databaseName'));
+        $this->assertSame('fakes', $storeDef->getArgument('$collectionName'));
+    }
+
+    public function test_store_gets_read_repository_tag_by_default(): void
+    {
+        $container = $this->container();
+        $container->setDefinition(FakeReadRepository::class, new Definition(FakeReadRepository::class));
+
+        (new MongoReadRepositoryAutowirePass())->process($container);
+
+        $storeDef = $container->getDefinition('vortos.mongo_store.' . FakeReadRepository::class);
+        $this->assertArrayHasKey('vortos.read_repository', $storeDef->getTags());
+    }
+
+    public function test_disable_tracing_skips_read_repository_tag_on_store(): void
+    {
+        $container = $this->container();
+        $container->setDefinition(FakeReadRepositoryNoTracing::class, new Definition(FakeReadRepositoryNoTracing::class));
+
+        (new MongoReadRepositoryAutowirePass())->process($container);
+
+        $storeDef = $container->getDefinition('vortos.mongo_store.' . FakeReadRepositoryNoTracing::class);
+        $this->assertArrayNotHasKey('vortos.read_repository', $storeDef->getTags());
+    }
+
+    public function test_disable_metrics_adds_skip_metrics_tag_on_store(): void
+    {
+        $container = $this->container();
+        $container->setDefinition(FakeReadRepositoryNoMetrics::class, new Definition(FakeReadRepositoryNoMetrics::class));
+
+        (new MongoReadRepositoryAutowirePass())->process($container);
+
+        $storeDef = $container->getDefinition('vortos.mongo_store.' . FakeReadRepositoryNoMetrics::class);
+        $this->assertArrayHasKey('vortos.skip_metrics', $storeDef->getTags());
+    }
+
+    public function test_does_not_modify_non_annotated_services(): void
     {
         $container = $this->container();
         $container->setDefinition('some.service', new Definition(\stdClass::class));
 
         (new MongoReadRepositoryAutowirePass())->process($container);
 
-        $tags = $container->getDefinition('some.service')->getTags();
-        $this->assertArrayNotHasKey('vortos.read_repository', $tags);
-    }
-
-    public function test_does_not_override_explicitly_set_args(): void
-    {
-        $container = $this->container();
-
-        $def = new Definition(FakeReadRepository::class);
-        $def->setArgument('$client', new \Symfony\Component\DependencyInjection\Reference('my.custom.client'));
-        $def->setArgument('$databaseName', 'explicit_db');
-        $container->setDefinition(FakeReadRepository::class, $def);
-
-        (new MongoReadRepositoryAutowirePass())->process($container);
-
-        $updatedDef = $container->getDefinition(FakeReadRepository::class);
-        $this->assertSame('my.custom.client', (string) $updatedDef->getArgument('$client'));
-        $this->assertSame('explicit_db', $updatedDef->getArgument('$databaseName'));
+        $def = $container->getDefinition('some.service');
+        $this->assertEmpty($def->getArguments());
+        $this->assertArrayNotHasKey('vortos.read_repository', $def->getTags());
     }
 
     public function test_does_nothing_when_mongo_client_not_registered(): void
@@ -95,22 +145,7 @@ final class MongoReadRepositoryAutowirePassTest extends TestCase
 
         (new MongoReadRepositoryAutowirePass())->process($container);
 
-        // Pass should be a no-op — no args injected
-        $def = $container->getDefinition(FakeReadRepository::class);
-        $this->assertEmpty($def->getArguments());
-    }
-
-    public function test_does_not_duplicate_read_repository_tag(): void
-    {
-        $container = $this->container();
-
-        $def = new Definition(FakeReadRepository::class);
-        $def->addTag('vortos.read_repository');
-        $container->setDefinition(FakeReadRepository::class, $def);
-
-        (new MongoReadRepositoryAutowirePass())->process($container);
-
-        $tags = $container->getDefinition(FakeReadRepository::class)->getTags();
-        $this->assertCount(1, $tags['vortos.read_repository']);
+        $this->assertEmpty($container->getDefinition(FakeReadRepository::class)->getArguments());
+        $this->assertFalse($container->hasDefinition('vortos.mongo_store.' . FakeReadRepository::class));
     }
 }

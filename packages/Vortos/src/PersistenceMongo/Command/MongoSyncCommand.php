@@ -15,7 +15,7 @@ use Vortos\PersistenceMongo\Schema\MongoIndexAttributeScanner;
 /**
  * Ensures all declared MongoDB indexes exist on their collections.
  *
- * Reads #[MongoIndex] attributes from registered MongoReadRepository subclasses
+ * Reads #[MongoIndex] attributes from registered read repository classes
  * and applies them idempotently via createIndex(). Safe to run on every deploy.
  *
  * ## Usage

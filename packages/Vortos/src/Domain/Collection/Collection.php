@@ -37,7 +37,8 @@ abstract class Collection implements \Countable, \IteratorAggregate
 
     /**
      * Add an item. Throws if item is not of itemType().
-     * 
+     *
+     * @param T $item
      * @throws \InvalidArgumentException for wrong type
      */
     public function add(mixed $item): void
@@ -54,6 +55,8 @@ abstract class Collection implements \Countable, \IteratorAggregate
     /**
      * Remove an item by value equality if item implements equals(),
      * or by strict comparison otherwise.
+     *
+     * @param T $item
      */
     public function remove(mixed $item): void
     {
@@ -74,6 +77,8 @@ abstract class Collection implements \Countable, \IteratorAggregate
 
     /**
      * Check if item exists in collection.
+     *
+     * @param T $item
      */
     public function contains(mixed $item): bool
     {
@@ -90,8 +95,10 @@ abstract class Collection implements \Countable, \IteratorAggregate
     /**
      * Returns a plain PHP array copy.
      * Modifications to the returned array do not affect the collection.
+     *
+     * @return list<T>
      */
-    public function toArray(): array 
+    public function toArray(): array
     {
         return $this->items;
     }
@@ -128,8 +135,10 @@ abstract class Collection implements \Countable, \IteratorAggregate
 
     /**
      * Returns the first item matching the predicate, or null.
+     *
+     * @return T|null
      */
-    public function first(callable $predicate): mixed 
+    public function first(callable $predicate): mixed
     {
         foreach ($this->items as $item) {
             if($predicate($item)){

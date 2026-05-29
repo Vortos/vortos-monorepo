@@ -6,8 +6,10 @@ namespace Vortos\PersistenceDbal\Write;
 
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Types\Types;
 use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Identity\AggregateId;
+use Vortos\Domain\Repository\Exception\AggregateNotFoundException;
 use Vortos\Domain\Repository\Exception\OptimisticLockException;
 use Vortos\Domain\Repository\WriteRepositoryInterface;
 
@@ -76,7 +78,7 @@ use Vortos\Domain\Repository\WriteRepositoryInterface;
  *
  * ## Custom queries
  *
- * Use the protected connection() method for queries beyond findById():
+ * Use the protected connection() method for custom queries:
  *
  *   public function findByEmail(Email $email): ?User
  *   {
@@ -100,6 +102,16 @@ use Vortos\Domain\Repository\WriteRepositoryInterface;
  *
  * Your ApplicationService should catch OptimisticLockException and
  * either retry (with fresh load) or return a conflict error to the caller.
+ *
+ * ## Batch operations
+ *
+ * batchInsert()         — single INSERT with multiple VALUES rows; all aggregates must be new
+ * batchUpdate()         — loops save() per aggregate; applies optimistic locking on each
+ * batchDelete()         — loops delete() per aggregate; applies optimistic locking on each
+ * batchForceDeleteByIds() — single DELETE IN (:ids); bypasses version checks entirely
+ *
+ * PostgresWriteRepository adds batchUpsert() (INSERT ... ON CONFLICT) and overrides
+ * batchUpdate() with a single UPDATE FROM VALUES query.
  */
 abstract class DbalWriteRepository implements WriteRepositoryInterface
 {
@@ -125,6 +137,8 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
      *       'email'   => Types::STRING,
      *       'version' => Types::INTEGER,
      *   ];
+     *
+     * @return array<string, string>
      */
     abstract protected function columnMap(): array;
 
@@ -138,6 +152,8 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
      *
      * Do NOT call incrementVersion() here — the base handles that
      * after a successful save.
+     *
+     * @return array<string, mixed>
      */
     abstract protected function toRow(AggregateRoot $aggregate): array;
 
@@ -154,42 +170,19 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
      *       $row['email'],
      *       (int) $row['version'],
      *   );
+     *
+     * @param array<string, mixed> $row
      */
     abstract protected function fromRow(array $row): AggregateRoot;
-
-    /**
-     * Find an aggregate by its ID.
-     *
-     * Returns null if no row exists — never throws for missing records.
-     * The returned aggregate has its version restored from the database,
-     * ready for optimistic lock checks on the next save().
-     *
-     * {@inheritdoc}
-     */
-    public function findById(AggregateId $id): ?AggregateRoot
-    {
-        $row = $this->connection->createQueryBuilder()
-            ->select('*')
-            ->from($this->tableName())
-            ->where('id = :id')
-            ->setParameter('id', (string) $id)
-            ->executeQuery()
-            ->fetchAssociative();
-
-        if ($row === false) {
-            return null;
-        }
-
-        return $this->fromRow($row);
-    }
 
     /**
      * Persist an aggregate — handles both insert and update.
      *
      * ## Insert vs Update detection
      *
-     * version === 0 → new aggregate → INSERT
-     * version  > 0 → existing aggregate → UPDATE with optimistic lock check
+     * Uses AggregateRoot::isNew() to distinguish new aggregates from existing ones.
+     * New aggregates (never saved or reconstructed) → INSERT.
+     * Existing aggregates (previously saved or loaded from DB) → UPDATE with optimistic lock check.
      *
      * ## Optimistic locking on UPDATE
      *
@@ -209,7 +202,7 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
     {
         $row = $this->toRow($aggregate);
 
-        if ($aggregate->getVersion() === 0) {
+        if ($aggregate->isNew()) {
             $this->connection->insert($this->tableName(), $row, $this->columnMap());
             $aggregate->incrementVersion();
             return;
@@ -219,10 +212,11 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
 
         unset($row['version']);
 
-        $qb = $this->connection->createQueryBuilder();
-        $qb->update($this->tableName());
-        
+        $qb    = $this->connection->createQueryBuilder();
         $types = $this->columnMap();
+
+        $qb->update($this->tableName());
+
         foreach ($row as $column => $value) {
             $qb->set($column, ':' . $column);
             $qb->setParameter($column, $value, $types[$column] ?? null);
@@ -254,17 +248,17 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
      * Applies optimistic locking on delete — prevents deleting an aggregate
      * that has been modified since you loaded it.
      *
-     * If zero rows are affected, throws OptimisticLockException.
-     * This could mean the aggregate was already deleted or was modified
-     * by another process.
+     * If the aggregate does not exist, throws AggregateNotFoundException.
+     * If it exists but the version does not match, throws OptimisticLockException.
+     * The second check is a follow-up SELECT only on the failure path — zero
+     * overhead on the happy path.
      *
      * {@inheritdoc}
      */
     public function delete(AggregateRoot $aggregate): void
     {
-        $qb = $this->connection->createQueryBuilder();
-
-        $affected = $qb->delete($this->tableName())
+        $affected = $this->connection->createQueryBuilder()
+            ->delete($this->tableName())
             ->where('id = :id')
             ->andWhere('version = :version')
             ->setParameter('id', (string) $aggregate->getId())
@@ -272,6 +266,18 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
             ->executeStatement();
 
         if ($affected === 0) {
+            $exists = (bool) $this->connection->createQueryBuilder()
+                ->select('1')
+                ->from($this->tableName())
+                ->where('id = :id')
+                ->setParameter('id', (string) $aggregate->getId())
+                ->executeQuery()
+                ->fetchOne();
+
+            if (!$exists) {
+                throw AggregateNotFoundException::for(get_class($aggregate), (string) $aggregate->getId());
+            }
+
             throw OptimisticLockException::forAggregate(
                 get_class($aggregate),
                 (string) $aggregate->getId(),
@@ -286,11 +292,15 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
      *
      * More efficient than calling save() in a loop for bulk inserts.
      * Builds one INSERT with multiple VALUES rows and executes once.
+     * Uses DBAL's type system for all columns — JSON, integers, and other
+     * types are encoded correctly without manual conversion.
      *
-     * All aggregates must be new (version === 0). For updating existing
-     * aggregates in bulk, use batchUpsert() or batchUpdate().
+     * All aggregates must be new (isNew() === true). For updating existing
+     * aggregates in bulk, use batchUpdate().
      *
      * After successful insert, incrementVersion() is called on each aggregate.
+     *
+     * @param AggregateRoot[] $aggregates
      */
     public function batchInsert(array $aggregates): void
     {
@@ -298,103 +308,35 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
             return;
         }
 
-        $types = $this->columnMap();
-        $rows  = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
+        $types   = $this->columnMap();
+        $rows    = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
+        $columns = array_keys($rows[0]);
 
-        $preparedRows = array_map(function (array $row) use ($types): array {
-            foreach ($row as $col => $value) {
-                if (
-                    isset($types[$col])
-                    && $types[$col] === \Doctrine\DBAL\Types\Types::JSON
-                    && is_array($value)
-                ) {
-                    $row[$col] = json_encode($value);
-                }
-            }
-            return $row;
-        }, $rows);
-
-        $columns      = array_keys($preparedRows[0]);
         $placeholder  = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
-        $placeholders = implode(', ', array_fill(0, count($preparedRows), $placeholder));
-        $flatValues   = array_merge(...array_map('array_values', $preparedRows));
+        $placeholders = implode(', ', array_fill(0, count($rows), $placeholder));
 
         $quotedTable   = $this->connection->quoteIdentifier($this->tableName());
-        $quotedColumns = implode(', ', array_map(fn(string $c) => $this->connection->quoteIdentifier($c), $columns));
+        $quotedColumns = implode(', ', array_map(
+            fn(string $c) => $this->connection->quoteIdentifier($c),
+            $columns,
+        ));
 
-        $sql = sprintf(
-            'INSERT INTO %s (%s) VALUES %s',
-            $quotedTable,
-            $quotedColumns,
-            $placeholders,
-        );
+        $sql = sprintf('INSERT INTO %s (%s) VALUES %s', $quotedTable, $quotedColumns, $placeholders);
 
-        $this->connection->executeStatement($sql, $flatValues);
+        $flatValues = [];
+        $flatTypes  = [];
+        foreach ($rows as $row) {
+            foreach ($columns as $col) {
+                $flatValues[] = $row[$col];
+                $flatTypes[]  = $types[$col] ?? Types::STRING;
+            }
+        }
+
+        $this->connection->executeStatement($sql, $flatValues, $flatTypes);
 
         foreach ($aggregates as $aggregate) {
             $aggregate->incrementVersion();
         }
-    }
-
-    /**
-     * Insert or update multiple aggregates in a single SQL statement.
-     *
-     * Uses PostgreSQL's INSERT ... ON CONFLICT (id) DO UPDATE SET syntax.
-     * On conflict, all columns except id are updated to the new values.
-     *
-     * WARNING: This method does NOT apply optimistic locking.
-     * It will silently overwrite any version in the database.
-     * Use only for:
-     *   - Read model projections (eventual consistency is acceptable)
-     *   - Idempotent bulk imports where last-write-wins is intentional
-     *   - Seeding data in tests
-     *
-     * Never use this for commands where concurrent modification must be detected.
-     */
-    public function batchUpsert(array $aggregates): void
-    {
-        if (empty($aggregates)) {
-            return;
-        }
-
-        $types = $this->columnMap();
-        $rows  = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
-
-        $preparedRows = array_map(function (array $row) use ($types): array {
-            foreach ($row as $col => $value) {
-                if (
-                    isset($types[$col])
-                    && $types[$col] === \Doctrine\DBAL\Types\Types::JSON
-                    && is_array($value)
-                ) {
-                    $row[$col] = json_encode($value);
-                }
-            }
-            return $row;
-        }, $rows);
-
-        $columns     = array_keys($preparedRows[0]);
-        $placeholder = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
-        $placeholders = implode(', ', array_fill(0, count($preparedRows), $placeholder));
-        $flatValues   = array_merge(...array_map('array_values', $preparedRows));
-
-        $quotedTable   = $this->connection->quoteIdentifier($this->tableName());
-        $quotedColumns = implode(', ', array_map(fn(string $c) => $this->connection->quoteIdentifier($c), $columns));
-
-        $setClauses = implode(', ', array_map(
-            fn(string $col) => $this->connection->quoteIdentifier($col) . ' = EXCLUDED.' . $this->connection->quoteIdentifier($col),
-            array_filter($columns, fn(string $col) => $col !== 'id'),
-        ));
-
-        $sql = sprintf(
-            'INSERT INTO %s (%s) VALUES %s ON CONFLICT (id) DO UPDATE SET %s',
-            $quotedTable,
-            $quotedColumns,
-            $placeholders,
-            $setClauses,
-        );
-
-        $this->connection->executeStatement($sql, $flatValues);
     }
 
     /**
@@ -406,6 +348,8 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
      * For PostgreSQL-specific bulk UPDATE FROM VALUES (more efficient at scale),
      * extend PostgresWriteRepository instead, which overrides this method
      * with a single-query implementation.
+     *
+     * @param AggregateRoot[] $aggregates
      */
     public function batchUpdate(array $aggregates): void
     {
@@ -415,13 +359,34 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
     }
 
     /**
+     * Delete multiple aggregates, applying optimistic locking on each.
+     *
+     * Calls delete() per aggregate — throws AggregateNotFoundException or
+     * OptimisticLockException on the first failure. Use batchForceDeleteByIds()
+     * when you need a single-query delete without version checks.
+     *
+     * @param AggregateRoot[] $aggregates
+     */
+    public function batchDelete(array $aggregates): void
+    {
+        foreach ($aggregates as $aggregate) {
+            $this->delete($aggregate);
+        }
+    }
+
+    /**
      * Delete multiple aggregates by ID in a single SQL statement.
      *
      * Uses DELETE WHERE id IN (:ids) — one query regardless of count.
-     * Does NOT apply optimistic locking — use only when you are certain
-     * the aggregates have not been modified since you loaded their IDs.
+     * Does NOT apply optimistic locking and does NOT throw if an ID is missing.
+     *
+     * Use only when you are certain the aggregates have not been concurrently
+     * modified and when last-write-wins semantics are acceptable — e.g. cascading
+     * deletes, test teardown, or administrative bulk removal.
+     *
+     * @param AggregateId[] $ids
      */
-    public function batchDelete(array $ids): void
+    public function batchForceDeleteByIds(array $ids): void
     {
         if (empty($ids)) {
             return;
@@ -436,21 +401,19 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
             ->executeStatement();
     }
 
-    /**
-     * Exposes the DBAL Connection for custom queries in subclasses.
-     *
-     * Use the QueryBuilder for all custom queries — never raw SQL strings.
-     * Raw SQL strings are not portable and bypass DBAL's parameter escaping.
-     *
-     * Example:
-     *   $this->connection()->createQueryBuilder()
-     *       ->select('*')
-     *       ->from($this->tableName())
-     *       ->where('email = :email')
-     *       ->setParameter('email', $email)
-     *       ->executeQuery()
-     *       ->fetchAllAssociative();
-     */
+    protected function find(AggregateId $id): ?AggregateRoot
+    {
+        $row = $this->connection->createQueryBuilder()
+            ->select('*')
+            ->from($this->tableName())
+            ->where('id = :id')
+            ->setParameter('id', (string) $id)
+            ->executeQuery()
+            ->fetchAssociative();
+
+        return $row !== false ? $this->fromRow($row) : null;
+    }
+
     protected function connection(): Connection
     {
         return $this->connection;

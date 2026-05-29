@@ -62,10 +62,12 @@ abstract class AggregateRoot extends BaseAggregateRoot
     public function incrementVersion(): void
     {
         $this->ormVersion++;
+        parent::incrementVersion();
     }
 
     protected function restoreVersion(int $version): void
     {
         $this->ormVersion = $version;
+        parent::restoreVersion($version);
     }
 }

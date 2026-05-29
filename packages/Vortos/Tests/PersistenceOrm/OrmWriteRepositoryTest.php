@@ -54,13 +54,18 @@ final class RepoTestRepository extends OrmWriteRepository
     {
         return RepoTestAggregate::class;
     }
+
+    public function exposedFind(AggregateId $id): ?AggregateRoot
+    {
+        return $this->find($id);
+    }
 }
 
 // --- tests ---
 
 final class OrmWriteRepositoryTest extends TestCase
 {
-    public function test_find_by_id_delegates_to_em_find(): void
+    public function test_find_delegates_to_em_find(): void
     {
         $agg = new RepoTestAggregate();
         $id  = $agg->getId();
@@ -72,12 +77,12 @@ final class OrmWriteRepositoryTest extends TestCase
             ->willReturn($agg);
 
         $repo   = new RepoTestRepository($em);
-        $result = $repo->findById($id);
+        $result = $repo->exposedFind($id);
 
         $this->assertSame($agg, $result);
     }
 
-    public function test_find_by_id_returns_null_when_not_found(): void
+    public function test_find_returns_null_when_not_found(): void
     {
         $id = RepoTestId::generate();
 
@@ -85,7 +90,7 @@ final class OrmWriteRepositoryTest extends TestCase
         $em->method('find')->willReturn(null);
 
         $repo = new RepoTestRepository($em);
-        $this->assertNull($repo->findById($id));
+        $this->assertNull($repo->exposedFind($id));
     }
 
     public function test_save_calls_persist_and_flush_for_new_aggregate(): void

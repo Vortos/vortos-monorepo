@@ -7,11 +7,12 @@ namespace App\User\Infrastructure\Database;
 use App\User\Domain\Email;
 use App\User\Domain\User;
 use App\User\Domain\UserId;
+use App\User\Domain\UserRepositoryInterface;
 use Doctrine\DBAL\Types\Types;
 use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\PersistenceDbal\Write\DbalWriteRepository;
 
-final class UserWriteRepository extends DbalWriteRepository
+final class UserWriteRepository extends DbalWriteRepository implements UserRepositoryInterface
 {
     protected function tableName(): string
     {
@@ -50,6 +51,11 @@ final class UserWriteRepository extends DbalWriteRepository
             passwordHash: $row['password_hash'],
             version:      (int) $row['version'],
         );
+    }
+
+    public function save(User $user): void
+    {
+        parent::save($user);
     }
 
     public function findByEmail(Email $email): ?User

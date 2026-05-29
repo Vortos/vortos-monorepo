@@ -70,6 +70,13 @@ abstract class AggregateRoot
     private int $version = 0;
 
     /**
+     * Tracks whether this aggregate has ever been persisted or reconstructed.
+     * Set to true by restoreVersion() (reconstruction) and incrementVersion() (first save).
+     * Allows repositories to distinguish INSERT from UPDATE without relying on version === 0.
+     */
+    private bool $persisted = false;
+
+    /**
      * Domain events recorded during this command execution, wrapped in envelopes.
      * Never public — only accessible via pullDomainEvents().
      *
@@ -159,6 +166,19 @@ abstract class AggregateRoot
     }
 
     /**
+     * Returns true if this aggregate has never been saved to or loaded from persistence.
+     * Repositories use this to choose INSERT over UPDATE — more reliable than version === 0.
+     *
+     * Note: only reliable for DBAL-backed aggregates. ORM-backed aggregates are hydrated
+     * by Doctrine directly via reflection and do not go through restoreVersion(), so this
+     * flag is not set by Doctrine hydration. OrmWriteRepository uses $em->contains() instead.
+     */
+    public function isNew(): bool
+    {
+        return !$this->persisted;
+    }
+
+    /**
      * Restores version when reconstructing from persistence.
      * Only call from static reconstruct() factory methods.
      *
@@ -167,6 +187,7 @@ abstract class AggregateRoot
     protected function restoreVersion(int $version): void
     {
         $this->version = $version;
+        $this->persisted = true;
     }
 
     /**
@@ -178,6 +199,7 @@ abstract class AggregateRoot
     public function incrementVersion(): void
     {
         $this->version++;
+        $this->persisted = true;
     }
 
     /**

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Vortos\Domain\Repository;
 
 use Vortos\Domain\Aggregate\AggregateRoot;
-use Vortos\Domain\Identity\AggregateId;
 
 /**
  * Contract for aggregate write repositories.
@@ -20,12 +19,6 @@ use Vortos\Domain\Identity\AggregateId;
  */
 interface WriteRepositoryInterface
 {
-    /**
-     * Find an aggregate by its ID.
-     * Returns null if not found — never throws for missing records.
-     */
-    public function findById(AggregateId $id): ?AggregateRoot;
-
     /**
      * Persist an aggregate.
      * Handles both insert (new aggregate) and update (existing).

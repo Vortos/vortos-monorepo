@@ -75,7 +75,7 @@ return [
         'description' => 'Abstractions for write (PostgreSQL/DBAL) and read (MongoDB) stores.',
         'provides'    => [
             'UnitOfWorkInterface'          => 'run(callable): void — wraps the callable in a DB transaction. CommandBus calls this automatically.',
-            'WriteRepositoryInterface'     => 'save(AggregateRoot): void, findById(AggregateId): ?AggregateRoot',
+            'WriteRepositoryInterface'     => 'save(AggregateRoot): void, delete(AggregateRoot): void',
             'ReadRepositoryInterface'      => 'findById(string): ?array, findBy(array): array',
         ],
         'config' => [

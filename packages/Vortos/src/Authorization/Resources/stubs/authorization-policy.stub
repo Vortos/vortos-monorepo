@@ -4,28 +4,25 @@ declare(strict_types=1);
 
 namespace {{Namespace}}\Application\Policy;
 
-use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Authorization\Attribute\AsPolicy;
+use Vortos\Authorization\Context\AuthorizationContext;
 use Vortos\Authorization\Contract\PolicyInterface;
-use Vortos\Authorization\Voter\RoleVoter;
 
 #[AsPolicy(resource: '{{Resource}}')]
 final class {{ClassName}}Policy implements PolicyInterface
 {
-    public function __construct(private RoleVoter $roles) {}
-
     public function can(
-        UserIdentityInterface $identity,
+        AuthorizationContext $auth,
         string $action,
         string $scope,
         mixed $resource = null,
     ): bool {
         return match ($action) {
-            'list'   => $this->roles->atLeast($identity, 'ROLE_USER'),
-            'read'   => $this->roles->atLeast($identity, 'ROLE_USER'),
-            'create' => $this->roles->atLeast($identity, 'ROLE_ADMIN'),
-            'update' => $this->roles->atLeast($identity, 'ROLE_ADMIN'),
-            'delete' => $this->roles->hasAny($identity, ['ROLE_ADMIN', 'ROLE_SUPER_ADMIN']),
+            'list'   => $auth->atLeast('ROLE_USER'),
+            'read'   => $auth->atLeast('ROLE_USER'),
+            'create' => $auth->atLeast('ROLE_ADMIN'),
+            'update' => $auth->atLeast('ROLE_ADMIN'),
+            'delete' => $auth->hasAnyRole(['ROLE_ADMIN', 'ROLE_SUPER_ADMIN']),
             default  => false,
         };
     }

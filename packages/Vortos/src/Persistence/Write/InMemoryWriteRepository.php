@@ -57,7 +57,7 @@ abstract class InMemoryWriteRepository implements WriteRepositoryInterface
      * Returns a clone — mutating the returned aggregate does not
      * affect the stored version. Call save() to persist changes.
      *
-     * {@inheritdoc}
+     * Not on WriteRepositoryInterface — for test inspection only.
      */
     public function findById(AggregateId $id): ?AggregateRoot
     {

@@ -12,6 +12,8 @@ use Doctrine\DBAL\Exception\NotNullConstraintViolationException as DbalNotNullEx
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException as DbalUniqueException;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\OptimisticLockException as DoctrineOptimisticLockException;
+use Doctrine\ORM\Query;
+use Doctrine\ORM\QueryBuilder;
 use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Identity\AggregateId;
 use Vortos\Domain\Repository\Exception\OptimisticLockException;
@@ -82,11 +84,6 @@ abstract class OrmWriteRepository implements WriteRepositoryInterface
 
     abstract protected function entityClass(): string;
 
-    public function findById(AggregateId $id): ?AggregateRoot
-    {
-        return $this->em->find($this->entityClass(), (string) $id);
-    }
-
     public function save(AggregateRoot $aggregate): void
     {
         try {
@@ -132,6 +129,27 @@ abstract class OrmWriteRepository implements WriteRepositoryInterface
         }
     }
 
+    protected function find(AggregateId $id): ?AggregateRoot
+    {
+        /** @var AggregateRoot|null */
+        return $this->em->find($this->entityClass(), (string) $id);
+    }
+
+    protected function createQueryBuilder(): QueryBuilder
+    {
+        return $this->em->createQueryBuilder();
+    }
+
+    protected function createQuery(string $dql): Query
+    {
+        return $this->em->createQuery($dql);
+    }
+
+    protected function getReference(AggregateId $id): object
+    {
+        return $this->em->getReference($this->entityClass(), (string) $id);
+    }
+
     private function translateException(\Throwable $e): \Throwable
     {
         return match (true) {
@@ -146,8 +164,4 @@ abstract class OrmWriteRepository implements WriteRepositoryInterface
         };
     }
 
-    protected function em(): EntityManagerInterface
-    {
-        return $this->em;
-    }
 }

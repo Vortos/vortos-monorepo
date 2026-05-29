@@ -1,0 +1,61 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}};
+
+use Vortos\Paddle\Subscription\Contract\StandaloneSubscriptionServiceInterface;
+use Vortos\Paddle\Subscription\Subscription;
+use Vortos\Paddle\Subscription\SubscriptionUpdatePreview;
+use Vortos\Paddle\Subscription\Operation\CancelSubscriptionRequest;
+use Vortos\Paddle\Subscription\Operation\PauseSubscriptionRequest;
+use Vortos\Paddle\Subscription\Operation\UpdateSubscriptionRequest;
+use Vortos\Paddle\ValueObject\PaddleSubscriptionId;
+
+final class {{ClassName}} implements StandaloneSubscriptionServiceInterface
+{
+    public function __construct(
+        private readonly StandaloneSubscriptionServiceInterface $subscriptions,
+    ) {}
+
+    public function get(PaddleSubscriptionId $id): Subscription
+    {
+        return $this->subscriptions->get($id);
+    }
+
+    public function update(PaddleSubscriptionId $id, UpdateSubscriptionRequest $request): void
+    {
+        $this->subscriptions->update($id, $request);
+    }
+
+    public function pause(PaddleSubscriptionId $id, ?PauseSubscriptionRequest $request = null): void
+    {
+        $this->subscriptions->pause($id, $request);
+    }
+
+    public function resume(PaddleSubscriptionId $id): void
+    {
+        $this->subscriptions->resume($id);
+    }
+
+    public function cancel(PaddleSubscriptionId $id, ?CancelSubscriptionRequest $request = null): void
+    {
+        $this->subscriptions->cancel($id, $request);
+    }
+
+    public function activate(PaddleSubscriptionId $id): void
+    {
+        $this->subscriptions->activate($id);
+    }
+
+    public function previewUpdate(PaddleSubscriptionId $id, UpdateSubscriptionRequest $request): SubscriptionUpdatePreview
+    {
+        return $this->subscriptions->previewUpdate($id, $request);
+    }
+
+    /** @return Subscription[] */
+    public function list(): array
+    {
+        return $this->subscriptions->list();
+    }
+}

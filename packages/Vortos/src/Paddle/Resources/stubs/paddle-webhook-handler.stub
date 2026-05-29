@@ -1,0 +1,16 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}};
+
+use Vortos\Paddle\Webhook\Event\{{EventType}};
+
+final class {{ClassName}}
+{
+    public function __invoke({{EventType}} $event): void
+    {
+        // Handle {{EventType}} here
+        // $event->subscription, $event->transaction, etc.
+    }
+}

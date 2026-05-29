@@ -40,7 +40,8 @@
     "open-telemetry/sdk": "^1.0",
     "open-telemetry/exporter-otlp": "^1.0",
     "guzzlehttp/guzzle": "^7.0",
-    "aws/aws-sdk-php": "^3.382"
+    "aws/aws-sdk-php": "^3.382",
+    "paddlehq/paddle-php-sdk": "^1.0"
   },
   "require-dev": {
     "vortos/vortos-make": "@dev",
@@ -65,7 +66,8 @@
       "Vortos\\Mcp\\": "packages/Vortos/src/Mcp/",
       "Vortos\\Observability\\": "packages/Vortos/src/Observability/",
       "Vortos\\AwsSes\\": "packages/Vortos/src/AwsSes/",
-      "Vortos\\ObjectStore\\": "packages/Vortos/src/ObjectStore/"
+      "Vortos\\ObjectStore\\": "packages/Vortos/src/ObjectStore/",
+      "Vortos\\Paddle\\": "packages/Vortos/src/Paddle/"
     }
   },
   "autoload-dev": {

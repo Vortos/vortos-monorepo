@@ -45,6 +45,11 @@ final class CorsPreflightCompilerPass implements CompilerPassInterface
         }
 
         $definition = $container->getDefinition(RouteCollection::class);
+        $arguments  = $definition->getArguments();
+
+        if (empty($arguments) || !isset($arguments[0])) {
+            return;
+        }
 
         /** @var RouteCollection $routes */
         $routes = unserialize($definition->getArgument(0), [

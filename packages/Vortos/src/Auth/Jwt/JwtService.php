@@ -27,7 +27,7 @@ use Vortos\Auth\Session\SessionEnforcer;
  *   iat            — issued at (Unix timestamp)
  *   exp            — expires at (Unix timestamp)
  *   roles          — user roles array
- *   authz_version  — authorization cache version
+ *   authz_version  — authorization cache version (framework-owned, passed explicitly to issue())
  *   type           — 'access'
  *   attrs          — app-defined claims from UserIdentityInterface::getClaims() (omitted when empty)
  *
@@ -66,9 +66,12 @@ final class JwtService
      *
      * Call this after successful credential verification.
      *
+     * @param int $authzVersion Current authorization cache version for the user.
+     *                          Pass the value from AuthorizationVersionStoreInterface::versionForUser().
+     *
      * @throws \Vortos\Auth\Session\Exception\SessionLimitExceededException If session limit is exceeded with RejectNew policy.
      */
-    public function issue(UserIdentityInterface $identity): JwtToken
+    public function issue(UserIdentityInterface $identity, int $authzVersion = 0): JwtToken
     {
         $now = time();
         $accessExpiresAt = $now + $this->config->accessTokenTtl;
@@ -76,7 +79,7 @@ final class JwtService
         $jti = (string) new \Symfony\Component\Uid\UuidV7();
 
         $claims = $identity->getClaims();
-        unset($claims['authz_version']); // framework-owned top-level claim — must not land in attrs
+        unset($claims['authz_version']); // reserved top-level name — must not appear in attrs
 
         $accessPayload = [
             'iss'           => $this->config->issuer,
@@ -84,7 +87,7 @@ final class JwtService
             'iat'           => $now,
             'exp'           => $accessExpiresAt,
             'roles'         => $identity->roles(),
-            'authz_version' => $identity->getAttribute('authz_version', 0),
+            'authz_version' => $authzVersion,
             'type'          => 'access',
         ];
 
@@ -120,12 +123,12 @@ final class JwtService
     }
 
     /**
-     * Validate an access token and return the user identity from its claims.
+     * Validate an access token and return a ValidatedToken containing the identity and authz version.
      *
      * @throws TokenInvalidException  If signature is invalid, format is malformed, or issuer is wrong
      * @throws TokenExpiredException  If token has expired
      */
-    public function validate(string $token): UserIdentityInterface
+    public function validate(string $token): ValidatedToken
     {
         try {
             $payload = $this->decode($token);
@@ -143,10 +146,13 @@ final class JwtService
             throw new TokenInvalidException('Token issuer is invalid.');
         }
 
-        return new UserIdentity(
-            id: $payload['sub'],
-            roles: $payload['roles'] ?? [],
-            attributes: $this->identityAttributes($payload),
+        return new ValidatedToken(
+            identity: new UserIdentity(
+                id: $payload['sub'],
+                roles: $payload['roles'] ?? [],
+                attributes: $this->identityAttributes($payload),
+            ),
+            authzVersion: (int) ($payload['authz_version'] ?? 0),
         );
     }
 
@@ -156,11 +162,13 @@ final class JwtService
      * Validates the refresh token, revokes it, removes its session entry,
      * and issues a fresh pair. The old refresh token cannot be reused.
      *
+     * @param int $authzVersion Current authorization cache version for the user.
+     *
      * @throws TokenInvalidException  If refresh token is malformed
      * @throws TokenExpiredException  If refresh token has expired
      * @throws TokenRevokedException  If refresh token was already used or revoked
      */
-    public function refresh(string $refreshToken, UserIdentityInterface $identity): JwtToken
+    public function refresh(string $refreshToken, UserIdentityInterface $identity, int $authzVersion = 0): JwtToken
     {
         try {
             $payload = $this->decode($refreshToken);
@@ -187,7 +195,7 @@ final class JwtService
         $this->tokenStorage->revoke($jti);
         $this->sessionEnforcer?->removeSession($payload['sub'], $jti);
 
-        return $this->issue($identity);
+        return $this->issue($identity, $authzVersion);
     }
 
     /**
@@ -241,12 +249,6 @@ final class JwtService
      */
     private function identityAttributes(array $payload): array
     {
-        $attrs = (array) ($payload['attrs'] ?? []);
-
-        if (isset($payload['authz_version'])) {
-            $attrs['authz_version'] = $payload['authz_version'];
-        }
-
-        return $attrs;
+        return (array) ($payload['attrs'] ?? []);
     }
 }

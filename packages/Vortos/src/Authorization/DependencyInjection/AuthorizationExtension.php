@@ -36,6 +36,7 @@ use Vortos\Authorization\Contract\RolePermissionStoreInterface;
 use Vortos\Authorization\Contract\UserRoleStoreInterface;
 use Vortos\Authorization\Engine\PolicyEngine;
 use Vortos\Authorization\Engine\PolicyRegistry;
+use Vortos\Authorization\Identity\RequestAuthzVersionProvider;
 use Vortos\Authorization\Middleware\AuthorizationMiddleware;
 use Vortos\Authorization\Middleware\ControllerPermissionMap;
 use Vortos\Authorization\Ownership\Middleware\OwnershipMiddleware;
@@ -147,6 +148,11 @@ final class AuthorizationExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
+        $container->register(RequestAuthzVersionProvider::class, RequestAuthzVersionProvider::class)
+            ->setArgument('$arrayAdapter', new Reference(\Vortos\Cache\Adapter\ArrayAdapter::class))
+            ->setShared(true)
+            ->setPublic(true);
+
         $container->register(PolicyEngine::class, PolicyEngine::class)
             ->setArgument('$registry', new Reference(PolicyRegistryInterface::class))
             ->setArgument('$permissionRegistry', new Reference(PermissionRegistryInterface::class))
@@ -159,6 +165,7 @@ final class AuthorizationExtension extends Extension
             ->setArgument('$breakGlassRole', $resolved['break_glass_role'])
             ->setArgument('$scopedPermissions', null)
             ->setArgument('$tracer', new Reference(AuthorizationTracer::class))
+            ->setArgument('$authzVersionProvider', new Reference(RequestAuthzVersionProvider::class))
             ->setShared(true)->setPublic(true);
 
         $container->register(ControllerPermissionMap::class, ControllerPermissionMap::class)
@@ -194,6 +201,7 @@ final class AuthorizationExtension extends Extension
         $container->register(AuthCommandIdentityFactory::class, AuthCommandIdentityFactory::class)
             ->setArgument('$userRoles', new Reference(UserRoleStoreInterface::class))
             ->setArgument('$versions', new Reference(AuthorizationVersionStoreInterface::class))
+            ->setArgument('$arrayAdapter', new Reference(\Vortos\Cache\Adapter\ArrayAdapter::class))
             ->setShared(true)
             ->setPublic(false);
 
@@ -437,6 +445,7 @@ final class AuthorizationExtension extends Extension
             ->setArgument('$rolePermissions', new Reference(RolePermissionStoreInterface::class))
             ->setArgument('$versions', new Reference(AuthorizationVersionStoreInterface::class))
             ->setArgument('$denyList', new Reference(EmergencyDenyListInterface::class))
+            ->setArgument('$authzVersionProvider', new Reference(RequestAuthzVersionProvider::class))
             ->addTag('console.command')
             ->setShared(true)
             ->setPublic(false);

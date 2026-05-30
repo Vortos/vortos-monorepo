@@ -12,6 +12,7 @@ use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Auth\Jwt\JwtConfig;
 use Vortos\Auth\Jwt\JwtService;
+use Vortos\Auth\Jwt\ValidatedToken;
 use Vortos\Auth\Storage\InMemoryTokenStorage;
 
 final class JwtServiceTest extends TestCase
@@ -85,26 +86,47 @@ final class JwtServiceTest extends TestCase
 
     // --- VALIDATE TOKEN TESTS ---
 
-    public function test_validate_returns_correct_identity(): void
+    public function test_validate_returns_validated_token(): void
     {
         $identity = new UserIdentity('user-123', ['ROLE_USER', 'ROLE_ADMIN']);
         $token = $this->jwtService->issue($identity);
 
-        $validated = $this->jwtService->validate($token->accessToken);
+        $result = $this->jwtService->validate($token->accessToken);
 
-        $this->assertEquals('user-123', $validated->id());
-        $this->assertEquals(['ROLE_USER', 'ROLE_ADMIN'], $validated->roles());
-        $this->assertTrue($validated->isAuthenticated());
+        $this->assertInstanceOf(ValidatedToken::class, $result);
+        $this->assertEquals('user-123', $result->identity->id());
+        $this->assertEquals(['ROLE_USER', 'ROLE_ADMIN'], $result->identity->roles());
+        $this->assertTrue($result->identity->isAuthenticated());
+    }
+
+    public function test_validate_returns_authz_version_on_validated_token(): void
+    {
+        $identity = new UserIdentity('user-123', ['ROLE_USER']);
+        $token = $this->jwtService->issue($identity, authzVersion: 7);
+
+        $result = $this->jwtService->validate($token->accessToken);
+
+        $this->assertSame(7, $result->authzVersion);
+    }
+
+    public function test_validate_authz_version_defaults_to_zero_when_not_issued(): void
+    {
+        $identity = new UserIdentity('user-123', ['ROLE_USER']);
+        $token = $this->jwtService->issue($identity);
+
+        $result = $this->jwtService->validate($token->accessToken);
+
+        $this->assertSame(0, $result->authzVersion);
     }
 
     public function test_issue_and_validate_roundtrips_authz_version_claim(): void
     {
-        $identity = new UserIdentity('user-123', ['ROLE_USER'], ['authz_version' => 7]);
-        $token = $this->jwtService->issue($identity);
+        $identity = new UserIdentity('user-123', ['ROLE_USER']);
+        $token = $this->jwtService->issue($identity, authzVersion: 7);
 
-        $validated = $this->jwtService->validate($token->accessToken);
+        $result = $this->jwtService->validate($token->accessToken);
 
-        $this->assertSame(7, $validated->getAttribute('authz_version'));
+        $this->assertSame(7, $result->authzVersion);
     }
 
     public function test_issue_and_validate_roundtrips_custom_claims(): void
@@ -115,10 +137,10 @@ final class JwtServiceTest extends TestCase
         ]);
         $token = $this->jwtService->issue($identity);
 
-        $validated = $this->jwtService->validate($token->accessToken);
+        $result = $this->jwtService->validate($token->accessToken);
 
-        $this->assertSame('org-abc', $validated->getAttribute('organization_id'));
-        $this->assertSame('pro', $validated->getAttribute('plan'));
+        $this->assertSame('org-abc', $result->identity->getAttribute('organization_id'));
+        $this->assertSame('pro', $result->identity->getAttribute('plan'));
     }
 
     public function test_issue_omits_attrs_from_payload_when_no_custom_claims(): void
@@ -126,7 +148,6 @@ final class JwtServiceTest extends TestCase
         $identity = new UserIdentity('user-123', ['ROLE_USER']);
         $token = $this->jwtService->issue($identity);
 
-        // Decode payload without verification to inspect structure
         $parts = explode('.', $token->accessToken);
         $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
 
@@ -138,7 +159,6 @@ final class JwtServiceTest extends TestCase
         $identity = new UserIdentity('user-1', []);
         $token = $this->jwtService->issue($identity);
 
-        // Tamper with the token
         $parts = explode('.', $token->accessToken);
         $parts[2] = 'invalidsignature';
         $tampered = implode('.', $parts);
@@ -158,7 +178,6 @@ final class JwtServiceTest extends TestCase
         $identity = new UserIdentity('user-1', []);
         $token = $this->jwtService->issue($identity);
 
-        // Truncate the token like the curl test did
         $truncated = substr($token->accessToken, 0, strlen($token->accessToken) - 20);
 
         $this->expectException(TokenInvalidException::class);
@@ -169,7 +188,7 @@ final class JwtServiceTest extends TestCase
     {
         $config = new JwtConfig(
             secret: 'test-secret-for-unit-tests-only-not-for-production-xxxxxxxxxxxxx',
-            accessTokenTtl: -1, // already expired
+            accessTokenTtl: -1,
             refreshTokenTtl: 604800,
             issuer: 'test',
         );
@@ -188,7 +207,7 @@ final class JwtServiceTest extends TestCase
         $token = $this->jwtService->issue($identity);
 
         $this->expectException(TokenInvalidException::class);
-        $this->jwtService->validate($token->refreshToken); // wrong type
+        $this->jwtService->validate($token->refreshToken);
     }
 
     // --- REFRESH TOKEN TESTS ---
@@ -198,27 +217,22 @@ final class JwtServiceTest extends TestCase
         $identity = new UserIdentity('user-1', ['ROLE_USER']);
         $original = $this->jwtService->issue($identity);
 
-        // Small sleep to ensure different iat timestamp
         sleep(1);
 
         $new = $this->jwtService->refresh($original->refreshToken, $identity);
 
-        // Refresh tokens always differ — they contain a unique JTI
         $this->assertNotEquals($original->refreshToken, $new->refreshToken);
-        // Access tokens may be identical if issued within the same second
-        // The important guarantee is the refresh token is rotated
     }
 
     public function test_refresh_issues_access_token_with_current_identity_authz_version(): void
     {
-        $oldIdentity = new UserIdentity('user-1', ['ROLE_USER'], ['authz_version' => 1]);
-        $currentIdentity = new UserIdentity('user-1', ['ROLE_USER'], ['authz_version' => 5]);
-        $original = $this->jwtService->issue($oldIdentity);
+        $identity = new UserIdentity('user-1', ['ROLE_USER']);
+        $original = $this->jwtService->issue($identity, authzVersion: 1);
 
-        $new = $this->jwtService->refresh($original->refreshToken, $currentIdentity);
-        $validated = $this->jwtService->validate($new->accessToken);
+        $new = $this->jwtService->refresh($original->refreshToken, $identity, authzVersion: 5);
+        $result = $this->jwtService->validate($new->accessToken);
 
-        $this->assertSame(5, $validated->getAttribute('authz_version'));
+        $this->assertSame(5, $result->authzVersion);
     }
 
     public function test_refresh_revokes_old_refresh_token(): void

@@ -17,6 +17,7 @@ use Vortos\Authorization\Contract\PermissionResolverInterface;
 use Vortos\Authorization\Contract\RolePermissionStoreInterface;
 use Vortos\Authorization\Contract\UserRoleStoreInterface;
 use Vortos\Authorization\Engine\PolicyEngine;
+use Vortos\Authorization\Identity\RequestAuthzVersionProvider;
 
 #[AsCommand(name: 'vortos:auth:explain', description: 'Explain an authorization decision for a user')]
 final class AuthExplainCommand extends Command
@@ -29,6 +30,7 @@ final class AuthExplainCommand extends Command
         private readonly RolePermissionStoreInterface $rolePermissions,
         private readonly AuthorizationVersionStoreInterface $versions,
         private readonly EmergencyDenyListInterface $denyList,
+        private readonly RequestAuthzVersionProvider $authzVersionProvider,
     ) {
         parent::__construct();
     }
@@ -68,7 +70,7 @@ final class AuthExplainCommand extends Command
             'dbRoles' => $this->userRoles->rolesForUser($userId),
             'expandedRoles' => $resolved->expandedRoles(),
             'authzVersion' => [
-                'claim' => $identity->getAttribute('authz_version', 0),
+                'claim' => $this->authzVersionProvider->get() ?? 0,
                 'runtime' => $this->versions->versionForUser($userId),
             ],
             'emergencyDenied' => $this->denyList->isDenied($userId),

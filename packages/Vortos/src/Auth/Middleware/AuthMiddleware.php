@@ -13,6 +13,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Jwt\JwtService;
+use Vortos\Auth\Jwt\ValidatedToken;
 use Vortos\Cache\Adapter\ArrayAdapter;
 
 /**
@@ -47,8 +48,9 @@ final class AuthMiddleware implements MiddlewareInterface
 
     public function handle(Request $request, \Closure $next): Response
     {
-        $identity = $this->resolveIdentity($request);
+        [$identity, $authzVersion] = $this->resolveIdentity($request);
         $this->arrayAdapter->set('auth:identity', $identity);
+        $this->arrayAdapter->set('auth:authz_version', $authzVersion);
 
         if ($this->routeRequiresAuth($request) && !$identity->isAuthenticated()) {
             return new JsonResponse(
@@ -60,24 +62,28 @@ final class AuthMiddleware implements MiddlewareInterface
         return $next($request);
     }
 
-    private function resolveIdentity(Request $request): UserIdentityInterface
+    /**
+     * @return array{0: UserIdentityInterface, 1: int}
+     */
+    private function resolveIdentity(Request $request): array
     {
         $authHeader = $request->headers->get('Authorization', '');
 
         if (!str_starts_with($authHeader, 'Bearer ')) {
-            return new AnonymousIdentity();
+            return [new AnonymousIdentity(), 0];
         }
 
         $token = substr($authHeader, 7);
 
         if (empty($token)) {
-            return new AnonymousIdentity();
+            return [new AnonymousIdentity(), 0];
         }
 
         try {
-            return $this->jwtService->validate($token);
+            $validated = $this->jwtService->validate($token);
+            return [$validated->identity, $validated->authzVersion];
         } catch (\Throwable) {
-            return new AnonymousIdentity();
+            return [new AnonymousIdentity(), 0];
         }
     }
 

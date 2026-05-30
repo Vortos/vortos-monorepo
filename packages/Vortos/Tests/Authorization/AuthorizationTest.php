@@ -30,6 +30,7 @@ use Vortos\Authorization\Permission\PermissionRegistry;
 use Vortos\Authorization\Permission\ResolvedPermissions;
 use Vortos\Authorization\Scope\Contract\ScopedPermissionStoreInterface;
 use Vortos\Authorization\Scope\Contract\ScopeMode;
+use Vortos\Authorization\Identity\RequestAuthzVersionProvider;
 use Vortos\Authorization\Storage\NullAuthorizationVersionStore;
 use Vortos\Authorization\Storage\NullEmergencyDenyList;
 use Vortos\Authorization\Voter\RoleVoter;
@@ -296,6 +297,10 @@ final class AuthorizationTest extends TestCase
             public function increment(string $userId): int { return 4; }
         };
 
+        $arrayAdapter = new ArrayAdapter();
+        $arrayAdapter->set('auth:authz_version', 2);
+        $provider = new RequestAuthzVersionProvider($arrayAdapter);
+
         $engine = new PolicyEngine(
             $this->registry,
             new PermissionRegistry(['articles.list.any' => $this->permission('articles.list.any')]),
@@ -303,10 +308,11 @@ final class AuthorizationTest extends TestCase
             new NullEmergencyDenyList(),
             $versionStore,
             $this->roleVoter,
+            authzVersionProvider: $provider,
         );
 
         $decision = $engine->decide(
-            new UserIdentity('regular-user', ['ROLE_USER'], ['authz_version' => 2]),
+            new UserIdentity('regular-user', ['ROLE_USER']),
             'articles.list.any',
         );
 

@@ -16,6 +16,7 @@ use Vortos\Authorization\Decision\AuthorizationDecisionReason;
 use Vortos\Authorization\Exception\AccessDeniedException;
 use Vortos\Authorization\Scope\Contract\ScopedPermissionStoreInterface;
 use Vortos\Authorization\Scope\Contract\ScopeMode;
+use Vortos\Authorization\Identity\RequestAuthzVersionProvider;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
 use Vortos\Authorization\Voter\RoleVoter;
 use Vortos\Observability\Telemetry\TelemetryLabels;
@@ -79,6 +80,7 @@ final class PolicyEngine
         private string $breakGlassRole = 'ROLE_SUPER_ADMIN',
         private ?ScopedPermissionStoreInterface $scopedPermissions = null,
         private ?AuthorizationTracer $tracer = null,
+        private readonly ?RequestAuthzVersionProvider $authzVersionProvider = null,
     ) {}
 
     /**
@@ -318,13 +320,9 @@ final class PolicyEngine
             return false;
         }
 
-        $tokenVersion = $identity->getAttribute('authz_version', 0);
+        $tokenVersion = $this->authzVersionProvider?->get() ?? 0;
 
-        if (!is_int($tokenVersion) && !ctype_digit((string) $tokenVersion)) {
-            return true;
-        }
-
-        return (int) $tokenVersion < $this->versionStore->versionForUser($identity->id());
+        return $tokenVersion < $this->versionStore->versionForUser($identity->id());
     }
 
     private function canUseBreakGlassBypass(UserIdentityInterface $identity, string $permission): bool

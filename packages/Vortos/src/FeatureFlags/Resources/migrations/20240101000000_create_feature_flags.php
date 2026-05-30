@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $flags = $schema->createTable('feature_flags');
+        $flags = $schema->createTable($this->t('feature_flags'));
         $flags->addColumn('id', 'string', ['length' => 36, 'notnull' => true]);
         $flags->addColumn('name', 'string', ['length' => 255, 'notnull' => true]);
         $flags->addColumn('description', 'text', ['notnull' => true, 'default' => '']);

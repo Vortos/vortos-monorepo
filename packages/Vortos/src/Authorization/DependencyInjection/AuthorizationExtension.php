@@ -172,13 +172,19 @@ final class AuthorizationExtension extends Extension
             ->setArgument('$map', [])
             ->setShared(true)->setPublic(false);
 
+        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
+            ? $container->getParameter('vortos.db.framework_table_prefix')
+            : 'vortos_';
+
         $container->register(DbalRolePermissionStore::class, DbalRolePermissionStore::class)
             ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$rolePermissionsTable', $prefix . 'role_permissions')
             ->setShared(true)
             ->setPublic(false);
 
         $container->register(DbalUserRoleStore::class, DbalUserRoleStore::class)
             ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$userRolesTable', $prefix . 'user_roles')
             ->setShared(true)
             ->setPublic(false);
         $container->setAlias(UserRoleStoreInterface::class, DbalUserRoleStore::class)
@@ -186,6 +192,7 @@ final class AuthorizationExtension extends Extension
 
         $container->register(DbalAuthorizationAuditStore::class, DbalAuthorizationAuditStore::class)
             ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$auditLogTable', $prefix . 'authorization_audit_log')
             ->setShared(true)
             ->setPublic(false);
         $container->setAlias(AuthorizationAuditStoreInterface::class, DbalAuthorizationAuditStore::class)
@@ -194,6 +201,7 @@ final class AuthorizationExtension extends Extension
         $container->register(AuthSeedCommand::class, AuthSeedCommand::class)
             ->setArgument('$registry', new Reference(PermissionRegistryInterface::class))
             ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$rolePermissionsTable', $prefix . 'role_permissions')
             ->addTag('console.command')
             ->setShared(true)
             ->setPublic(false);

@@ -10,10 +10,9 @@ use Vortos\Persistence\Transaction\ActiveTransactionGuard;
 
 final class PaddleOutboxWriter implements PaddleOutboxWriterInterface
 {
-    private const TABLE = 'paddle_outbox';
-
     public function __construct(
         private readonly Connection $connection,
+        private readonly string $table,
         private ?ActiveTransactionGuard $transactionGuard = null,
     ) {}
 
@@ -23,7 +22,7 @@ final class PaddleOutboxWriter implements PaddleOutboxWriterInterface
 
         $now = new \DateTimeImmutable();
 
-        $this->connection->insert(self::TABLE, [
+        $this->connection->insert($this->table, [
             'operation'        => $operation,
             'payload'          => json_encode($payload, JSON_THROW_ON_ERROR),
             'idempotency_key'  => Uuid::v7()->toRfc4122(),

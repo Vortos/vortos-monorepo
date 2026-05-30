@@ -11,8 +11,10 @@ use Vortos\Authorization\Contract\UserRoleStoreInterface;
 
 final class DbalUserRoleStore implements UserRoleStoreInterface
 {
-    public function __construct(private readonly Connection $connection)
-    {
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly string $userRolesTable,
+    ) {
     }
 
     public function rolesForUser(string $userId): array
@@ -20,7 +22,7 @@ final class DbalUserRoleStore implements UserRoleStoreInterface
         return array_map(
             'strval',
             $this->connection->executeQuery(
-                'SELECT role FROM user_roles WHERE user_id = :userId ORDER BY role',
+                'SELECT role FROM ' . $this->userRolesTable . ' WHERE user_id = :userId ORDER BY role',
                 ['userId' => $userId],
             )->fetchFirstColumn(),
         );
@@ -29,7 +31,7 @@ final class DbalUserRoleStore implements UserRoleStoreInterface
     public function assignRole(string $userId, string $role): void
     {
         $this->connection->executeStatement(
-            'INSERT INTO user_roles (user_id, role) VALUES (:userId, :role) ON CONFLICT (user_id, role) DO NOTHING',
+            'INSERT INTO ' . $this->userRolesTable . ' (user_id, role) VALUES (:userId, :role) ON CONFLICT (user_id, role) DO NOTHING',
             ['userId' => $userId, 'role' => $role],
         );
     }
@@ -37,7 +39,7 @@ final class DbalUserRoleStore implements UserRoleStoreInterface
     public function removeRole(string $userId, string $role): void
     {
         $this->connection->executeStatement(
-            'DELETE FROM user_roles WHERE user_id = :userId AND role = :role',
+            'DELETE FROM ' . $this->userRolesTable . ' WHERE user_id = :userId AND role = :role',
             ['userId' => $userId, 'role' => $role],
         );
     }
@@ -47,7 +49,7 @@ final class DbalUserRoleStore implements UserRoleStoreInterface
         return array_map(
             'strval',
             $this->connection->executeQuery(
-                'SELECT user_id FROM user_roles WHERE role = :role ORDER BY user_id LIMIT :limit OFFSET :offset',
+                'SELECT user_id FROM ' . $this->userRolesTable . ' WHERE role = :role ORDER BY user_id LIMIT :limit OFFSET :offset',
                 ['role' => $role, 'limit' => max(1, $limit), 'offset' => max(0, $offset)],
                 ['limit' => ParameterType::INTEGER, 'offset' => ParameterType::INTEGER],
             )->fetchFirstColumn(),
@@ -63,7 +65,7 @@ final class DbalUserRoleStore implements UserRoleStoreInterface
         }
 
         $rows = $this->connection->executeQuery(
-            'SELECT user_id, role FROM user_roles WHERE user_id IN (:userIds) ORDER BY user_id, role',
+            'SELECT user_id, role FROM ' . $this->userRolesTable . ' WHERE user_id IN (:userIds) ORDER BY user_id, role',
             ['userIds' => $userIds],
             ['userIds' => ArrayParameterType::STRING],
         )->fetchAllAssociative();

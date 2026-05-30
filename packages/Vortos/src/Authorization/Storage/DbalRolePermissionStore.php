@@ -10,8 +10,10 @@ use Vortos\Authorization\Contract\RolePermissionStoreInterface;
 
 final class DbalRolePermissionStore implements RolePermissionStoreInterface
 {
-    public function __construct(private readonly Connection $connection)
-    {
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly string $rolePermissionsTable,
+    ) {
     }
 
     public function permissionsForRoles(array $roles): array
@@ -23,7 +25,7 @@ final class DbalRolePermissionStore implements RolePermissionStoreInterface
         }
 
         $rows = $this->connection->executeQuery(
-            'SELECT role, permission FROM role_permissions WHERE role IN (:roles) ORDER BY role, permission',
+            'SELECT role, permission FROM ' . $this->rolePermissionsTable . ' WHERE role IN (:roles) ORDER BY role, permission',
             ['roles' => $roles],
             ['roles' => ArrayParameterType::STRING],
         )->fetchAllAssociative();
@@ -50,7 +52,7 @@ final class DbalRolePermissionStore implements RolePermissionStoreInterface
     public function grant(string $role, string $permission): void
     {
         $this->connection->executeStatement(
-            'INSERT INTO role_permissions (role, permission) VALUES (:role, :permission) ON CONFLICT (role, permission) DO NOTHING',
+            'INSERT INTO ' . $this->rolePermissionsTable . ' (role, permission) VALUES (:role, :permission) ON CONFLICT (role, permission) DO NOTHING',
             ['role' => $role, 'permission' => $permission],
         );
     }
@@ -58,7 +60,7 @@ final class DbalRolePermissionStore implements RolePermissionStoreInterface
     public function revoke(string $role, string $permission): void
     {
         $this->connection->executeStatement(
-            'DELETE FROM role_permissions WHERE role = :role AND permission = :permission',
+            'DELETE FROM ' . $this->rolePermissionsTable . ' WHERE role = :role AND permission = :permission',
             ['role' => $role, 'permission' => $permission],
         );
     }

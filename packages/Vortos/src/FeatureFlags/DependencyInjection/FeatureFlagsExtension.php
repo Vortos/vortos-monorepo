@@ -41,8 +41,13 @@ final class FeatureFlagsExtension extends Extension
 
     public function load(array $configs, ContainerBuilder $container): void
     {
+        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
+            ? $container->getParameter('vortos.db.framework_table_prefix')
+            : 'vortos_';
+
         $container->register(DatabaseFlagStorage::class, DatabaseFlagStorage::class)
             ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $prefix . 'feature_flags')
             ->setPublic(false);
 
         // Wrap with Redis cache if PSR-16 cache is available

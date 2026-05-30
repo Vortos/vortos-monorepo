@@ -34,12 +34,15 @@ use Vortos\Auth\ApiKey\ApiKeyRecord;
  */
 final class DatabaseApiKeyStorage implements ApiKeyStorageInterface
 {
-    public function __construct(private readonly Connection $connection) {}
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly string $table,
+    ) {}
 
     public function findByHash(string $hashedKey): ?ApiKeyRecord
     {
         $row = $this->connection->fetchAssociative(
-            'SELECT * FROM api_keys WHERE hashed_key = ? AND active = TRUE',
+            'SELECT * FROM ' . $this->table . ' WHERE hashed_key = ? AND active = TRUE',
             [$hashedKey],
         );
 
@@ -49,7 +52,7 @@ final class DatabaseApiKeyStorage implements ApiKeyStorageInterface
     public function save(ApiKeyRecord $record): void
     {
         $this->connection->executeStatement(
-            'INSERT INTO api_keys (id, user_id, name, hashed_key, scopes, active, created_at, expires_at, last_used_at)
+            'INSERT INTO ' . $this->table . ' (id, user_id, name, hashed_key, scopes, active, created_at, expires_at, last_used_at)
              VALUES (:id, :user_id, :name, :hashed_key, :scopes, :active, :created_at, :expires_at, :last_used_at)
              ON CONFLICT (id) DO UPDATE SET
                  name = EXCLUDED.name,
@@ -74,7 +77,7 @@ final class DatabaseApiKeyStorage implements ApiKeyStorageInterface
     public function revoke(string $keyId): void
     {
         $this->connection->executeStatement(
-            'UPDATE api_keys SET active = FALSE WHERE id = ?',
+            'UPDATE ' . $this->table . ' SET active = FALSE WHERE id = ?',
             [$keyId],
         );
     }
@@ -82,7 +85,7 @@ final class DatabaseApiKeyStorage implements ApiKeyStorageInterface
     public function findByUserId(string $userId): array
     {
         $rows = $this->connection->fetchAllAssociative(
-            'SELECT * FROM api_keys WHERE user_id = ? AND active = TRUE ORDER BY created_at DESC',
+            'SELECT * FROM ' . $this->table . ' WHERE user_id = ? AND active = TRUE ORDER BY created_at DESC',
             [$userId],
         );
 

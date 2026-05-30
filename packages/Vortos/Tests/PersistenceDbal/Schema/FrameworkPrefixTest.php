@@ -1,0 +1,54 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Vortos\Tests\PersistenceDbal\Schema;
+
+use PHPUnit\Framework\TestCase;
+use Vortos\PersistenceDbal\Schema\FrameworkPrefix;
+
+final class FrameworkPrefixTest extends TestCase
+{
+    /** @dataProvider postgresDataProvider */
+    public function test_postgres_dsns_produce_schema_prefix(string $dsn): void
+    {
+        $this->assertSame('vortos.', FrameworkPrefix::fromDsn($dsn));
+    }
+
+    public static function postgresDataProvider(): array
+    {
+        return [
+            'pgsql scheme'    => ['pgsql://user:pass@localhost:5432/mydb'],
+            'postgres scheme' => ['postgres://user:pass@localhost:5432/mydb'],
+            'pgsql no auth'   => ['pgsql://localhost/mydb'],
+        ];
+    }
+
+    /** @dataProvider nonPostgresDataProvider */
+    public function test_non_postgres_dsns_produce_underscore_prefix(string $dsn): void
+    {
+        $this->assertSame('vortos_', FrameworkPrefix::fromDsn($dsn));
+    }
+
+    public static function nonPostgresDataProvider(): array
+    {
+        return [
+            'mysql'   => ['mysql://user:pass@localhost/mydb'],
+            'sqlite'  => ['sqlite:///tmp/test.db'],
+            'sqlsrv'  => ['sqlsrv://user:pass@localhost/mydb'],
+            'oci8'    => ['oci8://user:pass@localhost/mydb'],
+        ];
+    }
+
+    public function test_apply_concatenates_prefix_and_table(): void
+    {
+        $this->assertSame('vortos.user_roles', FrameworkPrefix::apply('vortos.', 'user_roles'));
+        $this->assertSame('vortos_user_roles', FrameworkPrefix::apply('vortos_', 'user_roles'));
+    }
+
+    public function test_apply_preserves_table_name_exactly(): void
+    {
+        $this->assertSame('vortos.outbox', FrameworkPrefix::apply('vortos.', 'outbox'));
+        $this->assertSame('vortos_outbox', FrameworkPrefix::apply('vortos_', 'outbox'));
+    }
+}

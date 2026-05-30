@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $table = $schema->createTable('paddle_audit_log');
+        $table = $schema->createTable($this->t('paddle_audit_log'));
 
         $table->addColumn('id',              'bigint',  ['autoincrement' => true, 'notnull' => true]);
         $table->addColumn('event_type',      'string',  ['length' => 255, 'notnull' => true]);

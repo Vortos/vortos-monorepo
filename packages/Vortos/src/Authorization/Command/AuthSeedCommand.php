@@ -21,6 +21,7 @@ final class AuthSeedCommand extends Command
     public function __construct(
         private readonly PermissionRegistryInterface $registry,
         private readonly Connection $connection,
+        private readonly string $rolePermissionsTable,
     ) {
         parent::__construct();
     }
@@ -98,7 +99,8 @@ final class AuthSeedCommand extends Command
         }
 
         return $this->connection->executeStatement(sprintf(
-            'INSERT INTO role_permissions (role, permission) VALUES %s ON CONFLICT (role, permission) DO NOTHING',
+            'INSERT INTO %s (role, permission) VALUES %s ON CONFLICT (role, permission) DO NOTHING',
+            $this->rolePermissionsTable,
             implode(', ', $placeholders),
         ), $params);
     }

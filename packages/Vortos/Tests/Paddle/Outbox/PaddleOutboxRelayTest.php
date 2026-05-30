@@ -48,7 +48,7 @@ final class PaddleOutboxRelayTest extends TestCase
                    ->method('dispatch')
                    ->with('subscription.update', ['id' => 'sub_123']);
 
-        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger());
+        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger(), 'paddle_outbox');
         $count = $relay->relay();
 
         $this->assertSame(1, $count);
@@ -62,7 +62,7 @@ final class PaddleOutboxRelayTest extends TestCase
         $dispatcher = $this->createMock(PaddleOutboxDispatcherInterface::class);
         $dispatcher->expects($this->never())->method('dispatch');
 
-        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger());
+        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger(), 'paddle_outbox');
         $count = $relay->relay();
 
         $this->assertSame(0, $count);
@@ -86,7 +86,7 @@ final class PaddleOutboxRelayTest extends TestCase
         $dispatcher = $this->createMock(PaddleOutboxDispatcherInterface::class);
         $dispatcher->method('dispatch')->willThrowException($apiError);
 
-        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger());
+        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger(), 'paddle_outbox');
         $count = $relay->relay();
 
         $this->assertSame(0, $count);
@@ -110,7 +110,7 @@ final class PaddleOutboxRelayTest extends TestCase
         $dispatcher = $this->createMock(PaddleOutboxDispatcherInterface::class);
         $dispatcher->method('dispatch')->willThrowException($apiError);
 
-        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger());
+        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger(), 'paddle_outbox');
         $count = $relay->relay();
 
         $this->assertSame(0, $count);
@@ -127,7 +127,7 @@ final class PaddleOutboxRelayTest extends TestCase
         $dispatcher = $this->createMock(PaddleOutboxDispatcherInterface::class);
         $dispatcher->method('dispatch')->willThrowException(new \RuntimeException('Network error'));
 
-        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger());
+        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger(), 'paddle_outbox');
         $count = $relay->relay();
 
         $this->assertSame(0, $count);
@@ -144,7 +144,7 @@ final class PaddleOutboxRelayTest extends TestCase
         $dispatcher = $this->createMock(PaddleOutboxDispatcherInterface::class);
         $dispatcher->method('dispatch')->willThrowException(new \RuntimeException('Persistent error'));
 
-        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger());
+        $relay = new PaddleOutboxRelay($connection, $dispatcher, new NullLogger(), 'paddle_outbox');
         $count = $relay->relay();
 
         $this->assertSame(0, $count);

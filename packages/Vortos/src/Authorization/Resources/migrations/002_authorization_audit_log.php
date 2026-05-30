@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $audit = $schema->createTable('authorization_audit_log');
+        $audit = $schema->createTable($this->t('authorization_audit_log'));
         $audit->addColumn('id', 'string', ['length' => 64, 'notnull' => true]);
         $audit->addColumn('actor_user_id', 'string', ['length' => 190, 'notnull' => true]);
         $audit->addColumn('action', 'string', ['length' => 190, 'notnull' => true]);

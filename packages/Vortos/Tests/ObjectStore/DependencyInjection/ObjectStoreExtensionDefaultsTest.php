@@ -93,7 +93,7 @@ final class ObjectStoreExtensionDefaultsTest extends TestCase
     public function test_outbox_defaults_to_enabled(): void
     {
         $this->assertTrue($this->container->getParameter('vortos_object_store.outbox.enabled'));
-        $this->assertSame('object_store_outbox', $this->container->getParameter('vortos_object_store.outbox.table_name'));
+        $this->assertSame('vortos_object_store_outbox', $this->container->getParameter('vortos_object_store.outbox.table_name'));
         $this->assertSame(1048576, $this->container->getParameter('vortos_object_store.outbox.max_inline_payload_bytes'));
     }
 

@@ -94,6 +94,11 @@ final class ObjectStoreExtension extends Extension
 
         $resolved = $this->processConfiguration(new Configuration(), [$config->toArray()]);
 
+        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
+            ? $container->getParameter('vortos.db.framework_table_prefix')
+            : 'vortos_';
+        $resolved['outbox']['table_name'] = $prefix . $resolved['outbox']['table_name'];
+
         $this->setParameters($container, $resolved);
         $this->registerDrivers($container, $resolved);
         $this->registerPromotionPolicy($container);

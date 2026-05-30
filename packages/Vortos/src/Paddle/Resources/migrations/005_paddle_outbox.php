@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $table = $schema->createTable('paddle_outbox');
+        $table = $schema->createTable($this->t('paddle_outbox'));
 
         $table->addColumn('id',               'bigint',   ['autoincrement' => true, 'notnull' => true]);
         $table->addColumn('operation',        'string',   ['length' => 255, 'notnull' => true]);

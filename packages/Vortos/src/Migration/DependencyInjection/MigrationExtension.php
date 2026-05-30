@@ -107,6 +107,9 @@ final class MigrationExtension extends Extension
         $container->register(ModuleSchemaProviderScanner::class, ModuleSchemaProviderScanner::class)
             ->setArgument('$resolver', new Reference(ModulePathResolver::class))
             ->setArgument('$projectDir', $projectDir)
+            ->setArgument('$frameworkTablePrefix', $container->hasParameter('vortos.db.framework_table_prefix')
+                ? $container->getParameter('vortos.db.framework_table_prefix')
+                : 'vortos_')
             ->setShared(true)
             ->setPublic(false);
 
@@ -173,10 +176,16 @@ final class MigrationExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
+        $frameworkTablePrefix = $container->hasParameter('vortos.db.framework_table_prefix')
+            ? $container->getParameter('vortos.db.framework_table_prefix')
+            : 'vortos_';
+
         $container->register(MigrateCommand::class, MigrateCommand::class)
             ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
             ->setArgument('$planAnalyzer', new Reference(MigrationPlanAnalyzer::class))
             ->setArgument('$lock', new Reference(MigrationLock::class))
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$frameworkTablePrefix', $frameworkTablePrefix)
             ->setPublic(true)
             ->addTag('console.command');
 
@@ -215,6 +224,7 @@ final class MigrationExtension extends Extension
             ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
             ->setArgument('$connection', new Reference(Connection::class))
             ->setArgument('$env', $env)
+            ->setArgument('$frameworkTablePrefix', $frameworkTablePrefix)
             ->setPublic(true)
             ->addTag('console.command');
 

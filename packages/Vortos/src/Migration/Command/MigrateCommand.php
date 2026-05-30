@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Migration\Command;
 
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\Migrations\MigratorConfiguration;
 use Doctrine\Migrations\Version\Direction;
 use Doctrine\Migrations\Version\ExecutionResult;
@@ -46,6 +48,8 @@ final class MigrateCommand extends Command
         private readonly DependencyFactoryProviderInterface $factoryProvider,
         private readonly ?MigrationPlanAnalyzer $planAnalyzer = null,
         private readonly ?MigrationLock $lock = null,
+        private readonly ?Connection $connection = null,
+        private readonly string $frameworkTablePrefix = 'vortos_',
     ) {
         parent::__construct();
     }
@@ -61,6 +65,8 @@ final class MigrateCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $this->ensureFrameworkSchema();
+
         $factory = $this->factoryProvider->create();
         $storage = $factory->getMetadataStorage();
         $storage->ensureInitialized();
@@ -221,6 +227,19 @@ final class MigrateCommand extends Command
                 $this->lock?->release();
             }
         }
+    }
+
+    private function ensureFrameworkSchema(): void
+    {
+        if ($this->connection === null || $this->frameworkTablePrefix !== 'vortos.') {
+            return;
+        }
+
+        if (!$this->connection->getDatabasePlatform() instanceof PostgreSQLPlatform) {
+            return;
+        }
+
+        $this->connection->executeStatement('CREATE SCHEMA IF NOT EXISTS vortos');
     }
 
     private function formatItem(string $version, ?MigrationPlanItemAnalysis $analysis): string

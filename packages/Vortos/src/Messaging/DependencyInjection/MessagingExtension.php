@@ -116,8 +116,13 @@ final class MessagingExtension extends Extension
         $this->registerSerializers($container);
         $this->registerMiddlewares($container);
         $this->registerMiddlewareStack($container);
-        $this->registerOutbox($container, $resolvedConfig['outbox']);
-        $this->registerDeadLetterWriter($container, $resolvedConfig['dlq']['table']);
+        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
+            ? $container->getParameter('vortos.db.framework_table_prefix')
+            : 'vortos_';
+        $outboxConfig = $resolvedConfig['outbox'];
+        $outboxConfig['table'] = $prefix . $outboxConfig['table'];
+        $this->registerOutbox($container, $outboxConfig);
+        $this->registerDeadLetterWriter($container, $prefix . $resolvedConfig['dlq']['table']);
         $this->registerInMemoryDriver($container);
         $this->registerKafkaDrivers($container);
         $this->registerEventBus($container);

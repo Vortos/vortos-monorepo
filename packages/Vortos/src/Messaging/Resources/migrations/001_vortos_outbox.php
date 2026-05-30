@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $outbox = $schema->createTable('vortos_outbox');
+        $outbox = $schema->createTable($this->t('outbox'));
 
         $outbox->addColumn('id',                'guid',               ['notnull' => true]);
         $outbox->addColumn('transport_name',    'string',             ['length' => 255, 'notnull' => true]);

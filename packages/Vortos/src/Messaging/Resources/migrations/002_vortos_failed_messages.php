@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $failed = $schema->createTable('vortos_failed_messages');
+        $failed = $schema->createTable($this->t('failed_messages'));
         $failed->addColumn('id', 'guid', ['notnull' => true]);
         $failed->addColumn('transport_name', 'string', ['length' => 255, 'notnull' => true]);
         $failed->addColumn('event_class', 'string', ['length' => 512, 'notnull' => true]);

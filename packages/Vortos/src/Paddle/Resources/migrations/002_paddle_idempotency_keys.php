@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $table = $schema->createTable('paddle_idempotency_keys');
+        $table = $schema->createTable($this->t('paddle_idempotency_keys'));
 
         $table->addColumn('key_id',     'string', ['length' => 36,  'notnull' => true]);
         $table->addColumn('operation',  'string', ['length' => 255, 'notnull' => true]);

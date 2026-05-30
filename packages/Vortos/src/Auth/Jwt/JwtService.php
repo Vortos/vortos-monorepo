@@ -79,7 +79,6 @@ final class JwtService
         $jti = (string) new \Symfony\Component\Uid\UuidV7();
 
         $claims = $identity->getClaims();
-        unset($claims['authz_version']); // reserved top-level name — must not appear in attrs
 
         $accessPayload = [
             'iss'           => $this->config->issuer,

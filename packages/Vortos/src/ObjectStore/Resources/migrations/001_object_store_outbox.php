@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $table = $schema->createTable('object_store_outbox');
+        $table = $schema->createTable($this->t('object_store_outbox'));
 
         $table->addColumn('id',               'guid',               ['notnull' => true]);
         $table->addColumn('domain_event_id',  'string',             ['length' => 255, 'notnull' => false, 'default' => null]);

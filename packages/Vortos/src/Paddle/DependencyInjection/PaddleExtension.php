@@ -15,8 +15,12 @@ use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Paddle\Api\ApiIdempotencyStore;
 use Vortos\Paddle\Api\PaddleApiClient;
 use Vortos\Paddle\Api\PaddleSdkExceptionMapper;
+use Vortos\Paddle\AuditLog\PaddleAuditLogWriter;
+use Vortos\Paddle\AuditLog\PaddleAuditLogWriterInterface;
 use Vortos\Paddle\Command\PaddleWebhookIdempotencyPruneCommand;
 use Vortos\Paddle\Failover\PaddleCircuitBreaker;
+use Vortos\Paddle\Outbox\PaddleOutboxWriter;
+use Vortos\Paddle\Outbox\PaddleOutboxWriterInterface;
 use Vortos\Paddle\Webhook\PaddleWebhookController;
 use Vortos\Paddle\Webhook\PaddleWebhookDispatcher;
 use Vortos\Paddle\Webhook\PaddleWebhookHandlerInterface;
@@ -52,12 +56,17 @@ final class PaddleExtension extends Extension
 
         $resolved = $this->processConfiguration(new Configuration(), [$config->toArray()]);
 
+        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
+            ? $container->getParameter('vortos.db.framework_table_prefix')
+            : 'vortos_';
+
         $this->setParameters($container, $resolved);
-        $this->registerApiClient($container, $resolved);
-        $this->registerWebhooks($container, $resolved);
+        $this->registerApiClient($container, $resolved, $prefix);
+        $this->registerWebhooks($container, $resolved, $prefix);
+        $this->registerOutboxAndAuditLog($container, $prefix);
     }
 
-    private function registerApiClient(ContainerBuilder $container, array $config): void
+    private function registerApiClient(ContainerBuilder $container, array $config, string $prefix): void
     {
         $environment = $config['mode'] === 'live'
             ? PaddleEnvironment::PRODUCTION
@@ -102,14 +111,14 @@ final class PaddleExtension extends Extension
         $container->register(ApiIdempotencyStore::class, ApiIdempotencyStore::class)
             ->setArguments([
                 '$connection' => new Reference(Connection::class),
-                '$tableName'  => 'paddle_idempotency_keys',
+                '$tableName'  => $prefix . 'paddle_idempotency_keys',
                 '$ttlSeconds' => $config['client']['idempotency_key_ttl_seconds'],
             ])
             ->setShared(true)
             ->setPublic(false);
     }
 
-    private function registerWebhooks(ContainerBuilder $container, array $config): void
+    private function registerWebhooks(ContainerBuilder $container, array $config, string $prefix): void
     {
         if (!$config['webhooks']['enabled']) {
             return;
@@ -143,7 +152,7 @@ final class PaddleExtension extends Extension
         $container->register(WebhookIdempotencyStore::class, WebhookIdempotencyStore::class)
             ->setArguments([
                 '$connection' => new Reference(Connection::class),
-                '$tableName'  => $config['webhooks']['idempotency_table'],
+                '$tableName'  => $prefix . $config['webhooks']['idempotency_table'],
                 '$ttlSeconds' => $config['webhooks']['idempotency_ttl_seconds'],
             ])
             ->setShared(true)
@@ -176,6 +185,27 @@ final class PaddleExtension extends Extension
             ])
             ->addTag('console.command')
             ->setShared(true)
+            ->setPublic(false);
+    }
+
+    private function registerOutboxAndAuditLog(ContainerBuilder $container, string $prefix): void
+    {
+        $container->register(PaddleOutboxWriter::class, PaddleOutboxWriter::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $prefix . 'paddle_outbox')
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(PaddleOutboxWriterInterface::class, PaddleOutboxWriter::class)
+            ->setPublic(false);
+
+        $container->register(PaddleAuditLogWriter::class, PaddleAuditLogWriter::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $prefix . 'paddle_audit_log')
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(PaddleAuditLogWriterInterface::class, PaddleAuditLogWriter::class)
             ->setPublic(false);
     }
 

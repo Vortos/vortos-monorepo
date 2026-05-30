@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $table = $schema->createTable('aws_ses_suppression_list');
+        $table = $schema->createTable($this->t('aws_ses_suppression_list'));
 
         $table->addColumn('id',            'guid',               ['notnull' => true]);
         $table->addColumn('email_address', 'string',             ['length' => 320, 'notnull' => true]);

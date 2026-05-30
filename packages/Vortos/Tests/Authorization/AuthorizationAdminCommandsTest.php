@@ -32,8 +32,8 @@ final class AuthorizationAdminCommandsTest extends TestCase
         };
         $invalidated = [];
         $service = new UserRoleAdminService(
-            new DbalUserRoleStore($connection),
-            new DbalAuthorizationAuditStore($connection),
+            new DbalUserRoleStore($connection, 'user_roles'),
+            new DbalAuthorizationAuditStore($connection, 'authorization_audit_log'),
             $versions,
             new class($invalidated) implements AuthorizationCacheInvalidatorInterface {
                 public function __construct(private array &$invalidated) {}
@@ -50,7 +50,7 @@ final class AuthorizationAdminCommandsTest extends TestCase
             '--reason' => 'support promotion',
         ]));
 
-        $this->assertSame(['ROLE_SUPPORT'], (new DbalUserRoleStore($connection))->rolesForUser('user-1'));
+        $this->assertSame(['ROLE_SUPPORT'], (new DbalUserRoleStore($connection, 'user_roles'))->rolesForUser('user-1'));
 
         $remove = new CommandTester(new AuthRemoveUserRoleCommand($service));
         $this->assertSame(0, $remove->execute([
@@ -60,7 +60,7 @@ final class AuthorizationAdminCommandsTest extends TestCase
             '--reason' => 'support rotation ended',
         ]));
 
-        $this->assertSame([], (new DbalUserRoleStore($connection))->rolesForUser('user-1'));
+        $this->assertSame([], (new DbalUserRoleStore($connection, 'user_roles'))->rolesForUser('user-1'));
         $this->assertSame(2, $versions->increments);
         $this->assertSame(['user-1', 'user-1'], $invalidated);
         $this->assertSame(['user_role.assigned', 'user_role.removed'], $this->auditActions($connection));
@@ -70,8 +70,8 @@ final class AuthorizationAdminCommandsTest extends TestCase
     {
         $connection = $this->connection();
         $service = new RolePermissionAdminService(
-            new DbalRolePermissionStore($connection),
-            new DbalAuthorizationAuditStore($connection),
+            new DbalRolePermissionStore($connection, 'role_permissions'),
+            new DbalAuthorizationAuditStore($connection, 'authorization_audit_log'),
             $this->permissionRegistry(),
             $connection,
         );
@@ -86,7 +86,7 @@ final class AuthorizationAdminCommandsTest extends TestCase
 
         $this->assertSame(
             ['orders.refund.any'],
-            (new DbalRolePermissionStore($connection))->permissionsForRole('ROLE_SUPPORT'),
+            (new DbalRolePermissionStore($connection, 'role_permissions'))->permissionsForRole('ROLE_SUPPORT'),
         );
 
         $revoke = new CommandTester(new AuthRevokeRolePermissionCommand($service));
@@ -96,7 +96,7 @@ final class AuthorizationAdminCommandsTest extends TestCase
             '--actor' => 'admin-1',
         ]));
 
-        $this->assertSame([], (new DbalRolePermissionStore($connection))->permissionsForRole('ROLE_SUPPORT'));
+        $this->assertSame([], (new DbalRolePermissionStore($connection, 'role_permissions'))->permissionsForRole('ROLE_SUPPORT'));
         $this->assertSame(['role_permission.granted', 'role_permission.revoked'], $this->auditActions($connection));
     }
 
@@ -104,8 +104,8 @@ final class AuthorizationAdminCommandsTest extends TestCase
     {
         $connection = $this->connection();
         $command = new AuthGrantRolePermissionCommand(new RolePermissionAdminService(
-            new DbalRolePermissionStore($connection),
-            new DbalAuthorizationAuditStore($connection),
+            new DbalRolePermissionStore($connection, 'role_permissions'),
+            new DbalAuthorizationAuditStore($connection, 'authorization_audit_log'),
             $this->permissionRegistry(),
             $connection,
         ));

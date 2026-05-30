@@ -8,15 +8,16 @@ use Doctrine\DBAL\Connection;
 
 final class PaddleAuditLogWriter implements PaddleAuditLogWriterInterface
 {
-    private const TABLE = 'paddle_audit_log';
-
-    public function __construct(private readonly Connection $connection) {}
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly string $table,
+    ) {}
 
     public function record(PaddleAuditEntry $entry): void
     {
         $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
 
-        $this->connection->insert(self::TABLE, [
+        $this->connection->insert($this->table, [
             'event_type'      => $entry->eventType,
             'paddle_event_id' => $entry->paddleEventId,
             'entity_type'     => $entry->entityType,

@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $subs = $schema->createTable('paddle_subscriptions');
+        $subs = $schema->createTable($this->t('paddle_subscriptions'));
 
         $subs->addColumn('id',             'string', ['length' => 50, 'notnull' => true]);
         $subs->addColumn('customer_id',    'string', ['length' => 50, 'notnull' => true]);
@@ -39,7 +39,7 @@ return new class extends AbstractModuleSchemaProvider {
         $subs->addIndex(['customer_id'], 'idx_paddle_subscriptions_customer');
         $subs->addIndex(['status'],      'idx_paddle_subscriptions_status');
 
-        $items = $schema->createTable('paddle_subscription_items');
+        $items = $schema->createTable($this->t('paddle_subscription_items'));
 
         $items->addColumn('subscription_id', 'string',  ['length' => 50, 'notnull' => true]);
         $items->addColumn('price_id',        'string',  ['length' => 50, 'notnull' => true]);

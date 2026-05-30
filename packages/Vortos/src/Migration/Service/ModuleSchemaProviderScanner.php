@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Migration\Service;
 
 use Vortos\Foundation\Module\ModulePathResolver;
+use Vortos\Migration\Schema\AbstractModuleSchemaProvider;
 use Vortos\Migration\Schema\ModuleSchemaProviderInterface;
 
 final class ModuleSchemaProviderScanner
@@ -15,6 +16,7 @@ final class ModuleSchemaProviderScanner
     public function __construct(
         private readonly ModulePathResolver $resolver,
         private readonly string $projectDir,
+        private readonly string $frameworkTablePrefix = 'vortos_',
     ) {
     }
 
@@ -34,6 +36,8 @@ final class ModuleSchemaProviderScanner
      */
     public function scan(): array
     {
+        AbstractModuleSchemaProvider::setPrefix($this->frameworkTablePrefix);
+
         $providers = [];
         $seen = [];
 

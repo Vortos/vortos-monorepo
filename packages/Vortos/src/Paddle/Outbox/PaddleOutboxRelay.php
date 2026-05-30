@@ -11,7 +11,6 @@ use Psr\Log\LoggerInterface;
 
 final class PaddleOutboxRelay
 {
-    private const TABLE           = 'paddle_outbox';
     private const MAX_ATTEMPTS    = 5;
     private const BACKOFF_BASE_S  = 60;
     private const BACKOFF_CAP_S   = 3600;
@@ -20,6 +19,7 @@ final class PaddleOutboxRelay
         private readonly Connection                     $connection,
         private readonly PaddleOutboxDispatcherInterface $dispatcher,
         private readonly LoggerInterface                $logger,
+        private readonly string                         $table,
         private readonly int                            $batchSize = 50,
     ) {}
 
@@ -43,7 +43,7 @@ final class PaddleOutboxRelay
 
         return $this->connection->executeQuery(
             'SELECT id, operation, payload, attempts
-             FROM ' . self::TABLE . '
+             FROM ' . $this->table . '
              WHERE failed_at IS NULL
                AND next_attempt_at <= :now
              ORDER BY created_at ASC
@@ -111,7 +111,7 @@ final class PaddleOutboxRelay
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
 
         $this->connection->executeStatement(
-            'UPDATE ' . self::TABLE . ' SET last_attempted_at = :now, failed_at = NULL WHERE id = :id',
+            'UPDATE ' . $this->table . ' SET last_attempted_at = :now, failed_at = NULL WHERE id = :id',
             ['now' => $now, 'id' => $id],
         );
     }
@@ -122,7 +122,7 @@ final class PaddleOutboxRelay
         $nextAttemptAt = (new \DateTimeImmutable())->modify("+{$delaySec} seconds")->format('Y-m-d H:i:s');
 
         $this->connection->executeStatement(
-            'UPDATE ' . self::TABLE . '
+            'UPDATE ' . $this->table . '
              SET attempts = :attempts, last_attempted_at = :now, next_attempt_at = :next
              WHERE id = :id',
             ['attempts' => $attempt, 'now' => $now, 'next' => $nextAttemptAt, 'id' => $id],
@@ -134,7 +134,7 @@ final class PaddleOutboxRelay
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
 
         $this->connection->executeStatement(
-            'UPDATE ' . self::TABLE . '
+            'UPDATE ' . $this->table . '
              SET attempts = :attempts, last_attempted_at = :now, failed_at = :now
              WHERE id = :id',
             ['attempts' => $attempt, 'now' => $now, 'id' => $id],

@@ -10,15 +10,16 @@ use Vortos\FeatureFlags\FlagRule;
 
 final class DatabaseFlagStorage implements FlagStorageInterface
 {
-    private const TABLE = 'feature_flags';
-
-    public function __construct(private readonly Connection $connection) {}
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly string $table,
+    ) {}
 
     public function findAll(): array
     {
         $rows = $this->connection->createQueryBuilder()
             ->select('*')
-            ->from(self::TABLE)
+            ->from($this->table)
             ->orderBy('name', 'ASC')
             ->executeQuery()
             ->fetchAllAssociative();
@@ -30,7 +31,7 @@ final class DatabaseFlagStorage implements FlagStorageInterface
     {
         $row = $this->connection->createQueryBuilder()
             ->select('*')
-            ->from(self::TABLE)
+            ->from($this->table)
             ->where('name = :name')
             ->setParameter('name', $name)
             ->executeQuery()
@@ -44,7 +45,7 @@ final class DatabaseFlagStorage implements FlagStorageInterface
         $row = $this->toRow($flag);
 
         $this->connection->executeStatement(
-            'INSERT INTO ' . self::TABLE . '
+            'INSERT INTO ' . $this->table . '
                  (id, name, description, enabled, rules, variants, created_at, updated_at)
              VALUES
                  (:id, :name, :description, :enabled, :rules, :variants, :created_at, :updated_at)
@@ -60,7 +61,7 @@ final class DatabaseFlagStorage implements FlagStorageInterface
 
     public function delete(string $name): void
     {
-        $this->connection->delete(self::TABLE, ['name' => $name]);
+        $this->connection->delete($this->table, ['name' => $name]);
     }
 
     private function hydrate(array $row): FeatureFlag

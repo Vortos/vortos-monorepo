@@ -112,6 +112,13 @@ final class AwsSesExtension extends Extension
 
         $resolved = $this->processConfiguration(new Configuration(), [$vortosConfig->toArray()]);
 
+        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
+            ? $container->getParameter('vortos.db.framework_table_prefix')
+            : 'vortos_';
+        $resolved['outbox']['table_name']      = $prefix . $resolved['outbox']['table_name'];
+        $resolved['suppression']['table_name'] = $prefix . $resolved['suppression']['table_name'];
+        $resolved['audit_log']['table_name']   = $prefix . $resolved['audit_log']['table_name'];
+
         $this->setParameters($container, $resolved);
         $this->registerDrivers($container, $resolved);
         $this->registerMiddlewareStack($container, $resolved);

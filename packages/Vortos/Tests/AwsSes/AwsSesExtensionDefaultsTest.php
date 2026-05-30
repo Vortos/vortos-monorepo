@@ -71,9 +71,9 @@ final class AwsSesExtensionDefaultsTest extends TestCase
         $this->assertTrue($this->container->getParameter('vortos_aws_ses.outbox.enabled'));
     }
 
-    public function test_outbox_table_name_defaults_to_aws_ses_outbox(): void
+    public function test_outbox_table_name_defaults_to_vortos_ses_outbox(): void
     {
-        $this->assertSame('aws_ses_outbox', $this->container->getParameter('vortos_aws_ses.outbox.table_name'));
+        $this->assertSame('vortos_aws_ses_outbox', $this->container->getParameter('vortos_aws_ses.outbox.table_name'));
     }
 
     public function test_outbox_batch_size_defaults_to_50(): void
@@ -123,7 +123,7 @@ final class AwsSesExtensionDefaultsTest extends TestCase
 
     public function test_suppression_table_name_defaults(): void
     {
-        $this->assertSame('aws_ses_suppression_list', $this->container->getParameter('vortos_aws_ses.suppression.table_name'));
+        $this->assertSame('vortos_aws_ses_suppression_list', $this->container->getParameter('vortos_aws_ses.suppression.table_name'));
     }
 
     public function test_suppression_sync_on_startup_defaults_to_false(): void
@@ -158,7 +158,7 @@ final class AwsSesExtensionDefaultsTest extends TestCase
 
     public function test_audit_log_table_name_defaults(): void
     {
-        $this->assertSame('aws_ses_audit_log', $this->container->getParameter('vortos_aws_ses.audit_log.table_name'));
+        $this->assertSame('vortos_aws_ses_audit_log', $this->container->getParameter('vortos_aws_ses.audit_log.table_name'));
     }
 
     public function test_circuit_breaker_failure_threshold_defaults_to_5(): void

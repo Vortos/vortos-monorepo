@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Migration\Command;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\Migrations\MigratorConfiguration;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -49,6 +50,7 @@ final class MigrateFreshCommand extends Command
         private readonly DependencyFactoryProviderInterface $factoryProvider,
         private readonly Connection $connection,
         private readonly string $env,
+        private readonly string $frameworkTablePrefix = 'vortos_',
     ) {
         parent::__construct();
     }
@@ -86,6 +88,7 @@ final class MigrateFreshCommand extends Command
         }
 
         $this->dropAllTables($output);
+        $this->ensureFrameworkSchema($output);
 
         $factory = $this->factoryProvider->create();
         $storage = $factory->getMetadataStorage();
@@ -119,6 +122,14 @@ final class MigrateFreshCommand extends Command
         $schemaManager = $this->connection->createSchemaManager();
         $tableNames    = $schemaManager->listTableNames();
 
+        // On PostgreSQL with schema-based framework tables, also collect tables from the vortos schema.
+        if ($this->isPostgres() && $this->frameworkTablePrefix === 'vortos.') {
+            $schemaTableNames = $this->connection->fetchFirstColumn(
+                "SELECT 'vortos.' || table_name FROM information_schema.tables WHERE table_schema = 'vortos'",
+            );
+            $tableNames = array_merge($tableNames, $schemaTableNames);
+        }
+
         if (empty($tableNames)) {
             $output->writeln('<comment>No tables to drop.</comment>');
             return;
@@ -127,12 +138,38 @@ final class MigrateFreshCommand extends Command
         $output->writeln(sprintf('<comment>Dropping %d table(s)...</comment>', count($tableNames)));
 
         foreach ($tableNames as $tableName) {
-            $this->connection->executeStatement(
-                sprintf('DROP TABLE IF EXISTS %s CASCADE', $this->connection->quoteIdentifier($tableName)),
-            );
+            // Schema-qualified names (e.g. vortos.user_roles) must be split and double-quoted separately.
+            if (str_contains($tableName, '.')) {
+                [$schema, $table] = explode('.', $tableName, 2);
+                $quoted = $this->connection->quoteIdentifier($schema) . '.' . $this->connection->quoteIdentifier($table);
+            } else {
+                $quoted = $this->connection->quoteIdentifier($tableName);
+            }
+
+            $this->connection->executeStatement(sprintf('DROP TABLE IF EXISTS %s CASCADE', $quoted));
+        }
+
+        // Drop the vortos schema itself after all its tables are gone.
+        if ($this->isPostgres() && $this->frameworkTablePrefix === 'vortos.') {
+            $this->connection->executeStatement('DROP SCHEMA IF EXISTS vortos CASCADE');
         }
 
         $output->writeln('<info>✔ All tables dropped.</info>');
         $output->writeln('');
+    }
+
+    private function ensureFrameworkSchema(OutputInterface $output): void
+    {
+        if (!$this->isPostgres() || $this->frameworkTablePrefix !== 'vortos.') {
+            return;
+        }
+
+        $this->connection->executeStatement('CREATE SCHEMA IF NOT EXISTS vortos');
+        $output->writeln('<comment>✔ PostgreSQL vortos schema created.</comment>');
+    }
+
+    private function isPostgres(): bool
+    {
+        return $this->connection->getDatabasePlatform() instanceof PostgreSQLPlatform;
     }
 }

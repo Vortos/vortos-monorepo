@@ -23,9 +23,9 @@ final class AuthorizationAdminServicesTest extends TestCase
     public function test_role_permission_changes_are_audited(): void
     {
         $connection = $this->connection();
-        $audit = new DbalAuthorizationAuditStore($connection);
+        $audit = new DbalAuthorizationAuditStore($connection, 'authorization_audit_log');
         $service = new RolePermissionAdminService(
-            new DbalRolePermissionStore($connection),
+            new DbalRolePermissionStore($connection, 'role_permissions'),
             $audit,
             $this->permissionRegistry(),
             $connection,
@@ -34,7 +34,7 @@ final class AuthorizationAdminServicesTest extends TestCase
         $service->grant('admin-1', 'ROLE_SUPPORT', 'orders.refund.any', 'ticket approved');
         $service->revoke('admin-1', 'ROLE_SUPPORT', 'orders.refund.any');
 
-        $this->assertSame([], (new DbalRolePermissionStore($connection))->permissionsForRole('ROLE_SUPPORT'));
+        $this->assertSame([], (new DbalRolePermissionStore($connection, 'role_permissions'))->permissionsForRole('ROLE_SUPPORT'));
         $this->assertSame(
             ['role_permission.granted', 'role_permission.revoked'],
             $this->auditActions($connection),
@@ -45,8 +45,8 @@ final class AuthorizationAdminServicesTest extends TestCase
     {
         $connection = $this->connection();
         $service = new RolePermissionAdminService(
-            new DbalRolePermissionStore($connection),
-            new DbalAuthorizationAuditStore($connection),
+            new DbalRolePermissionStore($connection, 'role_permissions'),
+            new DbalAuthorizationAuditStore($connection, 'authorization_audit_log'),
             $this->permissionRegistry(),
             $connection,
         );
@@ -61,8 +61,8 @@ final class AuthorizationAdminServicesTest extends TestCase
     {
         $connection = $this->connection();
         $service = new RolePermissionAdminService(
-            new DbalRolePermissionStore($connection),
-            new DbalAuthorizationAuditStore($connection),
+            new DbalRolePermissionStore($connection, 'role_permissions'),
+            new DbalAuthorizationAuditStore($connection, 'authorization_audit_log'),
             $this->permissionRegistry(),
             $connection,
         );
@@ -76,7 +76,7 @@ final class AuthorizationAdminServicesTest extends TestCase
     public function test_user_role_changes_increment_version_invalidate_cache_and_audit(): void
     {
         $connection = $this->connection();
-        $audit = new DbalAuthorizationAuditStore($connection);
+        $audit = new DbalAuthorizationAuditStore($connection, 'authorization_audit_log');
         $invalidated = [];
         $cache = new class($invalidated) implements AuthorizationCacheInvalidatorInterface {
             public function __construct(private array &$invalidated) {}
@@ -88,7 +88,7 @@ final class AuthorizationAdminServicesTest extends TestCase
             public function increment(string $userId): int { return ++$this->increments; }
         };
         $service = new UserRoleAdminService(
-            new DbalUserRoleStore($connection),
+            new DbalUserRoleStore($connection, 'user_roles'),
             $audit,
             $versions,
             $cache,
@@ -98,7 +98,7 @@ final class AuthorizationAdminServicesTest extends TestCase
         $service->assign('admin-1', 'user-1', 'ROLE_SUPPORT');
         $service->remove('admin-1', 'user-1', 'ROLE_SUPPORT');
 
-        $this->assertSame([], (new DbalUserRoleStore($connection))->rolesForUser('user-1'));
+        $this->assertSame([], (new DbalUserRoleStore($connection, 'user_roles'))->rolesForUser('user-1'));
         $this->assertSame(2, $versions->increments);
         $this->assertSame(['user-1', 'user-1'], $invalidated);
         $this->assertSame(
@@ -121,8 +121,8 @@ final class AuthorizationAdminServicesTest extends TestCase
         $requestStack->push($request);
 
         $service = new UserRoleAdminService(
-            new DbalUserRoleStore($connection),
-            new DbalAuthorizationAuditStore($connection),
+            new DbalUserRoleStore($connection, 'user_roles'),
+            new DbalAuthorizationAuditStore($connection, 'authorization_audit_log'),
             new class implements AuthorizationVersionStoreInterface {
                 public function versionForUser(string $userId): int { return 0; }
                 public function increment(string $userId): int { return 1; }

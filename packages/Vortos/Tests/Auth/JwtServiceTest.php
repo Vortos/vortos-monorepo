@@ -143,6 +143,17 @@ final class JwtServiceTest extends TestCase
         $this->assertSame('pro', $result->identity->getAttribute('plan'));
     }
 
+    public function test_authz_version_is_not_a_reserved_claim_name(): void
+    {
+        $identity = new UserIdentity('user-123', ['ROLE_USER'], ['authz_version' => 99]);
+        $token = $this->jwtService->issue($identity, authzVersion: 5);
+
+        $result = $this->jwtService->validate($token->accessToken);
+
+        $this->assertSame(5, $result->authzVersion);
+        $this->assertSame(99, $result->identity->getAttribute('authz_version'));
+    }
+
     public function test_issue_omits_attrs_from_payload_when_no_custom_claims(): void
     {
         $identity = new UserIdentity('user-123', ['ROLE_USER']);

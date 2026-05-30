@@ -10,12 +10,14 @@ use Vortos\Authorization\Contract\AuthorizationAuditStoreInterface;
 
 final class DbalAuthorizationAuditStore implements AuthorizationAuditStoreInterface
 {
-    public function __construct(private readonly Connection $connection)
-    {
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly string $auditLogTable,
+    ) {
     }
 
     public function record(AuthorizationAuditEntry $entry): void
     {
-        $this->connection->insert('authorization_audit_log', $entry->toDatabaseRow());
+        $this->connection->insert($this->auditLogTable, $entry->toDatabaseRow());
     }
 }

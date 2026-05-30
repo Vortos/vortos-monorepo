@@ -23,7 +23,7 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $table = $schema->createTable('aws_ses_audit_log');
+        $table = $schema->createTable($this->t('aws_ses_audit_log'));
 
         $table->addColumn('id',           'guid',               ['notnull' => true]);
         $table->addColumn('message_id',   'string',             ['length' => 255, 'notnull' => true]);

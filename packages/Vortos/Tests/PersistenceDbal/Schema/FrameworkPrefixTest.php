@@ -24,6 +24,23 @@ final class FrameworkPrefixTest extends TestCase
         ];
     }
 
+    public function test_postgres_with_vortos_prefix_true_produces_underscore_prefix(): void
+    {
+        $this->assertSame('vortos_', FrameworkPrefix::fromDsn('pgsql://user:pass@localhost/mydb?vortos_prefix=true'));
+        $this->assertSame('vortos_', FrameworkPrefix::fromDsn('postgres://user:pass@localhost/mydb?vortos_prefix=true'));
+    }
+
+    public function test_postgres_with_vortos_prefix_false_still_produces_schema_prefix(): void
+    {
+        $this->assertSame('vortos.', FrameworkPrefix::fromDsn('pgsql://user:pass@localhost/mydb?vortos_prefix=false'));
+    }
+
+    public function test_postgres_with_other_query_params_still_produces_schema_prefix(): void
+    {
+        $this->assertSame('vortos.', FrameworkPrefix::fromDsn('pgsql://user:pass@localhost/mydb?sslmode=require'));
+        $this->assertSame('vortos.', FrameworkPrefix::fromDsn('pgsql://user:pass@localhost/mydb?sslmode=require&vortos_prefix=false'));
+    }
+
     /** @dataProvider nonPostgresDataProvider */
     public function test_non_postgres_dsns_produce_underscore_prefix(string $dsn): void
     {

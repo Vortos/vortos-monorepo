@@ -20,13 +20,22 @@ final class FrameworkPrefix
 
     /**
      * Derive the framework table prefix from a DSN string.
-     * Returns 'vortos.' for PostgreSQL, 'vortos_' for all other engines.
+     *
+     * PostgreSQL defaults to schema mode ('vortos.'). Add ?vortos_prefix=true
+     * to the DSN to use underscore prefix mode instead ('vortos_'):
+     *
+     *   pgsql://user:pass@localhost/mydb?vortos_prefix=true
+     *
+     * All other engines always use 'vortos_'.
      */
     public static function fromDsn(string $dsn): string
     {
-        return (str_starts_with($dsn, 'pgsql://') || str_starts_with($dsn, 'postgres://'))
-            ? 'vortos.'
-            : 'vortos_';
+        if (str_starts_with($dsn, 'pgsql://') || str_starts_with($dsn, 'postgres://')) {
+            parse_str(parse_url($dsn, PHP_URL_QUERY) ?? '', $params);
+            return ($params['vortos_prefix'] ?? null) === 'true' ? 'vortos_' : 'vortos.';
+        }
+
+        return 'vortos_';
     }
 
     /**

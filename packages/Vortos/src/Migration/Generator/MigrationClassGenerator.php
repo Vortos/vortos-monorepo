@@ -192,6 +192,7 @@ PHP;
 
     private function makeCreateStatementIdempotent(string $statement): string
     {
+        $statement = preg_replace('/^CREATE SCHEMA (?!IF NOT EXISTS )/i', 'CREATE SCHEMA IF NOT EXISTS ', $statement) ?? $statement;
         $statement = preg_replace('/^CREATE TABLE (?!IF NOT EXISTS )/i', 'CREATE TABLE IF NOT EXISTS ', $statement) ?? $statement;
         $statement = preg_replace('/^CREATE (UNIQUE )?INDEX (?!IF NOT EXISTS )/i', 'CREATE $1INDEX IF NOT EXISTS ', $statement) ?? $statement;
 

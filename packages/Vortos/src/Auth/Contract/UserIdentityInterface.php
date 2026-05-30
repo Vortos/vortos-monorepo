@@ -12,8 +12,17 @@ interface UserIdentityInterface
 
     /**
      * Get a custom attribute from the identity.
-     * Attributes are embedded in the JWT payload as extra claims.
      * Example: $identity->getAttribute('plan') → 'pro'
      */
     public function getAttribute(string $key, mixed $default = null): mixed;
+
+    /**
+     * Return the claims to embed in the JWT 'attrs' payload namespace.
+     *
+     * Everything returned here is serialized into the signed token and is
+     * readable by anyone who holds it — do not include secrets or PII.
+     *
+     * @return array<string, mixed>
+     */
+    public function getClaims(): array;
 }

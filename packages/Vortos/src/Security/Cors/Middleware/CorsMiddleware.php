@@ -120,7 +120,10 @@ final class CorsMiddleware implements MiddlewareInterface
 
     private function resolveConfig(Request $request): array
     {
-        $controller = $this->extractControllerClass($request->attributes->get('_controller'));
+        // _cors_owner is set by CorsPreflightCompilerPass on injected OPTIONS routes
+        // so that per-route #[Cors] overrides still resolve correctly for preflights.
+        $controller = $request->attributes->get('_cors_owner')
+            ?? $this->extractControllerClass($request->attributes->get('_controller'));
 
         if ($controller !== null) {
             $override = $this->routeMap[$controller] ?? $this->routeMap[$controller . '::__invoke'] ?? null;

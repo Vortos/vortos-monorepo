@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
+use Vortos\Security\DependencyInjection\Compiler\CorsPreflightCompilerPass;
 use Vortos\Security\DependencyInjection\Compiler\CsrfCompilerPass;
 use Vortos\Security\DependencyInjection\Compiler\EncryptionCompilerPass;
 use Vortos\Security\DependencyInjection\Compiler\IpFilterCompilerPass;
@@ -28,5 +29,7 @@ final class SecurityPackage implements PackageInterface
         $container->addCompilerPass(new CsrfCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new RequestSignatureCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new EncryptionCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        // Must run after RouteCompilerPass (priority 80) so the RouteCollection definition exists.
+        $container->addCompilerPass(new CorsPreflightCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 70);
     }
 }

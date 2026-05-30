@@ -29,6 +29,7 @@ use Vortos\Auth\Session\SessionEnforcer;
  *   roles          — user roles array
  *   authz_version  — authorization cache version
  *   type           — 'access'
+ *   attrs          — app-defined claims from UserIdentityInterface::getClaims() (omitted when empty)
  *
  * Refresh token payload:
  *   iss   — issuer
@@ -74,6 +75,9 @@ final class JwtService
         $refreshExpiresAt = $now + $this->config->refreshTokenTtl;
         $jti = (string) new \Symfony\Component\Uid\UuidV7();
 
+        $claims = $identity->getClaims();
+        unset($claims['authz_version']); // framework-owned top-level claim — must not land in attrs
+
         $accessPayload = [
             'iss'           => $this->config->issuer,
             'sub'           => $identity->id(),
@@ -83,6 +87,10 @@ final class JwtService
             'authz_version' => $identity->getAttribute('authz_version', 0),
             'type'          => 'access',
         ];
+
+        if ($claims !== []) {
+            $accessPayload['attrs'] = $claims;
+        }
 
         $refreshPayload = [
             'iss'  => $this->config->issuer,
@@ -233,15 +241,12 @@ final class JwtService
      */
     private function identityAttributes(array $payload): array
     {
-        unset(
-            $payload['iss'],
-            $payload['sub'],
-            $payload['iat'],
-            $payload['exp'],
-            $payload['roles'],
-            $payload['type'],
-        );
+        $attrs = (array) ($payload['attrs'] ?? []);
 
-        return $payload;
+        if (isset($payload['authz_version'])) {
+            $attrs['authz_version'] = $payload['authz_version'];
+        }
+
+        return $attrs;
     }
 }

@@ -107,6 +107,32 @@ final class JwtServiceTest extends TestCase
         $this->assertSame(7, $validated->getAttribute('authz_version'));
     }
 
+    public function test_issue_and_validate_roundtrips_custom_claims(): void
+    {
+        $identity = new UserIdentity('user-123', ['ROLE_USER'], [
+            'organization_id' => 'org-abc',
+            'plan'            => 'pro',
+        ]);
+        $token = $this->jwtService->issue($identity);
+
+        $validated = $this->jwtService->validate($token->accessToken);
+
+        $this->assertSame('org-abc', $validated->getAttribute('organization_id'));
+        $this->assertSame('pro', $validated->getAttribute('plan'));
+    }
+
+    public function test_issue_omits_attrs_from_payload_when_no_custom_claims(): void
+    {
+        $identity = new UserIdentity('user-123', ['ROLE_USER']);
+        $token = $this->jwtService->issue($identity);
+
+        // Decode payload without verification to inspect structure
+        $parts = explode('.', $token->accessToken);
+        $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+
+        $this->assertArrayNotHasKey('attrs', $payload);
+    }
+
     public function test_validate_throws_on_invalid_signature(): void
     {
         $identity = new UserIdentity('user-1', []);

@@ -26,4 +26,9 @@ final readonly class UserIdentity implements UserIdentityInterface
     {
         return $this->attributes[$key] ?? $default;
     }
+
+    public function getClaims(): array
+    {
+        return $this->attributes;
+    }
 }

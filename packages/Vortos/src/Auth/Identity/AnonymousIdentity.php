@@ -12,4 +12,5 @@ final readonly class AnonymousIdentity implements UserIdentityInterface
     public function isAuthenticated(): bool { return false; }
     public function hasRole(string $role): bool { return false; }
     public function getAttribute(string $key, mixed $default = null): mixed { return $default; }
+    public function getClaims(): array { return []; }
 }

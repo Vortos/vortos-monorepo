@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Shared\Representation\Controller;
+namespace App\Shared\Presentation\Controller;
 
 use Vortos\Http\JsonResponse;
 use Symfony\Component\Routing\Attribute\Route;

@@ -73,6 +73,31 @@ final class MigrationClassGenerator
         return $this->renderTemplate($className, $namespace, $escapedDesc, $body, down: 'manual');
     }
 
+    public function generateAggregate(
+        string $className,
+        string $namespace,
+        string $tableName,
+    ): string {
+        $escapedTable = $this->escapeString($tableName);
+        $escapedDesc  = $this->escapeString('Create ' . str_replace('_', ' ', $tableName) . ' table');
+
+        $upBody = <<<PHP
+        \$this->addSql(<<<'SQL'
+            CREATE TABLE IF NOT EXISTS {$escapedTable} (
+                id           VARCHAR(36) NOT NULL,
+                lock_version INTEGER     NOT NULL DEFAULT 0,
+
+                PRIMARY KEY (id)
+            )
+        SQL);
+PHP;
+        $upBody .= "\n";
+
+        $downBody = "        \$this->addSql('DROP TABLE IF EXISTS {$escapedTable}');\n";
+
+        return $this->renderTemplate($className, $namespace, $escapedDesc, $upBody, down: $downBody);
+    }
+
     public function buildClassName(string $timestamp, int $sequence = 0): string
     {
         return $sequence > 0
@@ -124,6 +149,8 @@ final class MigrationClassGenerator
     ): string {
         if ($down === 'manual') {
             $downBody = "        // Reverse the up() migration using \$this->addSql()\n";
+        } elseif ($down !== null) {
+            $downBody = $down;
         } else {
             $downBody = "        \$this->throwIrreversibleMigrationException(\n" .
                         "            'This migration was generated from a module SQL stub and has no automatic rollback.'\n" .

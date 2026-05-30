@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\User\Representation\Permission;
+namespace App\User\Presentation\Permission;
 
 use Vortos\Authorization\Attribute\PermissionCatalog;
 

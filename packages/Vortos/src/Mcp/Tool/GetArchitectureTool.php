@@ -13,7 +13,7 @@ final class GetArchitectureTool implements ToolInterface
 
     public function description(): string
     {
-        return 'Returns Vortos architecture rules: layer responsibilities (Domain/Application/Infrastructure/Representation), CQRS + event flow, canonical file/directory structure, and transaction boundary rules.';
+        return 'Returns Vortos architecture rules: layer responsibilities (Domain/Application/Infrastructure/Presentation), CQRS + event flow, canonical file/directory structure, and transaction boundary rules.';
     }
 
     public function inputSchema(): array

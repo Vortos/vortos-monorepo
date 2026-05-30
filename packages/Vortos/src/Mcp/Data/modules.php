@@ -208,7 +208,7 @@ return [
         'provides'    => ['GeneratorEngine — reads stubs from module Resources/stubs/ or app root stubs/ (user overrides)'],
         'config'      => null,
         'commands'    => [
-            'vortos:make:context'             => 'Scaffold a bounded context directory tree (Domain/Application/Infrastructure/Representation)',
+            'vortos:make:context'             => 'Scaffold a bounded context directory tree (Domain/Application/Infrastructure/Presentation)',
             'vortos:make:aggregate'           => 'Generate an aggregate root, its typed AggregateId, and repository interface inside Domain/{Aggregate}/',
             'vortos:make:entity'              => 'Generate a child entity and its typed EntityId inside Domain/{Aggregate}/Entities/ (--aggregate required)',
             'vortos:make:value-object'        => 'Generate a ValueObject — --aggregate places it in Domain/{Aggregate}/ValueObjects/, --shared places it in Domain/Shared/ValueObjects/',

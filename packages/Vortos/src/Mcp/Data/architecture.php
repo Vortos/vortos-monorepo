@@ -35,7 +35,7 @@ return [
                 'No domain logic — only persistence and transport concerns',
             ],
         ],
-        'Representation' => [
+        'Presentation' => [
             'responsibility' => 'HTTP entry points and authorization policies.',
             'contains'       => ['Controllers', 'Request DTOs', 'Policies'],
             'rules'          => [
@@ -113,7 +113,7 @@ src/
         OrderReadRepository.php                ← MongoDB reads
       Messaging/
         OrderMessagingConfig.php               ← #[RegisterProducer], #[RegisterConsumer]
-    Representation/
+    Presentation/
       Controller/
         PlaceOrderController.php               ← #[AsRoute], dispatches PlaceOrder command
         PlaceOrderRequest.php                  ← request DTO with validation

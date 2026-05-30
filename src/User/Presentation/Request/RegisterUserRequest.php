@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\User\Representation\Request;
+namespace App\User\Presentation\Request;
 
 use Symfony\Component\Validator\Constraints as Assert;
 use Vortos\Http\Request\RequestDto;

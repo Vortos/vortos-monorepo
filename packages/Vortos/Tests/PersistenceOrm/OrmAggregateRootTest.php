@@ -36,7 +36,7 @@ final class OrmAggregateRootTest extends TestCase
         $this->assertSame(0, (new OrmTestAggregate())->getVersion());
     }
 
-    public function test_increment_version_increments_orm_version(): void
+    public function test_increment_version_increments_lock_version(): void
     {
         $agg = new OrmTestAggregate();
         $agg->incrementVersion();
@@ -44,7 +44,7 @@ final class OrmAggregateRootTest extends TestCase
         $this->assertSame(2, $agg->getVersion());
     }
 
-    public function test_restore_version_sets_orm_version(): void
+    public function test_restore_version_sets_lock_version(): void
     {
         $agg = new OrmTestAggregate();
         $agg->incrementVersion(); // 1
@@ -64,12 +64,15 @@ final class OrmAggregateRootTest extends TestCase
         $this->assertCount(1, $attrs);
     }
 
-    public function test_orm_version_field_has_version_and_column_attributes(): void
+    public function test_lock_version_field_has_version_and_column_attributes(): void
     {
-        $prop = new \ReflectionProperty(OrmAggregateRoot::class, 'ormVersion');
+        $prop = new \ReflectionProperty(OrmAggregateRoot::class, 'lockVersion');
 
         $this->assertCount(1, $prop->getAttributes(ORM\Version::class));
-        $this->assertCount(1, $prop->getAttributes(ORM\Column::class));
+
+        $columnAttrs = $prop->getAttributes(ORM\Column::class);
+        $this->assertCount(1, $columnAttrs);
+        $this->assertSame('lock_version', $columnAttrs[0]->newInstance()->name);
     }
 
     public function test_extends_aggregate_root(): void

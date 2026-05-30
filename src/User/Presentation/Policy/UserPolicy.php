@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\User\Representation\Policy;
+namespace App\User\Presentation\Policy;
 
 use Vortos\Authorization\Attribute\AsPolicy;
 use Vortos\Authorization\Context\AuthorizationContext;

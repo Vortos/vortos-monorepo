@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\User\Representation\Controller;
+namespace App\User\Presentation\Controller;
 
 use App\User\Infrastructure\Database\UserWriteRepository;
 use App\User\Domain\Email;

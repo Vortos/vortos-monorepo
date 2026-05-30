@@ -12,7 +12,7 @@ use Vortos\Domain\Aggregate\AggregateRoot as BaseAggregateRoot;
  *
  * Extends the domain AggregateRoot with a Doctrine-managed version column
  * for optimistic concurrency control. Override getVersion(), incrementVersion(),
- * and restoreVersion() to route through the ORM-managed $ormVersion property,
+ * and restoreVersion() to route through the ORM-managed $lockVersion property,
  * keeping Doctrine's change tracking and the framework's locking in sync.
  *
  * Domain aggregates extend this class directly and carry #[ORM\Entity] and
@@ -35,15 +35,15 @@ use Vortos\Domain\Aggregate\AggregateRoot as BaseAggregateRoot;
  * ## Why a separate property, not modifying the domain AggregateRoot?
  *
  * AggregateRoot::$version is private — Doctrine cannot manage it. This class
- * introduces $ormVersion (mapped via #[ORM\Version]) and overrides all three
+ * introduces $lockVersion (mapped via #[ORM\Version]) and overrides all three
  * version methods to delegate to it, so Doctrine and the framework always
  * read and write the same number.
  *
  * ## Version lifecycle with #[ORM\Version]
  *
- * On INSERT: Doctrine stores whatever value $ormVersion holds (starts at 0).
- * On UPDATE: Doctrine executes WHERE version = $ormVersion SET version = version + 1,
- *            then updates $ormVersion on the entity to the incremented value.
+ * On INSERT: Doctrine stores whatever value $lockVersion holds (starts at 0).
+ * On UPDATE: Doctrine executes WHERE lock_version = $lockVersion SET lock_version = lock_version + 1,
+ *            then updates $lockVersion on the entity to the incremented value.
  * On conflict: Doctrine throws OptimisticLockException — OrmStore
  *              translates this to the domain OptimisticLockException.
  */
@@ -51,23 +51,23 @@ use Vortos\Domain\Aggregate\AggregateRoot as BaseAggregateRoot;
 abstract class AggregateRoot extends BaseAggregateRoot
 {
     #[ORM\Version]
-    #[ORM\Column(type: 'integer')]
-    private int $ormVersion = 0;
+    #[ORM\Column(name: 'lock_version', type: 'integer')]
+    private int $lockVersion = 0;
 
     public function getVersion(): int
     {
-        return $this->ormVersion;
+        return $this->lockVersion;
     }
 
     public function incrementVersion(): void
     {
-        $this->ormVersion++;
+        $this->lockVersion++;
         parent::incrementVersion();
     }
 
-    protected function restoreVersion(int $version): void
+    protected function restoreVersion(int $lockVersion): void
     {
-        $this->ormVersion = $version;
-        parent::restoreVersion($version);
+        $this->lockVersion = $lockVersion;
+        parent::restoreVersion($lockVersion);
     }
 }

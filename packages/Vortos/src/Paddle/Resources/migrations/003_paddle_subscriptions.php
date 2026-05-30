@@ -2,36 +2,53 @@
 
 declare(strict_types=1);
 
-return <<<'SQL'
-CREATE TABLE paddle_subscriptions (
-    id              VARCHAR(50)  NOT NULL,
-    customer_id     VARCHAR(50)  NOT NULL,
-    status          VARCHAR(20)  NOT NULL,
-    currency_code   CHAR(3)      NOT NULL,
-    next_billed_at  TIMESTAMP(0) WITHOUT TIME ZONE,
-    paused_at       TIMESTAMP(0) WITHOUT TIME ZONE,
-    canceled_at     TIMESTAMP(0) WITHOUT TIME ZONE,
-    created_at      TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
-    updated_at      TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
-    PRIMARY KEY (id)
-);
+use Doctrine\DBAL\Schema\Schema;
+use Vortos\Migration\Schema\AbstractModuleSchemaProvider;
 
-CREATE INDEX paddle_subscriptions_customer_idx
-    ON paddle_subscriptions(customer_id);
+return new class extends AbstractModuleSchemaProvider {
+    public function module(): string
+    {
+        return 'Paddle';
+    }
 
-CREATE INDEX paddle_subscriptions_status_idx
-    ON paddle_subscriptions(status);
+    public function id(): string
+    {
+        return 'paddle.subscriptions';
+    }
 
-CREATE TABLE paddle_subscription_items (
-    subscription_id VARCHAR(50)  NOT NULL,
-    price_id        VARCHAR(50)  NOT NULL,
-    quantity        INTEGER      NOT NULL DEFAULT 1,
-    status          VARCHAR(20)  NOT NULL,
-    created_at      TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
-    updated_at      TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
-    PRIMARY KEY (subscription_id, price_id)
-);
+    public function description(): string
+    {
+        return 'Paddle subscriptions — local mirror of Paddle subscription and subscription item state';
+    }
 
-CREATE INDEX paddle_subscription_items_price_idx
-    ON paddle_subscription_items(price_id);
-SQL;
+    public function define(Schema $schema): void
+    {
+        $subs = $schema->createTable('paddle_subscriptions');
+
+        $subs->addColumn('id',             'string', ['length' => 50, 'notnull' => true]);
+        $subs->addColumn('customer_id',    'string', ['length' => 50, 'notnull' => true]);
+        $subs->addColumn('status',         'string', ['length' => 20, 'notnull' => true]);
+        $subs->addColumn('currency_code',  'string', ['length' => 3,  'notnull' => true, 'fixed' => true]);
+        $subs->addColumn('next_billed_at', 'datetime_immutable', ['notnull' => false]);
+        $subs->addColumn('paused_at',      'datetime_immutable', ['notnull' => false]);
+        $subs->addColumn('canceled_at',    'datetime_immutable', ['notnull' => false]);
+        $subs->addColumn('created_at',     'datetime_immutable', ['notnull' => true]);
+        $subs->addColumn('updated_at',     'datetime_immutable', ['notnull' => true]);
+
+        $subs->setPrimaryKey(['id']);
+        $subs->addIndex(['customer_id'], 'idx_paddle_subscriptions_customer');
+        $subs->addIndex(['status'],      'idx_paddle_subscriptions_status');
+
+        $items = $schema->createTable('paddle_subscription_items');
+
+        $items->addColumn('subscription_id', 'string',  ['length' => 50, 'notnull' => true]);
+        $items->addColumn('price_id',        'string',  ['length' => 50, 'notnull' => true]);
+        $items->addColumn('quantity',        'integer', ['notnull' => true, 'default' => 1]);
+        $items->addColumn('status',          'string',  ['length' => 20, 'notnull' => true]);
+        $items->addColumn('created_at',      'datetime_immutable', ['notnull' => true]);
+        $items->addColumn('updated_at',      'datetime_immutable', ['notnull' => true]);
+
+        $items->setPrimaryKey(['subscription_id', 'price_id']);
+        $items->addIndex(['price_id'], 'idx_paddle_subscription_items_price');
+    }
+};

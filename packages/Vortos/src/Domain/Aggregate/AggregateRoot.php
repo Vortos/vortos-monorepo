@@ -65,9 +65,9 @@ abstract class AggregateRoot
      * Increments on every state change.
      * Write repository uses this to detect concurrent modifications.
      *
-     * @see DbalStore::save() — uses WHERE version = $currentVersion
+     * @see DbalStore::save() — uses WHERE lock_version = $currentVersion
      */
-    private int $version = 0;
+    private int $lockVersion = 0;
 
     /**
      * Tracks whether this aggregate has ever been persisted or reconstructed.
@@ -162,7 +162,7 @@ abstract class AggregateRoot
      */
     public function getVersion(): int
     {
-        return $this->version;
+        return $this->lockVersion;
     }
 
     /**
@@ -184,9 +184,9 @@ abstract class AggregateRoot
      *
      * @internal
      */
-    protected function restoreVersion(int $version): void
+    protected function restoreVersion(int $lockVersion): void
     {
-        $this->version = $version;
+        $this->lockVersion = $lockVersion;
         $this->persisted = true;
     }
 
@@ -198,7 +198,7 @@ abstract class AggregateRoot
      */
     public function incrementVersion(): void
     {
-        $this->version++;
+        $this->lockVersion++;
         $this->persisted = true;
     }
 

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\User\Representation\Controller;
+namespace App\User\Presentation\Controller;
 
 use App\User\Application\Command\RegisterUserCommand;
 use App\User\Domain\User;
-use App\User\Representation\Request\RegisterUserRequest;
+use App\User\Presentation\Request\RegisterUserRequest;
 use Vortos\Http\JsonResponse;
 use Symfony\Component\Routing\Attribute\Route;
 use Vortos\Cqrs\Command\CommandBusInterface;

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace {{Namespace}}\Representation\Controller;
+namespace {{Namespace}}\Presentation\Controller;
 
 use Vortos\Http\JsonResponse;
 use Vortos\Http\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Vortos\Http\Attribute\AsController;
-use {{Namespace}}\Representation\Request\{{ClassName}}Request;
+use {{Namespace}}\Presentation\Request\{{ClassName}}Request;
 
 #[AsController]
 #[Route('/{{RoutePrefix}}', name: '{{RouteName}}', methods: ['{{RouteMethod}}'])]

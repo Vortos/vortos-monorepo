@@ -19,12 +19,9 @@ final class {{ClassName}} extends AggregateRoot
         return $instance;
     }
 
-    public static function reconstruct({{ClassName}}Id $id, int $version): self
+    public static function reconstruct({{ClassName}}Id $id): self
     {
-        $instance = new self($id);
-        $instance->restoreVersion($version);
-
-        return $instance;
+        return new self($id);
     }
 
     public function getId(): {{ClassName}}Id

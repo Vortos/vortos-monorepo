@@ -549,7 +549,12 @@ final class AwsSesExtension extends Extension
 
             $certFetcherArg = new Reference('vortos_aws_ses.sns_cert_fetcher');
         } else {
-            $certFetcherArg = SnsSignatureVerifier::defaultCertFetcher();
+            $container->register('vortos_aws_ses.sns_cert_fetcher', \Closure::class)
+                ->setFactory([SnsSignatureVerifier::class, 'defaultCertFetcher'])
+                ->setShared(true)
+                ->setPublic(false);
+
+            $certFetcherArg = new Reference('vortos_aws_ses.sns_cert_fetcher');
         }
 
         $container->register(SnsSignatureVerifier::class, SnsSignatureVerifier::class)

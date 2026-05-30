@@ -2,25 +2,44 @@
 
 declare(strict_types=1);
 
-return <<<'SQL'
-CREATE TABLE object_store_outbox (
-    id UUID NOT NULL,
-    domain_event_id VARCHAR(255) DEFAULT NULL,
-    operation VARCHAR(64) NOT NULL,
-    status VARCHAR(32) NOT NULL,
-    attempt_count INT NOT NULL DEFAULT 0,
-    payload JSON NOT NULL,
-    last_error TEXT DEFAULT NULL,
-    next_attempt_at TIMESTAMP(6) WITHOUT TIME ZONE DEFAULT NULL,
-    created_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL,
-    processed_at TIMESTAMP(6) WITHOUT TIME ZONE DEFAULT NULL,
-    PRIMARY KEY(id)
-);
+use Doctrine\DBAL\Schema\Schema;
+use Vortos\Migration\Schema\AbstractModuleSchemaProvider;
 
-CREATE UNIQUE INDEX object_store_outbox_domain_event_id_unique
-    ON object_store_outbox(domain_event_id)
-    WHERE domain_event_id IS NOT NULL;
+return new class extends AbstractModuleSchemaProvider {
+    public function module(): string
+    {
+        return 'ObjectStore';
+    }
 
-CREATE INDEX object_store_outbox_pending_idx
-    ON object_store_outbox(status, next_attempt_at, created_at);
-SQL;
+    public function id(): string
+    {
+        return 'object_store.outbox';
+    }
+
+    public function description(): string
+    {
+        return 'Object store outbox — tracks async object store operations for reliable processing';
+    }
+
+    public function define(Schema $schema): void
+    {
+        $table = $schema->createTable('object_store_outbox');
+
+        $table->addColumn('id',               'guid',               ['notnull' => true]);
+        $table->addColumn('domain_event_id',  'string',             ['length' => 255, 'notnull' => false, 'default' => null]);
+        $table->addColumn('operation',        'string',             ['length' => 64,  'notnull' => true]);
+        $table->addColumn('status',           'string',             ['length' => 32,  'notnull' => true]);
+        $table->addColumn('attempt_count',    'integer',            ['notnull' => true, 'default' => 0]);
+        $table->addColumn('payload',          'json',               ['notnull' => true]);
+        $table->addColumn('last_error',       'text',               ['notnull' => false, 'default' => null]);
+        $table->addColumn('next_attempt_at',  'datetime_immutable', ['notnull' => false, 'default' => null]);
+        $table->addColumn('created_at',       'datetime_immutable', ['notnull' => true]);
+        $table->addColumn('processed_at',     'datetime_immutable', ['notnull' => false, 'default' => null]);
+
+        $table->setPrimaryKey(['id']);
+
+        $table->addUniqueIndex(['domain_event_id'], 'uq_object_store_outbox_domain_event_id');
+
+        $table->addIndex(['status', 'next_attempt_at', 'created_at'], 'idx_object_store_outbox_pending');
+    }
+};

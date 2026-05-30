@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\User\Representation\Controller;
+namespace App\User\Presentation\Controller;
 
 use App\User\Application\Query\GetUserQuery;
 use Vortos\Http\JsonResponse;

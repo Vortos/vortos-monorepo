@@ -2,18 +2,40 @@
 
 declare(strict_types=1);
 
-return <<<'SQL'
-CREATE TABLE paddle_audit_log (
-    id               BIGSERIAL PRIMARY KEY,
-    event_type       VARCHAR(255) NOT NULL,
-    paddle_event_id  VARCHAR(255) NOT NULL,
-    entity_type      VARCHAR(100) NOT NULL,
-    entity_id        VARCHAR(255) NOT NULL,
-    actor            VARCHAR(255),
-    occurred_at      TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
-    recorded_at      TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL
-);
+use Doctrine\DBAL\Schema\Schema;
+use Vortos\Migration\Schema\AbstractModuleSchemaProvider;
 
-CREATE INDEX paddle_audit_log_entity_idx ON paddle_audit_log(entity_type, entity_id);
-CREATE INDEX paddle_audit_log_occurred_idx ON paddle_audit_log(occurred_at);
-SQL;
+return new class extends AbstractModuleSchemaProvider {
+    public function module(): string
+    {
+        return 'Paddle';
+    }
+
+    public function id(): string
+    {
+        return 'paddle.audit_log';
+    }
+
+    public function description(): string
+    {
+        return 'Paddle audit log — immutable record of every Paddle webhook event received';
+    }
+
+    public function define(Schema $schema): void
+    {
+        $table = $schema->createTable('paddle_audit_log');
+
+        $table->addColumn('id',              'bigint',  ['autoincrement' => true, 'notnull' => true]);
+        $table->addColumn('event_type',      'string',  ['length' => 255, 'notnull' => true]);
+        $table->addColumn('paddle_event_id', 'string',  ['length' => 255, 'notnull' => true]);
+        $table->addColumn('entity_type',     'string',  ['length' => 100, 'notnull' => true]);
+        $table->addColumn('entity_id',       'string',  ['length' => 255, 'notnull' => true]);
+        $table->addColumn('actor',           'string',  ['length' => 255, 'notnull' => false]);
+        $table->addColumn('occurred_at',     'datetime_immutable', ['notnull' => true]);
+        $table->addColumn('recorded_at',     'datetime_immutable', ['notnull' => true]);
+
+        $table->setPrimaryKey(['id']);
+        $table->addIndex(['entity_type', 'entity_id'], 'idx_paddle_audit_log_entity');
+        $table->addIndex(['occurred_at'],              'idx_paddle_audit_log_occurred');
+    }
+};

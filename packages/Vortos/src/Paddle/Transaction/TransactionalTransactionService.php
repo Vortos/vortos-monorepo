@@ -40,7 +40,16 @@ final class TransactionalTransactionService implements TransactionServiceInterfa
 
     public function update(PaddleTransactionId $id, UpdateTransactionRequest $request): void
     {
-        $this->outbox->queue('transaction.update', ['id' => $id->value]);
+        $this->outbox->queue('transaction.update', [
+            'id'     => $id->value,
+            'items'  => $request->items !== null
+                ? array_map(
+                    fn($item) => ['priceId' => $item->priceId->value, 'quantity' => $item->quantity],
+                    $request->items
+                )
+                : null,
+            'status' => $request->status,
+        ]);
     }
 
     public function preview(CreateTransactionRequest $request): TransactionPreviewResult

@@ -6,6 +6,7 @@ namespace {{Namespace}};
 
 use Doctrine\ORM\Mapping as ORM;
 use Vortos\PersistenceOrm\Aggregate\AggregateRoot;
+use {{Namespace}}\ValueObject\{{ClassName}}Id;
 
 #[ORM\Entity]
 #[ORM\Table(name: '{{TableName}}')]

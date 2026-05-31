@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace {{Namespace}};
 
 use Vortos\Domain\Aggregate\AggregateRoot;
+use {{Namespace}}\ValueObject\{{ClassName}}Id;
 
 final class {{ClassName}} extends AggregateRoot
 {

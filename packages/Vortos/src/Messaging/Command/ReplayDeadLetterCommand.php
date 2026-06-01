@@ -24,7 +24,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * original Kafka transport. The consumer worker will pick them up and retry.
  *
  * These are messages that exhausted all in-process retry attempts and were
- * written to vortos_failed_messages by DeadLetterWriter. They are distinct
+ * written to messaging_failed_messages by DeadLetterWriter. They are distinct
  * from outbox relay failures — use vortos:outbox:replay for those.
  *
  * Use --dry-run to inspect messages before replaying.

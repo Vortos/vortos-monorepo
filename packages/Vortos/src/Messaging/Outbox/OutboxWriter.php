@@ -30,7 +30,7 @@ final class OutboxWriter implements OutboxInterface
     public function __construct(
         private Connection $connection,
         private SerializerLocator $serializerLocator,
-        private string $table = 'vortos_outbox',
+        private string $table = 'messaging_outbox',
         private ?ActiveTransactionGuard $transactionGuard = null,
     ) {}
 

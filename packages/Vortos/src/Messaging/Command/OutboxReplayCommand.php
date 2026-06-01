@@ -19,7 +19,7 @@ use Symfony\Component\Console\Question\ConfirmationQuestion;
  * Resets permanently failed outbox messages back to pending so the relay
  * worker picks them up again.
  *
- * These are rows in vortos_outbox with status='failed' — messages that
+ * These are rows in messaging_outbox with status='failed' — messages that
  * exhausted all automatic relay attempts (maxAttempts). Resetting them
  * sets status='pending', attempt_count=0, and clears next_attempt_at.
  *

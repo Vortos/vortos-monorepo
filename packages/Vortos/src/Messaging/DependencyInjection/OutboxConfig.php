@@ -6,7 +6,7 @@ namespace Vortos\Messaging\DependencyInjection;
 
 final class OutboxConfig
 {
-    private string $table = 'outbox';
+    private string $table = 'messaging_outbox';
     private int $maxAttempts = 5;
     private int $backoffBase = 30;
     private int $backoffCap = 3600;

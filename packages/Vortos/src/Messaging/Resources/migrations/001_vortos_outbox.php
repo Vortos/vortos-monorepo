@@ -13,17 +13,17 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function id(): string
     {
-        return 'messaging.vortos_outbox';
+        return 'messaging.messaging_outbox';
     }
 
     public function description(): string
     {
-        return 'Vortos outbox — envelope-first schema';
+        return 'Messaging outbox — envelope-first schema for transactional event relay';
     }
 
     public function define(Schema $schema): void
     {
-        $outbox = $schema->createTable($this->t('outbox'));
+        $outbox = $schema->createTable($this->t('messaging_outbox'));
 
         $outbox->addColumn('id',                'guid',               ['notnull' => true]);
         $outbox->addColumn('transport_name',    'string',             ['length' => 255, 'notnull' => true]);
@@ -49,14 +49,14 @@ return new class extends AbstractModuleSchemaProvider {
         $outbox->setPrimaryKey(['id']);
 
         // Relay worker: pending rows ordered by time, skip locked for parallelism
-        $outbox->addIndex(['status', 'next_attempt_at'], 'idx_vortos_outbox_status_next', [], [
+        $outbox->addIndex(['status', 'next_attempt_at'], 'idx_messaging_outbox_status_next', [], [
             'where' => "status = 'pending'",
         ]);
 
         // Replay by aggregate
-        $outbox->addIndex(['aggregate_id', 'occurred_at'], 'idx_vortos_outbox_aggregate_occurred');
+        $outbox->addIndex(['aggregate_id', 'occurred_at'], 'idx_messaging_outbox_aggregate_occurred');
 
         // Replay by event type
-        $outbox->addIndex(['payload_type', 'occurred_at'], 'idx_vortos_outbox_type_occurred');
+        $outbox->addIndex(['payload_type', 'occurred_at'], 'idx_messaging_outbox_type_occurred');
     }
 };

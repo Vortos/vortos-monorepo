@@ -10,7 +10,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Vortos\ObjectStore\Outbox\ObjectStoreOutboxRelay;
+use Vortos\ObjectStore\Outbox\ObjectStoreOutboxRelayInterface;
 
 #[AsCommand(name: 'vortos:object-store:relay', description: 'Relay pending object-store outbox operations')]
 final class ObjectStoreOutboxRelayCommand extends Command
@@ -18,7 +18,7 @@ final class ObjectStoreOutboxRelayCommand extends Command
     private bool $shouldStop = false;
 
     public function __construct(
-        private readonly ObjectStoreOutboxRelay $relay,
+        private readonly ObjectStoreOutboxRelayInterface $relay,
         private readonly int $sleepSecondsWhenEmpty = 2,
     ) {
         parent::__construct();

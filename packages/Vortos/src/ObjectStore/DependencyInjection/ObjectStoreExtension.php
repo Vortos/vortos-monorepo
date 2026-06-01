@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\ObjectStore\DependencyInjection;
 
+use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
@@ -13,6 +14,7 @@ use Vortos\Config\Stub\ConfigStub;
 use Vortos\Metrics\Contract\MetricsInterface;
 use Vortos\Metrics\Definition\MetricDefinitionProviderInterface;
 use Vortos\ObjectStore\Command\ObjectStoreOutboxRelayCommand;
+use Vortos\ObjectStore\Command\ObjectStoreOutboxRetryCommand;
 use Vortos\ObjectStore\Command\ObjectStoreHeadCommand;
 use Vortos\ObjectStore\Command\ObjectStoreLifecycleCommand;
 use Vortos\ObjectStore\Command\ObjectStoreMultipartCommand;
@@ -60,6 +62,9 @@ use Vortos\ObjectStore\Lifecycle\NullLifecycleManager;
 use Vortos\ObjectStore\Lifecycle\S3LifecycleManager;
 use Vortos\ObjectStore\Outbox\ObjectOperationSerializer;
 use Vortos\ObjectStore\Outbox\ObjectStoreOutboxRelay;
+use Vortos\ObjectStore\Outbox\ObjectStoreOutboxRelayInterface;
+use Vortos\ObjectStore\Outbox\ObjectStoreOutboxRetryStore;
+use Vortos\ObjectStore\Outbox\ObjectStoreOutboxRetryStoreInterface;
 use Vortos\ObjectStore\Outbox\ObjectStoreOutboxWriter;
 use Vortos\ObjectStore\Outbox\StandaloneObjectStore;
 use Vortos\ObjectStore\Outbox\TransactionalOutboxObjectStore;
@@ -420,11 +425,31 @@ final class ObjectStoreExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
+        $container->setAlias(ObjectStoreOutboxRelayInterface::class, ObjectStoreOutboxRelay::class)
+            ->setPublic(false);
+
         $container->register(ObjectStoreOutboxRelayCommand::class, ObjectStoreOutboxRelayCommand::class)
             ->setArguments([
                 new Reference(ObjectStoreOutboxRelay::class),
                 $config['outbox']['sleep_seconds_when_empty'],
             ])
+            ->addTag('console.command')
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(ObjectStoreOutboxRetryStore::class, ObjectStoreOutboxRetryStore::class)
+            ->setArguments([
+                '$connection' => new Reference(Connection::class),
+                '$tableName'  => $config['outbox']['table_name'],
+            ])
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(ObjectStoreOutboxRetryStoreInterface::class, ObjectStoreOutboxRetryStore::class)
+            ->setPublic(false);
+
+        $container->register(ObjectStoreOutboxRetryCommand::class, ObjectStoreOutboxRetryCommand::class)
+            ->setArgument('$store', new Reference(ObjectStoreOutboxRetryStoreInterface::class))
             ->addTag('console.command')
             ->setShared(true)
             ->setPublic(false);

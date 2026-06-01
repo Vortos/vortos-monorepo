@@ -13,7 +13,7 @@ use DateTimeImmutable;
  * Immutable — reflects the state of the database row at fetch time.
  * Use OutboxPoller::markPublished() or markFailed() to transition state.
  *
- * Mirrors the new vortos_outbox schema: envelope fields are first-class
+ * Mirrors the messaging_outbox schema: envelope fields are first-class
  * columns (eventId, aggregateId, aggregateType, aggregateVersion, payloadType,
  * schemaVersion, occurredAt, correlation/causation/trace ids) rather than
  * stuffed into a generic `headers` JSON blob.

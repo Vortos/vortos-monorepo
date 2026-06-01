@@ -25,12 +25,12 @@ final class OutboxPoller implements OutboxPollerInterface
 {
     public function __construct(
         private Connection $connection,
-        private string $tableName = 'vortos_outbox',
+        private string $tableName = 'messaging_outbox',
         private int $maxAttempts = 5,
         private int $backoffBase = 30,
         private int $backoffCap = 3600,
     ) {
-        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $this->tableName)) {
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$/', $this->tableName)) {
             throw new \InvalidArgumentException(sprintf('Invalid table name "%s".', $this->tableName));
         }
     }

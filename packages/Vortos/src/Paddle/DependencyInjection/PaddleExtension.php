@@ -61,9 +61,13 @@ use Vortos\Paddle\Customer\TransactionalAddressService;
 use Vortos\Paddle\Customer\TransactionalBusinessService;
 use Vortos\Paddle\Customer\TransactionalCustomerService;
 use Vortos\Paddle\Failover\PaddleCircuitBreaker;
+use Vortos\Paddle\Command\PaddleOutboxRetryCommand;
 use Vortos\Paddle\Outbox\PaddleApiOutboxDispatcher;
 use Vortos\Paddle\Outbox\PaddleOutboxDispatcherInterface;
 use Vortos\Paddle\Outbox\PaddleOutboxRelay;
+use Vortos\Paddle\Outbox\PaddleOutboxRelayInterface;
+use Vortos\Paddle\Outbox\PaddleOutboxRetryStore;
+use Vortos\Paddle\Outbox\PaddleOutboxRetryStoreInterface;
 use Vortos\Paddle\Outbox\PaddleOutboxWriter;
 use Vortos\Paddle\Outbox\PaddleOutboxWriterInterface;
 use Vortos\Paddle\Report\EventLogService;
@@ -128,7 +132,7 @@ final class PaddleExtension extends Extension
         $this->setParameters($container, $resolved);
         $this->registerApiClient($container, $resolved, $prefix);
         $this->registerWebhooks($container, $resolved, $prefix);
-        $this->registerOutboxAndAuditLog($container, $prefix);
+        $this->registerOutboxAndAuditLog($container, $resolved, $prefix);
         $this->registerDomainServices($container);
     }
 
@@ -259,11 +263,13 @@ final class PaddleExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerOutboxAndAuditLog(ContainerBuilder $container, string $prefix): void
+    private function registerOutboxAndAuditLog(ContainerBuilder $container, array $config, string $prefix): void
     {
+        $outboxTable = $prefix . 'paddle_outbox';
+
         $container->register(PaddleOutboxWriter::class, PaddleOutboxWriter::class)
             ->setArgument('$connection', new Reference(Connection::class))
-            ->setArgument('$table', $prefix . 'paddle_outbox')
+            ->setArgument('$table', $outboxTable)
             ->setShared(true)
             ->setPublic(false);
 
@@ -299,16 +305,43 @@ final class PaddleExtension extends Extension
 
         $container->register(PaddleOutboxRelay::class, PaddleOutboxRelay::class)
             ->setArguments([
-                '$connection'  => new Reference(Connection::class),
-                '$dispatcher'  => new Reference(PaddleOutboxDispatcherInterface::class),
-                '$logger'      => new Reference(LoggerInterface::class),
-                '$table'       => $prefix . 'paddle_outbox',
+                '$connection'          => new Reference(Connection::class),
+                '$dispatcher'          => new Reference(PaddleOutboxDispatcherInterface::class),
+                '$logger'              => new Reference(LoggerInterface::class),
+                '$table'               => $outboxTable,
+                '$batchSize'           => $config['outbox']['batch_size'],
+                '$maxAttempts'         => $config['outbox']['max_attempts'],
+                '$backoffBaseSeconds'  => $config['outbox']['backoff_base_seconds'],
+                '$backoffCapSeconds'   => $config['outbox']['backoff_cap_seconds'],
             ])
             ->setShared(true)
             ->setPublic(false);
 
+        $container->setAlias(PaddleOutboxRelayInterface::class, PaddleOutboxRelay::class)
+            ->setPublic(false);
+
         $container->register(PaddleOutboxRelayCommand::class, PaddleOutboxRelayCommand::class)
-            ->setArgument('$relay', new Reference(PaddleOutboxRelay::class))
+            ->setArguments([
+                '$relay'               => new Reference(PaddleOutboxRelayInterface::class),
+                '$sleepSecondsWhenEmpty' => $config['outbox']['sleep_seconds_when_empty'],
+            ])
+            ->addTag('console.command')
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(PaddleOutboxRetryStore::class, PaddleOutboxRetryStore::class)
+            ->setArguments([
+                '$connection' => new Reference(Connection::class),
+                '$table'      => $outboxTable,
+            ])
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(PaddleOutboxRetryStoreInterface::class, PaddleOutboxRetryStore::class)
+            ->setPublic(false);
+
+        $container->register(PaddleOutboxRetryCommand::class, PaddleOutboxRetryCommand::class)
+            ->setArgument('$store', new Reference(PaddleOutboxRetryStoreInterface::class))
             ->addTag('console.command')
             ->setShared(true)
             ->setPublic(false);
@@ -640,5 +673,10 @@ final class PaddleExtension extends Extension
         $container->setParameter('vortos_paddle.observability.logging', $config['observability']['logging']);
         $container->setParameter('vortos_paddle.observability.tracing', $config['observability']['tracing']);
         $container->setParameter('vortos_paddle.observability.metrics', $config['observability']['metrics']);
+        $container->setParameter('vortos_paddle.outbox.batch_size',               $config['outbox']['batch_size']);
+        $container->setParameter('vortos_paddle.outbox.max_attempts',             $config['outbox']['max_attempts']);
+        $container->setParameter('vortos_paddle.outbox.backoff_base_seconds',     $config['outbox']['backoff_base_seconds']);
+        $container->setParameter('vortos_paddle.outbox.backoff_cap_seconds',      $config['outbox']['backoff_cap_seconds']);
+        $container->setParameter('vortos_paddle.outbox.sleep_seconds_when_empty', $config['outbox']['sleep_seconds_when_empty']);
     }
 }

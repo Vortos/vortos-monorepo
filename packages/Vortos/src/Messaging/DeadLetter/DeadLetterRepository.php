@@ -12,9 +12,9 @@ final class DeadLetterRepository implements DeadLetterRepositoryInterface
 {
     public function __construct(
         private Connection $connection,
-        private string $table = 'vortos_failed_messages'
+        private string $table = 'messaging_failed_messages'
     ) {
-        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $this->table)) {
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$/', $this->table)) {
             throw new \InvalidArgumentException(sprintf('Invalid table name "%s".', $this->table));
         }
     }

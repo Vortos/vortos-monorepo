@@ -9,18 +9,17 @@ use Doctrine\DBAL\ParameterType;
 use Paddle\SDK\Exceptions\ApiError;
 use Psr\Log\LoggerInterface;
 
-final class PaddleOutboxRelay
+final class PaddleOutboxRelay implements PaddleOutboxRelayInterface
 {
-    private const MAX_ATTEMPTS    = 5;
-    private const BACKOFF_BASE_S  = 60;
-    private const BACKOFF_CAP_S   = 3600;
-
     public function __construct(
-        private readonly Connection                     $connection,
+        private readonly Connection                       $connection,
         private readonly PaddleOutboxDispatcherInterface $dispatcher,
-        private readonly LoggerInterface                $logger,
-        private readonly string                         $table,
-        private readonly int                            $batchSize = 50,
+        private readonly LoggerInterface                 $logger,
+        private readonly string                          $table,
+        private readonly int                             $batchSize          = 50,
+        private readonly int                             $maxAttempts        = 5,
+        private readonly int                             $backoffBaseSeconds = 60,
+        private readonly int                             $backoffCapSeconds  = 3600,
     ) {}
 
     public function relay(): int
@@ -44,12 +43,12 @@ final class PaddleOutboxRelay
         return $this->connection->executeQuery(
             'SELECT id, operation, payload, attempts
              FROM ' . $this->table . '
-             WHERE failed_at IS NULL
+             WHERE status = :status
                AND next_attempt_at <= :now
              ORDER BY created_at ASC
              LIMIT :limit
              FOR UPDATE SKIP LOCKED',
-            ['now' => $now, 'limit' => $this->batchSize],
+            ['status' => OutboxStatus::Pending->value, 'now' => $now, 'limit' => $this->batchSize],
             ['limit' => ParameterType::INTEGER],
         )->fetchAllAssociative();
     }
@@ -84,7 +83,7 @@ final class PaddleOutboxRelay
             ]);
             return false;
         } catch (\Throwable $e) {
-            if ($attempt >= self::MAX_ATTEMPTS) {
+            if ($attempt >= $this->maxAttempts) {
                 $this->markFailed($id, $attempt, $e->getMessage());
                 $this->logger->error('paddle.outbox: max attempts reached', [
                     'id'        => $id,
@@ -94,7 +93,7 @@ final class PaddleOutboxRelay
                 return false;
             }
 
-            $backoff = min(self::BACKOFF_CAP_S, self::BACKOFF_BASE_S * (2 ** ($attempt - 1)));
+            $backoff = min($this->backoffCapSeconds, $this->backoffBaseSeconds * (2 ** ($attempt - 1)));
             $this->scheduleRetry($id, $attempt, $backoff, $e->getMessage());
             $this->logger->warning('paddle.outbox: transient failure, retrying', [
                 'id'        => $id,
@@ -111,8 +110,10 @@ final class PaddleOutboxRelay
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
 
         $this->connection->executeStatement(
-            'UPDATE ' . $this->table . ' SET last_attempted_at = :now, failed_at = NULL WHERE id = :id',
-            ['now' => $now, 'id' => $id],
+            'UPDATE ' . $this->table . '
+             SET status = :status, delivered_at = :now, last_attempted_at = :now
+             WHERE id = :id',
+            ['status' => OutboxStatus::Delivered->value, 'now' => $now, 'id' => $id],
         );
     }
 
@@ -123,9 +124,10 @@ final class PaddleOutboxRelay
 
         $this->connection->executeStatement(
             'UPDATE ' . $this->table . '
-             SET attempts = :attempts, last_attempted_at = :now, next_attempt_at = :next
+             SET attempts = :attempts, last_attempted_at = :now,
+                 next_attempt_at = :next, last_error = :error
              WHERE id = :id',
-            ['attempts' => $attempt, 'now' => $now, 'next' => $nextAttemptAt, 'id' => $id],
+            ['attempts' => $attempt, 'now' => $now, 'next' => $nextAttemptAt, 'error' => $error, 'id' => $id],
         );
     }
 
@@ -135,9 +137,10 @@ final class PaddleOutboxRelay
 
         $this->connection->executeStatement(
             'UPDATE ' . $this->table . '
-             SET attempts = :attempts, last_attempted_at = :now, failed_at = :now
+             SET status = :status, attempts = :attempts,
+                 last_attempted_at = :now, failed_at = :now, last_error = :error
              WHERE id = :id',
-            ['attempts' => $attempt, 'now' => $now, 'id' => $id],
+            ['status' => OutboxStatus::Failed->value, 'attempts' => $attempt, 'now' => $now, 'error' => $error, 'id' => $id],
         );
     }
 }

@@ -8,7 +8,7 @@ use Symfony\Component\Uid\UuidV7;
 use Vortos\Messaging\Contract\PayloadSanitizerInterface;
 
 /**
- * Writes unprocessable messages to the vortos_failed_messages table.
+ * Writes unprocessable messages to the messaging_failed_messages table.
  * Called by ConsumerRunner after all retry attempts are exhausted.
  * Always logs the failure first, then persists — log survives a DB outage.
  * Returns true on success, false if persistence failed (caller must not commit offset).
@@ -20,7 +20,7 @@ final class DeadLetterWriter
     public function __construct(
         private Connection $connection,
         private LoggerInterface $logger,
-        private string $table = 'vortos_failed_messages',
+        private string $table = 'messaging_failed_messages',
         private ?PayloadSanitizerInterface $sanitizer = null,
     ) {}
 

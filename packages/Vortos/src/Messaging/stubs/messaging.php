@@ -27,8 +27,8 @@ return static function (VortosMessagingConfig $config): void {
     // messages to the DB inside the same transaction as the domain change.
     // The outbox relay worker then publishes them to the broker.
     $config->outbox()
-        // DB table used to store pending outbox messages.
-        ->table('vortos_outbox')
+        // DB table base name (framework prefix applied automatically).
+        ->table('messaging_outbox')
 
         // Maximum publish attempts before a message is moved to the DLQ.
         ->maxAttempts(5)
@@ -42,8 +42,8 @@ return static function (VortosMessagingConfig $config): void {
 
     // Dead-letter queue — stores messages that exceeded maxAttempts.
     $config->dlq()
-        // DB table used to store failed messages.
-        ->table('vortos_failed_messages')
+        // DB table base name (framework prefix applied automatically).
+        ->table('messaging_failed_messages')
     ;
 
     // Default settings applied to all consumers unless overridden per-consumer.

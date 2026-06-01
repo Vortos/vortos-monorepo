@@ -6,6 +6,7 @@ namespace Vortos\Paddle\Outbox;
 
 use Doctrine\DBAL\Connection;
 use Symfony\Component\Uid\Uuid;
+use Vortos\Paddle\Outbox\OutboxStatus;
 use Vortos\Persistence\Transaction\ActiveTransactionGuard;
 
 final class PaddleOutboxWriter implements PaddleOutboxWriterInterface
@@ -26,10 +27,13 @@ final class PaddleOutboxWriter implements PaddleOutboxWriterInterface
             'operation'        => $operation,
             'payload'          => json_encode($payload, JSON_THROW_ON_ERROR),
             'idempotency_key'  => Uuid::v7()->toRfc4122(),
+            'status'           => OutboxStatus::Pending->value,
             'attempts'         => 0,
+            'last_error'       => null,
             'last_attempted_at' => null,
             'next_attempt_at'  => $now->format('Y-m-d H:i:s'),
             'failed_at'        => null,
+            'delivered_at'     => null,
             'created_at'       => $now->format('Y-m-d H:i:s'),
         ]);
     }

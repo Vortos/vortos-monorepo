@@ -8,7 +8,7 @@ namespace Vortos\Messaging\Contract;
  * Sanitizes event payloads before they are persisted to the dead letter store.
  *
  * Bind your own implementation to strip or mask PII fields (email, card numbers,
- * health data, etc.) before they are written to vortos_failed_messages.
+ * health data, etc.) before they are written to messaging_failed_messages.
  *
  * The default implementation (NullPayloadSanitizer) is a no-op.
  */

@@ -17,6 +17,7 @@ final class VortosPaddleConfig
     private PaddleSecurityConfig      $securityConfig;
     private PaddleWebhooksConfig      $webhooksConfig;
     private PaddleObservabilityConfig $observabilityConfig;
+    private PaddleOutboxConfig        $outboxConfig;
 
     public function __construct()
     {
@@ -30,6 +31,7 @@ final class VortosPaddleConfig
         $this->securityConfig        = new PaddleSecurityConfig();
         $this->webhooksConfig        = new PaddleWebhooksConfig();
         $this->observabilityConfig   = new PaddleObservabilityConfig();
+        $this->outboxConfig          = new PaddleOutboxConfig();
     }
 
     public function mode(string $mode): static
@@ -81,6 +83,11 @@ final class VortosPaddleConfig
         return $this->observabilityConfig;
     }
 
+    public function outbox(): PaddleOutboxConfig
+    {
+        return $this->outboxConfig;
+    }
+
     public function toArray(): array
     {
         return [
@@ -93,6 +100,7 @@ final class VortosPaddleConfig
             'security'            => $this->securityConfig->toArray(),
             'webhooks'            => $this->webhooksConfig->toArray(),
             'observability'       => $this->observabilityConfig->toArray(),
+            'outbox'              => $this->outboxConfig->toArray(),
         ];
     }
 }

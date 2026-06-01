@@ -78,6 +78,17 @@ final class Configuration implements ConfigurationInterface
                     ->end()
                 ->end()
             ->end()
+
+            ->arrayNode('outbox')
+                ->addDefaultsIfNotSet()
+                ->children()
+                    ->integerNode('batch_size')->defaultValue(50)->end()
+                    ->integerNode('max_attempts')->defaultValue(5)->end()
+                    ->integerNode('backoff_base_seconds')->defaultValue(60)->end()
+                    ->integerNode('backoff_cap_seconds')->defaultValue(3600)->end()
+                    ->integerNode('sleep_seconds_when_empty')->defaultValue(2)->end()
+                ->end()
+            ->end()
         ->end();
 
         return $tree;

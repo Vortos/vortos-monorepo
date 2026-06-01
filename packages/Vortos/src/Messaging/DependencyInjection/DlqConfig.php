@@ -6,7 +6,7 @@ namespace Vortos\Messaging\DependencyInjection;
 
 final class DlqConfig
 {
-    private string $table = 'failed_messages';
+    private string $table = 'messaging_failed_messages';
 
     public function table(string $table): static
     {

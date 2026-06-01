@@ -10,7 +10,7 @@ use Psr\Log\LoggerInterface;
 use Vortos\ObjectStore\Contract\DirectUploadManagerInterface;
 use Vortos\ObjectStore\Contract\ObjectStoreInterface;
 
-final class ObjectStoreOutboxRelay
+final class ObjectStoreOutboxRelay implements ObjectStoreOutboxRelayInterface
 {
     public function __construct(
         private readonly Connection $connection,

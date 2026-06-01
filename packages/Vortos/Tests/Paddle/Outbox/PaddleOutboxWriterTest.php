@@ -6,6 +6,7 @@ namespace Vortos\Tests\Paddle\Outbox;
 
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
+use Vortos\Paddle\Outbox\OutboxStatus;
 use Vortos\Paddle\Outbox\PaddleOutboxWriter;
 use Vortos\Persistence\Transaction\ActiveTransactionGuard;
 
@@ -37,6 +38,19 @@ final class PaddleOutboxWriterTest extends TestCase
 
         $this->expectException(\Vortos\Persistence\Transaction\TransactionRequiredException::class);
         $writer->queue('subscription.update', ['id' => 'sub_123']);
+    }
+
+    public function test_queue_sets_status_to_pending_on_insert(): void
+    {
+        $connection = $this->createMock(Connection::class);
+        $connection->method('isTransactionActive')->willReturn(true);
+        $connection->expects($this->once())->method('insert')
+                   ->with($this->isType('string'), $this->callback(static function (array $row): bool {
+                       return $row['status'] === OutboxStatus::Pending->value;
+                   }));
+
+        $writer = new PaddleOutboxWriter($connection, 'paddle_outbox');
+        $writer->queue('customer.create', ['email' => 'a@b.com']);
     }
 
     public function test_queue_serializes_payload_as_json(): void

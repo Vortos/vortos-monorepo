@@ -13,17 +13,17 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function id(): string
     {
-        return 'messaging.vortos_failed_messages';
+        return 'messaging.messaging_failed_messages';
     }
 
     public function description(): string
     {
-        return 'Vortos failed messages';
+        return 'Messaging dead-letter table — stores messages that exhausted all relay attempts';
     }
 
     public function define(Schema $schema): void
     {
-        $failed = $schema->createTable($this->t('failed_messages'));
+        $failed = $schema->createTable($this->t('messaging_failed_messages'));
         $failed->addColumn('id', 'guid', ['notnull' => true]);
         $failed->addColumn('transport_name', 'string', ['length' => 255, 'notnull' => true]);
         $failed->addColumn('event_class', 'string', ['length' => 512, 'notnull' => true]);
@@ -37,8 +37,8 @@ return new class extends AbstractModuleSchemaProvider {
         $failed->addColumn('replayed_at', 'datetime_immutable', ['notnull' => false]);
         $failed->addColumn('status', 'string', ['length' => 20, 'notnull' => true, 'default' => 'failed']);
         $failed->setPrimaryKey(['id']);
-        $failed->addIndex(['status', 'failed_at'], 'idx_vortos_failed_messages_status');
-        $failed->addIndex(['status', 'transport_name', 'event_class'], 'idx_vortos_failed_messages_status_transport_event');
-        $failed->addIndex(['transport_name', 'failed_at'], 'idx_vortos_failed_messages_transport_failed_at');
+        $failed->addIndex(['status', 'failed_at'], 'idx_messaging_failed_messages_status');
+        $failed->addIndex(['status', 'transport_name', 'event_class'], 'idx_messaging_failed_messages_status_transport_event');
+        $failed->addIndex(['transport_name', 'failed_at'], 'idx_messaging_failed_messages_transport_failed_at');
     }
 };

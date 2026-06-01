@@ -60,7 +60,7 @@ final class OutboxWriterTest extends TestCase
         $connection->expects($this->once())
             ->method('insert')
             ->with(
-                'vortos_outbox',
+                'messaging_outbox',
                 $this->callback(function (array $data): bool {
                     $this->assertArrayHasKey('id', $data);
                     $this->assertArrayHasKey('event_id', $data);

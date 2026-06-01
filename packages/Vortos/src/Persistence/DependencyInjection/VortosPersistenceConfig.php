@@ -8,29 +8,55 @@ namespace Vortos\Persistence\DependencyInjection;
  * Fluent configuration object for the Vortos persistence layer.
  *
  * Loaded via require in PersistenceExtension::load().
- * Project config can override persistence in config/persistence.php:
+ * Project config lives in config/persistence.php:
  *
  *   return static function(VortosPersistenceConfig $config): void {
- *       $config
- *           ->writeDsn('pgsql://postgres:secret@write_db:5432/app')
- *           ->readDsn('mongodb://root:secret@read_db:27017')
- *           ->readDatabase('app');
+ *       $config->frameworkTableMode('schema'); // required — see below
  *   };
  *
- * By default, framework setup writes VORTOS_WRITE_DB_DSN,
- * VORTOS_READ_DB_DSN, and VORTOS_READ_DB_NAME to .env.
+ * frameworkTableMode() is required and must be set explicitly. The mode
+ * determines how framework-owned tables are named in the database:
+ *
+ *   'schema' — PostgreSQL schema: tables live in the 'vortos' schema
+ *              (vortos.messaging_outbox, vortos.paddle_outbox, etc.)
+ *   'prefix' — Underscore prefix: tables live in the default schema
+ *              (vortos_messaging_outbox, vortos_paddle_outbox, etc.)
+ *
+ * This is a structural architecture decision — it must be explicit in config
+ * so that any process (web workers, queue workers, CI, migration runners)
+ * compiles the container with the same table names regardless of what
+ * environment variables happen to be loaded.
  */
 final class VortosPersistenceConfig
 {
-    private string $writeDsn;
-    private string $readDsn;
-    private string $readDatabase;
+    private string  $writeDsn;
+    private string  $readDsn;
+    private string  $readDatabase;
+    private ?string $frameworkTableMode = null;
 
     public function __construct()
     {
-        $this->writeDsn = $_ENV['VORTOS_WRITE_DB_DSN'] ?? '';
-        $this->readDsn = $_ENV['VORTOS_READ_DB_DSN'] ?? '';
+        $this->writeDsn     = $_ENV['VORTOS_WRITE_DB_DSN'] ?? '';
+        $this->readDsn      = $_ENV['VORTOS_READ_DB_DSN'] ?? '';
         $this->readDatabase = $_ENV['VORTOS_READ_DB_NAME'] ?? '';
+    }
+
+    /**
+     * Set the framework table mode. Required.
+     *
+     * 'schema' — PostgreSQL: tables live in the vortos schema (vortos.table_name).
+     * 'prefix' — All other databases: tables use vortos_ prefix (vortos_table_name).
+     */
+    public function frameworkTableMode(string $mode): static
+    {
+        if (!in_array($mode, ['schema', 'prefix'], true)) {
+            throw new \InvalidArgumentException(
+                sprintf('Framework table mode must be "schema" or "prefix", got "%s".', $mode)
+            );
+        }
+
+        $this->frameworkTableMode = $mode;
+        return $this;
     }
 
     /**
@@ -60,14 +86,11 @@ final class VortosPersistenceConfig
         return $this;
     }
 
-    /**
-     * Serialize config to array for Symfony Config component validation.
-     *
-     * @internal Used by PersistenceExtension — not for direct use
-     */
+    /** @internal Used by PersistenceExtension — not for direct use */
     public function toArray(): array
     {
         return [
+            'framework_table_mode' => $this->frameworkTableMode,
             'write' => [
                 'dsn' => $this->writeDsn,
             ],

@@ -288,6 +288,7 @@ final class N1DetectionTest extends TestCase
         $container = new ContainerBuilder();
         $container->setParameter('kernel.env', $env);
         $container->setParameter('vortos.persistence.write_dsn', 'sqlite:///:memory:');
+        $container->setParameter('vortos.persistence.framework_table_mode', 'prefix');
 
         $container->register(LoggerInterface::class, NullLogger::class)->setPublic(true);
         $container->register(TracingInterface::class, NoOpTracer::class)->setPublic(true);

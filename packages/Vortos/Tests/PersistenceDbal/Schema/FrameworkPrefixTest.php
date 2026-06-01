@@ -68,4 +68,21 @@ final class FrameworkPrefixTest extends TestCase
         $this->assertSame('vortos.outbox', FrameworkPrefix::apply('vortos.', 'outbox'));
         $this->assertSame('vortos_outbox', FrameworkPrefix::apply('vortos_', 'outbox'));
     }
+
+    public function test_from_mode_schema_returns_dot_prefix(): void
+    {
+        $this->assertSame('vortos.', FrameworkPrefix::fromMode('schema'));
+    }
+
+    public function test_from_mode_prefix_returns_underscore_prefix(): void
+    {
+        $this->assertSame('vortos_', FrameworkPrefix::fromMode('prefix'));
+    }
+
+    public function test_from_mode_rejects_unknown_mode(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('"auto"');
+        FrameworkPrefix::fromMode('auto');
+    }
 }

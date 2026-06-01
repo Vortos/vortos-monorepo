@@ -24,6 +24,10 @@ final class Configuration implements ConfigurationInterface
 
         $treeBuilder->getRootNode()
             ->children()
+                ->scalarNode('framework_table_mode')
+                    ->defaultNull()
+                    ->info("Required. 'schema' = PostgreSQL vortos schema (vortos.table), 'prefix' = underscore prefix (vortos_table).")
+                ->end()
                 ->arrayNode('write')
                     ->children()
                         ->scalarNode('dsn')

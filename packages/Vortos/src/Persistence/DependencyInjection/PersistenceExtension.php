@@ -57,6 +57,7 @@ final class PersistenceExtension extends Extension
 
         $resolved = $this->processConfiguration(new Configuration(), [$config->toArray()]);
 
+        $container->setParameter('vortos.persistence.framework_table_mode', $resolved['framework_table_mode']);
         $container->setParameter('vortos.persistence.write_dsn', $resolved['write']['dsn']);
         $container->setParameter('vortos.persistence.read_dsn', $resolved['read']['dsn']);
         $container->setParameter('vortos.persistence.read_database', $resolved['read']['database']);

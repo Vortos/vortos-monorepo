@@ -52,6 +52,33 @@ final class VortosPersistenceConfigTest extends TestCase
         $this->assertSame('demo_read', $config['read']['database']);
     }
 
+    public function test_framework_table_mode_schema_is_included_in_array(): void
+    {
+        $config = (new VortosPersistenceConfig())->frameworkTableMode('schema')->toArray();
+
+        $this->assertSame('schema', $config['framework_table_mode']);
+    }
+
+    public function test_framework_table_mode_prefix_is_included_in_array(): void
+    {
+        $config = (new VortosPersistenceConfig())->frameworkTableMode('prefix')->toArray();
+
+        $this->assertSame('prefix', $config['framework_table_mode']);
+    }
+
+    public function test_framework_table_mode_defaults_to_null_when_not_set(): void
+    {
+        $config = (new VortosPersistenceConfig())->toArray();
+
+        $this->assertNull($config['framework_table_mode']);
+    }
+
+    public function test_framework_table_mode_rejects_invalid_value(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new VortosPersistenceConfig())->frameworkTableMode('auto');
+    }
+
     public function test_does_not_read_vendor_specific_env_as_app_config(): void
     {
         $_ENV['DATABASE_URL'] = 'pgsql://postgres:legacy@write_db:5432/legacy';

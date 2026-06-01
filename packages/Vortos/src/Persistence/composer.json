@@ -16,7 +16,7 @@
     "extra": {
         "vortos": {
             "package": "Vortos\\Persistence\\DependencyInjection\\PersistencePackage",
-            "order": 60
+            "order": 13
         }
     }
 }

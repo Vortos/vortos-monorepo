@@ -207,9 +207,16 @@ final class ObjectStoreExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
+        if (!$container->has(\Psr\Clock\ClockInterface::class)) {
+            $container->register(\Psr\Clock\ClockInterface::class, \Symfony\Component\Clock\NativeClock::class)
+                ->setShared(true)
+                ->setPublic(false);
+        }
+
         $container->register(PresignedUrlPolicyMiddleware::class, PresignedUrlPolicyMiddleware::class)
             ->setArgument('$maxPresignTtlSeconds', $config['bucket']['max_presign_ttl_seconds'])
             ->setArgument('$maxUploadSizeBytes', $config['bucket']['max_upload_size_bytes'])
+            ->setArgument('$clock', new Reference(\Psr\Clock\ClockInterface::class))
             ->addTag('vortos_object_store.middleware', ['priority' => 875])
             ->setShared(true)
             ->setPublic(false);

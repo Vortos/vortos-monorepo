@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\ObjectStore\Middleware;
 
+use Psr\Clock\ClockInterface;
 use Vortos\ObjectStore\Attribute\AsObjectStoreMiddleware;
 use Vortos\ObjectStore\Contract\ObjectStoreMiddlewareInterface;
 use Vortos\ObjectStore\Contract\ObjectStoreOperation;
@@ -14,12 +15,10 @@ use Vortos\ObjectStore\ValueObject\TemporaryUploadUrlOptions;
 #[AsObjectStoreMiddleware(priority: 875)]
 final class PresignedUrlPolicyMiddleware implements ObjectStoreMiddlewareInterface
 {
-    private readonly \DateTimeImmutable $now;
-
     public function __construct(
         private readonly int $maxPresignTtlSeconds,
         private readonly int $maxUploadSizeBytes,
-        ?\DateTimeImmutable $now = null,
+        private readonly ClockInterface $clock,
     ) {
         if ($maxPresignTtlSeconds <= 0) {
             throw new \InvalidArgumentException('Maximum presign TTL must be greater than zero.');
@@ -28,8 +27,6 @@ final class PresignedUrlPolicyMiddleware implements ObjectStoreMiddlewareInterfa
         if ($maxUploadSizeBytes <= 0) {
             throw new \InvalidArgumentException('Maximum upload size must be greater than zero.');
         }
-
-        $this->now = $now ?? new \DateTimeImmutable();
     }
 
     public function process(ObjectStoreOperation $operation, callable $next): mixed
@@ -63,7 +60,7 @@ final class PresignedUrlPolicyMiddleware implements ObjectStoreMiddlewareInterfa
             return;
         }
 
-        $ttlSeconds = $expiresAt->getTimestamp() - $this->now->getTimestamp();
+        $ttlSeconds = $expiresAt->getTimestamp() - $this->clock->now()->getTimestamp();
         if ($ttlSeconds > $this->maxPresignTtlSeconds) {
             throw PresignedUrlPolicyException::ttlTooLong($ttlSeconds, $this->maxPresignTtlSeconds);
         }

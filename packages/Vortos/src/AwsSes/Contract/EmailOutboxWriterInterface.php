@@ -16,10 +16,13 @@ use Vortos\AwsSes\ValueObject\Email;
  *
  * When domain_event_id is supplied the outbox table enforces a UNIQUE constraint
  * on it, preventing duplicate emails even when a Kafka event is delivered twice.
+ * Idempotent calls return the existing row's UUID rather than throwing.
+ *
+ * @return string The outbox row UUID (stable reference for later lookup via EmailOutboxStoreInterface)
  *
  * @throws OutboxWriteException
  */
 interface EmailOutboxWriterInterface
 {
-    public function queue(Email $email, ?string $domainEventId = null): void;
+    public function queue(Email $email, ?string $domainEventId = null): string;
 }

@@ -40,4 +40,15 @@ final class SentEmail
     {
         return $this->region;
     }
+
+    /**
+     * Returns true when the email was written to the transactional outbox rather than
+     * sent immediately. In this case messageId() is the outbox row UUID, not an AWS
+     * MessageId — use EmailOutboxStoreInterface::findById() to retrieve the real AWS
+     * MessageId after the relay worker has processed the row.
+     */
+    public function isQueued(): bool
+    {
+        return $this->driver === 'outbox';
+    }
 }

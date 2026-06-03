@@ -39,8 +39,10 @@ use Vortos\AwsSes\Command\EmailOutboxRelayCommand;
 use Vortos\AwsSes\Command\SuppressionSyncCommand;
 use Vortos\AwsSes\Contract\BounceHandlerInterface;
 use Vortos\AwsSes\Contract\ComplaintHandlerInterface;
+use Vortos\AwsSes\Contract\EmailOutboxStoreInterface;
 use Vortos\AwsSes\Contract\EmailOutboxWriterInterface;
 use Vortos\AwsSes\Contract\StandaloneMailerInterface;
+use Vortos\AwsSes\Outbox\EmailOutboxStore;
 use Vortos\AwsSes\Contract\SuppressionListInterface;
 use Vortos\AwsSes\Contract\TemplateRendererInterface;
 use Vortos\AwsSes\Template\NullTemplateRenderer;
@@ -341,6 +343,14 @@ final class AwsSesExtension extends Extension
             ->setPublic(false);
 
         $container->setAlias(EmailOutboxWriterInterface::class, EmailOutboxWriter::class)->setPublic(false);
+
+        $container->register(EmailOutboxStore::class, EmailOutboxStore::class)
+            ->setArgument('$connection', new Reference(\Doctrine\DBAL\Connection::class))
+            ->setArgument('$tableName', $c['outbox']['table_name'])
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(EmailOutboxStoreInterface::class, EmailOutboxStore::class)->setPublic(false);
 
         $container->register(TransactionalOutboxMailer::class, TransactionalOutboxMailer::class)
             ->setArgument('$writer', new Reference(EmailOutboxWriterInterface::class))

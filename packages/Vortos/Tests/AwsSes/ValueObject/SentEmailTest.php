@@ -52,4 +52,22 @@ final class SentEmailTest extends TestCase
         $sent = new SentEmail('id', new DateTimeImmutable(), 1, 'ses', 'eu-west-1');
         $this->assertSame('eu-west-1', $sent->region());
     }
+
+    public function test_is_queued_true_when_driver_is_outbox(): void
+    {
+        $sent = new SentEmail('outbox-uuid', new DateTimeImmutable(), 1, 'outbox');
+        $this->assertTrue($sent->isQueued());
+    }
+
+    public function test_is_queued_false_when_driver_is_ses(): void
+    {
+        $sent = new SentEmail('ses-msg-id', new DateTimeImmutable(), 1, 'ses');
+        $this->assertFalse($sent->isQueued());
+    }
+
+    public function test_is_queued_false_when_driver_is_log(): void
+    {
+        $sent = new SentEmail('id', new DateTimeImmutable(), 1, 'log');
+        $this->assertFalse($sent->isQueued());
+    }
 }

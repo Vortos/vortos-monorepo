@@ -34,7 +34,44 @@ final class EmailOutboxWriterTest extends TestCase
             ->method('insert')
             ->with(self::TABLE, $this->arrayHasKey('id'));
 
-        $this->makeWriter($conn)->queue($this->makeEmail());
+        $this->assertNotEmpty($this->makeWriter($conn)->queue($this->makeEmail()));
+    }
+
+    public function test_returns_the_generated_uuid(): void
+    {
+        $capturedId = null;
+
+        $conn = $this->createMock(Connection::class);
+        $conn->method('insert')->willReturnCallback(function ($table, $data) use (&$capturedId) {
+            $capturedId = $data['id'];
+            return 1;
+        });
+
+        $returnedId = $this->makeWriter($conn)->queue($this->makeEmail());
+
+        $this->assertSame($capturedId, $returnedId);
+        $this->assertMatchesRegularExpression(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+            $returnedId,
+        );
+    }
+
+    public function test_idempotent_write_returns_existing_row_id(): void
+    {
+        $existingId = 'a0000000-0000-7000-8000-000000000001';
+
+        $conn = $this->createMock(Connection::class);
+        $conn->method('isTransactionActive')->willReturn(true);
+        $conn->method('insert')->willThrowException(
+            $this->createMock(UniqueConstraintViolationException::class),
+        );
+        $conn->expects($this->once())
+            ->method('fetchOne')
+            ->willReturn($existingId);
+
+        $returnedId = (new EmailOutboxWriter($conn, self::TABLE))->queue($this->makeEmail(), 'evt-uuid-dup');
+
+        $this->assertSame($existingId, $returnedId);
     }
 
     public function test_sets_status_pending(): void

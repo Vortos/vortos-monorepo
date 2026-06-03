@@ -33,14 +33,16 @@ final class EmailOutboxWriter implements EmailOutboxWriterInterface
         private ?ActiveTransactionGuard $transactionGuard = null,
     ) {}
 
-    public function queue(Email $email, ?string $domainEventId = null): void
+    public function queue(Email $email, ?string $domainEventId = null): string
     {
+        $id  = Uuid::v7()->toRfc4122();
         $now = new DateTimeImmutable();
+
         $this->guard()->assertActive('SES transactional outbox write', StandaloneMailerInterface::class, ImmediateMailerInterface::class);
 
         try {
             $this->connection->insert($this->tableName, [
-                'id'              => Uuid::v7()->toRfc4122(),
+                'id'              => $id,
                 'domain_event_id' => $domainEventId,
                 'status'          => OutboxStatus::Pending->value,
                 'attempt_count'   => 0,
@@ -51,8 +53,15 @@ final class EmailOutboxWriter implements EmailOutboxWriterInterface
                 'created_at'      => $now->format('Y-m-d H:i:s.u'),
                 'sent_at'         => null,
             ]);
+
+            return $id;
         } catch (UniqueConstraintViolationException) {
-            // Idempotent: row already exists for this domain_event_id — nothing to do
+            // Idempotent: a row for this domain_event_id already exists.
+            // Return the existing row's UUID so the caller always has a stable reference.
+            return (string) $this->connection->fetchOne(
+                "SELECT id FROM {$this->tableName} WHERE domain_event_id = ?",
+                [$domainEventId],
+            );
         } catch (\Throwable $e) {
             throw new OutboxWriteException(
                 sprintf('Failed to queue email to outbox: %s', $e->getMessage()),

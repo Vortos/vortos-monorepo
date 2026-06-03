@@ -15,9 +15,11 @@ use Vortos\AwsSes\ValueObject\SentEmail;
  * sending over the network. The EmailOutboxRelay background worker handles
  * actual delivery via the real sending stack.
  *
- * Returns a placeholder SentEmail — the real AWS MessageId is not available
- * until the relay sends the email. Callers that need the real MessageId must
- * disable the outbox and inject the sending mailer directly.
+ * Returns a SentEmail where messageId() is the outbox row UUID — a stable reference
+ * that can be stored and later used with EmailOutboxStoreInterface::findById() to
+ * retrieve the real AWS MessageId once the relay has delivered the email.
+ *
+ * SentEmail::isQueued() returns true to signal that delivery is deferred.
  */
 final class TransactionalOutboxMailer implements MailerInterface
 {
@@ -27,10 +29,10 @@ final class TransactionalOutboxMailer implements MailerInterface
 
     public function send(Email $email): SentEmail
     {
-        $this->writer->queue($email);
+        $outboxId = $this->writer->queue($email);
 
         return new SentEmail(
-            messageId:      'outbox-' . uniqid('', more_entropy: true),
+            messageId:      $outboxId,
             sentAt:         new DateTimeImmutable(),
             recipientCount: count($email->getAllRecipients()),
             driver:         'outbox',

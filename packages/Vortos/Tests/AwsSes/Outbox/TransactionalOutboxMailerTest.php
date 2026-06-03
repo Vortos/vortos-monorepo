@@ -11,17 +11,18 @@ use Vortos\AwsSes\ValueObject\Email;
 
 final class TransactionalOutboxMailerTest extends TestCase
 {
-    private function makeWriter(?callable $onQueue = null): EmailOutboxWriterInterface
+    private function makeWriter(?callable $onQueue = null, string $returnId = 'a0000000-0000-7000-8000-000000000001'): EmailOutboxWriterInterface
     {
-        return new class($onQueue) implements EmailOutboxWriterInterface {
+        return new class($onQueue, $returnId) implements EmailOutboxWriterInterface {
             public ?Email $received = null;
-            public function __construct(private readonly mixed $onQueue) {}
-            public function queue(Email $email, ?string $domainEventId = null): void
+            public function __construct(private readonly mixed $onQueue, private readonly string $returnId) {}
+            public function queue(Email $email, ?string $domainEventId = null): string
             {
                 $this->received = $email;
                 if ($this->onQueue) {
                     ($this->onQueue)($email);
                 }
+                return $this->returnId;
             }
         };
     }
@@ -54,13 +55,13 @@ final class TransactionalOutboxMailerTest extends TestCase
         $this->assertSame('outbox', $result->driver());
     }
 
-    public function test_send_returns_non_empty_placeholder_message_id(): void
+    public function test_send_returns_outbox_row_id_as_message_id(): void
     {
-        $mailer = new TransactionalOutboxMailer($this->makeWriter());
-        $result = $mailer->send($this->makeEmail());
+        $outboxId = 'a0000000-0000-7000-8000-000000000099';
+        $mailer   = new TransactionalOutboxMailer($this->makeWriter(returnId: $outboxId));
+        $result   = $mailer->send($this->makeEmail());
 
-        $this->assertNotEmpty($result->messageId());
-        $this->assertStringStartsWith('outbox-', $result->messageId());
+        $this->assertSame($outboxId, $result->messageId());
     }
 
     public function test_send_returns_null_region(): void
@@ -91,19 +92,35 @@ final class TransactionalOutboxMailerTest extends TestCase
 
     public function test_each_send_produces_unique_message_id(): void
     {
-        $mailer  = new TransactionalOutboxMailer($this->makeWriter());
-        $email   = $this->makeEmail();
+        $ids    = ['id-1', 'id-2'];
+        $cursor = 0;
 
-        $id1 = $mailer->send($email)->messageId();
-        $id2 = $mailer->send($email)->messageId();
+        $writer = new class($ids, $cursor) implements EmailOutboxWriterInterface {
+            public function __construct(private readonly array $ids, private int &$cursor) {}
+            public function queue(Email $email, ?string $domainEventId = null): string
+            {
+                return $this->ids[$this->cursor++];
+            }
+        };
 
-        $this->assertNotSame($id1, $id2);
+        $mailer = new TransactionalOutboxMailer($writer);
+        $email  = $this->makeEmail();
+
+        $this->assertNotSame($mailer->send($email)->messageId(), $mailer->send($email)->messageId());
+    }
+
+    public function test_send_returns_queued_sent_email(): void
+    {
+        $mailer = new TransactionalOutboxMailer($this->makeWriter());
+        $result = $mailer->send($this->makeEmail());
+
+        $this->assertTrue($result->isQueued());
     }
 
     public function test_send_propagates_writer_exception(): void
     {
         $writer = new class implements EmailOutboxWriterInterface {
-            public function queue(Email $email, ?string $domainEventId = null): void
+            public function queue(Email $email, ?string $domainEventId = null): string
             {
                 throw new \RuntimeException('DB connection lost');
             }

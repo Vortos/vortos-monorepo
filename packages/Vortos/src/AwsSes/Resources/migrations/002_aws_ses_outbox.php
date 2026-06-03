@@ -48,5 +48,10 @@ return new class extends AbstractModuleSchemaProvider {
 
         // Dashboard / monitoring: all rows for a given status
         $table->addIndex(['status', 'created_at'], 'idx_aws_ses_outbox_status_created');
+
+        // Reverse lookup from SNS webhooks: bounce/complaint notifications carry the AWS MessageId
+        $table->addIndex(['message_id'], 'idx_aws_ses_outbox_message_id', [], [
+            'where' => 'message_id IS NOT NULL',
+        ]);
     }
 };

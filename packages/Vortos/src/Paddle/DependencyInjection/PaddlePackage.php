@@ -9,7 +9,6 @@ use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\Paddle\DependencyInjection\Compiler\WebhookHandlerDiscoveryPass;
-use Vortos\Paddle\DependencyInjection\Compiler\WebhookRouteCompilerPass;
 
 final class PaddlePackage implements PackageInterface
 {
@@ -21,6 +20,5 @@ final class PaddlePackage implements PackageInterface
     public function build(ContainerBuilder $container): void
     {
         $container->addCompilerPass(new WebhookHandlerDiscoveryPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 80);
-        $container->addCompilerPass(new WebhookRouteCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 70);
     }
 }

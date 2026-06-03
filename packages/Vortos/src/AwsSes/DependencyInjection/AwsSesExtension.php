@@ -591,6 +591,7 @@ final class AwsSesExtension extends Extension
                 new Reference(LoggerInterface::class),
                 $c['webhooks']['max_body_bytes'],
             ])
+            ->addTag('vortos.api.controller')
             ->setShared(true)
             ->setPublic(true);
     }

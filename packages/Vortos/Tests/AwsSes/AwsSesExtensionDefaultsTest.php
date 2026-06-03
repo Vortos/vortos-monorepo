@@ -7,6 +7,7 @@ namespace Vortos\Tests\AwsSes;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Vortos\AwsSes\DependencyInjection\AwsSesExtension;
+use Vortos\AwsSes\Webhook\SnsWebhookController;
 
 final class AwsSesExtensionDefaultsTest extends TestCase
 {
@@ -184,5 +185,13 @@ final class AwsSesExtensionDefaultsTest extends TestCase
     public function test_alias_is_vortos_aws_ses(): void
     {
         $this->assertSame('vortos_aws_ses', (new AwsSesExtension())->getAlias());
+    }
+
+    public function test_sns_webhook_controller_is_tagged_and_public(): void
+    {
+        $definition = $this->container->getDefinition(SnsWebhookController::class);
+
+        $this->assertTrue($definition->isPublic(), 'SnsWebhookController must be public so the kernel can resolve it at request time');
+        $this->assertNotEmpty($definition->getTag('vortos.api.controller'), 'SnsWebhookController must carry vortos.api.controller so RouteCompilerPass registers its route');
     }
 }

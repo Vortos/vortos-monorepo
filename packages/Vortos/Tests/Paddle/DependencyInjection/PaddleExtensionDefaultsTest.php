@@ -86,6 +86,14 @@ final class PaddleExtensionDefaultsTest extends TestCase
         $this->assertTrue($this->container->hasDefinition(PaddleWebhookController::class));
     }
 
+    public function test_webhook_controller_is_tagged_and_public(): void
+    {
+        $definition = $this->container->getDefinition(PaddleWebhookController::class);
+
+        $this->assertTrue($definition->isPublic(), 'PaddleWebhookController must be public so the kernel can resolve it at request time');
+        $this->assertNotEmpty($definition->getTag('vortos.api.controller'), 'PaddleWebhookController must carry vortos.api.controller so RouteCompilerPass registers its route');
+    }
+
     public function test_verifier_interface_aliases_to_webhook_verifier(): void
     {
         $this->assertSame(WebhookVerifier::class, (string) $this->container->getAlias(WebhookVerifierInterface::class));

@@ -251,8 +251,9 @@ final class PaddleExtension extends Extension
                 '$logger'           => new Reference(LoggerInterface::class),
                 '$webhookPath'      => $config['webhook_path'],
             ])
+            ->addTag('vortos.api.controller')
             ->setShared(true)
-            ->setPublic(false);
+            ->setPublic(true);
 
         $container->register(PaddleWebhookIdempotencyPruneCommand::class, PaddleWebhookIdempotencyPruneCommand::class)
             ->setArguments([

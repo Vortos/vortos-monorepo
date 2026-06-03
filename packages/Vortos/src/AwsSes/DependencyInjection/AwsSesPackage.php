@@ -11,17 +11,15 @@ use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\AwsSes\DependencyInjection\Compiler\BounceHandlerDiscoveryPass;
 use Vortos\AwsSes\DependencyInjection\Compiler\ComplaintHandlerDiscoveryPass;
 use Vortos\AwsSes\DependencyInjection\Compiler\MiddlewareCompilerPass;
-use Vortos\AwsSes\DependencyInjection\Compiler\WebhookRouteCompilerPass;
 
 /**
  * SES package.
  *
  * Registers compiler passes in priority order:
  *
- *   80 — MiddlewareCompilerPass      discovers #[AsEmailMiddleware], builds ordered stack
- *   70 — BounceHandlerDiscoveryPass  discovers #[AsBounceHandler]
+ *   80 — MiddlewareCompilerPass        discovers #[AsEmailMiddleware], builds ordered stack
+ *   70 — BounceHandlerDiscoveryPass    discovers #[AsBounceHandler]
  *   70 — ComplaintHandlerDiscoveryPass discovers #[AsComplaintHandler]
- *   60 — WebhookRouteCompilerPass    tags SnsWebhookController when webhooks.enabled=true
  *
  * ## Load order in Container.php
  *
@@ -52,6 +50,5 @@ final class AwsSesPackage implements PackageInterface
         $container->addCompilerPass(new MiddlewareCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 80);
         $container->addCompilerPass(new BounceHandlerDiscoveryPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 70);
         $container->addCompilerPass(new ComplaintHandlerDiscoveryPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 70);
-        $container->addCompilerPass(new WebhookRouteCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 60);
     }
 }

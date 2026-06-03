@@ -62,15 +62,13 @@ final class DbalSuppressionListTest extends TestCase
         $list->isSuppressed(new EmailAddress('USER@EXAMPLE.COM'));
     }
 
-    public function test_suppress_executes_upsert(): void
+    public function test_suppress_inserts_row(): void
     {
         $conn = $this->createMock(Connection::class);
         $conn->expects($this->once())
-            ->method('executeStatement')
-            ->with(
-                $this->stringContains('INSERT INTO ' . self::TABLE),
-                $this->arrayHasKey('email'),
-            );
+            ->method('insert')
+            ->with(self::TABLE, $this->arrayHasKey('email_address'))
+            ->willReturn(1);
 
         $list = $this->makeList($conn);
         $list->suppress(new EmailAddress('bounce@example.com'), SuppressionReason::Bounce);
@@ -78,37 +76,53 @@ final class DbalSuppressionListTest extends TestCase
 
     public function test_suppress_stores_reason_value(): void
     {
-        $capturedParams = null;
+        $capturedData = null;
 
         $conn = $this->createMock(Connection::class);
         $conn->expects($this->once())
-            ->method('executeStatement')
-            ->willReturnCallback(function ($sql, $params) use (&$capturedParams) {
-                $capturedParams = $params;
+            ->method('insert')
+            ->willReturnCallback(function ($table, $data) use (&$capturedData) {
+                $capturedData = $data;
                 return 1;
             });
 
         $list = $this->makeList($conn);
         $list->suppress(new EmailAddress('bounce@example.com'), SuppressionReason::Bounce);
 
-        $this->assertSame('bounce', $capturedParams['reason']);
+        $this->assertSame('bounce', $capturedData['reason']);
     }
 
     public function test_suppress_lowercases_email(): void
     {
-        $capturedParams = null;
+        $capturedData = null;
 
         $conn = $this->createMock(Connection::class);
-        $conn->method('executeStatement')
-            ->willReturnCallback(function ($sql, $params) use (&$capturedParams) {
-                $capturedParams = $params;
+        $conn->method('insert')
+            ->willReturnCallback(function ($table, $data) use (&$capturedData) {
+                $capturedData = $data;
                 return 1;
             });
 
         $list = $this->makeList($conn);
         $list->suppress(new EmailAddress('Bounce@Example.COM'), SuppressionReason::Bounce);
 
-        $this->assertSame('bounce@example.com', $capturedParams['email']);
+        $this->assertSame('bounce@example.com', $capturedData['email_address']);
+    }
+
+    public function test_suppress_updates_on_duplicate_address(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->method('insert')
+            ->willThrowException($this->createMock(\Doctrine\DBAL\Exception\UniqueConstraintViolationException::class));
+        $conn->expects($this->once())
+            ->method('executeStatement')
+            ->with(
+                $this->stringContains('UPDATE'),
+                $this->arrayHasKey('email'),
+            );
+
+        $list = $this->makeList($conn);
+        $list->suppress(new EmailAddress('dup@example.com'), SuppressionReason::Complaint);
     }
 
     public function test_unsuppress_executes_delete(): void

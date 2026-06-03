@@ -9,6 +9,7 @@ use Vortos\AwsSes\Attribute\AsEmailMiddleware;
 use Vortos\AwsSes\Config\AwsSesObservabilitySection;
 use Vortos\AwsSes\Contract\EmailMiddlewareInterface;
 use Vortos\AwsSes\ValueObject\Email;
+use Vortos\AwsSes\ValueObject\EmailAddress;
 use Vortos\AwsSes\ValueObject\SentEmail;
 
 /**
@@ -38,7 +39,7 @@ final class LoggingMiddleware implements EmailMiddlewareInterface
             $result = $next($email);
 
             $this->logger->info('ses.mailer: email sent', [
-                'to'         => $email->getTo(),
+                'to'         => array_map(fn(EmailAddress $a) => $a->address(), $email->getTo()),
                 'subject'    => $email->getSubject(),
                 'driver'     => $result->driver(),
                 'message_id' => $result->messageId(),
@@ -48,7 +49,7 @@ final class LoggingMiddleware implements EmailMiddlewareInterface
             return $result;
         } catch (\Throwable $e) {
             $this->logger->error('ses.mailer: email send failed', [
-                'to'         => $email->getTo(),
+                'to'         => array_map(fn(EmailAddress $a) => $a->address(), $email->getTo()),
                 'subject'    => $email->getSubject(),
                 'error'      => $e->getMessage(),
                 'latency_ms' => $this->ms($start),

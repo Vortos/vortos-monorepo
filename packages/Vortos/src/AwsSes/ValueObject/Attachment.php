@@ -43,7 +43,7 @@ final class Attachment
 
         $content  = file_get_contents($filePath);
         $filename = $filename ?? basename($filePath);
-        $mimeType = $mimeType ?? (mime_content_type($filePath) ?: 'application/octet-stream');
+        $mimeType = $mimeType ?? ((new \finfo(FILEINFO_MIME_TYPE))->file($filePath) ?: 'application/octet-stream');
 
         return self::fromContent($filename, $mimeType, $content, $inline, $contentId);
     }

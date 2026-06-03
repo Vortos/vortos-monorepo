@@ -141,8 +141,7 @@ final class DeduplicationMiddlewareTest extends TestCase
 
         $mw->process($this->makeEmail(idempotencyKey: 'k'), fn($e) => $sent);
 
-        $this->assertTrue($store->isDuplicate('k'));
-        $this->assertSame('stored', $store->getSent('k')?->messageId());
+        $this->assertSame('stored', $store->findSent('k')?->messageId());
     }
 
     public function test_exception_not_stored_as_duplicate(): void
@@ -155,7 +154,7 @@ final class DeduplicationMiddlewareTest extends TestCase
             $mw->process($email, fn($e) => throw new \RuntimeException('fail'));
         } catch (\RuntimeException) {}
 
-        $this->assertFalse($store->isDuplicate('k'));
+        $this->assertNull($store->findSent('k'));
     }
 
     public function test_emails_without_key_are_never_cached(): void
@@ -166,6 +165,6 @@ final class DeduplicationMiddlewareTest extends TestCase
 
         $mw->process($email, fn($e) => $this->makeSentEmail());
 
-        $this->assertFalse($store->isDuplicate(''));
+        $this->assertNull($store->findSent(''));
     }
 }

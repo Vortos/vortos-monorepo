@@ -22,55 +22,53 @@ final class RedisDeduplicationStoreTest extends TestCase
         return $this->createMock(AtomicCacheInterface::class);
     }
 
-    public function test_is_duplicate_returns_false_when_flag_absent(): void
+    public function test_find_sent_returns_null_when_key_absent(): void
     {
         $cache = $this->makeCache();
-        $cache->method('has')->with('ses_dedup:abc:flag')->willReturn(false);
+        $cache->method('get')->with('ses_dedup:abc')->willReturn(null);
 
         $store = new RedisDeduplicationStore($cache);
 
-        $this->assertFalse($store->isDuplicate('abc'));
+        $this->assertNull($store->findSent('abc'));
     }
 
-    public function test_is_duplicate_returns_true_when_flag_present(): void
+    public function test_find_sent_returns_stored_email(): void
     {
+        $sent  = $this->makeSentEmail('stored');
         $cache = $this->makeCache();
-        $cache->method('has')->with('ses_dedup:abc:flag')->willReturn(true);
+        $cache->method('get')->with('ses_dedup:k1')->willReturn($sent);
 
         $store = new RedisDeduplicationStore($cache);
 
-        $this->assertTrue($store->isDuplicate('abc'));
+        $this->assertSame($sent, $store->findSent('k1'));
     }
 
-    public function test_mark_sent_calls_set_nx_on_flag_key(): void
+    public function test_find_sent_returns_null_when_value_is_wrong_type(): void
     {
         $cache = $this->makeCache();
-        $cache->expects($this->once())
-            ->method('setNx')
-            ->with('ses_dedup:k1:flag', true, 3600)
-            ->willReturn(true);
-        $cache->method('set');
+        $cache->method('get')->willReturn('unexpected-string');
 
         $store = new RedisDeduplicationStore($cache);
-        $store->markSent('k1', $this->makeSentEmail(), 3600);
+
+        $this->assertNull($store->findSent('k'));
     }
 
-    public function test_mark_sent_stores_result_when_set_nx_succeeds(): void
+    public function test_mark_sent_calls_set_nx_with_single_key(): void
     {
         $sent  = $this->makeSentEmail('id-42');
         $cache = $this->makeCache();
-        $cache->method('setNx')->willReturn(true);
         $cache->expects($this->once())
-            ->method('set')
-            ->with('ses_dedup:k1:result', $sent, 3600);
+            ->method('setNx')
+            ->with('ses_dedup:k1', $sent, 3600)
+            ->willReturn(true);
 
         $store = new RedisDeduplicationStore($cache);
         $store->markSent('k1', $sent, 3600);
     }
 
-    public function test_mark_sent_skips_result_write_when_set_nx_fails(): void
+    public function test_mark_sent_first_writer_wins_via_set_nx(): void
     {
-        // setNx returns false → another worker already wrote; result must not be overwritten
+        // setNx returns false → another worker already wrote; verify we still call setNx (not set)
         $cache = $this->makeCache();
         $cache->method('setNx')->willReturn(false);
         $cache->expects($this->never())->method('set');
@@ -79,46 +77,15 @@ final class RedisDeduplicationStoreTest extends TestCase
         $store->markSent('k1', $this->makeSentEmail());
     }
 
-    public function test_get_sent_returns_stored_sent_email(): void
-    {
-        $sent  = $this->makeSentEmail('stored');
-        $cache = $this->makeCache();
-        $cache->method('get')->with('ses_dedup:k1:result')->willReturn($sent);
-
-        $store = new RedisDeduplicationStore($cache);
-
-        $this->assertSame($sent, $store->getSent('k1'));
-    }
-
-    public function test_get_sent_returns_null_when_key_missing(): void
-    {
-        $cache = $this->makeCache();
-        $cache->method('get')->willReturn(null);
-
-        $store = new RedisDeduplicationStore($cache);
-
-        $this->assertNull($store->getSent('missing'));
-    }
-
-    public function test_get_sent_returns_null_when_value_is_wrong_type(): void
-    {
-        $cache = $this->makeCache();
-        $cache->method('get')->willReturn('unexpected-string');
-
-        $store = new RedisDeduplicationStore($cache);
-
-        $this->assertNull($store->getSent('k'));
-    }
-
     public function test_keys_are_namespaced_with_prefix(): void
     {
         $cache = $this->makeCache();
         $cache->expects($this->once())
-            ->method('has')
+            ->method('get')
             ->with($this->stringStartsWith('ses_dedup:'))
-            ->willReturn(false);
+            ->willReturn(null);
 
         $store = new RedisDeduplicationStore($cache);
-        $store->isDuplicate('some-key');
+        $store->findSent('some-key');
     }
 }

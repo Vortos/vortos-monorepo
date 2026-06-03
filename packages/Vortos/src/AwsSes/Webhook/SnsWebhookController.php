@@ -29,12 +29,22 @@ final class SnsWebhookController
         private readonly BounceHandlerRunner $bounceRunner,
         private readonly ComplaintHandlerRunner $complaintRunner,
         private readonly LoggerInterface $logger,
+        private readonly int $maxBodyBytes = 65536,
     ) {}
 
     #[Route('/webhooks/aws/ses', name: 'vortos_aws_ses.sns_webhook', methods: ['POST'])]
     public function __invoke(Request $request): JsonResponse
     {
-        $body    = $request->getContent();
+        $body = $request->getContent();
+
+        if (strlen($body) > $this->maxBodyBytes) {
+            $this->logger->warning('SNS webhook body exceeded size limit', [
+                'limit' => $this->maxBodyBytes,
+                'size'  => strlen($body),
+            ]);
+            return new JsonResponse(['error' => 'Payload too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        }
+
         $payload = json_decode($body, associative: true);
 
         if (!is_array($payload)) {

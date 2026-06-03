@@ -6,6 +6,7 @@ namespace Vortos\AwsSes\Suppression;
 
 use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\ParameterType;
 use Symfony\Component\Uid\Uuid;
 use Vortos\AwsSes\Contract\SuppressionListInterface;
@@ -40,20 +41,29 @@ final class DbalSuppressionList implements SuppressionListInterface
 
     public function suppress(EmailAddress $address, SuppressionReason $reason): void
     {
-        $now = new DateTimeImmutable();
+        $now   = new DateTimeImmutable();
+        $email = strtolower($address->address());
 
-        $this->connection->executeStatement(
-            "INSERT INTO {$this->tableName} (id, email_address, reason, suppressed_at, created_at)
-             VALUES (:id, :email, :reason, :suppressedAt, :createdAt)
-             ON CONFLICT (email_address) DO UPDATE SET reason = :reason, suppressed_at = :suppressedAt",
-            [
-                'id'          => Uuid::v7()->toRfc4122(),
-                'email'       => strtolower($address->address()),
-                'reason'      => $reason->value,
-                'suppressedAt' => $now->format('Y-m-d H:i:s.u'),
-                'createdAt'   => $now->format('Y-m-d H:i:s.u'),
-            ],
-        );
+        try {
+            $this->connection->insert($this->tableName, [
+                'id'           => Uuid::v7()->toRfc4122(),
+                'email_address' => $email,
+                'reason'       => $reason->value,
+                'suppressed_at' => $now->format('Y-m-d H:i:s.u'),
+                'created_at'   => $now->format('Y-m-d H:i:s.u'),
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            $this->connection->executeStatement(
+                "UPDATE {$this->tableName}
+                 SET reason = :reason, suppressed_at = :suppressedAt
+                 WHERE email_address = :email",
+                [
+                    'reason'       => $reason->value,
+                    'suppressedAt' => $now->format('Y-m-d H:i:s.u'),
+                    'email'        => $email,
+                ],
+            );
+        }
     }
 
     public function unsuppress(EmailAddress $address): void

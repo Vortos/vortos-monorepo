@@ -40,12 +40,13 @@ final class SnsWebhookControllerTest extends TestCase
         bool $verificationPasses = true,
         ?BounceHandlerInterface $bounceHandler = null,
         ?ComplaintHandlerInterface $complaintHandler = null,
+        int $maxBodyBytes = 65536,
     ): SnsWebhookController {
         $verifier        = $verificationPasses ? $this->passingVerifier() : $this->failingVerifier();
         $bounceRunner    = new BounceHandlerRunner($bounceHandler ? [$bounceHandler] : [], new NullLogger());
         $complaintRunner = new ComplaintHandlerRunner($complaintHandler ? [$complaintHandler] : [], new NullLogger());
 
-        return new SnsWebhookController($verifier, $bounceRunner, $complaintRunner, new NullLogger());
+        return new SnsWebhookController($verifier, $bounceRunner, $complaintRunner, new NullLogger(), $maxBodyBytes);
     }
 
     private function makeRequest(array $body): Request
@@ -206,5 +207,26 @@ final class SnsWebhookControllerTest extends TestCase
 
         $response = $this->makeController()->__invoke($this->makeRequest($payload));
         $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function test_oversized_body_returns_413(): void
+    {
+        $controller = $this->makeController(maxBodyBytes: 10);
+        $request    = Request::create('/webhooks/aws/ses', 'POST', content: str_repeat('x', 11));
+
+        $response = $controller->__invoke($request);
+
+        $this->assertSame(413, $response->getStatusCode());
+    }
+
+    public function test_body_at_exact_limit_is_accepted(): void
+    {
+        $controller = $this->makeController(verificationPasses: false, maxBodyBytes: 10);
+        $request    = Request::create('/webhooks/aws/ses', 'POST', content: str_repeat('x', 10));
+
+        // Verification will fail (not JSON), but not 413 — the size check passes
+        $response = $controller->__invoke($request);
+
+        $this->assertNotSame(413, $response->getStatusCode());
     }
 }

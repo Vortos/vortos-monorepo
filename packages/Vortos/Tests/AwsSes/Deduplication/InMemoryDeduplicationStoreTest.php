@@ -15,33 +15,19 @@ final class InMemoryDeduplicationStoreTest extends TestCase
         return new SentEmail($id, new \DateTimeImmutable(), 1, 'log', null);
     }
 
-    public function test_is_not_duplicate_initially(): void
+    public function test_find_sent_returns_null_when_not_stored(): void
     {
         $store = new InMemoryDeduplicationStore();
-        $this->assertFalse($store->isDuplicate('key-1'));
+        $this->assertNull($store->findSent('key-1'));
     }
 
-    public function test_is_duplicate_after_mark_sent(): void
-    {
-        $store = new InMemoryDeduplicationStore();
-        $store->markSent('key-1', $this->makeSentEmail());
-
-        $this->assertTrue($store->isDuplicate('key-1'));
-    }
-
-    public function test_get_sent_returns_null_when_not_stored(): void
-    {
-        $store = new InMemoryDeduplicationStore();
-        $this->assertNull($store->getSent('missing'));
-    }
-
-    public function test_get_sent_returns_stored_email(): void
+    public function test_find_sent_returns_stored_email_after_mark_sent(): void
     {
         $store = new InMemoryDeduplicationStore();
         $sent  = $this->makeSentEmail('abc');
         $store->markSent('key-1', $sent);
 
-        $this->assertSame($sent, $store->getSent('key-1'));
+        $this->assertSame($sent, $store->findSent('key-1'));
     }
 
     public function test_different_keys_are_independent(): void
@@ -49,8 +35,8 @@ final class InMemoryDeduplicationStoreTest extends TestCase
         $store = new InMemoryDeduplicationStore();
         $store->markSent('key-1', $this->makeSentEmail('id-1'));
 
-        $this->assertTrue($store->isDuplicate('key-1'));
-        $this->assertFalse($store->isDuplicate('key-2'));
+        $this->assertNotNull($store->findSent('key-1'));
+        $this->assertNull($store->findSent('key-2'));
     }
 
     public function test_expired_entries_are_pruned(): void
@@ -58,8 +44,7 @@ final class InMemoryDeduplicationStoreTest extends TestCase
         $store = new InMemoryDeduplicationStore();
         $store->markSent('expired', $this->makeSentEmail(), ttlSeconds: -1); // already expired
 
-        $this->assertFalse($store->isDuplicate('expired'));
-        $this->assertNull($store->getSent('expired'));
+        $this->assertNull($store->findSent('expired'));
     }
 
     public function test_non_expired_entries_survive(): void
@@ -68,19 +53,31 @@ final class InMemoryDeduplicationStoreTest extends TestCase
         $sent  = $this->makeSentEmail();
         $store->markSent('live', $sent, ttlSeconds: 3600);
 
-        $this->assertTrue($store->isDuplicate('live'));
-        $this->assertSame($sent, $store->getSent('live'));
+        $this->assertSame($sent, $store->findSent('live'));
     }
 
-    public function test_mark_sent_overwrites_existing_key(): void
+    public function test_mark_sent_first_writer_wins(): void
     {
-        $store = new InMemoryDeduplicationStore();
+        $store  = new InMemoryDeduplicationStore();
         $first  = $this->makeSentEmail('first');
         $second = $this->makeSentEmail('second');
 
         $store->markSent('key', $first);
-        $store->markSent('key', $second);
+        $store->markSent('key', $second); // must not overwrite
 
-        $this->assertSame($second, $store->getSent('key'));
+        $this->assertSame('first', $store->findSent('key')?->messageId());
+    }
+
+    public function test_prune_runs_on_mark_sent_to_bound_memory(): void
+    {
+        $store = new InMemoryDeduplicationStore();
+
+        // Insert an already-expired entry, then mark another key
+        $store->markSent('expired', $this->makeSentEmail(), ttlSeconds: -1);
+        $store->markSent('fresh', $this->makeSentEmail('f'), ttlSeconds: 3600);
+
+        // Expired key is gone; fresh key survives
+        $this->assertNull($store->findSent('expired'));
+        $this->assertNotNull($store->findSent('fresh'));
     }
 }

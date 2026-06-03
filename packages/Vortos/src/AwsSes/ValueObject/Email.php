@@ -205,9 +205,10 @@ final class Email
     }
 
     /**
-     * Returns a clone with the given email addresses removed from to/cc/bcc lists.
+     * Returns a clone with the given addresses removed from to/cc/bcc lists.
      *
-     * @param string[] $suppressedEmails Lowercase-normalised email addresses to remove.
+     * @param string[] $suppressedEmails Addresses to remove. Case is ignored — normalisation
+     *                                   is applied internally so callers need not pre-lowercase.
      */
     public function withFilteredRecipients(array $suppressedEmails): static
     {

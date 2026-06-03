@@ -41,6 +41,10 @@ final class SnsSignatureVerifier implements SignatureVerifierInterface
         $pubKey = openssl_get_publickey($pem);
 
         if ($pubKey === false) {
+            $this->logger->warning('SNS cert public key extraction failed', [
+                'cert_url'      => $certUrl,
+                'openssl_error' => openssl_error_string(),
+            ]);
             throw WebhookVerificationException::invalidSignature();
         }
 

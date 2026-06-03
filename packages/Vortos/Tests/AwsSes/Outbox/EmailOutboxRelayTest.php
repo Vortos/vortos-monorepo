@@ -8,6 +8,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Result;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use Symfony\Component\Clock\MockClock;
 use Vortos\AwsSes\Contract\MailerInterface;
 use Vortos\AwsSes\Exception\MailSendException;
 use Vortos\AwsSes\Outbox\EmailOutboxRelay;
@@ -25,6 +26,7 @@ final class EmailOutboxRelayTest extends TestCase
             connection:          $conn,
             mailer:              $mailer,
             logger:              new NullLogger(),
+            clock:               new MockClock(new \DateTimeImmutable('2026-01-01T00:00:00+00:00')),
             tableName:           self::TABLE,
             batchSize:           10,
             maxDeliveryAttempts: 3,

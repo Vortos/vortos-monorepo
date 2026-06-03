@@ -42,11 +42,9 @@ final class DeduplicationMiddleware implements EmailMiddlewareInterface
             return $next($email);
         }
 
-        if ($this->store->isDuplicate($key)) {
-            $cached = $this->store->getSent($key);
-            if ($cached !== null) {
-                return $cached;
-            }
+        $cached = $this->store->findSent($key);
+        if ($cached !== null) {
+            return $cached;
         }
 
         $result = $next($email);

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Vortos\AwsSes\Outbox;
 
-use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\ParameterType;
+use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Vortos\AwsSes\Contract\MailerInterface;
 
@@ -32,6 +32,7 @@ final class EmailOutboxRelay
         private readonly Connection $connection,
         private readonly MailerInterface $mailer,
         private readonly LoggerInterface $logger,
+        private readonly ClockInterface $clock,
         private readonly string $tableName,
         private readonly int $batchSize,
         private readonly int $maxDeliveryAttempts,
@@ -65,7 +66,7 @@ final class EmailOutboxRelay
 
     private function fetchPendingBatch(): array
     {
-        $now = (new DateTimeImmutable())->format('Y-m-d H:i:s');
+        $now = $this->clock->now()->format('Y-m-d H:i:s');
 
         return $this->connection->executeQuery(
             "SELECT id, domain_event_id, payload, attempt_count
@@ -88,8 +89,9 @@ final class EmailOutboxRelay
             $payload = json_decode((string) $row['payload'], true, 512, JSON_THROW_ON_ERROR);
             $email   = EmailSerializer::fromArray($payload);
 
-            // Inject outbox_id as idempotency key so DeduplicationMiddleware prevents double sends
-            $email = $email->withMeta('idempotency_key', $outboxId);
+            // Inject outbox_id for traceability and as idempotency key for DeduplicationMiddleware
+            $email = $email->withMeta('outbox_id', $outboxId)
+                           ->withMeta('idempotency_key', $outboxId);
             if ($row['domain_event_id'] !== null) {
                 $email = $email->withMeta('domain_event_id', (string) $row['domain_event_id']);
             }
@@ -115,7 +117,7 @@ final class EmailOutboxRelay
 
     private function markSent(string $id, string $messageId): void
     {
-        $now = (new DateTimeImmutable())->format('Y-m-d H:i:s');
+        $now = $this->clock->now()->format('Y-m-d H:i:s');
 
         $this->connection->executeStatement(
             "UPDATE {$this->tableName}
@@ -138,7 +140,7 @@ final class EmailOutboxRelay
         }
 
         $backoffSec     = min($this->backoffCapSeconds, $this->backoffBaseSeconds * (2 ** ($attempt - 1)));
-        $nextAttemptAt  = (new DateTimeImmutable())->modify("+{$backoffSec} seconds")->format('Y-m-d H:i:s');
+        $nextAttemptAt  = $this->clock->now()->modify("+{$backoffSec} seconds")->format('Y-m-d H:i:s');
 
         $this->connection->executeStatement(
             "UPDATE {$this->tableName}

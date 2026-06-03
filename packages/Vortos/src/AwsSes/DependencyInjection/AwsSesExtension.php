@@ -376,6 +376,7 @@ final class AwsSesExtension extends Extension
                 new Reference(\Doctrine\DBAL\Connection::class),
                 new Reference('vortos_aws_ses.sending_mailer'),
                 new Reference(LoggerInterface::class),
+                new Reference(\Psr\Clock\ClockInterface::class),
                 $c['outbox']['table_name'],
                 $c['outbox']['batch_size'],
                 $c['outbox']['max_delivery_attempts'],
@@ -588,6 +589,7 @@ final class AwsSesExtension extends Extension
                 new Reference(BounceHandlerRunner::class),
                 new Reference(ComplaintHandlerRunner::class),
                 new Reference(LoggerInterface::class),
+                $c['webhooks']['max_body_bytes'],
             ])
             ->setShared(true)
             ->setPublic(true);
@@ -644,8 +646,9 @@ final class AwsSesExtension extends Extension
         $container->setParameter('vortos_aws_ses.outbox.backoff_cap_seconds',            $c['outbox']['backoff_cap_seconds']);
         $container->setParameter('vortos_aws_ses.outbox.stale_message_timeout_seconds',  $c['outbox']['stale_message_timeout_seconds']);
 
-        $container->setParameter('vortos_aws_ses.webhooks.enabled',    $c['webhooks']['enabled']);
-        $container->setParameter('vortos_aws_ses.webhooks.route_path', $c['webhooks']['route_path']);
+        $container->setParameter('vortos_aws_ses.webhooks.enabled',        $c['webhooks']['enabled']);
+        $container->setParameter('vortos_aws_ses.webhooks.route_path',     $c['webhooks']['route_path']);
+        $container->setParameter('vortos_aws_ses.webhooks.max_body_bytes', $c['webhooks']['max_body_bytes']);
 
         $container->setParameter('vortos_aws_ses.suppression.table_name',      $c['suppression']['table_name']);
         $container->setParameter('vortos_aws_ses.suppression.sync_on_startup', $c['suppression']['sync_on_startup']);

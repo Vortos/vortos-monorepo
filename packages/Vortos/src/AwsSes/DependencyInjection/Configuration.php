@@ -138,6 +138,11 @@ final class Configuration implements ConfigurationInterface
                             ->defaultValue('/webhooks/aws/ses')
                             ->info('HTTP path for the SNS webhook endpoint.')
                         ->end()
+                        ->integerNode('max_body_bytes')
+                            ->defaultValue(65536)
+                            ->info('Maximum allowed SNS webhook body size in bytes. Requests exceeding this return HTTP 413.')
+                            ->min(1024)
+                        ->end()
                     ->end()
                 ->end()
 

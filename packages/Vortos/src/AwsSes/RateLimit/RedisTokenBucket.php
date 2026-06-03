@@ -26,12 +26,12 @@ namespace Vortos\AwsSes\RateLimit;
 final class RedisTokenBucket implements TokenBucketInterface
 {
     private const LUA = <<<'LUA'
-local kt     = KEYS[1]
-local kts    = KEYS[2]
-local rate   = tonumber(ARGV[1])
-local burst  = tonumber(ARGV[2])
-local now    = tonumber(ARGV[3])
-local ttl    = tonumber(ARGV[4])
+local kt     = KEYS[1]   -- {keyPrefix}:tokens
+local kts    = KEYS[2]   -- {keyPrefix}:ts
+local rate   = tonumber(ARGV[1])  -- max send rate (tokens/sec)
+local burst  = tonumber(ARGV[2])  -- burst capacity (max tokens)
+local now    = tonumber(ARGV[3])  -- current Unix timestamp (float, microseconds)
+local ttl    = tonumber(ARGV[4])  -- key expiry in seconds
 
 local tokens  = tonumber(redis.call('GET', kt))  or burst
 local last_ts = tonumber(redis.call('GET', kts)) or now

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true">
+
+    <testsuites>
+        <testsuite name="Auth">
+            <directory>packages/Vortos/src/Auth/Tests</directory>
+        </testsuite>
+        <testsuite name="Authorization">
+            <directory>packages/Vortos/src/Authorization/Tests</directory>
+        </testsuite>
+        <testsuite name="AwsSes">
+            <directory>packages/Vortos/src/AwsSes/Tests</directory>
+        </testsuite>
+        <testsuite name="Cache">
+            <directory>packages/Vortos/src/Cache/Tests</directory>
+        </testsuite>
+        <testsuite name="Cqrs">
+            <directory>packages/Vortos/src/Cqrs/Tests</directory>
+        </testsuite>
+        <testsuite name="Docker">
+            <directory>packages/Vortos/src/Docker/Tests</directory>
+        </testsuite>
+        <testsuite name="Domain">
+            <directory>packages/Vortos/src/Domain/Tests</directory>
+        </testsuite>
+        <testsuite name="FeatureFlags">
+            <directory>packages/Vortos/src/FeatureFlags/Tests</directory>
+        </testsuite>
+        <testsuite name="Foundation">
+            <directory>packages/Vortos/src/Foundation/Tests</directory>
+        </testsuite>
+        <testsuite name="Http">
+            <directory>packages/Vortos/src/Http/Tests</directory>
+        </testsuite>
+        <testsuite name="Logger">
+            <directory>packages/Vortos/src/Logger/Tests</directory>
+        </testsuite>
+        <testsuite name="Make">
+            <directory>packages/Vortos/src/Make/Tests</directory>
+        </testsuite>
+        <testsuite name="Mcp">
+            <directory>packages/Vortos/src/Mcp/Tests</directory>
+        </testsuite>
+        <testsuite name="Messaging">
+            <directory>packages/Vortos/src/Messaging/Tests</directory>
+        </testsuite>
+        <testsuite name="Metrics">
+            <directory>packages/Vortos/src/Metrics/Tests</directory>
+        </testsuite>
+        <testsuite name="Migration">
+            <directory>packages/Vortos/src/Migration/Tests</directory>
+        </testsuite>
+        <testsuite name="ObjectStore">
+            <directory>packages/Vortos/src/ObjectStore/Tests</directory>
+        </testsuite>
+        <testsuite name="Observability">
+            <directory>packages/Vortos/src/Observability/Tests</directory>
+        </testsuite>
+        <testsuite name="Paddle">
+            <directory>packages/Vortos/src/Paddle/Tests</directory>
+        </testsuite>
+        <testsuite name="Persistence">
+            <directory>packages/Vortos/src/Persistence/Tests</directory>
+        </testsuite>
+        <testsuite name="PersistenceDbal">
+            <directory>packages/Vortos/src/PersistenceDbal/Tests</directory>
+        </testsuite>
+        <testsuite name="PersistenceMongo">
+            <directory>packages/Vortos/src/PersistenceMongo/Tests</directory>
+        </testsuite>
+        <testsuite name="PersistenceOrm">
+            <directory>packages/Vortos/src/PersistenceOrm/Tests</directory>
+        </testsuite>
+        <testsuite name="Security">
+            <directory>packages/Vortos/src/Security/Tests</directory>
+        </testsuite>
+        <testsuite name="Setup">
+            <directory>packages/Vortos/src/Setup/Tests</directory>
+        </testsuite>
+        <testsuite name="Tracing">
+            <directory>packages/Vortos/src/Tracing/Tests</directory>
+        </testsuite>
+    </testsuites>
+
+</phpunit>

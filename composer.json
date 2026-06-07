@@ -71,9 +71,7 @@
     }
   },
   "autoload-dev": {
-    "psr-4": {
-      "Vortos\\Tests\\": "packages/Vortos/Tests/"
-    }
+    "psr-4": {}
   },
   "scripts": {
     "post-create-project-cmd": [

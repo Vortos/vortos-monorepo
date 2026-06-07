@@ -48,7 +48,6 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'V' =>
         array (
             'Vortos\\Tracing\\' => 15,
-            'Vortos\\Tests\\' => 13,
             'Vortos\\Setup\\' => 13,
             'Vortos\\Security\\' => 16,
             'Vortos\\Persistence\\' => 19,
@@ -224,10 +223,6 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Tracing\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-tracing',
-        ),
-        'Vortos\\Tests\\' =>
-        array (
-            0 => __DIR__ . '/../..' . '/packages/Vortos/Tests',
         ),
         'Vortos\\Setup\\' =>
         array (

@@ -51,10 +51,10 @@ return [
         'command_flow' => [
             'HTTP Request → Controller → Command DTO',
             'CommandBus: validate → idempotency check → begin transaction',
-            'CommandHandler: load aggregate → call domain method → return aggregate',
-            'CommandBus: pullDomainEvents() from aggregate',
+            'CommandHandler: load aggregate(s) → call domain method(s) → return anything (or nothing)',
+            'CommandBus: drain DomainEventLedger — every event recorded by any aggregate during the handler',
+            'CommandBus: dispatch each domain event to EventBus (inside the transaction)',
             'CommandBus: commit transaction',
-            'CommandBus: dispatch each domain event to EventBus',
             'EventBus: write event to vortos_outbox (same DB transaction as domain write)',
             'OutboxRelayWorker: poll vortos_outbox → produce to Kafka',
         ],

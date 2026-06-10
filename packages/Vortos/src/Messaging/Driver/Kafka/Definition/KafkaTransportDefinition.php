@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Driver\Kafka\Definition;
 
+use Vortos\Foundation\Config\Env;
 use Vortos\Messaging\Definition\Transport\AbstractTransportDefinition;
 use Vortos\Messaging\Driver\Kafka\ValueObject\SaslConfig;
 use Vortos\Messaging\Driver\Kafka\ValueObject\SslConfig;
@@ -15,24 +16,27 @@ use Vortos\Messaging\Driver\Kafka\ValueObject\SslConfig;
  * replication factor, and optional SASL/SSL security configuration.
  * Built fluently inside a MessagingConfig class.
  *
+ * Every setting accepts either a literal or an Env reference — Env values
+ * resolve from the environment at runtime via the container (see Env).
+ *
  * Example:
  *   KafkaTransportDefinition::create('orders.placed')
- *       ->dsn('kafka://broker:9092')
+ *       ->dsn(Env::string('KAFKA_BROKERS'))
  *       ->topic('orders.placed')
- *       ->partitions(12)
- *       ->replicationFactor(3)
- *       ->security(SaslConfig::scramSha256('user', 'pass'));
+ *       ->partitions(Env::int('KAFKA_PARTITIONS', default: 12))
+ *       ->replicationFactor(Env::int('KAFKA_REPLICATION_FACTOR', default: 3))
+ *       ->security(SaslConfig::scramSha256(Env::string('KAFKA_SASL_USER'), Env::string('KAFKA_SASL_PASS')));
  */
 final class KafkaTransportDefinition extends AbstractTransportDefinition
 {
-    private string $topic = '';
-    private int $partitions = 1;
-    private int $replicationFactor = 1;
+    private string|Env $topic = '';
+    private int|Env $partitions = 1;
+    private int|Env $replicationFactor = 1;
     private ?SaslConfig $sasl = null;
     private ?SslConfig $ssl = null;
 
     /** The Kafka topic name this transport reads from and writes to. */
-    public function topic(string $topic): static
+    public function topic(string|Env $topic): static
     {
         $this->topic = $topic;
         return $this;
@@ -43,7 +47,7 @@ final class KafkaTransportDefinition extends AbstractTransportDefinition
      * Controls maximum consumer parallelism. 12 is a common starting point for high-throughput topics.
      * Only used during topic provisioning — has no effect on existing topics.
      */
-    public function partitions(int $count): static
+    public function partitions(int|Env $count): static
     {
         $this->partitions = $count;
         return $this;
@@ -54,7 +58,7 @@ final class KafkaTransportDefinition extends AbstractTransportDefinition
      * Must be <= number of brokers in the cluster. 3 is the standard for production.
      * Only used during topic provisioning — has no effect on existing topics.
      */
-    public function replicationFactor(int $count): static
+    public function replicationFactor(int|Env $count): static
     {
         $this->replicationFactor = $count;
         return $this;

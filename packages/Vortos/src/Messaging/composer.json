@@ -16,6 +16,7 @@
     "require": {
         "php": ">=8.2",
         "vortos/vortos-domain": "^1.0",
+        "vortos/vortos-foundation": "^1.0",
         "vortos/vortos-persistence": "^1.0",
         "vortos/vortos-tracing": "^1.0",
         "vortos/vortos-cache": "^1.0",

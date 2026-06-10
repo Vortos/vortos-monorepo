@@ -52,5 +52,16 @@ final class AsEventHandler
 
         /** Optional: Filter by event schema version. */
         public readonly ?int $version = null,
+
+        /**
+         * Logical wire event name this handler consumes
+         * (e.g. 'registration.entry_approved'). The handler's event parameter
+         * type is the LOCAL contract class the wire payload deserializes into.
+         *
+         * Optional when the local class derives the same conventional name as
+         * the producer declared (same-module consumption). Required when the
+         * consuming module defines its own contract class for a foreign event.
+         */
+        public readonly ?string $event = null,
     ) {}
 }

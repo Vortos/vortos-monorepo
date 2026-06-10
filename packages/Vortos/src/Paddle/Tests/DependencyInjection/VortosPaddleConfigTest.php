@@ -20,8 +20,11 @@ final class VortosPaddleConfigTest extends TestCase
         $this->assertSame(5, $array['security']['replay_window_seconds']);
         $this->assertFalse($array['security']['allow_sandbox_ips']);
         $this->assertTrue($array['webhooks']['enabled']);
-        $this->assertSame('paddle_webhook_idempotency', $array['webhooks']['idempotency_table']);
-        $this->assertSame(259200, $array['webhooks']['idempotency_ttl_seconds']);
+        $this->assertSame('paddle_webhook_inbox', $array['webhooks']['inbox_table']);
+        $this->assertSame(50, $array['webhooks']['inbox_batch_size']);
+        $this->assertSame(5, $array['webhooks']['inbox_max_attempts']);
+        $this->assertSame(60, $array['webhooks']['backoff_base_seconds']);
+        $this->assertSame(3600, $array['webhooks']['backoff_cap_seconds']);
         $this->assertTrue($array['observability']['logging']);
         $this->assertTrue($array['observability']['tracing']);
         $this->assertTrue($array['observability']['metrics']);
@@ -43,8 +46,8 @@ final class VortosPaddleConfigTest extends TestCase
 
         $config->webhooks()
             ->enabled(false)
-            ->idempotencyTable('custom_table')
-            ->idempotencyTtlSeconds(86400);
+            ->inboxTable('custom_inbox')
+            ->inboxMaxAttempts(7);
 
         $array = $config->toArray();
 
@@ -56,8 +59,8 @@ final class VortosPaddleConfigTest extends TestCase
         $this->assertSame(10, $array['security']['replay_window_seconds']);
         $this->assertTrue($array['security']['allow_sandbox_ips']);
         $this->assertFalse($array['webhooks']['enabled']);
-        $this->assertSame('custom_table', $array['webhooks']['idempotency_table']);
-        $this->assertSame(86400, $array['webhooks']['idempotency_ttl_seconds']);
+        $this->assertSame('custom_inbox', $array['webhooks']['inbox_table']);
+        $this->assertSame(7, $array['webhooks']['inbox_max_attempts']);
     }
 
     public function test_observability_section_is_configurable(): void

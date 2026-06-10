@@ -9,7 +9,8 @@ use Vortos\Domain\Event\EventEnvelope;
 /**
  * The internal in-process event bus.
  *
- * Accepts EventEnvelopes produced by aggregates (via pullDomainEvents() → EventEnvelope[]) and
+ * Accepts EventEnvelopes produced by aggregates (collected by the
+ * DomainEventLedger and drained by CommandBus/ConsumerRunner) and
  * routes them through three independent paths:
  *
  *   1. In-process handlers (via Symfony Messenger) — if any are registered

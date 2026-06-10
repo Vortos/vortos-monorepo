@@ -53,8 +53,11 @@ final class Configuration implements ConfigurationInterface
                 ->addDefaultsIfNotSet()
                 ->children()
                     ->booleanNode('enabled')->defaultTrue()->end()
-                    ->scalarNode('idempotency_table')->defaultValue('paddle_webhook_idempotency')->end()
-                    ->integerNode('idempotency_ttl_seconds')->defaultValue(259200)->end()
+                    ->scalarNode('inbox_table')->defaultValue('paddle_webhook_inbox')->end()
+                    ->integerNode('inbox_batch_size')->defaultValue(50)->end()
+                    ->integerNode('inbox_max_attempts')->defaultValue(5)->end()
+                    ->integerNode('backoff_base_seconds')->defaultValue(60)->end()
+                    ->integerNode('backoff_cap_seconds')->defaultValue(3600)->end()
                 ->end()
             ->end()
 

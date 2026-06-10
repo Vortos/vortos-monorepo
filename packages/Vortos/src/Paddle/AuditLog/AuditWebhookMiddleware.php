@@ -16,16 +16,21 @@ final class AuditWebhookMiddleware
 
     public function dispatch(PaddleWebhookEvent $event): void
     {
-        $this->inner->dispatch($event);
-
-        $this->writer->record(new PaddleAuditEntry(
-            eventType:      $event->eventType,
-            paddleEventId:  $event->eventId,
-            entityType:     $this->resolveEntityType($event->eventType),
-            entityId:       $this->resolveEntityId($event),
-            actor:          'webhook',
-            occurredAt:     $event->occurredAt,
-        ));
+        // Audit records the ATTEMPT, so it must be written even when a handler
+        // throws — but the exception propagates: failure policy (retry/dead-letter)
+        // belongs to the inbox worker, not the audit log.
+        try {
+            $this->inner->dispatch($event);
+        } finally {
+            $this->writer->record(new PaddleAuditEntry(
+                eventType:      $event->eventType,
+                paddleEventId:  $event->eventId,
+                entityType:     $this->resolveEntityType($event->eventType),
+                entityId:       $this->resolveEntityId($event),
+                actor:          'webhook',
+                occurredAt:     $event->occurredAt,
+            ));
+        }
     }
 
     private function resolveEntityType(string $eventType): string

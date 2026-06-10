@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Definition\Transport;
 
+use Vortos\Foundation\Config\Env;
+
 /**
  * Base class for all transport definitions.
  *
@@ -13,11 +15,17 @@ namespace Vortos\Messaging\Definition\Transport;
  *
  * Every broker-specific transport (Kafka, RabbitMQ, SQS) extends this.
  * Users build these via fluent methods inside a MessagingConfig class.
+ *
+ * Any setting may be an Env reference (Env::string(), Env::int(), …) instead
+ * of a literal — the compiler pass converts it to a '%env(...)%' placeholder
+ * resolved by the container at runtime. Never read $_ENV in a config class:
+ * definitions are evaluated at compile time, so an inline read would bake one
+ * environment's value into the compiled container.
  */
 abstract class AbstractTransportDefinition
 {
     protected string $name;
-    protected string $dsn = '';
+    protected string|Env $dsn = '';
     protected string $serializer = 'json';
 
     protected function __construct(string $name)
@@ -41,7 +49,7 @@ abstract class AbstractTransportDefinition
     }
 
     /** The broker connection string. Format is driver-specific (e.g. kafka://broker:9092). */
-    public function dsn(string $dsn): static
+    public function dsn(string|Env $dsn): static
     {
         $this->dsn = $dsn;
         return $this;

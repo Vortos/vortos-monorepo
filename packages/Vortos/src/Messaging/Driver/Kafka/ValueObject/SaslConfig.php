@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Driver\Kafka\ValueObject;
 
+use Vortos\Foundation\Config\Env;
+
 /**
  * SASL authentication configuration for Kafka broker connections.
  *
@@ -14,15 +16,15 @@ final class SaslConfig
 {
     private function __construct(
         public readonly string $mechanism,
-        public readonly string $username,
-        public readonly string $password
+        public readonly string|Env $username,
+        public readonly string|Env $password
     ) {}
 
     /**
      * Use PLAIN mechanism (Simple username/password).
      * Warning: Only use this with SSL enabled.
      */
-    public static function plain(string $username, string $password): self
+    public static function plain(string|Env $username, string|Env $password): self
     {
         return new self('PLAIN', $username, $password);
     }
@@ -30,7 +32,7 @@ final class SaslConfig
     /**
      * Use SCRAM-SHA-256 mechanism (Industry Standard for AWS MSK / Confluent).
      */
-    public static function scramSha256(string $username, string $password): self
+    public static function scramSha256(string|Env $username, string|Env $password): self
     {
         return new self('SCRAM-SHA-256', $username, $password);
     }
@@ -38,7 +40,7 @@ final class SaslConfig
     /**
      * Use SCRAM-SHA-512 mechanism (Higher security).
      */
-    public static function scramSha512(string $username, string $password): self
+    public static function scramSha512(string|Env $username, string|Env $password): self
     {
         return new self('SCRAM-SHA-512', $username, $password);
     }

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Vortos\Paddle\Tests\AuditLog;
 
 use PHPUnit\Framework\TestCase;
-use Psr\Log\NullLogger;
 use Vortos\Paddle\AuditLog\AuditWebhookMiddleware;
 use Vortos\Paddle\AuditLog\PaddleAuditEntry;
 use Vortos\Paddle\AuditLog\PaddleAuditLogWriterInterface;
@@ -35,7 +34,7 @@ final class AuditWebhookMiddlewareTest extends TestCase
             public function handle(PaddleWebhookEvent $e): void { $this->called = true; }
         };
 
-        $dispatcher = new PaddleWebhookDispatcher([$handler], new NullLogger());
+        $dispatcher = new PaddleWebhookDispatcher([$handler]);
         $writer     = $this->createMock(PaddleAuditLogWriterInterface::class);
         $writer->expects($this->once())->method('record');
 
@@ -47,7 +46,7 @@ final class AuditWebhookMiddlewareTest extends TestCase
 
     public function test_audit_entry_is_written_after_dispatch(): void
     {
-        $dispatcher = new PaddleWebhookDispatcher([], new NullLogger());
+        $dispatcher = new PaddleWebhookDispatcher([]);
 
         $captured = null;
         $writer   = $this->createMock(PaddleAuditLogWriterInterface::class);
@@ -70,7 +69,7 @@ final class AuditWebhookMiddlewareTest extends TestCase
 
     public function test_entity_type_derived_from_event_type_prefix(): void
     {
-        $dispatcher = new PaddleWebhookDispatcher([], new NullLogger());
+        $dispatcher = new PaddleWebhookDispatcher([]);
 
         $captured = null;
         $writer   = $this->createMock(PaddleAuditLogWriterInterface::class);
@@ -88,7 +87,7 @@ final class AuditWebhookMiddlewareTest extends TestCase
 
     public function test_entity_id_falls_back_to_event_id_when_no_data_id(): void
     {
-        $dispatcher = new PaddleWebhookDispatcher([], new NullLogger());
+        $dispatcher = new PaddleWebhookDispatcher([]);
 
         $captured = null;
         $writer   = $this->createMock(PaddleAuditLogWriterInterface::class);
@@ -111,18 +110,22 @@ final class AuditWebhookMiddlewareTest extends TestCase
             public function handle(PaddleWebhookEvent $e): void { throw new \RuntimeException('Handler error'); }
         };
 
-        $dispatcher = new PaddleWebhookDispatcher([$handler], new NullLogger());
+        $dispatcher = new PaddleWebhookDispatcher([$handler]);
 
         $writer = $this->createMock(PaddleAuditLogWriterInterface::class);
         $writer->expects($this->once())->method('record');
 
         $middleware = new AuditWebhookMiddleware($dispatcher, $writer);
+
+        // The attempt is audited, but the exception propagates — the inbox
+        // worker owns retry/dead-letter policy.
+        $this->expectException(\RuntimeException::class);
         $middleware->dispatch($this->makeEvent('subscription.created'));
     }
 
     public function test_occurred_at_matches_event(): void
     {
-        $dispatcher = new PaddleWebhookDispatcher([], new NullLogger());
+        $dispatcher = new PaddleWebhookDispatcher([]);
 
         $captured = null;
         $writer   = $this->createMock(PaddleAuditLogWriterInterface::class);

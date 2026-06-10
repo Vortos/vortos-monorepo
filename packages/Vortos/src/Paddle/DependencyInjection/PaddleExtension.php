@@ -40,8 +40,15 @@ use Vortos\Paddle\Catalog\TransactionalPriceService;
 use Vortos\Paddle\Catalog\TransactionalProductService;
 use Vortos\Paddle\Checkout\CheckoutService;
 use Vortos\Paddle\Checkout\PortalSessionService;
+use Vortos\Paddle\Command\PaddleInboxProcessCommand;
+use Vortos\Paddle\Command\PaddleInboxReplayCommand;
 use Vortos\Paddle\Command\PaddleOutboxRelayCommand;
-use Vortos\Paddle\Command\PaddleWebhookIdempotencyPruneCommand;
+use Vortos\Paddle\Inbox\PaddleInboxReplayStore;
+use Vortos\Paddle\Inbox\PaddleInboxReplayStoreInterface;
+use Vortos\Paddle\Inbox\PaddleInboxWorker;
+use Vortos\Paddle\Inbox\PaddleInboxWorkerInterface;
+use Vortos\Paddle\Inbox\PaddleInboxWriter;
+use Vortos\Paddle\Inbox\PaddleInboxWriterInterface;
 use Vortos\Paddle\Customer\Contract\AddressServiceInterface;
 use Vortos\Paddle\Customer\Contract\BusinessServiceInterface;
 use Vortos\Paddle\Customer\Contract\CustomerServiceInterface;
@@ -94,7 +101,6 @@ use Vortos\Paddle\Webhook\PaddleWebhookController;
 use Vortos\Paddle\Webhook\PaddleWebhookDispatcher;
 use Vortos\Paddle\Webhook\PaddleWebhookHandlerInterface;
 use Vortos\Paddle\Webhook\WebhookEventFactory;
-use Vortos\Paddle\Webhook\WebhookIdempotencyStore;
 use Vortos\Paddle\Webhook\WebhookIpGuard;
 use Vortos\Paddle\Webhook\WebhookVerifier;
 use Vortos\Paddle\Webhook\WebhookVerifierInterface;
@@ -224,40 +230,75 @@ final class PaddleExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        $container->register(WebhookIdempotencyStore::class, WebhookIdempotencyStore::class)
-            ->setArguments([
-                '$connection' => new Reference(Connection::class),
-                '$tableName'  => $prefix . $config['webhooks']['idempotency_table'],
-                '$ttlSeconds' => $config['webhooks']['idempotency_ttl_seconds'],
-            ])
-            ->setShared(true)
-            ->setPublic(false);
-
         $container->register(PaddleWebhookDispatcher::class, PaddleWebhookDispatcher::class)
             ->setArguments([
                 '$handlers' => [],
-                '$logger'   => new Reference(LoggerInterface::class),
             ])
             ->setShared(true)
             ->setPublic(false);
 
+        $inboxTable = $prefix . $config['webhooks']['inbox_table'];
+
+        $container->register(PaddleInboxWriter::class, PaddleInboxWriter::class)
+            ->setArguments([
+                '$connection' => new Reference(Connection::class),
+                '$table'      => $inboxTable,
+            ])
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(PaddleInboxWriterInterface::class, PaddleInboxWriter::class)->setPublic(false);
+
+        $container->register(PaddleInboxWorker::class, PaddleInboxWorker::class)
+            ->setArguments([
+                '$connection'         => new Reference(Connection::class),
+                '$dispatcher'         => new Reference(PaddleWebhookDispatcher::class),
+                '$eventFactory'       => new Reference(WebhookEventFactory::class),
+                '$logger'             => new Reference(LoggerInterface::class),
+                '$table'              => $inboxTable,
+                '$batchSize'          => $config['webhooks']['inbox_batch_size'],
+                '$maxAttempts'        => $config['webhooks']['inbox_max_attempts'],
+                '$backoffBaseSeconds' => $config['webhooks']['backoff_base_seconds'],
+                '$backoffCapSeconds'  => $config['webhooks']['backoff_cap_seconds'],
+            ])
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(PaddleInboxWorkerInterface::class, PaddleInboxWorker::class)->setPublic(false);
+
+        $container->register(PaddleInboxReplayStore::class, PaddleInboxReplayStore::class)
+            ->setArguments([
+                '$connection' => new Reference(Connection::class),
+                '$table'      => $inboxTable,
+            ])
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(PaddleInboxReplayStoreInterface::class, PaddleInboxReplayStore::class)->setPublic(false);
+
         $container->register(PaddleWebhookController::class, PaddleWebhookController::class)
             ->setArguments([
-                '$verifier'         => new Reference(WebhookVerifierInterface::class),
-                '$ipGuard'          => new Reference(WebhookIpGuard::class),
-                '$idempotencyStore' => new Reference(WebhookIdempotencyStore::class),
-                '$eventFactory'     => new Reference(WebhookEventFactory::class),
-                '$dispatcher'       => new Reference(PaddleWebhookDispatcher::class),
-                '$logger'           => new Reference(LoggerInterface::class),
-                '$webhookPath'      => $config['webhook_path'],
+                '$verifier'    => new Reference(WebhookVerifierInterface::class),
+                '$ipGuard'     => new Reference(WebhookIpGuard::class),
+                '$inboxWriter' => new Reference(PaddleInboxWriterInterface::class),
+                '$logger'      => new Reference(LoggerInterface::class),
+                '$webhookPath' => $config['webhook_path'],
             ])
             ->addTag('vortos.api.controller')
             ->setShared(true)
             ->setPublic(true);
 
-        $container->register(PaddleWebhookIdempotencyPruneCommand::class, PaddleWebhookIdempotencyPruneCommand::class)
+        $container->register(PaddleInboxProcessCommand::class, PaddleInboxProcessCommand::class)
             ->setArguments([
-                '$store' => new Reference(WebhookIdempotencyStore::class),
+                '$worker' => new Reference(PaddleInboxWorkerInterface::class),
+            ])
+            ->addTag('console.command')
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(PaddleInboxReplayCommand::class, PaddleInboxReplayCommand::class)
+            ->setArguments([
+                '$store' => new Reference(PaddleInboxReplayStoreInterface::class),
             ])
             ->addTag('console.command')
             ->setShared(true)
@@ -666,8 +707,11 @@ final class PaddleExtension extends Extension
         $container->setParameter('vortos_paddle.circuit_breaker.failure_threshold',     $config['circuit_breaker']['failure_threshold']);
         $container->setParameter('vortos_paddle.circuit_breaker.reset_timeout_seconds', $config['circuit_breaker']['reset_timeout_seconds']);
         $container->setParameter('vortos_paddle.webhooks.enabled',   $config['webhooks']['enabled']);
-        $container->setParameter('vortos_paddle.webhooks.idempotency_table',       $config['webhooks']['idempotency_table']);
-        $container->setParameter('vortos_paddle.webhooks.idempotency_ttl_seconds', $config['webhooks']['idempotency_ttl_seconds']);
+        $container->setParameter('vortos_paddle.webhooks.inbox_table',          $config['webhooks']['inbox_table']);
+        $container->setParameter('vortos_paddle.webhooks.inbox_batch_size',     $config['webhooks']['inbox_batch_size']);
+        $container->setParameter('vortos_paddle.webhooks.inbox_max_attempts',   $config['webhooks']['inbox_max_attempts']);
+        $container->setParameter('vortos_paddle.webhooks.backoff_base_seconds', $config['webhooks']['backoff_base_seconds']);
+        $container->setParameter('vortos_paddle.webhooks.backoff_cap_seconds',  $config['webhooks']['backoff_cap_seconds']);
         $container->setParameter('vortos_paddle.security.enforce_ip_allowlist',  $config['security']['enforce_ip_allowlist']);
         $container->setParameter('vortos_paddle.security.replay_window_seconds', $config['security']['replay_window_seconds']);
         $container->setParameter('vortos_paddle.security.allow_sandbox_ips',     $config['security']['allow_sandbox_ips']);

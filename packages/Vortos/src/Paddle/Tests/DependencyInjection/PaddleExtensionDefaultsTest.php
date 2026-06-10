@@ -9,8 +9,10 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Vortos\Paddle\DependencyInjection\PaddleExtension;
 use Vortos\Paddle\Webhook\PaddleWebhookController;
 use Vortos\Paddle\Webhook\PaddleWebhookDispatcher;
+use Vortos\Paddle\Inbox\PaddleInboxReplayStore;
+use Vortos\Paddle\Inbox\PaddleInboxWorker;
+use Vortos\Paddle\Inbox\PaddleInboxWriter;
 use Vortos\Paddle\Webhook\WebhookEventFactory;
-use Vortos\Paddle\Webhook\WebhookIdempotencyStore;
 use Vortos\Paddle\Webhook\WebhookIpGuard;
 use Vortos\Paddle\Webhook\WebhookVerifier;
 use Vortos\Paddle\Webhook\WebhookVerifierInterface;
@@ -48,17 +50,20 @@ final class PaddleExtensionDefaultsTest extends TestCase
         $this->assertTrue($this->container->getParameter('vortos_paddle.webhooks.enabled'));
     }
 
-    public function test_idempotency_table_defaults(): void
+    public function test_inbox_table_defaults(): void
     {
         $this->assertSame(
-            'paddle_webhook_idempotency',
-            $this->container->getParameter('vortos_paddle.webhooks.idempotency_table'),
+            'paddle_webhook_inbox',
+            $this->container->getParameter('vortos_paddle.webhooks.inbox_table'),
         );
     }
 
-    public function test_idempotency_ttl_defaults_to_72_hours(): void
+    public function test_inbox_worker_defaults(): void
     {
-        $this->assertSame(259200, $this->container->getParameter('vortos_paddle.webhooks.idempotency_ttl_seconds'));
+        $this->assertSame(50,   $this->container->getParameter('vortos_paddle.webhooks.inbox_batch_size'));
+        $this->assertSame(5,    $this->container->getParameter('vortos_paddle.webhooks.inbox_max_attempts'));
+        $this->assertSame(60,   $this->container->getParameter('vortos_paddle.webhooks.backoff_base_seconds'));
+        $this->assertSame(3600, $this->container->getParameter('vortos_paddle.webhooks.backoff_cap_seconds'));
     }
 
     public function test_ip_allowlist_disabled_by_default(): void
@@ -81,7 +86,9 @@ final class PaddleExtensionDefaultsTest extends TestCase
         $this->assertTrue($this->container->hasDefinition(WebhookVerifier::class));
         $this->assertTrue($this->container->hasDefinition(WebhookIpGuard::class));
         $this->assertTrue($this->container->hasDefinition(WebhookEventFactory::class));
-        $this->assertTrue($this->container->hasDefinition(WebhookIdempotencyStore::class));
+        $this->assertTrue($this->container->hasDefinition(PaddleInboxWriter::class));
+        $this->assertTrue($this->container->hasDefinition(PaddleInboxWorker::class));
+        $this->assertTrue($this->container->hasDefinition(PaddleInboxReplayStore::class));
         $this->assertTrue($this->container->hasDefinition(PaddleWebhookDispatcher::class));
         $this->assertTrue($this->container->hasDefinition(PaddleWebhookController::class));
     }

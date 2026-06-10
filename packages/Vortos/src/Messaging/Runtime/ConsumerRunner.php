@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Runtime;
 
+use Vortos\Domain\Event\DomainEventLedger;
 use Vortos\Domain\Event\EventEnvelope;
 use Vortos\Domain\Event\Metadata;
 use Vortos\Messaging\Attribute\Header\CausationId;
@@ -20,8 +21,10 @@ use Vortos\Messaging\Bus\Stamp\EventIdStamp;
 use Vortos\Messaging\Bus\Stamp\TimestampStamp;
 use Vortos\Messaging\Contract\ConsumerInterface;
 use Vortos\Messaging\Contract\ConsumerLocatorInterface;
+use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Messaging\Contract\ProducerInterface;
 use Vortos\Messaging\DeadLetter\DeadLetterWriter;
+use Vortos\Messaging\Definition\WireNaming;
 use Vortos\Messaging\Exception\DeadLetterWriteException;
 use Vortos\Messaging\Middleware\MiddlewareStack;
 use Vortos\Messaging\Registry\ConsumerRegistry;
@@ -31,6 +34,7 @@ use Vortos\Messaging\Hook\HookRunner;
 use Vortos\Messaging\Retry\RetryDecider;
 use Vortos\Messaging\Retry\RetryPolicy;
 use Vortos\Messaging\Serializer\SerializerLocator;
+use Vortos\Messaging\Upcasting\UpcasterChain;
 use Vortos\Messaging\ValueObject\ReceivedMessage;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Vortos\Observability\Config\ObservabilityModule;
@@ -87,7 +91,16 @@ final class ConsumerRunner implements ConsumerRunnerInterface
         private ?FrameworkTelemetry $telemetry = null,
         private ?TracingInterface $tracer = null,
         private ?HookRunner $hookRunner = null,
-    ) {}
+        private ?EventBusInterface $eventBus = null,
+        /** @var array<string, class-string> logical wire name → local contract class */
+        private array $wireEventMap = [],
+        /** @var array<string, array<int, class-string>> wire name → [fromVersion => upcaster class] */
+        private array $upcasterMap = [],
+    ) {
+        $this->upcasterChain = new UpcasterChain($this->upcasterMap);
+    }
+
+    private UpcasterChain $upcasterChain;
 
     public function run(string $consumerName, int $maxMessages = 0): void
     {
@@ -115,9 +128,8 @@ final class ConsumerRunner implements ConsumerRunnerInterface
     private function handleMessage(string $consumerName, ReceivedMessage $message, ConsumerInterface $consumer): void
     {
         $start = hrtime(true);
-        // Accept both payload_type (current) and event_class (legacy/backward-compat)
-        $payloadType = $message->headers['payload_type'] ?? $message->headers['event_class'] ?? null;
-        $eventName = $payloadType !== null ? TelemetryLabels::classShortName($payloadType) : 'unknown';
+        $wirePayloadType = $message->headers['payload_type'] ?? null;
+        $eventName = $wirePayloadType !== null ? TelemetryLabels::classShortName($wirePayloadType) : 'unknown';
         $consumerLabel = TelemetryLabels::safe($consumerName);
         $span = $this->tracer?->startSpan('messaging.consume', [
             'vortos.module' => ObservabilityModule::Messaging,
@@ -127,10 +139,31 @@ final class ConsumerRunner implements ConsumerRunnerInterface
             'messaging.message.type' => $eventName,
         ]);
 
-        if ($payloadType === null) {
+        if ($wirePayloadType === null) {
             $this->logger->warning('Received message with no payload_type header');
             $consumer->reject($message, false);
             $this->recordMessage($consumerLabel, $eventName, 'rejected', $start);
+            $span?->setStatus('error');
+            $span?->end();
+            return;
+        }
+
+        // Closed-world contract resolution: the wire carries a logical name
+        // ('registration.entry_approved.v1') which must resolve through OUR
+        // compiled map to a local class. The wire can never select a class
+        // directly — a forged FQCN in payload_type has no map entry and is
+        // rejected without instantiating anything.
+        [$wireName, $schemaVersion] = WireNaming::parse($wirePayloadType);
+        $payloadType = $this->wireEventMap[$wireName] ?? null;
+
+        if ($payloadType === null) {
+            $this->logger->error('Unknown wire contract — no local class mapped for event name', [
+                'consumer'     => $consumerName,
+                'payload_type' => $wirePayloadType,
+                'wire_name'    => $wireName,
+            ]);
+            $consumer->reject($message, false);
+            $this->recordMessage($consumerLabel, $eventName, 'unknown_contract', $start);
             $span?->setStatus('error');
             $span?->end();
             return;
@@ -153,7 +186,17 @@ final class ConsumerRunner implements ConsumerRunnerInterface
         $serializer = $this->serializerLocator->locate('json');
 
         try {
-            $payload = $serializer->deserialize($message->payload, $payloadType);
+            // Lift older schema versions to the shape this consumer speaks
+            // BEFORE hydration — v1 messages keep flowing after a v2 bump.
+            $wirePayload = $message->payload;
+
+            if ($this->upcasterChain->hasStepsFor($wireName)) {
+                $decoded = json_decode($wirePayload, true, 512, JSON_THROW_ON_ERROR);
+                [$decoded, $schemaVersion] = $this->upcasterChain->upcast($wireName, $schemaVersion, $decoded);
+                $wirePayload = json_encode($decoded, JSON_THROW_ON_ERROR);
+            }
+
+            $payload = $serializer->deserialize($wirePayload, $payloadType);
         } catch (\Throwable $e) {
             $this->logger->error('Failed to deserialize message', [
                 'payload_type' => $payloadType,
@@ -182,7 +225,7 @@ final class ConsumerRunner implements ConsumerRunnerInterface
             aggregateType:    $message->headers['aggregate_type'] ?? '',
             aggregateVersion: (int) ($message->headers['aggregate_version'] ?? 0),
             payloadType:      $payloadType,
-            schemaVersion:    (int) ($message->headers['schema_version'] ?? 1),
+            schemaVersion:    $schemaVersion,
             occurredAt:       $occurredAt,
             payload:          $payload,
             metadata:         new Metadata(
@@ -287,9 +330,29 @@ final class ConsumerRunner implements ConsumerRunnerInterface
         $handlerService = $this->handlerLocator->get($descriptor['serviceId']);
 
         $handlerCallable = function (Envelope $e) use ($handlerService, $descriptor, $domainEnvelope): Envelope {
-            $handlerService->{$descriptor['method']}(
-                ...$this->resolveArguments($descriptor, $e, $domainEnvelope)
-            );
+            // Ledger scope brackets the handler so aggregates mutated here get their
+            // events collected and dispatched inside the same transaction
+            // (TransactionalMiddleware wraps this callable). Runs innermost so it is
+            // independent of middleware ordering.
+            $ledger = DomainEventLedger::instance();
+            $isRoot = $ledger->open();
+
+            try {
+                $handlerService->{$descriptor['method']}(
+                    ...$this->resolveArguments($descriptor, $e, $domainEnvelope)
+                );
+
+                if ($isRoot && $this->eventBus !== null) {
+                    while ($ledger->hasPending()) {
+                        foreach ($ledger->drain() as $recordedEnvelope) {
+                            $this->eventBus->dispatch($recordedEnvelope);
+                        }
+                    }
+                }
+            } finally {
+                $ledger->close();
+            }
+
             return $e;
         };
 

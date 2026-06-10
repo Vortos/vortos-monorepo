@@ -10,8 +10,8 @@ use Vortos\Cqrs\Command\Idempotency\CommandIdempotencyStoreInterface;
 use Vortos\Cqrs\Exception\CommandHandlerNotFoundException;
 use Vortos\Cqrs\Validation\ValidationException;
 use Vortos\Cqrs\Validation\VortosValidator;
-use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Command\CommandInterface;
+use Vortos\Domain\Event\DomainEventLedger;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
@@ -23,8 +23,15 @@ use Vortos\Tracing\Contract\TracingInterface;
  * ## Dispatch pipeline (in order)
  *   1. Validate          — reject invalid input before any DB/Redis work
  *   2. Idempotency check — skip if already processed
- *   3. UnitOfWork::run() — transaction wraps handler + events
+ *   3. UnitOfWork::run() — transaction wraps handler + ledger drain
  *   4. markProcessed     — record successful completion
+ *
+ * ## Event dispatch
+ *   Every event recorded by ANY aggregate during the handler is collected by
+ *   the DomainEventLedger and dispatched after the handler returns, inside
+ *   the transaction. The handler's return value is pure data for the caller —
+ *   returning the aggregate is NOT required for events to dispatch, and
+ *   manually pulling + dispatching events would double-publish.
  *
  * ## Validation memoization
  *   hasConstraints() is called at most once per command class per process lifetime.
@@ -85,15 +92,28 @@ final class CommandBus implements CommandBusInterface
             // 3. Transaction — release idempotency claim on failure so the command can be retried
             try {
                 $result = $this->unitOfWork->run(function () use ($command, $handler): mixed {
-                    $result = $handler($command);
+                    $ledger = DomainEventLedger::instance();
+                    $isRoot = $ledger->open();
 
-                    if ($result instanceof AggregateRoot) {
-                        foreach ($result->pullDomainEvents() as $event) {
-                            $this->eventBus->dispatch($event);
+                    try {
+                        $result = $handler($command);
+
+                        // Drain ONLY at the root scope: every aggregate touched by the
+                        // handler registered its events with the ledger, so dispatch no
+                        // longer depends on the handler's return value. Loop until empty —
+                        // in-process event handlers may record follow-on events mid-drain.
+                        if ($isRoot) {
+                            while ($ledger->hasPending()) {
+                                foreach ($ledger->drain() as $envelope) {
+                                    $this->eventBus->dispatch($envelope);
+                                }
+                            }
                         }
-                    }
 
-                    return $result;
+                        return $result;
+                    } finally {
+                        $ledger->close();
+                    }
                 });
             } catch (\Throwable $txException) {
                 if ($idempotencyKey !== null) {

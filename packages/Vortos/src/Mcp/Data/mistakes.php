@@ -14,9 +14,9 @@ return [
         'why'    => 'Kafka at-least-once delivery replays events on restart. insert() throws a duplicate key error on replay. upsert() is idempotent.',
     ],
     [
-        'wrong'  => 'void return from a command handler',
-        'right'  => 'return $aggregate from the command handler',
-        'why'    => 'The CommandBus calls pullDomainEvents() on the handler\'s return value. A void return silently drops all domain events — EventBus never sees them, outbox is never written.',
+        'wrong'  => 'foreach ($aggregate->pullDomainEvents() as $e) { $eventBus->dispatch($e); } inside a handler',
+        'right'  => 'Just record events in the aggregate — the DomainEventLedger collects every recordEvent() and the CommandBus dispatches them after the handler returns, whatever the handler returns.',
+        'why'    => 'The ledger already holds those events; dispatching them manually publishes each event twice. Return whatever the caller needs (void, a DTO, the aggregate) — the return value has no effect on event dispatch.',
     ],
     [
         'wrong'  => 'Calling $unitOfWork->run() inside a handler',

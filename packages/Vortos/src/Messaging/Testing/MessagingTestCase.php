@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Testing;
 
+use Vortos\Messaging\Definition\WireNaming;
 use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryBroker;
 use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryConsumer;
 use Vortos\Messaging\Driver\InMemory\Runtime\InMemoryProducer;
@@ -47,12 +48,21 @@ abstract class MessagingTestCase extends TestCase
         );
     }
 
-    protected function assertEventPublished(string $transportName, string $eventClass, ?callable $matcher = null):void
+    /**
+     * Asserts an event was produced to the transport.
+     *
+     * Accepts either the logical wire name ('registration.entry_approved' —
+     * what is actually on the wire) or, as a convenience, the event class,
+     * which is matched against its convention-derived wire name. Events
+     * published with an explicit publish(..., as: '...') must be asserted by
+     * that wire name.
+     */
+    protected function assertEventPublished(string $transportName, string $eventClassOrWireName, ?callable $matcher = null):void
     {
         $messages = $this->broker->all($transportName);
 
         foreach($messages as $message){
-            if(($message->headers['event_class'] ?? null) === $eventClass){
+            if($this->matchesWireType($message->headers['payload_type'] ?? '', $eventClassOrWireName)){
                 if($matcher === null || $matcher($message)){
                     $this->assertTrue(true);
                     return;
@@ -61,23 +71,32 @@ abstract class MessagingTestCase extends TestCase
         }
 
         $this->fail(
-            "Expected event '{$eventClass}' was not found on transport '{$transportName}'"
+            "Expected event '{$eventClassOrWireName}' was not found on transport '{$transportName}'"
         );
     }
 
-    protected function assertEventNotPublished(string $transportName, string $eventClass): void
+    protected function assertEventNotPublished(string $transportName, string $eventClassOrWireName): void
     {
         $messages = $this->broker->all($transportName);
 
         foreach ($messages as $message) {
-            if (($message->headers['event_class'] ?? null) === $eventClass) {
+            if ($this->matchesWireType($message->headers['payload_type'] ?? '', $eventClassOrWireName)) {
                 $this->fail(
-                    "Event '{$eventClass}' was found on transport '{$transportName}' but was not expected"
+                    "Event '{$eventClassOrWireName}' was found on transport '{$transportName}' but was not expected"
                 );
             }
         }
 
         $this->assertTrue(true);
+    }
+
+    private function matchesWireType(string $payloadTypeHeader, string $eventClassOrWireName): bool
+    {
+        [$wireName] = WireNaming::parse($payloadTypeHeader);
+
+        return $wireName === $eventClassOrWireName
+            || $payloadTypeHeader === $eventClassOrWireName
+            || $wireName === WireNaming::derive($eventClassOrWireName);
     }
 
     protected function consumeAll(string $consumerName, callable $handler): void

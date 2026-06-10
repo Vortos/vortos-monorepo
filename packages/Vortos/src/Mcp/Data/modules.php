@@ -6,7 +6,7 @@ return [
     'domain' => [
         'description' => 'Base classes for DDD/CQRS building blocks. No DI extension — pure PHP abstractions.',
         'provides'    => [
-            'AggregateRoot'  => 'Base class for all aggregates. recordEvent(object $payload) wraps the POPO in an EventEnvelope. pullDomainEvents() drains and returns EventEnvelope[].',
+            'AggregateRoot'  => 'Base class for all aggregates. recordEvent(object $payload) wraps the POPO in an EventEnvelope and registers it with the DomainEventLedger for automatic dispatch by the bus. pullDomainEvents() drains the aggregate-local buffer — testing/inspection only, never for dispatch.',
             'AggregateId'    => 'Base class for typed IDs. Wraps a UUID v7 string.',
             'EventEnvelope'  => 'Immutable wrapper produced by AggregateRoot::recordEvent(). Carries eventId, aggregateId, aggregateType, aggregateVersion, payloadType, schemaVersion, occurredAt, payload (POPO), and Metadata.',
             'Metadata'       => 'Value object inside EventEnvelope. Carries correlationId, causationId, traceId, tenantId, userId, and custom[].',
@@ -41,9 +41,11 @@ return [
         'description' => 'Event-driven messaging: Kafka producer/consumer, transactional outbox, dead letter queue, hooks, middleware.',
         'provides'    => [
             'EventBusInterface'      => 'dispatch(EventEnvelope): void — writes to outbox (default) or produces directly. dispatchBatch() for multiple envelopes.',
-            '#[RegisterProducer]'    => 'Attribute to register a Kafka producer definition on a MessagingConfig class.',
-            '#[RegisterConsumer]'    => 'Attribute to register a Kafka consumer definition on a MessagingConfig class.',
-            '#[AsEventHandler]'      => 'Attribute to register a Kafka event handler (consumer side). Handler method receives the POPO payload; optionally also EventEnvelope, Metadata, or header attributes.',
+            '#[RegisterProducer]'    => 'Attribute to register a Kafka producer definition on a MessagingConfig class. publishes(Event::class) declares wire contracts (logical name derived by convention: {module}.{snake_case_class}, v1); publish(Event::class, as: \'x.y\', version: N) pins a name or bumps the schema version.',
+            '#[RegisterConsumer]'    => 'Attribute to register a Kafka consumer definition on a MessagingConfig class. handles(\'wire.name\', LocalClass::class) maps a wire event to THIS module\'s contract class; upcast(\'wire.name\', from: 1, to: 2, upcaster: X::class) lifts old payload versions before hydration.',
+            '#[AsEventHandler]'      => 'Attribute to register a Kafka event handler (consumer side). Handler method receives the POPO payload; optionally also EventEnvelope, Metadata, or header attributes. event: \'wire.name\' maps a foreign wire event to the handler\'s parameter class (the consuming module\'s OWN contract class — never import the producer\'s domain event).',
+            'Wire contracts'         => 'payload_type on the wire is a logical name + version (registration.entry_approved.v1), NEVER a PHP class name. Consumers resolve names through a compiled closed-world map — a forged class name in a message is rejected, not instantiated. contracts.lock (vortos:contracts:lock/check) fails the build when a contract drifts without a version bump.',
+            'Env references'         => 'Env::string()/Env::int()/Env::bool()/Env::float() (Vortos\\Foundation\\Config\\Env) — typed env refs for definition values (dsn, partitions, replicationFactor, SASL credentials). Resolved by the container at runtime. NEVER read $_ENV in a MessagingConfig: it runs at compile time.',
             'Header injection'       => '#[MessageId], #[CorrelationId], #[CausationId], #[TraceId], #[Timestamp], #[TenantId], #[UserId], #[Header("name")] — inject specific envelope fields as handler parameters.',
             'OutboxRelayWorker'      => 'Polls vortos_outbox and produces pending messages to Kafka.',
             'DeadLetterWriter'       => 'Writes permanently failed consumer messages to vortos_failed_messages.',
@@ -68,6 +70,8 @@ return [
             'vortos:kafka:tail'         => 'Dev tool — stream raw Vortos events from a Kafka transport to the terminal. Payload is sanitized via PayloadSanitizerInterface. Args: <transport>. Flags: --brokers --group-id --from-beginning --limit. Verbose (-v) shows partition, offset, timestamp, all headers.',
             'vortos:consumer:tail'      => 'Dev tool (non-prod only) — observe a running consumer worker in real time via Redis pub/sub. Sets vortos:tail-ctrl:{consumer} Redis key; ConsumerTailControlHook on the worker polls for it and publishes per-handler events to vortos:tail:{consumer} channel. Ctrl+C deletes the key to deactivate. Shows per-handler outcomes (Succeeded/SucceededAfterRetries/SkippedIdempotent/DeadLettered/etc) with latency. Requires Redis cache driver. Args: <consumer>.',
             'vortos:consume --tail'     => 'Dev option on vortos:consume — activates ConsoleTailChannel for live per-handler output in the same process. Worker still runs normally; no Redis required.',
+            'vortos:contracts:lock'     => 'Snapshot all published wire contracts (name, version, ctor schema) into contracts.lock. Run after INTENTIONAL contract changes; commit the file.',
+            'vortos:contracts:check'    => 'Diff live wire contracts against contracts.lock; non-zero exit on drift. Run in CI. The same check runs at container compile (skip with VORTOS_CONTRACTS_SKIP_CHECK=1 for intentional re-locks).',
         ],
     ],
 

@@ -203,6 +203,9 @@ final class MessagingExtension extends Extension
     {
         $defaults = [
             'vortos.event_producer_map'              => [],
+            'vortos.event_wire_map'                  => [],
+            'vortos.wire_event_map'                  => [],
+            'vortos.upcaster_map'                    => [],
             'vortos.handlers'                        => [],
             'vortos.hooks'                           => [],
             'vortos.messaging.replay_secret_default' => '',
@@ -322,6 +325,19 @@ final class MessagingExtension extends Extension
                 ->addTag('console.command');
         }
 
+        // Autowiring cannot resolve array parameters — bind the contract map
+        // explicitly so DLQ replay only hydrates registered local classes.
+        $container->getDefinition(\Vortos\Messaging\Command\ReplayDeadLetterCommand::class)
+            ->setArgument('$wireEventMap', '%vortos.wire_event_map%');
+
+        foreach ([\Vortos\Messaging\Command\ContractsLockCommand::class, \Vortos\Messaging\Command\ContractsCheckCommand::class] as $contractCommand) {
+            $container->register($contractCommand, $contractCommand)
+                ->setArgument('$eventWireMap', '%vortos.event_wire_map%')
+                ->setArgument('$projectDir', '%kernel.project_dir%')
+                ->setPublic(true)
+                ->addTag('console.command');
+        }
+
         if (class_exists(\Vortos\Docker\Worker\WorkerProcessDefinition::class)) {
             $container->register('vortos_messaging.worker.outbox_relay', \Vortos\Docker\Worker\WorkerProcessDefinition::class)
                 ->setArguments([
@@ -354,6 +370,9 @@ final class MessagingExtension extends Extension
             ->setArgument('$handlerLocator', new Reference('vortos.handler_locator'))
             ->setArgument('$defaultIdempotencyTtl', $defaultIdempotencyTtl)
             ->setArgument('$hookRunner', new Reference(HookRunner::class))
+            ->setArgument('$eventBus', new Reference(EventBusInterface::class))
+            ->setArgument('$wireEventMap', '%vortos.wire_event_map%')
+            ->setArgument('$upcasterMap', '%vortos.upcaster_map%')
             ->setPublic(false);
 
         $container->setAlias(ConsumerRunnerInterface::class, ConsumerRunner::class)
@@ -367,6 +386,7 @@ final class MessagingExtension extends Extension
             ->setAutoconfigured(true)
             ->setArgument('$eventProducerMap', '%vortos.event_producer_map%')
             ->setArgument('$consumerRegistry', new Reference(ConsumerRegistry::class))
+            ->setArgument('$eventWireMap', '%vortos.event_wire_map%')
             ->setPublic(false);
 
         $container->setAlias(EventBusInterface::class, EventBus::class)
@@ -474,6 +494,7 @@ final class MessagingExtension extends Extension
         $container->register(OutboxWriter::class, OutboxWriter::class)
             ->setAutowired(true)
             ->setArgument('$table', $outboxConfig['table'])
+            ->setArgument('$eventWireMap', '%vortos.event_wire_map%')
             ->setPublic(false);
 
         $container->setAlias(OutboxInterface::class, OutboxWriter::class)
@@ -493,6 +514,7 @@ final class MessagingExtension extends Extension
         $container->register(OutboxRelayWorker::class, OutboxRelayWorker::class)
             ->setAutowired(true)
             ->setAutoconfigured(true)
+            ->setArgument('$eventWireMap', '%vortos.event_wire_map%')
             ->setPublic(false);
 
         $container->register(OutboxRelayRunner::class, OutboxRelayRunner::class)

@@ -55,10 +55,32 @@ abstract class AbstractProducerDefinition
      * Used by EventBus to resolve the correct producer at dispatch time.
      * Event classes must be final (pure POPOs — no base class required).
      * Validated by the compiler pass at container compile time.
+     *
+     * The wire name is derived by convention ({module}.{snake_case_class},
+     * version 1) — see WireNaming. Use publish() to pin an explicit name or
+     * bump the version.
      */
     public function publishes(string ...$eventClasses): static
     {
-        $this->publishedEvents = $eventClasses;
+        foreach ($eventClasses as $eventClass) {
+            $this->publishedEvents[$eventClass] = ['as' => null, 'version' => 1];
+        }
+        return $this;
+    }
+
+    /**
+     * Declares a single published event with an explicit wire name and/or
+     * schema version.
+     *
+     *   ->publish(EntryApproved::class, as: 'registration.entry_approved')
+     *   ->publish(EntryApproved::class, version: 2)   // contract changed — add an upcaster
+     *
+     * Pin `as:` when renaming/moving the class so the wire name stays stable;
+     * bump `version:` whenever the payload shape changes.
+     */
+    public function publish(string $eventClass, ?string $as = null, int $version = 1): static
+    {
+        $this->publishedEvents[$eventClass] = ['as' => $as, 'version' => $version];
         return $this;
     }
 
@@ -72,8 +94,23 @@ abstract class AbstractProducerDefinition
         return $this;
     }
 
-    /** Returns the list of event classes this producer is responsible for routing. */
+    /**
+     * Returns the list of event classes this producer is responsible for routing.
+     *
+     * @return list<class-string>
+     */
     public function getPublishedEvents(): array
+    {
+        return array_keys($this->publishedEvents);
+    }
+
+    /**
+     * Returns the full contract declarations: class → ['as' => ?string, 'version' => int].
+     * Consumed by the compiler pass to build the wire name maps.
+     *
+     * @return array<class-string, array{as: ?string, version: int}>
+     */
+    public function getPublishedContracts(): array
     {
         return $this->publishedEvents;
     }

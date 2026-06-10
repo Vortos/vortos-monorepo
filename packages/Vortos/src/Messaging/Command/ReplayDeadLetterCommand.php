@@ -51,6 +51,8 @@ final class ReplayDeadLetterCommand extends Command
         private HandlerRegistry $handlerRegistry,
         private TransportRegistry $transportRegistry,
         private LoggerInterface $logger,
+        /** @var array<string, class-string> logical wire name → local contract class */
+        private array $wireEventMap = [],
     ) {
         parent::__construct();
     }
@@ -193,6 +195,14 @@ final class ReplayDeadLetterCommand extends Command
                     $headers['x-vortos-replay-sig']     = $this->replaySecret !== ''
                         ? hash_hmac('sha256', $row['handler_id'], $this->replaySecret)
                         : '';
+                }
+
+                // Closed world: only classes registered as local contracts may be
+                // hydrated. A tampered DLQ row naming an arbitrary class is refused.
+                if (!in_array($row['event_class'], $this->wireEventMap, true)) {
+                    throw new \UnexpectedValueException(
+                        "Stored event class '{$row['event_class']}' is not a registered wire contract — refusing to instantiate."
+                    );
                 }
 
                 $event = $serializer->deserialize($row['payload'], $row['event_class']);

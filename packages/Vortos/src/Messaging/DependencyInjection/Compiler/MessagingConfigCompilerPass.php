@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\DependencyInjection\Compiler;
 
+use Vortos\Foundation\Config\Env;
 use Vortos\Messaging\Attribute\RegisterConsumer;
 use Vortos\Messaging\Attribute\RegisterProducer;
 use Vortos\Messaging\Attribute\RegisterTransport;
 use Vortos\Messaging\Definition\Consumer\AbstractConsumerDefinition;
 use Vortos\Messaging\Definition\Producer\AbstractProducerDefinition;
 use Vortos\Messaging\Definition\Transport\AbstractTransportDefinition;
+use Vortos\Messaging\Contracts\ContractLock;
+use Vortos\Messaging\Definition\WireNaming;
+use Vortos\Messaging\Upcasting\UpcasterInterface;
 use LogicException;
 use ReflectionClass;
 use ReflectionMethod;
@@ -58,21 +62,153 @@ final class MessagingConfigCompilerPass implements CompilerPassInterface
         $this->validateReferences($transportDefinitions, $producerDefinitions, $consumerDefinitions);
 
         $eventProducerMap = [];
+        $eventWireMap     = [];  // class → ['name' => logical name, 'version' => int]   (producer side)
+        $wireEventMap     = [];  // logical name → local contract class                  (consumer side)
+        $nameOwners       = [];  // logical name → declaring class, for global uniqueness
+
         foreach ($producerDefinitions as $producerName => $producer) {
-            foreach ($producer->getPublishedEvents() as $eventClass) {
+            foreach ($producer->getPublishedContracts() as $eventClass => $contract) {
                 if (isset($eventProducerMap[$eventClass])) {
                     throw new \LogicException(
                         "Event '{$eventClass}' is mapped to multiple producers: '{$eventProducerMap[$eventClass]}' and '{$producerName}'. Each event class can only be produced by one producer."
                     );
                 }
                 $eventProducerMap[$eventClass] = $producerName;
+
+                if ($contract['as'] !== null && !WireNaming::isValidName($contract['as'])) {
+                    throw new \LogicException(
+                        "Producer '{$producerName}' declares invalid wire name '{$contract['as']}' for '{$eventClass}'. Use dot-separated lowercase segments, e.g. 'registration.entry_approved'."
+                    );
+                }
+
+                $wireName = $contract['as'] ?? WireNaming::derive($eventClass);
+
+                if (isset($nameOwners[$wireName]) && $nameOwners[$wireName] !== $eventClass) {
+                    throw new \LogicException(
+                        "Wire event name '{$wireName}' is declared by both '{$nameOwners[$wireName]}' and '{$eventClass}'. Wire names must be globally unique — pin one with publish(..., as: '...')."
+                    );
+                }
+
+                $nameOwners[$wireName] = $eventClass;
+                $eventWireMap[$eventClass] = ['name' => $wireName, 'version' => $contract['version']];
+                // Same-process consumption default: the producer's class doubles as
+                // the local contract unless a consumer declares its own below.
+                $wireEventMap[$wireName] = $eventClass;
             }
         }
-  
-        $container->setParameter('vortos.transports', array_map(fn($d) => $d->toArray(), $transportDefinitions));
-        $container->setParameter('vortos.producers', array_map(fn($d) => $d->toArray(), $producerDefinitions));
-        $container->setParameter('vortos.consumers', array_map(fn($d) => $d->toArray(), $consumerDefinitions));
+
+        $upcasterMap = [];  // wire name → [fromVersion => upcaster class]
+
+        foreach ($consumerDefinitions as $consumerName => $consumer) {
+            foreach ($consumer->getContracts() as $wireName => $localClass) {
+                if (!class_exists($localClass)) {
+                    throw new \LogicException(
+                        "Consumer '{$consumerName}' maps wire event '{$wireName}' to '{$localClass}' but the class does not exist."
+                    );
+                }
+                // Explicit handles() wins over the producer-derived default —
+                // this is exactly how a module declares its OWN contract class.
+                $wireEventMap[$wireName] = $localClass;
+            }
+
+            foreach ($consumer->getUpcasters() as $wireName => $steps) {
+                foreach ($steps as $fromVersion => $upcasterClass) {
+                    if (!class_exists($upcasterClass)) {
+                        throw new \LogicException(
+                            "Consumer '{$consumerName}' registers upcaster '{$upcasterClass}' for '{$wireName}' v{$fromVersion} but the class does not exist."
+                        );
+                    }
+                    if (!is_subclass_of($upcasterClass, UpcasterInterface::class)) {
+                        throw new \LogicException(
+                            "Upcaster '{$upcasterClass}' for '{$wireName}' must implement " . UpcasterInterface::class . '.'
+                        );
+                    }
+                    $ctor = (new ReflectionClass($upcasterClass))->getConstructor();
+                    if ($ctor !== null && $ctor->getNumberOfRequiredParameters() > 0) {
+                        throw new \LogicException(
+                            "Upcaster '{$upcasterClass}' must have a dependency-free constructor — upcasters are pure array transforms instantiated by the runtime."
+                        );
+                    }
+                    if (isset($upcasterMap[$wireName][$fromVersion]) && $upcasterMap[$wireName][$fromVersion] !== $upcasterClass) {
+                        throw new \LogicException(
+                            "Conflicting upcasters for '{$wireName}' v{$fromVersion}: '{$upcasterMap[$wireName][$fromVersion]}' and '{$upcasterClass}'."
+                        );
+                    }
+                    $upcasterMap[$wireName][$fromVersion] = $upcasterClass;
+                }
+            }
+        }
+
+        $container->setParameter('vortos.transports', $this->resolveEnvReferences(array_map(fn($d) => $d->toArray(), $transportDefinitions), $container));
+        $container->setParameter('vortos.producers', $this->resolveEnvReferences(array_map(fn($d) => $d->toArray(), $producerDefinitions), $container));
+        $container->setParameter('vortos.consumers', $this->resolveEnvReferences(array_map(fn($d) => $d->toArray(), $consumerDefinitions), $container));
         $container->setParameter('vortos.event_producer_map', $eventProducerMap);
+        $container->setParameter('vortos.event_wire_map', $eventWireMap);
+        $container->setParameter('vortos.wire_event_map', $wireEventMap);
+        $container->setParameter('vortos.upcaster_map', $upcasterMap);
+
+        $this->checkContractLock($container, $eventWireMap);
+    }
+
+    /**
+     * Compile-time contract drift check: if a contracts.lock exists, any
+     * mismatch between it and the live publishes() declarations FAILS THE
+     * BUILD. This is what makes convention-derived wire names safe — renaming
+     * an event class or changing its payload without a version bump becomes a
+     * compile error instead of silently breaking consumers and in-flight
+     * messages.
+     *
+     * Intentional changes: set VORTOS_CONTRACTS_SKIP_CHECK=1, rebuild, run
+     * `vortos:contracts:lock`, commit the lockfile.
+     */
+    private function checkContractLock(ContainerBuilder $container, array $eventWireMap): void
+    {
+        if (($_ENV['VORTOS_CONTRACTS_SKIP_CHECK'] ?? getenv('VORTOS_CONTRACTS_SKIP_CHECK') ?: '') !== '') {
+            return;
+        }
+
+        if (!$container->hasParameter('kernel.project_dir')) {
+            return;
+        }
+
+        $locked = ContractLock::load($container->getParameter('kernel.project_dir') . '/' . ContractLock::FILENAME);
+
+        if ($locked === null) {
+            return; // no lockfile yet — vortos:contracts:lock creates the baseline
+        }
+
+        $findings = ContractLock::diff($locked, ContractLock::compute($eventWireMap));
+
+        if ($findings !== []) {
+            throw new LogicException(
+                "Wire contract drift detected (contracts.lock):\n  - " . implode("\n  - ", $findings)
+                . "\nIf the change is intentional: VORTOS_CONTRACTS_SKIP_CHECK=1 to build, then run vortos:contracts:lock and commit."
+            );
+        }
+    }
+
+    /**
+     * Recursively converts Env references in definition arrays to
+     * '%env(...)%' placeholders, registering each declared default as the
+     * container parameter the placeholder's `default:` processor reads.
+     * The container resolves the placeholders at runtime, so typed settings
+     * (partitions, replication factor) follow the exact same env path as
+     * string DSNs — no $_ENV reads at compile time anywhere.
+     */
+    private function resolveEnvReferences(mixed $value, ContainerBuilder $container): mixed
+    {
+        if ($value instanceof Env) {
+            if ($value->hasDefault() && !$container->hasParameter($value->defaultParameterName())) {
+                $container->setParameter($value->defaultParameterName(), $value->default);
+            }
+            return $value->toPlaceholder();
+        }
+
+        if (is_array($value)) {
+            return array_map(fn($v) => $this->resolveEnvReferences($v, $container), $value);
+        }
+
+        return $value;
     }
 
     private function processMethod(ReflectionMethod $method, object $configInstance, array &$transportDefinitions, array &$producerDefinitions, array &$consumerDefinitions): void

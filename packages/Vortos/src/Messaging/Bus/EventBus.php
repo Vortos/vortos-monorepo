@@ -17,6 +17,7 @@ use Vortos\Messaging\Bus\Stamp\TimestampStamp;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Messaging\Contract\OutboxInterface;
 use Vortos\Messaging\Contract\ProducerInterface;
+use Vortos\Messaging\Definition\WireNaming;
 use Vortos\Messaging\Hook\HookRunner;
 use Vortos\Messaging\Registry\ConsumerRegistry;
 use Vortos\Messaging\Registry\HandlerRegistry;
@@ -57,6 +58,8 @@ final class EventBus implements EventBusInterface
         private LoggerInterface $logger,
         private ?TracingInterface $tracer,
         private ConsumerRegistry $consumerRegistry,
+        /** @var array<class-string, array{name: string, version: int}> class → wire contract, from publishes() */
+        private array $eventWireMap = [],
     ) {
         $this->inProcessPayloadTypes = $this->buildInProcessPayloadTypeIndex();
     }
@@ -148,17 +151,27 @@ final class EventBus implements EventBusInterface
      * Translate envelope fields into wire headers used by producers and
      * inspected by hooks. PreSend hooks may mutate this array before send.
      *
+     * payload_type on the wire is the LOGICAL contract name + version
+     * (e.g. 'registration.entry_approved.v1') — never a PHP class name.
+     * In-process, payloadType stays the FQCN; mapping happens only here, at
+     * the wire boundary. Events without a wire contract (in-process only, no
+     * producer registered) keep the FQCN — they never reach a broker.
+     *
      * @return array<string, string>
      */
     private function headersFromEnvelope(EventEnvelope $envelope): array
     {
+        $wire          = $this->eventWireMap[$envelope->payloadType] ?? null;
+        $wirePayload   = $wire !== null ? WireNaming::format($wire['name'], $wire['version']) : $envelope->payloadType;
+        $schemaVersion = $wire['version'] ?? $envelope->schemaVersion;
+
         return [
             'event_id'          => $envelope->eventId,
-            'payload_type'      => $envelope->payloadType,
+            'payload_type'      => $wirePayload,
             'aggregate_id'      => $envelope->aggregateId,
             'aggregate_type'    => $envelope->aggregateType,
             'aggregate_version' => (string) $envelope->aggregateVersion,
-            'schema_version'    => (string) $envelope->schemaVersion,
+            'schema_version'    => (string) $schemaVersion,
             'occurred_at'       => $envelope->occurredAt->format(DateTimeInterface::ATOM),
             'correlation_id'    => $envelope->metadata->correlationId ?? '',
             'causation_id'      => $envelope->metadata->causationId ?? '',

@@ -32,6 +32,8 @@ final class OutboxWriter implements OutboxInterface
         private SerializerLocator $serializerLocator,
         private string $table = 'messaging_outbox',
         private ?ActiveTransactionGuard $transactionGuard = null,
+        /** @var array<class-string, array{name: string, version: int}> class → wire contract, from publishes() */
+        private array $eventWireMap = [],
     ) {}
 
     public function store(EventEnvelope $envelope, string $transportName): void
@@ -65,7 +67,7 @@ final class OutboxWriter implements OutboxInterface
                 'aggregate_type'    => $envelope->aggregateType,
                 'aggregate_version' => $envelope->aggregateVersion,
                 'payload_type'      => $envelope->payloadType,
-                'schema_version'    => $envelope->schemaVersion,
+                'schema_version'    => $this->eventWireMap[$envelope->payloadType]['version'] ?? $envelope->schemaVersion,
                 'occurred_at'       => $envelope->occurredAt->format('Y-m-d H:i:s'),
                 'correlation_id'    => $envelope->metadata->correlationId,
                 'causation_id'      => $envelope->metadata->causationId,

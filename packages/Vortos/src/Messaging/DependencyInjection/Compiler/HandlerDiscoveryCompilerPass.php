@@ -136,6 +136,58 @@ final class HandlerDiscoveryCompilerPass implements CompilerPassInterface
 
         $handlers[$attribute->consumer][$eventClass][] = $descriptor;
         $container->setParameter('vortos.handlers', $handlers);
+
+        $this->registerWireMapping($container, $attribute, $eventClass, $context);
+    }
+
+    /**
+     * Merges #[AsEventHandler(event: '...')] declarations into the global
+     * wire-name → local-class map. The handler's parameter type IS the local
+     * contract class the wire payload deserializes into — the consuming
+     * module's own class, never the producer's.
+     */
+    private function registerWireMapping(
+        ContainerBuilder $container,
+        AsEventHandler $attribute,
+        string $eventClass,
+        string $context,
+    ): void {
+        if ($attribute->event === null) {
+            return;
+        }
+
+        $wireEventMap = $container->hasParameter('vortos.wire_event_map')
+            ? $container->getParameter('vortos.wire_event_map')
+            : [];
+
+        $existing = $wireEventMap[$attribute->event] ?? null;
+
+        if ($existing !== null && $existing !== $eventClass) {
+            // A producer-derived default is overridden silently (that is the
+            // point: the consumer declares its own contract). But two handlers
+            // claiming the same wire name with DIFFERENT local classes is a
+            // real conflict the build must reject — unless one comes from an
+            // explicit handles() declaration, which we cannot distinguish here,
+            // so the rule is: handler declarations must agree with whatever is
+            // already registered, except when overriding a producer default.
+            $eventWireMap = $container->hasParameter('vortos.event_wire_map')
+                ? $container->getParameter('vortos.event_wire_map')
+                : [];
+            $isProducerDefault = ($eventWireMap[$existing]['name'] ?? null) === $attribute->event;
+
+            if (!$isProducerDefault) {
+                throw new LogicException(sprintf(
+                    "Handler '%s' maps wire event '%s' to '%s' but it is already mapped to '%s'. A wire name resolves to exactly one local class per process.",
+                    $context,
+                    $attribute->event,
+                    $eventClass,
+                    $existing,
+                ));
+            }
+        }
+
+        $wireEventMap[$attribute->event] = $eventClass;
+        $container->setParameter('vortos.wire_event_map', $wireEventMap);
     }
 
     /**

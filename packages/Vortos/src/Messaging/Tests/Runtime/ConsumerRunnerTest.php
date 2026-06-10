@@ -38,6 +38,16 @@ final readonly class RunnerTestPayload
     ) {}
 }
 
+final class RunnerRenameValueUpcaster implements \Vortos\Messaging\Upcasting\UpcasterInterface
+{
+    public function upcast(array $payload): array
+    {
+        $payload['value'] = $payload['old_value'] ?? '';
+        unset($payload['old_value']);
+        return $payload;
+    }
+}
+
 /**
  * Fake ConsumerInterface: delivers a single message then stops.
  */
@@ -79,10 +89,13 @@ final class ConsumerRunnerTest extends TestCase
         );
     }
 
+    /** Logical wire name mapped to the local test payload class. */
+    private const WIRE_NAME = 'messaging.runner_test_payload';
+
     private function baseHeaders(): array
     {
         return [
-            'payload_type'      => RunnerTestPayload::class,
+            'payload_type'      => self::WIRE_NAME . '.v1',
             'event_id'          => 'evt-00000000-0000-7000-8000-000000000001',
             'aggregate_id'      => 'agg-001',
             'aggregate_type'    => 'TestAggregate',
@@ -114,6 +127,8 @@ final class ConsumerRunnerTest extends TestCase
         array $handlers = [],
         SerializerInterface $serializer = null,
         int $idempotencyTtl = 86400,
+        ?array $wireEventMap = null,
+        array $upcasterMap = [],
     ): ConsumerRunner {
         $cache = new class implements AtomicCacheInterface {
             public function get($key, $default = null): mixed { return $default; }
@@ -151,6 +166,8 @@ final class ConsumerRunnerTest extends TestCase
             retryDecider:         new RetryDecider(new RetryDelayCalculator()),
             consumerRegistry:     $consumers,
             defaultIdempotencyTtl: $idempotencyTtl,
+            wireEventMap:         $wireEventMap ?? [self::WIRE_NAME => RunnerTestPayload::class],
+            upcasterMap:          $upcasterMap,
         );
     }
 
@@ -165,22 +182,106 @@ final class ConsumerRunnerTest extends TestCase
         $this->assertFalse($consumer->acknowledged);
     }
 
-    public function test_accepts_legacy_event_class_header_as_payload_type(): void
+    public function test_rejects_unknown_wire_contract_without_instantiating(): void
     {
-        $headers  = ['event_class' => RunnerTestPayload::class] + array_diff_key($this->baseHeaders(), ['payload_type' => null]);
-        unset($headers['payload_type']);
+        // payload_type names a contract no consumer declared — closed world.
+        $headers = $this->baseHeaders();
+        $headers['payload_type'] = 'rogue.unknown_event.v1';
 
-        $called   = false;
-        $handler  = new class($called) {
-            public function __construct(private bool &$called) {}
-            public function __invoke(RunnerTestPayload $p): void { $this->called = true; }
+        $consumer = new SingleMessageConsumer($this->makeMessage($headers));
+        $registry = new HandlerRegistry([]);
+
+        $this->makeRunner($registry, new ConsumerRegistry([]), $consumer)->run('c');
+
+        $this->assertTrue($consumer->rejected);
+        $this->assertFalse($consumer->acknowledged);
+    }
+
+    public function test_forged_fqcn_payload_type_is_rejected_not_instantiated(): void
+    {
+        // Security regression: the wire can no longer select a PHP class.
+        // A forged FQCN — even one that exists and is a registered LOCAL class —
+        // is not a logical name in the map and must be refused before any
+        // deserialization happens.
+        $headers = $this->baseHeaders();
+        $headers['payload_type'] = RunnerTestPayload::class;
+
+        $serializer = new class implements SerializerInterface {
+            public bool $deserializeCalled = false;
+            public function supports(string $format): bool { return true; }
+            public function serialize(object $payload): string { return '{}'; }
+            public function deserialize(string $payload, string $payloadClass): object
+            {
+                $this->deserializeCalled = true;
+                return new RunnerTestPayload();
+            }
+        };
+
+        $consumer = new SingleMessageConsumer($this->makeMessage($headers));
+        $registry = new HandlerRegistry([]);
+
+        $this->makeRunner($registry, new ConsumerRegistry([]), $consumer, serializer: $serializer)->run('c');
+
+        $this->assertTrue($consumer->rejected);
+        $this->assertFalse($serializer->deserializeCalled, 'Nothing may be hydrated from an unmapped payload_type');
+    }
+
+    public function test_upcaster_chain_lifts_old_payload_before_hydration(): void
+    {
+        $headers = $this->baseHeaders();
+        $headers['payload_type'] = self::WIRE_NAME . '.v1';
+
+        $captured = null;
+        $handler  = new class($captured) {
+            public function __construct(private mixed &$captured) {}
+            public function __invoke(RunnerTestPayload $p, EventEnvelope $envelope): void
+            {
+                $this->captured = [$p, $envelope];
+            }
         };
 
         $registry = new HandlerRegistry([]);
         $registry->registerHandler('c', RunnerTestPayload::class, [
             'handlerId' => 'h', 'serviceId' => 'svc', 'method' => '__invoke',
             'priority' => 0, 'idempotent' => true, 'isProjection' => false,
-            'parameters' => [['type' => 'event']],
+            'parameters' => [['type' => 'event'], ['type' => 'envelope']],
+        ]);
+
+        $consumer = new SingleMessageConsumer($this->makeMessage($headers, payload: '{"old_value":"upcasted"}'));
+        $this->makeRunner(
+            $registry,
+            new ConsumerRegistry(['c' => ['inProcess' => true]]),
+            $consumer,
+            ['svc' => $handler],
+            serializer: new \Vortos\Messaging\Serializer\JsonSerializer(),
+            upcasterMap: [self::WIRE_NAME => [1 => RunnerRenameValueUpcaster::class]],
+        )->run('c');
+
+        [$payload, $envelope] = $captured;
+        $this->assertSame('upcasted', $payload->value, 'v1 payload must be lifted to v2 shape before hydration');
+        $this->assertSame(2, $envelope->schemaVersion, 'Envelope reflects the post-upcast version');
+        $this->assertTrue($consumer->acknowledged);
+    }
+
+    public function test_version_suffix_is_parsed_into_envelope_schema_version(): void
+    {
+        $headers = $this->baseHeaders();
+        $headers['payload_type'] = self::WIRE_NAME . '.v3';
+
+        $captured = null;
+        $handler  = new class($captured) {
+            public function __construct(private mixed &$captured) {}
+            public function __invoke(RunnerTestPayload $p, EventEnvelope $envelope): void
+            {
+                $this->captured = $envelope;
+            }
+        };
+
+        $registry = new HandlerRegistry([]);
+        $registry->registerHandler('c', RunnerTestPayload::class, [
+            'handlerId' => 'h', 'serviceId' => 'svc', 'method' => '__invoke',
+            'priority' => 0, 'idempotent' => true, 'isProjection' => false,
+            'parameters' => [['type' => 'event'], ['type' => 'envelope']],
         ]);
 
         $consumer = new SingleMessageConsumer($this->makeMessage($headers));
@@ -191,8 +292,8 @@ final class ConsumerRunnerTest extends TestCase
             ['svc' => $handler],
         )->run('c');
 
-        $this->assertTrue($called);
-        $this->assertTrue($consumer->acknowledged);
+        $this->assertSame(3, $captured->schemaVersion);
+        $this->assertSame(RunnerTestPayload::class, $captured->payloadType, 'Envelope carries the LOCAL class in-process');
     }
 
     public function test_acknowledges_when_no_handlers_registered(): void

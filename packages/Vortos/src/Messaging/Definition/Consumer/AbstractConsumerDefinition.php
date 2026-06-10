@@ -26,6 +26,12 @@ abstract class AbstractConsumerDefinition
     protected string $dlqTransport = '';
     protected ?int $idempotencyTtl = null;
 
+    /** @var array<string, class-string> wire name → local contract class */
+    protected array $contracts = [];
+
+    /** @var array<string, array<int, class-string>> wire name → [fromVersion => upcaster class] */
+    protected array $upcasters = [];
+
     protected function __construct(string $transportName)
     {
         $this->transportName = $transportName;
@@ -111,6 +117,64 @@ abstract class AbstractConsumerDefinition
     {
         $this->dlqTransport = $dlqTransportName;
         return $this;
+    }
+
+    /**
+     * Maps a logical wire event name to THIS consumer's local contract class.
+     *
+     *   ->handles('registration.entry_approved', EntryApproved::class)
+     *   // EntryApproved here is the consuming module's OWN class — never an
+     *   // import from the producing module's domain.
+     *
+     * Usually unnecessary: handlers declare the mapping via
+     * #[AsEventHandler(event: '...')] and the parameter type. Use this for
+     * handler-less consumers (projections) or to override.
+     */
+    public function handles(string $wireName, string $localClass): static
+    {
+        $this->contracts[$wireName] = $localClass;
+        return $this;
+    }
+
+    /**
+     * Explicit wire-name → local class mappings declared on this consumer.
+     *
+     * @return array<string, class-string>
+     */
+    public function getContracts(): array
+    {
+        return $this->contracts;
+    }
+
+    /**
+     * Registers an upcaster transforming this wire event's payload from one
+     * schema version to the next, applied before hydration:
+     *
+     *   ->upcast('registration.entry_approved', from: 1, to: 2, upcaster: EntryApprovedV1ToV2::class)
+     *
+     * Old messages already in topics/outbox/DLQ keep working after a contract
+     * version bump — the chain lifts them to the shape this consumer speaks.
+     */
+    public function upcast(string $wireName, int $from, int $to, string $upcaster): static
+    {
+        if ($to !== $from + 1) {
+            throw new \LogicException(
+                "Upcaster for '{$wireName}' must advance exactly one version (from {$from} to " . ($from + 1) . "), got to: {$to}. Chain single steps instead."
+            );
+        }
+
+        $this->upcasters[$wireName][$from] = $upcaster;
+        return $this;
+    }
+
+    /**
+     * Registered upcasters: wireName → [fromVersion => upcaster class].
+     *
+     * @return array<string, array<int, class-string>>
+     */
+    public function getUpcasters(): array
+    {
+        return $this->upcasters;
     }
 
     /** Returns normalized configuration array consumed by the runtime consumer factory. */

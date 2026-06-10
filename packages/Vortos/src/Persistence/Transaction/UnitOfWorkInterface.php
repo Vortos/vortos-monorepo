@@ -20,14 +20,14 @@ namespace Vortos\Persistence\Transaction;
  * Exposing them would allow callers to open transactions they never close,
  * or commit work that should have been rolled back. run() is the only safe API.
  *
- * ## Usage in ApplicationService
+ * ## Usage
  *
  *   $this->unitOfWork->run(function() use ($command) {
  *       $user = User::register($command->email);
  *       $this->userRepository->save($user);
- *       foreach ($user->pullDomainEvents() as $event) {
- *           $this->outboxWriter->store($event, 'user.events');
- *       }
+ *       // recorded events are collected by the DomainEventLedger and
+ *       // dispatched by the owning bus inside this same transaction —
+ *       // never write them to the outbox manually
  *   });
  *
  * The aggregate save and outbox write are atomic — both commit or both roll back.

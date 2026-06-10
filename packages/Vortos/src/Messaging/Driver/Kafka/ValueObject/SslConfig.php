@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Driver\Kafka\ValueObject;
 
+use Vortos\Foundation\Config\Env;
+
 /**
  * SSL/TLS configuration for encrypted Kafka broker connections.
  *
@@ -19,10 +21,10 @@ namespace Vortos\Messaging\Driver\Kafka\ValueObject;
  */
 final class SslConfig
 {
-    private ?string $caLocation = null;
-    private ?string $certificateLocation = null;
-    private ?string $keyLocation = null;
-    private ?string $keyPassword = null;
+    private string|Env|null $caLocation = null;
+    private string|Env|null $certificateLocation = null;
+    private string|Env|null $keyLocation = null;
+    private string|Env|null $keyPassword = null;
     private bool $verifyPeerEnabled = true;
 
     private function __construct() {}
@@ -36,7 +38,7 @@ final class SslConfig
      * Path to the CA certificate file used to verify the broker's identity.
      * Required for connecting to public/cloud Kafka clusters (MSK, Confluent Cloud).
      */
-    public function ca(string $path): self
+    public function ca(string|Env $path): self
     {
         $this->caLocation = $path;
         return $this;
@@ -46,7 +48,7 @@ final class SslConfig
      * Path to the client certificate file for mTLS authentication.
      * Only required when the broker demands client certificate verification.
      */
-    public function cert(string $path): self
+    public function cert(string|Env $path): self
     {
         $this->certificateLocation = $path;
         return $this;
@@ -56,7 +58,7 @@ final class SslConfig
      * Path to the client private key file for mTLS authentication.
      * Optionally provide a password if the key file is encrypted.
      */
-    public function key(string $path, ?string $password = null): self
+    public function key(string|Env $path, string|Env|null $password = null): self
     {
         $this->keyLocation = $path;
         $this->keyPassword = $password;

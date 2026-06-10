@@ -4,30 +4,40 @@ declare(strict_types=1);
 
 namespace Vortos\Paddle\Tests\Webhook;
 
-use Doctrine\DBAL\Connection;
-use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Vortos\Http\Request;
-use Vortos\Paddle\Exception\WebhookIpException;
 use Vortos\Paddle\Exception\WebhookReplayException;
 use Vortos\Paddle\Exception\WebhookSignatureException;
+use Vortos\Paddle\Inbox\PaddleInboxWriterInterface;
 use Vortos\Paddle\Webhook\PaddleWebhookController;
-use Vortos\Paddle\Webhook\PaddleWebhookDispatcher;
-use Vortos\Paddle\Webhook\WebhookEventFactory;
-use Vortos\Paddle\Webhook\WebhookIdempotencyStore;
 use Vortos\Paddle\Webhook\WebhookIpGuard;
 use Vortos\Paddle\Webhook\WebhookVerifierInterface;
 
+/** In-memory inbox: records accepts, reports duplicates by event_id. */
+final class FakeInboxWriter implements PaddleInboxWriterInterface
+{
+    /** @var array<string, array{eventType: string, payload: array, occurredAt: ?\DateTimeImmutable}> */
+    public array $accepted = [];
+
+    public function accept(string $eventId, string $eventType, array $payload, ?\DateTimeImmutable $occurredAt): bool
+    {
+        if (isset($this->accepted[$eventId])) {
+            return false;
+        }
+
+        $this->accepted[$eventId] = ['eventType' => $eventType, 'payload' => $payload, 'occurredAt' => $occurredAt];
+        return true;
+    }
+}
+
 final class PaddleWebhookControllerTest extends TestCase
 {
-    private const SECRET = 'test_secret';
+    private FakeInboxWriter $inbox;
 
-    private function makeSignatureHeader(string $body): string
+    protected function setUp(): void
     {
-        $ts = time();
-        $h1 = hash_hmac('sha256', $ts . ':' . $body, self::SECRET);
-        return sprintf('ts=%d;h1=%s', $ts, $h1);
+        $this->inbox = new FakeInboxWriter();
     }
 
     private function passingVerifier(): WebhookVerifierInterface
@@ -49,44 +59,22 @@ final class PaddleWebhookControllerTest extends TestCase
         };
     }
 
-    private function makeIdempotencyStore(bool $alreadyProcessed = false): WebhookIdempotencyStore
-    {
-        $connection = $this->createMock(Connection::class);
-
-        if (!$alreadyProcessed) {
-            $connection->method('fetchOne')->willReturn('0');
-            $connection->method('executeStatement')->willReturn(1);
-        } else {
-            $connection->method('fetchOne')->willReturn('1');
-        }
-
-        return new WebhookIdempotencyStore($connection, 'paddle_webhook_idempotency', 259200);
-    }
-
     private function makeController(
         ?WebhookVerifierInterface $verifier = null,
         bool                      $ipAllowlistEnabled = false,
-        bool                      $alreadyProcessed = false,
     ): PaddleWebhookController {
         return new PaddleWebhookController(
             verifier: $verifier ?? $this->passingVerifier(),
             ipGuard: new WebhookIpGuard(enabled: $ipAllowlistEnabled, allowSandboxIps: false),
-            idempotencyStore: $this->makeIdempotencyStore($alreadyProcessed),
-            eventFactory: new WebhookEventFactory(),
-            dispatcher: new PaddleWebhookDispatcher([], new NullLogger()),
+            inboxWriter: $this->inbox,
             logger: new NullLogger(),
             webhookPath: '/webhooks/paddle',
         );
     }
 
-    private function makeRequest(array $body, string $signatureHeader = ''): Request
+    private function makeRequest(array $body): Request
     {
-        $json    = json_encode($body);
-        $request = Request::create('/webhooks/paddle', 'POST', content: $json);
-        if ($signatureHeader !== '') {
-            $request->headers->set('Paddle-Signature', $signatureHeader);
-        }
-        return $request;
+        return Request::create('/webhooks/paddle', 'POST', content: json_encode($body));
     }
 
     private function validPayload(): array
@@ -100,89 +88,84 @@ final class PaddleWebhookControllerTest extends TestCase
         ];
     }
 
-    public function test_valid_request_returns_200(): void
+    public function test_valid_request_persists_to_inbox_and_returns_200(): void
     {
         $response = $this->makeController()->__invoke($this->makeRequest($this->validPayload()));
+
         $this->assertSame(200, $response->getStatusCode());
+        $this->assertArrayHasKey('evt_01', $this->inbox->accepted);
+        $this->assertSame('subscription.created', $this->inbox->accepted['evt_01']['eventType']);
+        $this->assertSame('2024-06-01 12:00:00', $this->inbox->accepted['evt_01']['occurredAt']?->format('Y-m-d H:i:s'));
     }
 
-    public function test_invalid_signature_returns_400(): void
+    public function test_duplicate_event_returns_200_with_single_inbox_row(): void
+    {
+        $controller = $this->makeController();
+        $controller->__invoke($this->makeRequest($this->validPayload()));
+        $response = $controller->__invoke($this->makeRequest($this->validPayload()));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertCount(1, $this->inbox->accepted);
+    }
+
+    public function test_invalid_signature_returns_400_and_persists_nothing(): void
     {
         $verifier = $this->failingVerifier(WebhookSignatureException::class);
         $response = $this->makeController(verifier: $verifier)->__invoke($this->makeRequest($this->validPayload()));
+
         $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame([], $this->inbox->accepted);
     }
 
-    public function test_replay_detected_returns_409(): void
+    public function test_replay_detected_returns_409_and_persists_nothing(): void
     {
         $verifier = $this->failingVerifier(WebhookReplayException::class);
         $response = $this->makeController(verifier: $verifier)->__invoke($this->makeRequest($this->validPayload()));
+
         $this->assertSame(409, $response->getStatusCode());
+        $this->assertSame([], $this->inbox->accepted);
     }
 
-    public function test_ip_not_allowed_returns_401(): void
+    public function test_ip_not_allowed_returns_401_and_persists_nothing(): void
     {
         $response = $this->makeController(ipAllowlistEnabled: true)
             ->__invoke($this->makeRequest($this->validPayload()));
+
         $this->assertSame(401, $response->getStatusCode());
+        $this->assertSame([], $this->inbox->accepted);
     }
 
-    public function test_duplicate_event_returns_200_without_re_dispatch(): void
+    public function test_invalid_json_body_returns_400_and_persists_nothing(): void
     {
-        $dispatched = false;
-        $verifier   = $this->passingVerifier();
-        $ipGuard    = new WebhookIpGuard(enabled: false, allowSandboxIps: false);
-        $idempotency = $this->makeIdempotencyStore(alreadyProcessed: true);
+        $request  = Request::create('/webhooks/paddle', 'POST', content: 'not-json');
+        $response = $this->makeController()->__invoke($request);
 
-        $handler = new class($dispatched) implements \Vortos\Paddle\Webhook\PaddleWebhookHandlerInterface {
-            public function __construct(public bool &$dispatched) {}
-            public function handles(): string { return 'subscription.created'; }
-            public function handle(\Vortos\Paddle\Webhook\Event\PaddleWebhookEvent $event): void { $this->dispatched = true; }
-        };
-
-        $controller = new PaddleWebhookController(
-            verifier: $verifier,
-            ipGuard: $ipGuard,
-            idempotencyStore: $idempotency,
-            eventFactory: new WebhookEventFactory(),
-            dispatcher: new PaddleWebhookDispatcher([$handler], new NullLogger()),
-            logger: new NullLogger(),
-            webhookPath: '/webhooks/paddle',
-        );
-
-        $response = $controller->__invoke($this->makeRequest($this->validPayload()));
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertFalse($dispatched);
-    }
-
-    public function test_invalid_json_body_returns_400(): void
-    {
-        $controller = $this->makeController();
-        $request    = Request::create('/webhooks/paddle', 'POST', content: 'not-json');
-        $response   = $controller->__invoke($request);
         $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame([], $this->inbox->accepted);
     }
 
-    public function test_handler_is_called_for_matching_event(): void
+    public function test_missing_event_id_is_still_captured_with_generated_id(): void
     {
-        $called  = false;
-        $handler = new class($called) implements \Vortos\Paddle\Webhook\PaddleWebhookHandlerInterface {
-            public function __construct(public bool &$called) {}
-            public function handles(): string { return 'subscription.created'; }
-            public function handle(\Vortos\Paddle\Webhook\Event\PaddleWebhookEvent $event): void { $this->called = true; }
-        };
+        $payload = $this->validPayload();
+        unset($payload['event_id']);
 
-        $controller = new PaddleWebhookController(
-            verifier: $this->passingVerifier(),
-            ipGuard: new WebhookIpGuard(enabled: false, allowSandboxIps: false),
-            idempotencyStore: $this->makeIdempotencyStore(),
-            eventFactory: new WebhookEventFactory(),
-            dispatcher: new PaddleWebhookDispatcher([$handler], new NullLogger()),
-            logger: new NullLogger(),
-            webhookPath: '/webhooks/paddle',
+        $response = $this->makeController()->__invoke($this->makeRequest($payload));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertCount(1, $this->inbox->accepted);
+        $this->assertStringStartsWith('no-event-id-', array_key_first($this->inbox->accepted));
+    }
+
+    public function test_no_handler_runs_in_the_request(): void
+    {
+        // The controller has no dispatcher dependency at all — this asserts the
+        // architectural fact by API: constructing it requires no handlers.
+        $refl = new \ReflectionClass(PaddleWebhookController::class);
+        $paramTypes = array_map(
+            static fn(\ReflectionParameter $p) => (string) $p->getType(),
+            $refl->getConstructor()->getParameters(),
         );
 
-        $controller->__invoke($this->makeRequest($this->validPayload()));
-        $this->assertTrue($called);
+        $this->assertNotContains('Vortos\Paddle\Webhook\PaddleWebhookDispatcher', $paramTypes);
     }
 }

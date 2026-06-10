@@ -6,6 +6,7 @@ namespace Vortos\Domain\Aggregate;
 
 use Symfony\Component\Uid\UuidV7;
 use Vortos\Domain\Aggregate\Exception\InvalidEventPayloadException;
+use Vortos\Domain\Event\DomainEventLedger;
 use Vortos\Domain\Event\EventEnvelope;
 use Vortos\Domain\Event\Metadata;
 use Vortos\Domain\Identity\AggregateId;
@@ -15,9 +16,10 @@ use Vortos\Domain\Identity\AggregateId;
  *
  * Enforces the event recording pattern — state mutations and event recording
  * happen together in command methods. Events are collected internally as
- * EventEnvelopes (the aggregate wraps each payload automatically) and
- * dispatched by the ApplicationService after the Unit of Work commits.
- * Aggregates never dispatch events themselves.
+ * EventEnvelopes (the aggregate wraps each payload automatically) and also
+ * registered with the DomainEventLedger, which the CommandBus/ConsumerRunner
+ * drain inside the Unit of Work — dispatch never depends on the handler
+ * returning the aggregate. Aggregates never dispatch events themselves.
  *
  * ## Event payload contract
  *
@@ -110,9 +112,10 @@ abstract class AggregateRoot
      * The payload must satisfy F1/F2/F3 — see class docblock and
      * InvalidEventPayloadException for details. Validation is lazy and cached.
      *
-     * Call this inside command methods after mutating state. Events are
-     * dispatched by the ApplicationService AFTER the transaction commits —
-     * never inside the aggregate itself.
+     * Call this inside command methods after mutating state. The envelope is
+     * registered with the DomainEventLedger; the bus owning the transaction
+     * drains the ledger and dispatches — never the aggregate itself, and
+     * never dependent on the handler's return value.
      *
      * @throws InvalidEventPayloadException if payload class violates shape rules
      */
@@ -125,7 +128,7 @@ abstract class AggregateRoot
             self::$validatedPayloadShapes[$payloadClass] = true;
         }
 
-        $this->domainEvents[] = new EventEnvelope(
+        $envelope = new EventEnvelope(
             eventId:          new UuidV7()->toRfc4122(),
             aggregateId:      (string) $this->getId(),
             aggregateType:    static::class,
@@ -136,16 +139,21 @@ abstract class AggregateRoot
             payload:          $payload,
             metadata:         Metadata::empty(),
         );
+
+        $this->domainEvents[] = $envelope;
+        DomainEventLedger::instance()->record($envelope);
     }
 
     /**
-     * Returns all recorded envelopes and clears the internal collection.
-     * Called by ApplicationService INSIDE the Unit of Work transaction —
-     * envelopes are written to the outbox within the same transaction as
-     * the aggregate save. This guarantees atomicity between state change
-     * and event publication.
+     * Returns all recorded envelopes and clears the aggregate's local buffer.
      *
-     * Calling this twice returns an empty array the second time.
+     * Inspection/testing API only. Dispatch is owned by the DomainEventLedger
+     * drain in CommandBus/ConsumerRunner — do NOT pull events and dispatch
+     * them manually; inside a managed dispatch the ledger has already
+     * collected them and manual dispatch would double-publish.
+     *
+     * Calling this twice returns an empty array the second time. The ledger
+     * is unaffected — this only clears the aggregate's own buffer.
      *
      * @return EventEnvelope[]
      */

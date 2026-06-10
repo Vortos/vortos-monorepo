@@ -24,7 +24,7 @@ jobs:
         run: composer install --no-interaction --prefer-dist --ignore-platform-reqs
 
       - name: Run tests
-        run: ./vendor/bin/phpunit packages/Vortos/Tests/ --testdox
+        run: ./vendor/bin/phpunit --testdox
 
   split:
     needs: tests

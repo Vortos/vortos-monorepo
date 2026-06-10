@@ -31,8 +31,7 @@ final class MakeContextCommand extends Command
         'Infrastructure/Messaging',
         'Infrastructure/Quota',
         'Infrastructure/Persistence/Mongo',
-        'Presentation/Controller',
-        'Presentation/Request',
+        'Presentation/Http',
     ];
 
     public function __construct(private readonly GeneratorEngine $engine)

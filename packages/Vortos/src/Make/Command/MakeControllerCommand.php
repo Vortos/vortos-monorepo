@@ -59,12 +59,12 @@ final class MakeControllerCommand extends Command
         $output->writeln('');
 
         $this->engine->write(
-            "{$context}/Presentation/Controller/{$name}Controller.php",
+            "{$context}/Presentation/Http/{$name}/{$name}Controller.php",
             $this->engine->render('controller', $vars),
             $output,
         );
         $this->engine->write(
-            "{$context}/Presentation/Request/{$name}Request.php",
+            "{$context}/Presentation/Http/{$name}/{$name}Request.php",
             $this->engine->render('request', $vars),
             $output,
         );

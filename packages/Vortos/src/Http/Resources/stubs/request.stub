@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace {{Namespace}}\Presentation\Request;
+namespace {{Namespace}}\Presentation\Http\{{ClassName}};
 
 use Vortos\Http\Request\RequestDto;
 

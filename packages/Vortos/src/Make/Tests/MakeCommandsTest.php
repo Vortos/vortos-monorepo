@@ -516,8 +516,7 @@ final class MakeCommandsTest extends TestCase
             'Billing/Infrastructure/Messaging',
             'Billing/Infrastructure/Quota',
             'Billing/Infrastructure/Persistence/Mongo',
-            'Billing/Presentation/Controller',
-            'Billing/Presentation/Request',
+            'Billing/Presentation/Http',
         ];
 
         foreach ($expected as $dir) {

@@ -25,6 +25,7 @@ use Vortos\Messaging\Driver\Kafka\ValueObject\SslConfig;
  *       ->topic('orders.placed')
  *       ->partitions(Env::int('KAFKA_PARTITIONS', default: 12))
  *       ->replicationFactor(Env::int('KAFKA_REPLICATION_FACTOR', default: 3))
+ *       ->topicConfig(['retention.ms' => Env::int('KAFKA_RETENTION_MS', default: 604800000)])
  *       ->security(SaslConfig::scramSha256(Env::string('KAFKA_SASL_USER'), Env::string('KAFKA_SASL_PASS')));
  */
 final class KafkaTransportDefinition extends AbstractTransportDefinition
@@ -32,6 +33,9 @@ final class KafkaTransportDefinition extends AbstractTransportDefinition
     private string|Env $topic = '';
     private int|Env $partitions = 1;
     private int|Env $replicationFactor = 1;
+
+    /** @var array<string, string|int|Env> */
+    private array $topicConfig = [];
     private ?SaslConfig $sasl = null;
     private ?SslConfig $ssl = null;
 
@@ -65,6 +69,20 @@ final class KafkaTransportDefinition extends AbstractTransportDefinition
     }
 
     /**
+     * Arbitrary topic-level config passed through to the broker on creation,
+     * e.g. ['retention.ms' => Env::int('KAFKA_RETENTION_MS', default: 604800000), 'cleanup.policy' => 'delete'].
+     * Only used during topic provisioning — has no effect on existing topics.
+     * Merged with (and overrides) any keys set by previous calls.
+     *
+     * @param array<string, string|int|Env> $config
+     */
+    public function topicConfig(array $config): static
+    {
+        $this->topicConfig = $config + $this->topicConfig;
+        return $this;
+    }
+
+    /**
      * SASL authentication configuration.
      * Use SaslConfig::plain(), SaslConfig::scramSha256(), or SaslConfig::scramSha512().
      * Always pair with ssl() in production environments.
@@ -94,6 +112,7 @@ final class KafkaTransportDefinition extends AbstractTransportDefinition
             'provisioning' => [
                 'partitions' => $this->partitions,
                 'replication' => $this->replicationFactor,
+                'topic_config' => $this->topicConfig,
             ],
             'security' => array_filter([
                 'sasl' => $this->sasl?->toArray(),

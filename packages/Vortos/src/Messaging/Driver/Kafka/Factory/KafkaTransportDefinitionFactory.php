@@ -40,6 +40,10 @@ final class KafkaTransportDefinitionFactory implements TransportDefinitionFactor
             $definition->replicationFactor($config['provisioning']['replication']);
         }
 
+        if (!empty($config['provisioning']['topic_config'])) {
+            $definition->topicConfig($config['provisioning']['topic_config']);
+        }
+
         if (isset($config['security']['sasl'])) {
             $sasl = $config['security']['sasl'];
             $definition->security(match ($sasl['mechanism']) {

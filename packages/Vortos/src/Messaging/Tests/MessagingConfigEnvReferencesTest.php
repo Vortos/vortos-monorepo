@@ -25,6 +25,10 @@ final class EnvRefMessagingConfigFixture
             ->topic('orders.placed')
             ->partitions(Env::int('KAFKA_PARTITIONS', default: 12))
             ->replicationFactor(Env::int('KAFKA_REPLICATION_FACTOR', default: 3))
+            ->topicConfig([
+                'retention.ms' => Env::int('KAFKA_RETENTION_MS', default: 604800000),
+                'cleanup.policy' => 'delete',
+            ])
             ->security(SaslConfig::scramSha256(Env::string('KAFKA_SASL_USER'), Env::string('KAFKA_SASL_PASS')));
     }
 }
@@ -58,6 +62,11 @@ final class MessagingConfigEnvReferencesTest extends TestCase
         );
         $this->assertSame('%env(KAFKA_SASL_USER)%', $transport['security']['sasl']['username']);
         $this->assertSame('%env(KAFKA_SASL_PASS)%', $transport['security']['sasl']['password']);
+        $this->assertSame(
+            '%env(int:default:vortos.env_default.KAFKA_RETENTION_MS:KAFKA_RETENTION_MS)%',
+            $transport['provisioning']['topic_config']['retention.ms'],
+        );
+        $this->assertSame('delete', $transport['provisioning']['topic_config']['cleanup.policy']);
     }
 
     public function test_defaults_are_registered_as_parameters(): void
@@ -66,6 +75,7 @@ final class MessagingConfigEnvReferencesTest extends TestCase
 
         $this->assertSame(12, $container->getParameter('vortos.env_default.KAFKA_PARTITIONS'));
         $this->assertSame(3, $container->getParameter('vortos.env_default.KAFKA_REPLICATION_FACTOR'));
+        $this->assertSame(604800000, $container->getParameter('vortos.env_default.KAFKA_RETENTION_MS'));
         $this->assertFalse($container->hasParameter('vortos.env_default.KAFKA_BROKERS'), 'No default declared — no parameter registered');
     }
 

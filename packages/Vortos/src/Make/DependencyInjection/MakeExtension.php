@@ -20,6 +20,7 @@ use Vortos\Make\Command\MakeDomainServiceCommand;
 use Vortos\Make\Command\MakeEntityCommand;
 use Vortos\Make\Command\MakeFeaturePolicyCommand;
 use Vortos\Make\Command\MakeHookCommand;
+use Vortos\Make\Command\MakeInfraConfigCommand;
 use Vortos\Make\Command\MakeMessagingConfigCommand;
 use Vortos\Make\Command\MakeMiddlewareCommand;
 use Vortos\Make\Command\MakeOwnershipPolicyCommand;
@@ -74,6 +75,7 @@ final class MakeExtension extends Extension
             MakeProjectionHandlerCommand::class,
             MakeConsumerCommand::class,
             MakeMessagingConfigCommand::class,
+            MakeInfraConfigCommand::class,
             MakeMiddlewareCommand::class,
             MakeHookCommand::class,
             MakeControllerCommand::class,

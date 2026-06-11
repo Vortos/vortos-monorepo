@@ -63,6 +63,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Mcp\\' => 11,
             'Vortos\\Make\\' => 12,
             'Vortos\\Logger\\' => 14,
+            'Vortos\\Iac\\' => 11,
             'Vortos\\Http\\' => 12,
             'Vortos\\Foundation\\' => 18,
             'Vortos\\FeatureFlags\\' => 20,
@@ -283,6 +284,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Logger\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-logger',
+        ),
+        'Vortos\\Iac\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Iac',
         ),
         'Vortos\\Http\\' =>
         array (

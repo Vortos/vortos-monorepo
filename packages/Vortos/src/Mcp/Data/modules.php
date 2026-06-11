@@ -356,6 +356,21 @@ return [
         ],
     ],
 
+    'iac' => [
+        'description' => 'Terraform export — generates .tf.json files from framework resource declarations (Kafka topics, object-store buckets). Pure codegen: no cloud credentials, no network calls; Terraform stays the provisioning engine.',
+        'provides'    => [
+            '#[InfraConfig]'               => 'Marks a Terraform export configuration class. Deployment concern — canonical home is src/Shared/Infrastructure/Iac/, NOT per bounded context. Resource shape (partitions, retention) stays in MessagingConfig; InfraConfig only chooses providers and output files.',
+            '#[RegisterTerraformExporter]' => 'Method attribute returning an exporter definition, e.g. KafkaTopicsExporterDefinition::create(\'kafka-topics\')->provider(KafkaProvider::Confluent)->clusterRef(\'confluent_kafka_cluster.main\')->outputFile(\'infra/kafka_topics.tf.json\'). Compiled to a static spec at container build time.',
+            'Env → Terraform variables'    => 'Env references in definitions export as typed Terraform variables (sensitive when the name looks secret) — values NEVER appear in generated files; operators supply them via terraform.tfvars. SASL/SSL/DSN are never exported.',
+            'Generated-file safety'        => 'Output jailed to the project dir (.tf.json only, no traversal/symlink escape), atomic writes, refuses to overwrite files lacking the generated header. No --force by design.',
+        ],
+        'config'      => null,
+        'commands'    => [
+            'vortos:iac:export'        => 'Generate all configured Terraform files. Flags: --check (CI drift guard, exit 1 on mismatch), --dry-run (print to stdout)',
+            'vortos:make:infra-config' => 'Scaffold src/Shared/Infrastructure/Iac/AppInfraConfig.php. Options: --provider=confluent|kafka, --output',
+        ],
+    ],
+
     'mcp' => [
         'description' => 'MCP server for AI-assisted Vortos development. Exposes framework and project knowledge as MCP tools.',
         'provides'    => ['vortos:mcp:serve (stdio MCP server)', 'vortos:mcp:install (client config writer)', 'vortos:mcp:doctor (status check)'],

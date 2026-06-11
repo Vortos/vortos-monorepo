@@ -1,0 +1,33 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Shared\Infrastructure\Iac;
+
+use Vortos\Iac\Attribute\InfraConfig;
+use Vortos\Iac\Attribute\RegisterTerraformExporter;
+use Vortos\Iac\Exporter\Kafka\KafkaProvider;
+use Vortos\Iac\Exporter\Kafka\KafkaTopicsExporterDefinition;
+
+/**
+ * Terraform export configuration — a deployment concern, owned once per
+ * project, not per bounded context. Resource SHAPE (partitions, retention,
+ * …) stays in each module's MessagingConfig; this class only chooses
+ * providers and output files.
+ *
+ * Generate:  php bin/console vortos:iac:export
+ * CI guard:  php bin/console vortos:iac:export --check
+ */
+#[InfraConfig]
+final class {{ClassName}}
+{
+    #[RegisterTerraformExporter]
+    public function kafkaTopics(): KafkaTopicsExporterDefinition
+    {
+        return KafkaTopicsExporterDefinition::create('kafka-topics')
+            ->provider(KafkaProvider::{{Provider}})
+            // For Confluent Cloud, point at your cluster resource:
+            // ->clusterRef('confluent_kafka_cluster.main')
+            ->outputFile('{{OutputFile}}');
+    }
+}

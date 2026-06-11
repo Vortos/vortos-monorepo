@@ -34,6 +34,7 @@
         "vortos/vortos-mcp": "MCP server for AI clients — optional development assistant integration",
         "vortos/vortos-aws-ses": "AWS SES email delivery with transactional outbox, suppression lists, webhooks, and observability",
         "vortos/vortos-object-store": "S3-compatible object storage package with first-class Cloudflare R2 defaults",
-        "vortos/vortos-paddle": "Paddle billing integration — subscriptions, webhooks, catalog, and customer management"
+        "vortos/vortos-paddle": "Paddle billing integration — subscriptions, webhooks, catalog, and customer management",
+        "vortos/vortos-iac": "Terraform (.tf.json) export of framework resource declarations — Kafka topics, object-store buckets"
     }
 }

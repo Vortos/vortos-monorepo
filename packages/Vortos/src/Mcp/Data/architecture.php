@@ -120,6 +120,10 @@ src/
         GetOrderController.php
       Policy/
         OrderPolicy.php                        ← #[AsPolicy], one per aggregate
+  Shared/
+    Infrastructure/
+      Iac/
+        AppInfraConfig.php                     ← #[InfraConfig] — Terraform export, ONE per project (deployment concern, not per context)
 STRUCTURE,
 
     'transaction_boundary' => [

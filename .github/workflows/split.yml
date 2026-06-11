@@ -91,6 +91,8 @@ jobs:
             split_repository: 'vortos-object-store'
           - local_path: 'packages/Vortos/src/Paddle'
             split_repository: 'vortos-paddle'
+          - local_path: 'packages/Vortos/src/Iac'
+            split_repository: 'vortos-iac'
 
     steps:
       - uses: actions/checkout@v4

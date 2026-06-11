@@ -22,6 +22,7 @@ return array(
     'Vortos\\Mcp\\' => array($baseDir . '/packages/Vortos/src/Mcp'),
     'Vortos\\Make\\' => array($vendorDir . '/vortos/vortos-make'),
     'Vortos\\Logger\\' => array($vendorDir . '/vortos/vortos-logger'),
+    'Vortos\\Iac\\' => array($baseDir . '/packages/Vortos/src/Iac'),
     'Vortos\\Http\\' => array($vendorDir . '/vortos/vortos-http'),
     'Vortos\\Foundation\\' => array($vendorDir . '/vortos/vortos-foundation'),
     'Vortos\\FeatureFlags\\' => array($baseDir . '/packages/Vortos/src/FeatureFlags'),

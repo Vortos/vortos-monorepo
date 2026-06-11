@@ -67,7 +67,8 @@
       "Vortos\\Observability\\": "packages/Vortos/src/Observability/",
       "Vortos\\AwsSes\\": "packages/Vortos/src/AwsSes/",
       "Vortos\\ObjectStore\\": "packages/Vortos/src/ObjectStore/",
-      "Vortos\\Paddle\\": "packages/Vortos/src/Paddle/"
+      "Vortos\\Paddle\\": "packages/Vortos/src/Paddle/",
+      "Vortos\\Iac\\": "packages/Vortos/src/Iac/"
     }
   },
   "autoload-dev": {

@@ -1,0 +1,27 @@
+{
+    "name": "vortos/vortos-iac",
+    "description": "Vortos IaC export — generates Terraform (.tf.json) from compiled framework resource declarations. Pure codegen: no cloud credentials, no network calls.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Iac\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "symfony/console": "^7.3",
+        "symfony/dependency-injection": "^7.3"
+    },
+    "suggest": {
+        "vortos/vortos-messaging": "Required for the Kafka topics exporter",
+        "vortos/vortos-object-store": "Required for the object-store bucket exporter"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Iac\\DependencyInjection\\IacPackage",
+            "order": 55
+        }
+    }
+}

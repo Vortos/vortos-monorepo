@@ -35,6 +35,9 @@
         <testsuite name="Http">
             <directory>packages/Vortos/src/Http/Tests</directory>
         </testsuite>
+        <testsuite name="Iac">
+            <directory>packages/Vortos/src/Iac/Tests</directory>
+        </testsuite>
         <testsuite name="Logger">
             <directory>packages/Vortos/src/Logger/Tests</directory>
         </testsuite>

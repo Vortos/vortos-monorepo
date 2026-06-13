@@ -173,8 +173,21 @@ class Runner
 
         $this->configureContainer($container);
 
+        // Env placeholders (%env(...)%) baked into container parameters by
+        // compiler passes (e.g. vortos.transports) are only resolved to real
+        // values when:
+        //   (a) compile(true) resolves them directly into the ContainerBuilder, or
+        //   (b) the PhpDumper-generated CachedContainer emits getEnv() calls that
+        //       resolve them lazily at runtime.
+        // The dump path (b) only happens for prod+http (see dumpContainer()).
+        // Every other context — CLI commands, queue workers, dev/test http —
+        // gets the raw ContainerBuilder back, so it must take path (a) or any
+        // parameter containing an env reference would leak as Symfony's internal
+        // "env_<hash>_NAME_<hash>" placeholder token instead of its real value.
+        $resolveEnvPlaceholders = $this->environment !== 'prod' || $this->context !== 'http';
+
         try {
-            $container->compile();
+            $container->compile($resolveEnvPlaceholders);
         } catch (\Throwable $e) {
             if (str_contains($e->getMessage(), 'has been excluded')) {
                 throw new \RuntimeException(

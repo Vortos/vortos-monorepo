@@ -5,62 +5,55 @@ declare(strict_types=1);
 namespace Vortos\Logger\DependencyInjection;
 
 use Monolog\Formatter\JsonFormatter;
-use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\BufferHandler;
+use Monolog\Handler\FilterHandler;
 use Monolog\Handler\NativeMailerHandler;
+use Monolog\Handler\NullHandler;
 use Monolog\Handler\RotatingFileHandler;
+use Monolog\Handler\SamplingHandler;
 use Monolog\Handler\SlackWebhookHandler;
 use Monolog\Handler\StreamHandler;
+use Monolog\Handler\SyslogHandler;
 use Monolog\Level;
 use Monolog\Logger;
 use Monolog\Processor\IntrospectionProcessor;
 use Psr\Log\LoggerInterface;
-use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
-use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
-use Symfony\Component\DependencyInjection\ContainerInterface;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Vortos\Auth\Identity\CurrentUserProvider;
+use Vortos\Logger\Command\LogDiagnoseCommand;
+use Vortos\Logger\Command\LogPruneCommand;
+use Vortos\Config\DependencyInjection\ConfigExtension;
+use Vortos\Config\Stub\ConfigStub;
+use Vortos\Logger\Config\BufferPolicy;
+use Vortos\Logger\Config\ChannelDefinition;
 use Vortos\Logger\Config\LogChannel;
-use Vortos\Logger\EventListener\LogBufferFlushListener;
+use Vortos\Logger\Config\ResolvedLoggingConfig;
+use Vortos\Logger\Config\SinkDefinition;
+use Vortos\Logger\Config\SinkDestination;
+use Vortos\Logger\Flush\FlushBootListener;
+use Vortos\Logger\Flush\FlushScheduler;
+use Vortos\Logger\Handler\CompressingRotatingFileHandler;
+use Vortos\Logger\HashChain\InMemoryHashChainState;
 use Vortos\Logger\Processor\CorrelationIdProcessor;
+use Vortos\Logger\Processor\HashChainProcessor;
 use Vortos\Logger\Processor\RedactionProcessor;
 use Vortos\Logger\Processor\RequestContextProcessor;
 use Vortos\Logger\Processor\StructuredLogProcessor;
-use Vortos\Config\DependencyInjection\ConfigExtension;
-use Vortos\Config\Stub\ConfigStub;
 use Vortos\Tracing\Contract\TracingInterface;
 
 /**
- * Wires Monolog as the PSR-3 logger with named channels, rotation, buffering,
- * trace correlation, and optional alerting handlers.
+ * Wires the Vortos logging pipeline: channels route to named sinks, each
+ * sink is a self-contained handler stack (formatter, sampling, buffering,
+ * rotation/compression, hash-chaining), and FlushScheduler guarantees
+ * buffered sinks are flushed within a bounded time window regardless of
+ * process lifecycle.
  *
- * ## Named channels
- *
- *   LoggerInterface          → vortos.logger.app   (userland default)
- *   vortos.logger.http       → Http channel
- *   vortos.logger.cqrs       → Cqrs channel
- *   vortos.logger.messaging  → Messaging channel
- *   vortos.logger.cache      → Cache channel
- *   vortos.logger.security   → Security channel
- *   vortos.logger.query      → Query channel
- *
- * ## Dev vs Prod
- *
- *   Dev:  RotatingFileHandler → var/log/app-{date}.log at DEBUG
- *         IntrospectionProcessor adds file:line:class to every record
- *   Prod: StreamHandler → php://stderr at ERROR, JSON format
- *
- * ## BufferHandler
- *
- *   Wraps the real handler by default. Collects records in memory and flushes
- *   once at PHP shutdown — reduces disk I/O from N writes per request to 1.
- *
- * ## Alerting handlers
- *
- *   Sentry, Slack, and email handlers are appended per channel when configured
- *   in VortosLoggingConfig. Each triggers at or above its configured minimum level.
+ * Tag a service with `vortos.logger.handler` and reference it from
+ * `SinkBuilder::customHandler()` to plug in OTLP/Kafka/SIEM transports.
  */
 final class LoggerExtension extends Extension
 {
@@ -87,12 +80,15 @@ final class LoggerExtension extends Extension
             (require $envFile)($config);
         }
 
-        $resolved = $config->toArray();
+        $resolved = $config->resolve();
 
         $this->registerFormatters($container);
         $this->registerProcessors($container, $resolved);
-        $baseHandlerId = $this->registerBaseHandler($container, $env, $logPath, $resolved);
-        $this->registerChannels($container, $env, $baseHandlerId, $resolved);
+        $this->registerFlushScheduler($container);
+
+        $sinkHandlerIds = $this->registerSinks($container, $resolved, $logPath);
+        $this->registerChannels($container, $resolved, $sinkHandlerIds);
+        $this->registerCommands($container, $resolved, $logPath);
     }
 
     private function registerFormatters(ContainerBuilder $container): void
@@ -100,40 +96,35 @@ final class LoggerExtension extends Extension
         $container->register('vortos.logger.formatter.json', JsonFormatter::class)
             ->setShared(true)
             ->setPublic(false);
-
-        $container->register('vortos.logger.formatter.line', LineFormatter::class)
-            ->setArguments([null, null, true, true])
-            ->setShared(true)
-            ->setPublic(false);
     }
 
-    private function registerProcessors(ContainerBuilder $container, array $resolved): void
+    private function registerProcessors(ContainerBuilder $container, ResolvedLoggingConfig $resolved): void
     {
-        if ($resolved['introspection']) {
+        if ($resolved->introspection) {
             $container->register('vortos.logger.processor.introspection', IntrospectionProcessor::class)
                 ->setShared(true)
                 ->setPublic(false);
         }
 
-        if ($resolved['redaction']) {
+        if ($resolved->redaction) {
             $container->register('vortos.logger.processor.redaction', RedactionProcessor::class)
-                ->setArguments([$resolved['redaction_keys']])
+                ->setArguments([$resolved->redactionKeys])
                 ->setShared(true)
                 ->setPublic(false);
         }
 
-        if ($resolved['structured']) {
+        if ($resolved->structured) {
             $container->register('vortos.logger.processor.structured', StructuredLogProcessor::class)
                 ->setArguments([
-                    $resolved['service_name'],
-                    $resolved['service_version'],
-                    $resolved['deployment_environment'],
+                    $resolved->serviceName,
+                    $resolved->serviceVersion,
+                    $resolved->deploymentEnvironment,
                 ])
                 ->setShared(true)
                 ->setPublic(false);
         }
 
-        if ($resolved['request_context']) {
+        if ($resolved->requestContext) {
             $container->register('vortos.logger.processor.request_context', RequestContextProcessor::class)
                 ->setArguments([
                     new Reference(RequestStack::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
@@ -143,120 +134,254 @@ final class LoggerExtension extends Extension
                 ->setPublic(false);
         }
 
-        if ($resolved['correlation_id']) {
+        if ($resolved->correlationId) {
             $container->register('vortos.logger.processor.correlation_id', CorrelationIdProcessor::class)
                 ->setArgument('$tracer', new Reference(TracingInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
                 ->setShared(true)
                 ->setPublic(false);
         }
-    }
 
-    private function registerBaseHandler(ContainerBuilder $container, string $env, string $logPath, array $resolved): string
-    {
-        if ($env === 'dev') {
-            $defaultLevel = $resolved['channel_levels'][LogChannel::App->value] ?? Level::Debug;
-            $handlerId    = 'vortos.logger.handler.file';
-
-            if ($resolved['rotation_enabled']) {
-                $container->register($handlerId, RotatingFileHandler::class)
-                    ->setArguments([$logPath . '/app.log', $resolved['max_files'], $defaultLevel])
-                    ->addMethodCall('setFormatter', [new Reference('vortos.logger.formatter.line')])
-                    ->setShared(true)
-                    ->setPublic(false);
-            } else {
-                $container->register($handlerId, StreamHandler::class)
-                    ->setArguments([$logPath . '/app.log', $defaultLevel])
-                    ->addMethodCall('setFormatter', [new Reference('vortos.logger.formatter.line')])
-                    ->setShared(true)
-                    ->setPublic(false);
+        $hashChainNeeded = false;
+        foreach ($resolved->sinks as $sink) {
+            if ($sink->hashChain) {
+                $hashChainNeeded = true;
+                break;
             }
-        } else {
-            $defaultLevel = $resolved['channel_levels'][LogChannel::App->value] ?? Level::Error;
-            $handlerId    = 'vortos.logger.handler.stderr';
+        }
 
-            $container->register($handlerId, StreamHandler::class)
-                ->setArguments(['php://stderr', $defaultLevel])
-                ->addMethodCall('setFormatter', [new Reference('vortos.logger.formatter.json')])
+        if ($hashChainNeeded) {
+            $container->register('vortos.logger.hash_chain_state', InMemoryHashChainState::class)
+                ->setShared(true)
+                ->setPublic(false);
+
+            $container->register('vortos.logger.processor.hash_chain', HashChainProcessor::class)
+                ->setArguments([new Reference('vortos.logger.hash_chain_state')])
                 ->setShared(true)
                 ->setPublic(false);
         }
+    }
 
-        if ($resolved['buffer_enabled']) {
-            $bufferedId = $handlerId . '.buffered';
-            $container->register($bufferedId, BufferHandler::class)
-                ->setArguments([new Reference($handlerId), 500, Level::Debug, true])
-                ->setShared(true)
-                ->setPublic(false);
-            $container->register('vortos.logger.handler.flush_listener', LogBufferFlushListener::class)
-                ->setArgument('$handler', new Reference($bufferedId))
-                ->addTag('kernel.event_subscriber')
-                ->setShared(true)
-                ->setPublic(false);
-            return $bufferedId;
+    private function registerFlushScheduler(ContainerBuilder $container): void
+    {
+        $container->register(FlushScheduler::class)
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(FlushBootListener::class)
+            ->setArguments([new Reference(FlushScheduler::class)])
+            ->addTag('kernel.event_subscriber')
+            ->setShared(true)
+            ->setPublic(false);
+    }
+
+    /**
+     * @return array<string, string> sinkId => final (outermost) handler service id
+     */
+    private function registerSinks(ContainerBuilder $container, ResolvedLoggingConfig $resolved, string $logPath): array
+    {
+        $sinkHandlerIds = [];
+
+        foreach ($resolved->sinks as $sinkId => $sink) {
+            $handlerId = $this->registerSinkHandler($container, $sink, $logPath);
+
+            if ($sink->sampleFactor !== null) {
+                $sampledId = 'vortos.logger.sink.' . $sinkId . '.sampled';
+                $container->register($sampledId, SamplingHandler::class)
+                    ->setArguments([new Reference($handlerId), $sink->sampleFactor])
+                    ->setShared(true)
+                    ->setPublic(false);
+                $handlerId = $sampledId;
+            }
+
+            if ($sink->bufferPolicy === BufferPolicy::Batched) {
+                $bufferedId = 'vortos.logger.sink.' . $sinkId . '.buffered';
+                $container->register($bufferedId, BufferHandler::class)
+                    ->setArguments([new Reference($handlerId), 0, Level::Debug, true, true])
+                    ->setShared(true)
+                    ->setPublic(false);
+
+                $container->getDefinition(FlushScheduler::class)
+                    ->addMethodCall('register', [new Reference($bufferedId), $sink->flushIntervalSeconds]);
+
+                $handlerId = $bufferedId;
+            }
+
+            $sinkHandlerIds[$sinkId] = $handlerId;
+        }
+
+        // Arm the periodic/shutdown flush triggers once all sinks are registered.
+        if ($container->hasDefinition(FlushScheduler::class)) {
+            $container->getDefinition(FlushScheduler::class)->addMethodCall('start', []);
+        }
+
+        return $sinkHandlerIds;
+    }
+
+    private function resolveFilePath(string $path, string $logPath): string
+    {
+        return str_starts_with($path, '/') ? $path : $logPath . '/' . $path;
+    }
+
+    private function registerCommands(ContainerBuilder $container, ResolvedLoggingConfig $resolved, string $logPath): void
+    {
+        $fileSinks = [];
+        foreach ($resolved->sinks as $sinkId => $sink) {
+            if ($sink->destination === SinkDestination::File && $sink->rotation->enabled) {
+                $path = $this->resolveFilePath($sink->path ?? ($sinkId . '.log'), $logPath);
+
+                $fileSinks[] = [
+                    'sink' => $sinkId,
+                    'dir' => dirname($path),
+                    'filename' => basename($path),
+                    'maxFiles' => $sink->rotation->maxFiles,
+                    'maxAgeDays' => $sink->rotation->maxAgeDays,
+                    'maxTotalSizeMb' => $sink->rotation->maxTotalSizeMb,
+                    'compress' => $sink->rotation->compress,
+                ];
+            }
+        }
+        $container->setParameter('vortos.logger.file_sinks', $fileSinks);
+
+        $topology = ['channels' => [], 'sinks' => []];
+
+        foreach ($resolved->channels as $name => $channel) {
+            $topology['channels'][$name] = [
+                'sinkIds' => $channel->sinkIds,
+                'level' => $channel->level->name,
+                'disabled' => $channel->disabled,
+            ];
+        }
+
+        foreach ($resolved->sinks as $sinkId => $sink) {
+            $topology['sinks'][$sinkId] = [
+                'destination' => $sink->destination->name,
+                'path' => $sink->path,
+                'level' => $sink->level->name,
+                'bufferPolicy' => $sink->bufferPolicy->name,
+                'sampleFactor' => $sink->sampleFactor,
+                'hashChain' => $sink->hashChain,
+                'flushIntervalSeconds' => $sink->flushIntervalSeconds,
+                'rotation' => [
+                    'enabled' => $sink->rotation->enabled,
+                    'maxFiles' => $sink->rotation->maxFiles,
+                    'maxAgeDays' => $sink->rotation->maxAgeDays,
+                    'maxTotalSizeMb' => $sink->rotation->maxTotalSizeMb,
+                    'compress' => $sink->rotation->compress,
+                ],
+            ];
+        }
+        $container->setParameter('vortos.logger.topology', $topology);
+
+        $container->register(LogPruneCommand::class, LogPruneCommand::class)
+            ->setArgument('$fileSinks', '%vortos.logger.file_sinks%')
+            ->setPublic(true)
+            ->addTag('console.command');
+
+        $container->register(LogDiagnoseCommand::class, LogDiagnoseCommand::class)
+            ->setArgument('$topology', '%vortos.logger.topology%')
+            ->setPublic(true)
+            ->addTag('console.command');
+    }
+
+    private function registerSinkHandler(ContainerBuilder $container, SinkDefinition $sink, string $logPath): string
+    {
+        $handlerId = 'vortos.logger.sink.' . $sink->id . '.handler';
+
+        switch ($sink->destination) {
+            case SinkDestination::File:
+                $path = $sink->path ?? throw \Vortos\Logger\Exception\InvalidLoggingConfigException::fileSinkMissingPath($sink->id);
+                $path = $this->resolveFilePath($path, $logPath);
+
+                if ($sink->rotation->enabled) {
+                    $handlerClass = $sink->rotation->compress ? CompressingRotatingFileHandler::class : RotatingFileHandler::class;
+                    $container->register($handlerId, $handlerClass)
+                        ->setArguments([$path, $sink->rotation->maxFiles, $sink->level]);
+                } else {
+                    $container->register($handlerId, StreamHandler::class)
+                        ->setArguments([$path, $sink->level]);
+                }
+
+                $container->getDefinition($handlerId)
+                    ->addMethodCall('setFormatter', [new Reference('vortos.logger.formatter.json')])
+                    ->setShared(true)
+                    ->setPublic(false);
+                break;
+
+            case SinkDestination::Stream:
+                $container->register($handlerId, StreamHandler::class)
+                    ->setArguments([$sink->path, $sink->level])
+                    ->addMethodCall('setFormatter', [new Reference('vortos.logger.formatter.json')])
+                    ->setShared(true)
+                    ->setPublic(false);
+                break;
+
+            case SinkDestination::Syslog:
+                $container->register($handlerId, SyslogHandler::class)
+                    ->setArguments([$sink->path, LOG_USER, $sink->level])
+                    ->addMethodCall('setFormatter', [new Reference('vortos.logger.formatter.json')])
+                    ->setShared(true)
+                    ->setPublic(false);
+                break;
+
+            case SinkDestination::Custom:
+                // Caller's handler is responsible for its own formatting.
+                return (string) $sink->customHandlerServiceId;
+
+            case SinkDestination::Null:
+                $container->register($handlerId, NullHandler::class)
+                    ->setShared(true)
+                    ->setPublic(false);
+                break;
         }
 
         return $handlerId;
     }
 
-    private function registerChannels(ContainerBuilder $container, string $env, string $baseHandlerId, array $resolved): void
+    private function registerChannels(ContainerBuilder $container, ResolvedLoggingConfig $resolved, array $sinkHandlerIds): void
     {
-        $disabled  = $resolved['disabled_channels'];
-        $isDevMode = $env === 'dev';
+        foreach ($resolved->channels as $name => $channel) {
+            $serviceId = 'vortos.logger.' . $name;
+            $isApp = $name === LogChannel::App->value;
 
-        foreach (LogChannel::cases() as $channel) {
-            $serviceId = 'vortos.logger.' . $channel->value;
-            $isDisabled = in_array($channel->value, $disabled, true);
-
-            if ($isDisabled) {
-                // Register a no-output NullHandler channel so injections still resolve
+            if ($channel->disabled) {
                 $nullHandlerId = $serviceId . '.null_handler';
-                $container->register($nullHandlerId, \Monolog\Handler\NullHandler::class)
+                $container->register($nullHandlerId, NullHandler::class)
                     ->setShared(true)
                     ->setPublic(false);
 
                 $container->register($serviceId, Logger::class)
-                    ->setArguments([$channel->value])
+                    ->setArguments([$name])
                     ->addMethodCall('pushHandler', [new Reference($nullHandlerId)])
                     ->setShared(true)
-                    ->setPublic($channel === LogChannel::App);
+                    ->setPublic($isApp);
 
                 continue;
             }
 
-            $channelLevel = $resolved['channel_levels'][$channel->value]
-                ?? ($isDevMode ? Level::Debug : ($channel === LogChannel::App ? Level::Warning : Level::Error));
-
             $def = $container->register($serviceId, Logger::class)
-                ->setArguments([$channel->value])
+                ->setArguments([$name])
                 ->setShared(true)
-                ->setPublic($channel === LogChannel::App);
+                ->setPublic($isApp);
 
-            // Base handler — shared across channels, but each channel filters by its own level
-            // We create a per-channel FilterHandler wrapper so channel levels work independently
-            $filterHandlerId = $serviceId . '.filter_handler';
-            $container->register($filterHandlerId, \Monolog\Handler\FilterHandler::class)
-                ->setArguments([new Reference($baseHandlerId), $channelLevel, Level::Emergency, true])
-                ->setShared(true)
-                ->setPublic(false);
+            foreach ($channel->sinkIds as $sinkId) {
+                $filterHandlerId = $serviceId . '.filter.' . $sinkId;
+                $container->register($filterHandlerId, FilterHandler::class)
+                    ->setArguments([new Reference($sinkHandlerIds[$sinkId]), $channel->level, Level::Emergency, true])
+                    ->setShared(true)
+                    ->setPublic(false);
 
-            $def->addMethodCall('pushHandler', [new Reference($filterHandlerId)]);
-
-            // Monolog unshifts processors; add redaction first so it runs last
-            // after all enrichment processors have added context.
-            if ($container->hasDefinition('vortos.logger.processor.redaction')) {
-                $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.redaction')]);
+                $def->addMethodCall('pushHandler', [new Reference($filterHandlerId)]);
             }
 
-            // Alerting handlers — added at channel level, fire independently of base handler
-            foreach ($resolved['sentry_handlers'] as $i => $sentry) {
+            foreach ($resolved->sentryHandlers as $i => $sentry) {
                 $handlerId = $serviceId . '.sentry_' . $i;
-                if ($this->registerSentryHandler($container, $handlerId, $sentry['dsn'], $sentry['minLevel'], $resolved['fail_on_missing_integrations'])) {
+                if ($this->registerSentryHandler($container, $handlerId, $sentry['dsn'], $sentry['minLevel'], $resolved->failOnMissingIntegrations)) {
                     $def->addMethodCall('pushHandler', [new Reference($handlerId)]);
                 }
             }
 
-            foreach ($resolved['slack_handlers'] as $i => $slack) {
-                $innerHandlerId  = $serviceId . '.slack_' . $i . '.inner';
+            foreach ($resolved->slackHandlers as $i => $slack) {
+                $innerHandlerId   = $serviceId . '.slack_' . $i . '.inner';
                 $bufferedHandlerId = $serviceId . '.slack_' . $i;
                 $container->register($innerHandlerId, SlackWebhookHandler::class)
                     ->setArguments([$slack['webhook'], null, null, true, null, false, false, $slack['minLevel']])
@@ -269,7 +394,7 @@ final class LoggerExtension extends Extension
                 $def->addMethodCall('pushHandler', [new Reference($bufferedHandlerId)]);
             }
 
-            foreach ($resolved['email_handlers'] as $i => $email) {
+            foreach ($resolved->emailHandlers as $i => $email) {
                 $innerHandlerId    = $serviceId . '.email_' . $i . '.inner';
                 $bufferedHandlerId = $serviceId . '.email_' . $i;
                 $container->register($innerHandlerId, NativeMailerHandler::class)
@@ -283,11 +408,25 @@ final class LoggerExtension extends Extension
                 $def->addMethodCall('pushHandler', [new Reference($bufferedHandlerId)]);
             }
 
+            // Monolog unshifts processors — the last one pushed runs first.
+            // Order pushed (hash_chain, redaction, introspection, correlation_id,
+            // request_context, structured) yields execution order
+            // (structured, request_context, correlation_id, introspection,
+            // redaction, hash_chain) — hash chaining covers the final,
+            // fully-enriched and redacted record.
+            if ($name === LogChannel::Audit->value && $container->hasDefinition('vortos.logger.processor.hash_chain')) {
+                $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.hash_chain')]);
+            }
+
+            if ($container->hasDefinition('vortos.logger.processor.redaction')) {
+                $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.redaction')]);
+            }
+
             if ($container->hasDefinition('vortos.logger.processor.introspection')) {
                 $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.introspection')]);
             }
 
-            if ($resolved['correlation_id'] && $container->hasDefinition('vortos.logger.processor.correlation_id')) {
+            if ($container->hasDefinition('vortos.logger.processor.correlation_id')) {
                 $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.correlation_id')]);
             }
 
@@ -298,7 +437,6 @@ final class LoggerExtension extends Extension
             if ($container->hasDefinition('vortos.logger.processor.structured')) {
                 $def->addMethodCall('pushProcessor', [new Reference('vortos.logger.processor.structured')]);
             }
-
         }
 
         // Alias LoggerInterface to the App channel — userland default

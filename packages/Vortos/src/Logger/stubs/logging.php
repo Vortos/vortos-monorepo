@@ -7,24 +7,29 @@ use Vortos\Logger\Config\LogChannel;
 use Vortos\Logger\DependencyInjection\VortosLoggingConfig;
 use Vortos\Observability\Config\ObservabilityModule;
 
-// This file configures the Vortos logger behaviour.
-// The log destination (stderr vs file) and base level are environment-driven.
+// This file configures the Vortos logging pipeline.
 //
-// Available channels:
-//   App       — application logs (aliased to LoggerInterface, cannot be disabled)
-//   Http      — request/response lifecycle
-//   Cqrs      — CommandBus dispatch and handler execution
-//   Messaging — Kafka, Outbox, DeadLetter events
-//   Cache     — Redis get/set/delete (high volume in prod)
-//   Security  — auth failures, token validation, authz denials
-//   Query     — slow DB queries and DBAL/Mongo operations
-//   Tooling   — local CLI/developer tooling commands
+// Pipeline model: every LogChannel routes its records to one or more named
+// *sinks*. A sink is a destination (file, stream, syslog, or a custom
+// handler service) with its own level, buffer policy, rotation/retention,
+// sampling, and optional hash-chaining.
+//
+// By default every channel gets its own same-named sink:
+//   dev:  file  var/log/{channel}.log — daily rotation, gzip, 14 files / 30 days / 1GB
+//   prod: stream php://stderr, JSON
+//
+// Security and Audit channels are write-through by default (no buffering —
+// zero loss on crash). Audit additionally hash-chains every record and
+// enforces a 365-day minimum retention floor for file sinks.
+//
+// Channels: App (cannot be disabled, aliased to LoggerInterface), Http, Cqrs,
+// Messaging, Cache, Security, Audit, Query, Tooling — plus any custom channel
+// name you register via $config->channel('my-channel').
 //
 // For per-environment overrides create config/{env}/logging.php.
 
 return static function (VortosLoggingConfig $config): void {
     // Service metadata is attached to structured log records.
-    // Prefer immutable deployment values, not request/user data.
     //
     // $config->service(
     //     name: $_ENV['OTEL_SERVICE_NAME'] ?? $_ENV['APP_NAME'] ?? 'vortos-app',
@@ -32,15 +37,14 @@ return static function (VortosLoggingConfig $config): void {
     //     environment: $_ENV['APP_ENV'] ?? 'prod',
     // );
 
-    // Silence high-volume channels that are useful in dev but noisy in prod.
-    // Remove channels from this list to re-enable them.
-    $config->disableChannel(
-        // LogChannel::Cache,   // uncomment to silence cache get/set logs
-        // LogChannel::Query,   // uncomment to silence DB query logs
-    );
+    // Silence a channel entirely — its logger discards all records.
+    // The App channel cannot be disabled.
+    //
+    // $config->channel(LogChannel::Cache)->disable();
+    // $config->channel(LogChannel::Query)->disable();
 
-    // Or disable framework logs by observability module. Runtime modules map to
-    // their safest framework channel; the App channel is never disabled.
+    // Or disable framework logs by observability module. Runtime modules map
+    // to their safest framework channel; the App channel is never disabled.
     //
     // $config->disableModule(
     //     ObservabilityModule::Cache,
@@ -49,25 +53,49 @@ return static function (VortosLoggingConfig $config): void {
     // );
 
     // Per-channel minimum log level override.
-    // By default: DEBUG in dev, ERROR for framework channels in prod.
+    // By default: DEBUG in dev, WARNING for App / ERROR for other channels in prod.
     //
-    // $config->channel(LogChannel::Security, Level::Warning);
-    // $config->channel(LogChannel::Http, Level::Info);
+    // $config->channel(LogChannel::Security)->level(Level::Warning);
+    // $config->channel(LogChannel::Http)->level(Level::Info);
 
-    // Rotating log files (dev only by default).
-    // Rotation creates date-stamped files and deletes the oldest after $maxFiles.
-    // In prod, logs go to stderr — rotation has no effect there.
+    // Configure a sink's destination, rotation, buffering, sampling.
     //
-    // $config->rotation(enabled: true, maxFiles: 14);
-
-    // Buffer log records and flush once at request end.
-    // Reduces disk I/O in FrankenPHP worker mode from N writes to 1 per request.
-    // Default: enabled.
+    // $config->sink(LogChannel::Cache->value)
+    //     ->toFile('cache.log')
+    //     ->sample(100)                 // only ~1/100 records
+    //     ->rotation(maxFiles: 7, maxAgeDays: 14);
     //
-    // $config->buffer(false); // disable if you need real-time log tailing
+    // // Stream everything to stderr (no local files), even in dev:
+    // foreach (LogChannel::cases() as $channel) {
+    //     $config->sink($channel->value)->toStream('php://stderr');
+    // }
+    //
+    // // Write to syslog:
+    // $config->sink(LogChannel::Security->value)->toSyslog('myapp');
 
-    // Redact sensitive values from record context and extra fields.
-    // Default: enabled, with common auth/PII keys. Add project-specific keys here.
+    // Fan a channel out to additional sinks — e.g. ship security/audit
+    // records to a SIEM in addition to the local file.
+    //
+    // $config->sink('siem')->customHandler('app.logging.siem_handler');
+    // $config->channel(LogChannel::Security)->alsoRouteTo('siem');
+    // $config->channel(LogChannel::Audit)->alsoRouteTo('siem');
+
+    // The Audit sink enforces >=365 days of file retention. Only override
+    // this if you understand the compliance implications:
+    //
+    // $config->sink(LogChannel::Audit->value)
+    //     ->rotation(maxAgeDays: 90)
+    //     ->acknowledgeComplianceRisk();
+
+    // Default flush interval (seconds) for batched (non-write-through) sinks.
+    // Buffered records are guaranteed to flush within this window even in
+    // long-running daemon/worker processes. Default: 2.
+    //
+    // $config->flushInterval(5);
+
+    // Redact sensitive values from record context/extra (key-based) and from
+    // messages/values (pattern-based: JWTs, AWS keys, auth headers, card
+    // numbers, emails). Default: enabled, with common auth/PII keys.
     //
     // $config->redaction(true, keys: ['card_number', 'billing_address']);
 
@@ -102,7 +130,7 @@ return static function (VortosLoggingConfig $config): void {
     //     minLevel: Level::Error,
     // );
 
-    // Route critical alerts to a Slack webhook.
+    // Route critical alerts to a Slack webhook (added to every non-disabled channel).
     // This is a synchronous emergency sink; keep the level high and use a
     // central log pipeline or queued alerting for primary production alert flow.
     //
@@ -111,7 +139,7 @@ return static function (VortosLoggingConfig $config): void {
     //     minLevel: Level::Critical,
     // );
 
-    // Route errors to an email address.
+    // Route errors to an email address (added to every non-disabled channel).
     // This is a synchronous emergency sink; prefer Sentry or log aggregation
     // for normal production incident routing.
     //

@@ -5,69 +5,80 @@ declare(strict_types=1);
 namespace Vortos\Logger\DependencyInjection;
 
 use Monolog\Level;
+use Vortos\Logger\Config\BufferPolicy;
+use Vortos\Logger\Config\ChannelDefinition;
 use Vortos\Logger\Config\LogChannel;
+use Vortos\Logger\Config\ResolvedLoggingConfig;
+use Vortos\Logger\Config\RotationPolicy;
+use Vortos\Logger\Config\SinkDestination;
+use Vortos\Logger\Exception\InvalidLoggingConfigException;
 use Vortos\Observability\Config\ObservabilityModule;
 
 /**
  * Fluent configuration object for vortos-logger.
  *
- * Loaded via require in LoggerExtension::load().
- * Every setting has a sensible env-driven default — no config file is required.
+ * Loaded via require in LoggerExtension::load(). Every setting has a
+ * sensible env-driven default — no config file is required.
  *
- * ## Standard usage
+ * ## Pipeline model
  *
- * Create config/logging.php in your project:
+ *   Each LogChannel (app, http, cqrs, messaging, cache, security, audit,
+ *   query, tooling — plus any custom channel you register) routes its
+ *   records to one or more *sinks*. A sink is a destination (file, stream,
+ *   syslog, or a custom handler) with its own level, buffer policy,
+ *   rotation/retention, sampling, and optional hash-chaining.
  *
- *   return static function (VortosLoggingConfig $config): void {
- *       $config
- *           ->disableChannel(LogChannel::Cache, LogChannel::Query)
- *           ->rotation(true, maxFiles: 14)
- *           ->sentry(dsn: $_ENV['SENTRY_DSN'] ?? '');
- *   };
+ *   By default every channel gets its own same-named sink:
+ *     - dev:  file  var/log/{channel}.log, daily rotation, gzip, 14 files / 30 days / 1GB
+ *     - prod: stream php://stderr, JSON
  *
- * ## Channels
+ *   Security and Audit channels default to write-through (no buffering —
+ *   zero loss on crash). Audit additionally hash-chains every record.
  *
- *   App       — userland default, aliased to LoggerInterface
- *   Http      — request/response lifecycle, routing
- *   Cqrs      — CommandBus dispatch, handler execution
- *   Messaging — EventBus, Kafka, Outbox, DeadLetter
- *   Cache     — Redis get/set/delete (high volume — consider disabling in prod)
- *   Security  — auth failures, token validation, authz denials
- *   Query     — slow DB queries, DBAL/Mongo operations
- *   Tooling   — local CLI/developer tooling commands
+ * ## Examples
  *
- * ## Alerting handlers
+ *   // Route security + audit to a SIEM shipper in addition to local files
+ *   $config->sink('siem')->customHandler('app.logging.siem_handler');
+ *   $config->channel(LogChannel::Security)->alsoRouteTo('siem');
  *
- *   Sentry, Slack, and email handlers are only registered when explicitly configured.
- *   Each requires the corresponding library in your project's composer.json.
- *   They are always added at or above the configured minimum level.
+ *   // Sample noisy cache logs at 1/100
+ *   $config->sink(LogChannel::Cache->value)->sample(100);
+ *
+ *   // Silence a channel entirely
+ *   $config->channel(LogChannel::Query)->disable();
+ *
+ *   // Send everything to stdout/stderr JSON only (no local files), even in dev
+ *   foreach (LogChannel::cases() as $channel) {
+ *       $config->sink($channel->value)->toStream('php://stderr');
+ *   }
  */
 final class VortosLoggingConfig
 {
-    /** @var array<string, Level> channel name → minimum level */
-    private array $channelLevels = [];
+    private const AUDIT_RETENTION_FLOOR_DAYS = 365;
 
-    /** @var list<string> disabled channel names */
-    private array $disabledChannels = [];
+    private readonly string $env;
 
-    /** @var list<string> disabled module names */
-    private array $disabledModules = [];
+    /** @var array<string, SinkBuilder> */
+    private array $sinkBuilders = [];
 
-    private bool $rotationEnabled;
-    private int $maxFiles = 30;
-    private bool $bufferEnabled = true;
-    private bool $correlationIdEnabled = true;
+    /** @var array<string, ChannelBuilder> */
+    private array $channelBuilders = [];
+
     private bool $introspectionEnabled;
     private bool $redactionEnabled = true;
     private bool $structuredEnabled = true;
     private bool $requestContextEnabled = true;
+    private bool $correlationIdEnabled = true;
     private bool $failOnMissingIntegrations = true;
-    private string $serviceName = 'app';
+
+    private string $serviceName;
     private string $serviceVersion = '';
-    private string $deploymentEnvironment = '';
+    private string $deploymentEnvironment;
 
     /** @var list<string> */
     private array $redactionKeys = [];
+
+    private int $defaultFlushIntervalSeconds = 2;
 
     /** @var list<array{dsn: string, minLevel: Level}> */
     private array $sentryHandlers = [];
@@ -80,101 +91,77 @@ final class VortosLoggingConfig
 
     public function __construct(string $env = '')
     {
-        $environment = $env ?: ($_ENV['APP_ENV'] ?? 'prod');
-        $this->rotationEnabled = $environment === 'dev';
-        $this->introspectionEnabled = $environment === 'dev';
-        $this->deploymentEnvironment = $environment;
+        $this->env = $env ?: ($_ENV['APP_ENV'] ?? 'prod');
+        $this->introspectionEnabled = $this->env === 'dev';
+        $this->deploymentEnvironment = $this->env;
         $this->serviceName = $_ENV['OTEL_SERVICE_NAME'] ?? $_ENV['APP_NAME'] ?? 'app';
         $this->serviceVersion = $_ENV['APP_VERSION'] ?? '';
     }
 
     /**
-     * Override the minimum log level for a specific channel.
-     *
-     * By default all channels use environment-driven levels:
-     *   dev  → DEBUG
-     *   prod → ERROR (framework channels), WARNING (app channel)
+     * Configure (or create) a sink by id. Sinks are referenced by id from
+     * channel routing — `sink('audit')` configures the default sink for the
+     * Audit channel, but you can also define arbitrary additional sink ids
+     * (e.g. 'siem') and route channels to them.
      */
-    public function channel(LogChannel $channel, Level $minLevel): static
+    public function sink(string $id): SinkBuilder
     {
-        $this->channelLevels[$channel->value] = $minLevel;
-        return $this;
+        return $this->sinkBuilders[$id] ??= new SinkBuilder($id);
+    }
+
+    /**
+     * Configure (or create) a channel's routing/level/enabled state.
+     * Accepts a framework LogChannel or an arbitrary string for custom
+     * channels registered by application code.
+     */
+    public function channel(LogChannel|string $name): ChannelBuilder
+    {
+        $key = $name instanceof LogChannel ? $name->value : $name;
+        return $this->channelBuilders[$key] ??= new ChannelBuilder($key);
     }
 
     /**
      * Silence one or more framework channels entirely.
-     *
-     * Useful for high-volume channels (Cache, Query) in production.
      * The App channel cannot be disabled.
      */
     public function disableChannel(LogChannel ...$channels): static
     {
         foreach ($channels as $channel) {
             if ($channel !== LogChannel::App) {
-                $this->disabledChannels[] = $channel->value;
+                $this->channel($channel)->disable();
             }
         }
         return $this;
     }
 
+    /**
+     * Disable framework logs by observability module — maps to the channel
+     * that module logs to and disables it.
+     */
     public function disableModule(ObservabilityModule ...$modules): static
     {
         foreach ($modules as $module) {
-            $this->disabledModules[] = $module->value;
-
             $channel = $this->channelForModule($module);
             if ($channel !== null && $channel !== LogChannel::App) {
-                $this->disabledChannels[] = $channel->value;
+                $this->channel($channel)->disable();
             }
         }
-
         return $this;
     }
 
     /**
-     * Enable rotating log files instead of appending to a single file.
-     *
-     * Only applies to the file handler (dev environment).
-     * Rotation creates date-stamped files and deletes the oldest when $maxFiles is exceeded.
-     * Default: enabled in dev, disabled in prod (prod logs to stderr).
+     * Default flush interval (seconds) for batched sinks that don't specify
+     * their own via SinkBuilder::batched(). Default: 2.
      */
-    public function rotation(bool $enabled, int $maxFiles = 30): static
+    public function flushInterval(int $seconds): static
     {
-        $this->rotationEnabled = $enabled;
-        $this->maxFiles = $maxFiles;
-        return $this;
-    }
-
-    /**
-     * Wrap the real handler in a BufferHandler that flushes once at request end.
-     *
-     * Reduces disk I/O in FrankenPHP worker mode from N writes per request to 1.
-     * Default: enabled.
-     */
-    public function buffer(bool $enabled = true): static
-    {
-        $this->bufferEnabled = $enabled;
-        return $this;
-    }
-
-    /**
-     * Inject the active trace ID into every log record as the 'trace_id' extra field.
-     *
-     * Requires vortos/vortos-tracing. When tracing is disabled (NoOpTracer),
-     * the processor silently no-ops — no error is thrown.
-     * Default: enabled.
-     */
-    public function correlationId(bool $enabled = true): static
-    {
-        $this->correlationIdEnabled = $enabled;
+        $this->defaultFlushIntervalSeconds = max(1, $seconds);
         return $this;
     }
 
     /**
      * Include file/class/line information in log records.
-     *
-     * Default: enabled only in dev. Keep disabled in production to avoid
-     * unnecessary overhead and path disclosure.
+     * Default: enabled only in dev.
      */
     public function introspection(bool $enabled = true): static
     {
@@ -183,7 +170,9 @@ final class VortosLoggingConfig
     }
 
     /**
-     * Redact sensitive context/extra fields before records leave the process.
+     * Redact sensitive values from record context/extra (key-based) and
+     * message/value content (pattern-based: emails, JWTs, card numbers, etc).
+     * Default: enabled.
      *
      * @param list<string> $keys
      */
@@ -194,21 +183,24 @@ final class VortosLoggingConfig
         return $this;
     }
 
-    /**
-     * Add ECS/OpenTelemetry-compatible service and event fields.
-     */
+    /** Add ECS/OpenTelemetry-compatible fields to every record. Default: enabled. */
     public function structured(bool $enabled = true): static
     {
         $this->structuredEnabled = $enabled;
         return $this;
     }
 
-    /**
-     * Add bounded HTTP/user/tenant context when those services are available.
-     */
+    /** Add bounded HTTP/user/tenant context. Default: enabled. */
     public function requestContext(bool $enabled = true): static
     {
         $this->requestContextEnabled = $enabled;
+        return $this;
+    }
+
+    /** Inject the active trace ID as 'trace_id'. Default: enabled. */
+    public function correlationId(bool $enabled = true): static
+    {
+        $this->correlationIdEnabled = $enabled;
         return $this;
     }
 
@@ -216,25 +208,19 @@ final class VortosLoggingConfig
     {
         $this->serviceName = $name;
         $this->serviceVersion = $version;
-        $this->deploymentEnvironment = $environment;
+        if ($environment !== '') {
+            $this->deploymentEnvironment = $environment;
+        }
         return $this;
     }
 
-    /**
-     * When true, configured integrations must be installed or container build fails.
-     */
+    /** When true, configured integrations (Sentry, etc.) must be installed or container build fails. */
     public function failOnMissingIntegrations(bool $enabled = true): static
     {
         $this->failOnMissingIntegrations = $enabled;
         return $this;
     }
 
-    /**
-     * Route log records at or above $minLevel to Sentry.
-     *
-     * Requires sentry/sentry in your project's composer.json.
-     * Multiple calls register multiple Sentry integrations.
-     */
     public function sentry(string $dsn, Level $minLevel = Level::Error): static
     {
         if ($dsn !== '') {
@@ -243,11 +229,6 @@ final class VortosLoggingConfig
         return $this;
     }
 
-    /**
-     * Route log records at or above $minLevel to a Slack webhook.
-     *
-     * Uses Monolog's SlackWebhookHandler — no extra library required.
-     */
     public function slack(string $webhook, Level $minLevel = Level::Critical): static
     {
         if ($webhook !== '') {
@@ -256,11 +237,6 @@ final class VortosLoggingConfig
         return $this;
     }
 
-    /**
-     * Route log records at or above $minLevel to an email address.
-     *
-     * Uses Monolog's NativeMailerHandler — no extra library required.
-     */
     public function email(string $to, Level $minLevel = Level::Error): static
     {
         if ($to !== '') {
@@ -269,30 +245,158 @@ final class VortosLoggingConfig
         return $this;
     }
 
-    /** @internal Used by LoggerExtension */
-    public function toArray(): array
+    /**
+     * Resolve the full pipeline: applies defaults for every framework
+     * channel and any custom channels registered via channel(), then
+     * validates the result. Throws InvalidLoggingConfigException on any
+     * inconsistency.
+     *
+     * @internal Used by LoggerExtension.
+     */
+    public function resolve(): ResolvedLoggingConfig
     {
-        return [
-            'channel_levels'       => $this->channelLevels,
-            'disabled_channels'    => $this->disabledChannels,
-            'disabled_modules'     => array_values(array_unique($this->disabledModules)),
-            'rotation_enabled'     => $this->rotationEnabled,
-            'max_files'            => $this->maxFiles,
-            'buffer_enabled'       => $this->bufferEnabled,
-            'correlation_id'       => $this->correlationIdEnabled,
-            'introspection'        => $this->introspectionEnabled,
-            'redaction'            => $this->redactionEnabled,
-            'redaction_keys'       => $this->redactionKeys,
-            'structured'           => $this->structuredEnabled,
-            'request_context'      => $this->requestContextEnabled,
-            'fail_on_missing_integrations' => $this->failOnMissingIntegrations,
-            'service_name'         => $this->serviceName,
-            'service_version'      => $this->serviceVersion,
-            'deployment_environment' => $this->deploymentEnvironment,
-            'sentry_handlers'      => $this->sentryHandlers,
-            'slack_handlers'       => $this->slackHandlers,
-            'email_handlers'       => $this->emailHandlers,
-        ];
+        $sinks = [];
+        $channels = [];
+
+        $allChannelNames = array_unique([
+            ...array_map(static fn(LogChannel $c) => $c->value, LogChannel::cases()),
+            ...array_keys($this->channelBuilders),
+        ]);
+
+        foreach ($allChannelNames as $name) {
+            $logChannel = LogChannel::tryFrom($name);
+            $channelBuilder = $this->channelBuilders[$name] ?? null;
+
+            if ($channelBuilder?->isDisabled() === true) {
+                $channels[$name] = new ChannelDefinition($name, [], Level::Debug, disabled: true);
+                continue;
+            }
+
+            $sinkIds = $channelBuilder?->sinkIds($name) ?? [$name];
+
+            // Only the channel's own default-named sink is auto-created;
+            // any other sink id referenced via routeTo()/alsoRouteTo() must
+            // be defined explicitly with $config->sink($id)->...
+            if (!isset($this->sinkBuilders[$name]) && in_array($name, $sinkIds, true)) {
+                $this->sinkBuilders[$name] = $this->defaultSinkBuilder($name, $logChannel);
+            }
+
+            $level = $channelBuilder?->getLevel() ?? $this->defaultLevel($logChannel);
+
+            $channels[$name] = new ChannelDefinition($name, $sinkIds, $level);
+        }
+
+        // Materialize every referenced (or explicitly configured) sink builder.
+        foreach ($this->sinkBuilders as $id => $builder) {
+            $builder->applyDefaultDestinationIfUnset($this->env, $id);
+            $sinks[$id] = $builder->build();
+        }
+
+        $this->validate($sinks, $channels);
+
+        return new ResolvedLoggingConfig(
+            env: $this->env,
+            sinks: $sinks,
+            channels: $channels,
+            introspection: $this->introspectionEnabled,
+            redaction: $this->redactionEnabled,
+            redactionKeys: $this->redactionKeys,
+            structured: $this->structuredEnabled,
+            requestContext: $this->requestContextEnabled,
+            correlationId: $this->correlationIdEnabled,
+            serviceName: $this->serviceName,
+            serviceVersion: $this->serviceVersion,
+            deploymentEnvironment: $this->deploymentEnvironment,
+            failOnMissingIntegrations: $this->failOnMissingIntegrations,
+            sentryHandlers: $this->sentryHandlers,
+            slackHandlers: $this->slackHandlers,
+            emailHandlers: $this->emailHandlers,
+            defaultFlushIntervalSeconds: $this->defaultFlushIntervalSeconds,
+        );
+    }
+
+    private function defaultSinkBuilder(string $id, ?LogChannel $logChannel): SinkBuilder
+    {
+        $builder = new SinkBuilder($id);
+
+        if ($this->env === 'dev') {
+            $builder->toFile($id . '.log');
+        } else {
+            $builder->toStream('php://stderr');
+        }
+
+        if ($logChannel?->isWriteThroughByDefault() === true) {
+            $builder->writeThrough();
+        } else {
+            $builder->batched($this->defaultFlushIntervalSeconds);
+        }
+
+        if ($logChannel === LogChannel::Audit) {
+            $builder->hashChain(true);
+            $builder->rotation(maxAgeDays: self::AUDIT_RETENTION_FLOOR_DAYS);
+        }
+
+        return $builder;
+    }
+
+    private function defaultLevel(?LogChannel $logChannel): Level
+    {
+        $isDev = $this->env === 'dev';
+
+        if ($isDev) {
+            return Level::Debug;
+        }
+
+        return $logChannel === LogChannel::App || $logChannel === null ? Level::Warning : Level::Error;
+    }
+
+    /**
+     * @param array<string, \Vortos\Logger\Config\SinkDefinition> $sinks
+     * @param array<string, ChannelDefinition> $channels
+     */
+    private function validate(array $sinks, array $channels): void
+    {
+        foreach ($channels as $channel) {
+            if ($channel->disabled) {
+                continue;
+            }
+
+            foreach ($channel->sinkIds as $sinkId) {
+                if (!isset($sinks[$sinkId])) {
+                    throw InvalidLoggingConfigException::unknownSink($channel->name, $sinkId);
+                }
+            }
+        }
+
+        foreach ($sinks as $sink) {
+            if ($sink->destination === SinkDestination::Custom && $sink->customHandlerServiceId === null) {
+                throw InvalidLoggingConfigException::customSinkMissingHandler($sink->id);
+            }
+
+            if ($sink->destination === SinkDestination::File && ($sink->path === null || $sink->path === '')) {
+                throw InvalidLoggingConfigException::fileSinkMissingPath($sink->id);
+            }
+        }
+
+        $auditChannel = $channels[LogChannel::Audit->value] ?? null;
+        if ($auditChannel !== null && !$auditChannel->disabled) {
+            foreach ($auditChannel->sinkIds as $sinkId) {
+                $sink = $sinks[$sinkId];
+                $builder = $this->sinkBuilders[$sinkId] ?? null;
+
+                if (
+                    $sink->destination === SinkDestination::File
+                    && $sink->rotation->enabled
+                    && $sink->rotation->maxAgeDays < self::AUDIT_RETENTION_FLOOR_DAYS
+                    && $builder?->complianceRiskAcknowledged() !== true
+                ) {
+                    throw InvalidLoggingConfigException::auditRetentionBelowFloor(
+                        $sink->rotation->maxAgeDays,
+                        self::AUDIT_RETENTION_FLOOR_DAYS,
+                    );
+                }
+            }
+        }
     }
 
     private function channelForModule(ObservabilityModule $module): ?LogChannel

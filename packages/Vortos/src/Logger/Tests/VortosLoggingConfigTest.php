@@ -6,8 +6,11 @@ namespace Vortos\Logger\Tests;
 
 use Monolog\Level;
 use PHPUnit\Framework\TestCase;
+use Vortos\Logger\Config\BufferPolicy;
 use Vortos\Logger\Config\LogChannel;
+use Vortos\Logger\Config\SinkDestination;
 use Vortos\Logger\DependencyInjection\VortosLoggingConfig;
+use Vortos\Logger\Exception\InvalidLoggingConfigException;
 use Vortos\Observability\Config\ObservabilityModule;
 
 final class VortosLoggingConfigTest extends TestCase
@@ -31,51 +34,94 @@ final class VortosLoggingConfigTest extends TestCase
         }
     }
 
-    public function test_defaults_are_sensible(): void
+    public function test_every_framework_channel_gets_a_default_sink_in_prod(): void
     {
-        $config = new VortosLoggingConfig();
-        $arr    = $config->toArray();
+        $resolved = (new VortosLoggingConfig())->resolve();
 
-        $this->assertEmpty($arr['disabled_channels']);
-        $this->assertEmpty($arr['channel_levels']);
-        $this->assertFalse($arr['rotation_enabled']); // prod env → false
-        $this->assertSame(30, $arr['max_files']);
-        $this->assertTrue($arr['buffer_enabled']);
-        $this->assertTrue($arr['correlation_id']);
-        $this->assertFalse($arr['introspection']);
-        $this->assertTrue($arr['redaction']);
-        $this->assertTrue($arr['structured']);
-        $this->assertTrue($arr['request_context']);
-        $this->assertTrue($arr['fail_on_missing_integrations']);
-        $this->assertEmpty($arr['sentry_handlers']);
-        $this->assertEmpty($arr['slack_handlers']);
-        $this->assertEmpty($arr['email_handlers']);
+        foreach (LogChannel::cases() as $channel) {
+            $this->assertArrayHasKey($channel->value, $resolved->channels);
+            $this->assertArrayHasKey($channel->value, $resolved->sinks);
+
+            $sink = $resolved->sinks[$channel->value];
+            $this->assertSame(SinkDestination::Stream, $sink->destination);
+            $this->assertSame('php://stderr', $sink->path);
+        }
     }
 
-    public function test_rotation_enabled_in_dev(): void
+    public function test_every_framework_channel_gets_a_default_file_sink_in_dev(): void
     {
         $_ENV['APP_ENV'] = 'dev';
-        $config = new VortosLoggingConfig();
-        $this->assertTrue($config->toArray()['rotation_enabled']);
-        $this->assertTrue($config->toArray()['introspection']);
+        $resolved = (new VortosLoggingConfig('dev'))->resolve();
+
+        $sink = $resolved->sinks[LogChannel::Http->value];
+        $this->assertSame(SinkDestination::File, $sink->destination);
+        $this->assertSame(LogChannel::Http->value . '.log', $sink->path);
+        $this->assertTrue($sink->rotation->enabled);
+        $this->assertSame(Level::Debug, $resolved->channels[LogChannel::Http->value]->level);
+    }
+
+    public function test_security_and_audit_channels_default_to_write_through(): void
+    {
+        $resolved = (new VortosLoggingConfig())->resolve();
+
+        $this->assertSame(BufferPolicy::WriteThrough, $resolved->sinks[LogChannel::Security->value]->bufferPolicy);
+        $this->assertSame(BufferPolicy::WriteThrough, $resolved->sinks[LogChannel::Audit->value]->bufferPolicy);
+    }
+
+    public function test_other_channels_default_to_batched(): void
+    {
+        $resolved = (new VortosLoggingConfig())->resolve();
+
+        $this->assertSame(BufferPolicy::Batched, $resolved->sinks[LogChannel::App->value]->bufferPolicy);
+        $this->assertSame(BufferPolicy::Batched, $resolved->sinks[LogChannel::Cache->value]->bufferPolicy);
+    }
+
+    public function test_audit_channel_defaults_to_hash_chain_and_floor_retention(): void
+    {
+        $resolved = (new VortosLoggingConfig())->resolve();
+
+        $auditSink = $resolved->sinks[LogChannel::Audit->value];
+        $this->assertTrue($auditSink->hashChain);
+        $this->assertSame(365, $auditSink->rotation->maxAgeDays);
+    }
+
+    public function test_default_levels_are_warning_for_app_and_error_for_others_in_prod(): void
+    {
+        $resolved = (new VortosLoggingConfig())->resolve();
+
+        $this->assertSame(Level::Warning, $resolved->channels[LogChannel::App->value]->level);
+        $this->assertSame(Level::Error, $resolved->channels[LogChannel::Http->value]->level);
     }
 
     public function test_can_set_channel_level(): void
     {
         $config = new VortosLoggingConfig();
-        $config->channel(LogChannel::Messaging, Level::Warning);
+        $config->channel(LogChannel::Messaging)->level(Level::Warning);
 
-        $this->assertSame(Level::Warning, $config->toArray()['channel_levels'][LogChannel::Messaging->value]);
+        $resolved = $config->resolve();
+        $this->assertSame(Level::Warning, $resolved->channels[LogChannel::Messaging->value]->level);
     }
 
     public function test_can_disable_framework_channel(): void
     {
         $config = new VortosLoggingConfig();
+        $config->channel(LogChannel::Cache)->disable();
+        $config->channel(LogChannel::Query)->disable();
+
+        $resolved = $config->resolve();
+        $this->assertTrue($resolved->channels[LogChannel::Cache->value]->disabled);
+        $this->assertTrue($resolved->channels[LogChannel::Query->value]->disabled);
+        $this->assertSame([], $resolved->channels[LogChannel::Cache->value]->sinkIds);
+    }
+
+    public function test_disable_channel_legacy_helper(): void
+    {
+        $config = new VortosLoggingConfig();
         $config->disableChannel(LogChannel::Cache, LogChannel::Query);
 
-        $disabled = $config->toArray()['disabled_channels'];
-        $this->assertContains(LogChannel::Cache->value, $disabled);
-        $this->assertContains(LogChannel::Query->value, $disabled);
+        $resolved = $config->resolve();
+        $this->assertTrue($resolved->channels[LogChannel::Cache->value]->disabled);
+        $this->assertTrue($resolved->channels[LogChannel::Query->value]->disabled);
     }
 
     public function test_can_disable_framework_module_logs(): void
@@ -83,9 +129,9 @@ final class VortosLoggingConfigTest extends TestCase
         $config = new VortosLoggingConfig();
         $config->disableModule(ObservabilityModule::Make, ObservabilityModule::Persistence);
 
-        $disabled = $config->toArray()['disabled_channels'];
-        $this->assertContains(LogChannel::Tooling->value, $disabled);
-        $this->assertContains(LogChannel::Query->value, $disabled);
+        $resolved = $config->resolve();
+        $this->assertTrue($resolved->channels[LogChannel::Tooling->value]->disabled);
+        $this->assertTrue($resolved->channels[LogChannel::Query->value]->disabled);
     }
 
     public function test_app_channel_cannot_be_disabled(): void
@@ -93,33 +139,66 @@ final class VortosLoggingConfigTest extends TestCase
         $config = new VortosLoggingConfig();
         $config->disableChannel(LogChannel::App);
 
-        $this->assertNotContains(LogChannel::App->value, $config->toArray()['disabled_channels']);
+        $resolved = $config->resolve();
+        $this->assertFalse($resolved->channels[LogChannel::App->value]->disabled);
     }
 
-    public function test_can_set_rotation(): void
+    public function test_can_route_channel_to_multiple_sinks(): void
     {
         $config = new VortosLoggingConfig();
-        $config->rotation(true, 14);
+        $config->sink('siem')->customHandler('app.logging.siem_handler');
+        $config->channel(LogChannel::Security)->alsoRouteTo('siem');
 
-        $arr = $config->toArray();
-        $this->assertTrue($arr['rotation_enabled']);
-        $this->assertSame(14, $arr['max_files']);
+        $resolved = $config->resolve();
+        $this->assertSame([LogChannel::Security->value, 'siem'], $resolved->channels[LogChannel::Security->value]->sinkIds);
+        $this->assertSame(SinkDestination::Custom, $resolved->sinks['siem']->destination);
+        $this->assertSame('app.logging.siem_handler', $resolved->sinks['siem']->customHandlerServiceId);
     }
 
-    public function test_can_disable_buffer(): void
+    public function test_route_to_replaces_default_routing(): void
     {
         $config = new VortosLoggingConfig();
-        $config->buffer(false);
+        $config->sink('siem')->customHandler('app.logging.siem_handler');
+        $config->channel(LogChannel::Security)->routeTo('siem');
 
-        $this->assertFalse($config->toArray()['buffer_enabled']);
+        $resolved = $config->resolve();
+        $this->assertSame(['siem'], $resolved->channels[LogChannel::Security->value]->sinkIds);
     }
 
-    public function test_can_disable_correlation_id(): void
+    public function test_sink_sampling(): void
     {
         $config = new VortosLoggingConfig();
-        $config->correlationId(false);
+        $config->sink(LogChannel::Cache->value)->sample(100);
 
-        $this->assertFalse($config->toArray()['correlation_id']);
+        $resolved = $config->resolve();
+        $this->assertSame(100, $resolved->sinks[LogChannel::Cache->value]->sampleFactor);
+    }
+
+    public function test_unknown_sink_reference_throws(): void
+    {
+        $config = new VortosLoggingConfig();
+        $config->channel(LogChannel::Security)->routeTo('does-not-exist');
+
+        $this->expectException(InvalidLoggingConfigException::class);
+        $config->resolve();
+    }
+
+    public function test_audit_retention_below_floor_throws_without_acknowledgement(): void
+    {
+        $config = new VortosLoggingConfig();
+        $config->sink(LogChannel::Audit->value)->toFile('audit.log')->rotation(maxAgeDays: 30);
+
+        $this->expectException(InvalidLoggingConfigException::class);
+        $config->resolve();
+    }
+
+    public function test_audit_retention_below_floor_allowed_with_acknowledgement(): void
+    {
+        $config = new VortosLoggingConfig();
+        $config->sink(LogChannel::Audit->value)->toFile('audit.log')->rotation(maxAgeDays: 30)->acknowledgeComplianceRisk();
+
+        $resolved = $config->resolve();
+        $this->assertSame(30, $resolved->sinks[LogChannel::Audit->value]->rotation->maxAgeDays);
     }
 
     public function test_can_configure_enterprise_processors(): void
@@ -132,16 +211,16 @@ final class VortosLoggingConfigTest extends TestCase
             ->service('checkout', '1.2.3', 'prod')
             ->failOnMissingIntegrations(false);
 
-        $arr = $config->toArray();
+        $resolved = $config->resolve();
 
-        $this->assertTrue($arr['introspection']);
-        $this->assertSame(['secret'], $arr['redaction_keys']);
-        $this->assertFalse($arr['structured']);
-        $this->assertFalse($arr['request_context']);
-        $this->assertSame('checkout', $arr['service_name']);
-        $this->assertSame('1.2.3', $arr['service_version']);
-        $this->assertSame('prod', $arr['deployment_environment']);
-        $this->assertFalse($arr['fail_on_missing_integrations']);
+        $this->assertTrue($resolved->introspection);
+        $this->assertSame(['secret'], $resolved->redactionKeys);
+        $this->assertFalse($resolved->structured);
+        $this->assertFalse($resolved->requestContext);
+        $this->assertSame('checkout', $resolved->serviceName);
+        $this->assertSame('1.2.3', $resolved->serviceVersion);
+        $this->assertSame('prod', $resolved->deploymentEnvironment);
+        $this->assertFalse($resolved->failOnMissingIntegrations);
     }
 
     public function test_sentry_handler_registered_when_dsn_provided(): void
@@ -149,7 +228,7 @@ final class VortosLoggingConfigTest extends TestCase
         $config = new VortosLoggingConfig();
         $config->sentry('https://key@sentry.io/123', Level::Critical);
 
-        $handlers = $config->toArray()['sentry_handlers'];
+        $handlers = $config->resolve()->sentryHandlers;
         $this->assertCount(1, $handlers);
         $this->assertSame('https://key@sentry.io/123', $handlers[0]['dsn']);
         $this->assertSame(Level::Critical, $handlers[0]['minLevel']);
@@ -160,7 +239,7 @@ final class VortosLoggingConfigTest extends TestCase
         $config = new VortosLoggingConfig();
         $config->sentry('');
 
-        $this->assertEmpty($config->toArray()['sentry_handlers']);
+        $this->assertEmpty($config->resolve()->sentryHandlers);
     }
 
     public function test_slack_handler_registered_when_webhook_provided(): void
@@ -168,17 +247,9 @@ final class VortosLoggingConfigTest extends TestCase
         $config = new VortosLoggingConfig();
         $config->slack('https://hooks.slack.com/xxx', Level::Critical);
 
-        $handlers = $config->toArray()['slack_handlers'];
+        $handlers = $config->resolve()->slackHandlers;
         $this->assertCount(1, $handlers);
         $this->assertSame('https://hooks.slack.com/xxx', $handlers[0]['webhook']);
-    }
-
-    public function test_slack_handler_skipped_when_webhook_empty(): void
-    {
-        $config = new VortosLoggingConfig();
-        $config->slack('');
-
-        $this->assertEmpty($config->toArray()['slack_handlers']);
     }
 
     public function test_email_handler_registered_when_address_provided(): void
@@ -186,18 +257,25 @@ final class VortosLoggingConfigTest extends TestCase
         $config = new VortosLoggingConfig();
         $config->email('alerts@example.com', Level::Error);
 
-        $handlers = $config->toArray()['email_handlers'];
+        $handlers = $config->resolve()->emailHandlers;
         $this->assertCount(1, $handlers);
         $this->assertSame('alerts@example.com', $handlers[0]['to']);
+    }
+
+    public function test_flush_interval_applies_to_default_batched_sinks(): void
+    {
+        $config = new VortosLoggingConfig();
+        $config->flushInterval(10);
+
+        $resolved = $config->resolve();
+        $this->assertSame(10, $resolved->sinks[LogChannel::App->value]->flushIntervalSeconds);
     }
 
     public function test_fluent_interface_returns_same_instance(): void
     {
         $config = new VortosLoggingConfig();
-        $this->assertSame($config, $config->channel(LogChannel::App, Level::Debug));
         $this->assertSame($config, $config->disableChannel(LogChannel::Cache));
-        $this->assertSame($config, $config->rotation(true));
-        $this->assertSame($config, $config->buffer(true));
+        $this->assertSame($config, $config->flushInterval(5));
         $this->assertSame($config, $config->correlationId(true));
         $this->assertSame($config, $config->sentry('https://dsn', Level::Error));
         $this->assertSame($config, $config->slack('https://hook', Level::Critical));

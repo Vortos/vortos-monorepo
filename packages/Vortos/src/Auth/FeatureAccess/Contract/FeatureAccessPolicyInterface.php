@@ -9,7 +9,12 @@ use Vortos\Auth\Contract\UserIdentityInterface;
  * Defines feature access rules for a given identity.
  *
  * Auto-discovered — just implement this interface.
- * Accepts string or BackedEnum for feature — both work.
+ * The feature string is already normalised (a BackedEnum on the attribute is
+ * resolved to its ->value before it reaches here).
+ *
+ * Return a FeatureAccessDecision, not a bool: the policy is the only layer that
+ * knows *why* a denial happens, so it — not the route — decides whether a denial
+ * is 403 (plan does not include the feature) or 402 (entitled but lapsed).
  *
  * Example:
  *   class SubscriptionFeaturePolicy implements FeatureAccessPolicyInterface
@@ -19,14 +24,19 @@ use Vortos\Auth\Contract\UserIdentityInterface;
  *           'pro'  => ['api.basic', 'api.bulk_export', 'api.webhooks'],
  *       ];
  *
- *       public function canAccess(UserIdentityInterface $identity, string $feature): bool
+ *       public function evaluate(UserIdentityInterface $identity, string $feature): FeatureAccessDecision
  *       {
  *           $plan = $identity->getAttribute('plan') ?? 'free';
- *           return in_array($feature, self::PLAN_FEATURES[$plan] ?? [], true);
+ *           if (!in_array($feature, self::PLAN_FEATURES[$plan] ?? [], true)) {
+ *               return FeatureAccessDecision::Forbidden;
+ *           }
+ *           return $identity->getAttribute('subscription_active') === false
+ *               ? FeatureAccessDecision::PaymentRequired
+ *               : FeatureAccessDecision::Allowed;
  *       }
  *   }
  */
 interface FeatureAccessPolicyInterface
 {
-    public function canAccess(UserIdentityInterface $identity, string $feature): bool;
+    public function evaluate(UserIdentityInterface $identity, string $feature): FeatureAccessDecision;
 }

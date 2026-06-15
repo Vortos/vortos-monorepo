@@ -38,14 +38,14 @@ final class FeatureAccessCompilerPass implements CompilerPassInterface
             // Class-level attributes
             foreach ($reflection->getAttributes(RequiresFeatureAccess::class) as $attr) {
                 $instance = $attr->newInstance();
-                $routeMap[$class][] = ['feature' => $instance->feature, 'paymentRequired' => $instance->paymentRequired];
+                $routeMap[$class][] = ['feature' => $instance->feature];
             }
 
             // Method-level attributes
             foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
                 foreach ($method->getAttributes(RequiresFeatureAccess::class) as $attr) {
                     $instance = $attr->newInstance();
-                    $routeMap[$class][] = ['feature' => $instance->feature, 'paymentRequired' => $instance->paymentRequired];
+                    $routeMap[$class][] = ['feature' => $instance->feature];
                 }
             }
         }

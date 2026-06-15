@@ -22,18 +22,6 @@ final class RequiresFeatureAccessAttributeTest extends TestCase
         $this->assertSame('api.bulk_export', $attr->feature);
     }
 
-    public function test_payment_required_defaults_false(): void
-    {
-        $attr = new RequiresFeatureAccess('api.export');
-        $this->assertFalse($attr->paymentRequired);
-    }
-
-    public function test_payment_required_can_be_true(): void
-    {
-        $attr = new RequiresFeatureAccess('api.export', paymentRequired: true);
-        $this->assertTrue($attr->paymentRequired);
-    }
-
     public function test_is_repeatable(): void
     {
         $reflection = new \ReflectionClass(RequiresFeatureAccess::class);

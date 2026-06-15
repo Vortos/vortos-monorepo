@@ -10,6 +10,7 @@ use Vortos\Http\JsonResponse;
 use Vortos\Http\MiddlewareOrder;
 use Vortos\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Vortos\Auth\FeatureAccess\Contract\FeatureAccessDecision;
 use Vortos\Auth\FeatureAccess\Contract\FeatureAccessPolicyInterface;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Observability\Config\ObservabilityModule;
@@ -24,8 +25,8 @@ use Vortos\Tracing\Contract\TracingInterface;
  * Enforces #[RequiresFeatureAccess] on controllers.
  * Runs at FEATURE_ACCESS (order 500) — after ownership, before quota.
  *
- * Returns 403 when denied.
- * Returns 402 (Payment Required) when paymentRequired: true.
+ * Maps the policy's FeatureAccessDecision to a status:
+ * Forbidden → 403, PaymentRequired → 402. The policy, not the route, decides.
  *
  * Runtime: zero reflection — reads compile-time map.
  */
@@ -33,7 +34,7 @@ use Vortos\Tracing\Contract\TracingInterface;
 final class FeatureAccessMiddleware implements MiddlewareInterface
 {
     /**
-     * @param array<string, list<array{feature: string, paymentRequired: bool}>> $routeMap
+     * @param array<string, list<array{feature: string}>> $routeMap
      * @param array<string, FeatureAccessPolicyInterface> $policies
      */
     public function __construct(
@@ -57,50 +58,72 @@ final class FeatureAccessMiddleware implements MiddlewareInterface
         $identity = $this->currentUser->get();
 
         foreach ($this->routeMap[$controller] as $rule) {
-            foreach ($this->policies as $policy) {
-                if (!$policy->canAccess($identity, $rule['feature'])) {
-                    $status = $rule['paymentRequired']
-                        ? Response::HTTP_PAYMENT_REQUIRED
-                        : Response::HTTP_FORBIDDEN;
+            [$decision, $deciding] = $this->resolve($identity, $rule['feature']);
 
-                    $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::FeatureAccessDeniedTotal, FrameworkMetricLabels::of(
-                        MetricLabelValue::of(MetricLabel::Feature, $rule['feature']),
-                        MetricLabelValue::of(MetricLabel::Policy, str_replace('\\', '.', $policy::class)),
-                        MetricLabelValue::of(MetricLabel::Controller, str_replace('\\', '.', $controller)),
-                    ));
-                    $this->logger?->warning('feature_access.denied', [
-                        'feature' => $rule['feature'],
-                        'policy' => $policy::class,
-                        'payment_required' => $rule['paymentRequired'],
-                    ]);
-                    $this->trace('vortos.feature_access.allowed', false);
-
-                    return $this->problemResponse(
-                        $request,
-                        $status,
-                        $rule['paymentRequired']
-                            ? 'https://docs.vortos.dev/errors/payment-required'
-                            : 'https://docs.vortos.dev/errors/feature-access-denied',
-                        $rule['paymentRequired'] ? 'Payment Required' : 'Forbidden',
-                        $rule['paymentRequired']
-                            ? 'This feature requires an active subscription.'
-                            : 'Your plan does not include access to this feature.',
-                        [
-                            'feature' => $rule['feature'],
-                            'payment_required' => $rule['paymentRequired'],
-                        ],
-                    );
-                }
-
+            if ($decision->isAllowed()) {
                 $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::FeatureAccessAllowedTotal, FrameworkMetricLabels::of(
                     MetricLabelValue::of(MetricLabel::Feature, $rule['feature']),
-                    MetricLabelValue::of(MetricLabel::Policy, str_replace('\\', '.', $policy::class)),
                     MetricLabelValue::of(MetricLabel::Controller, str_replace('\\', '.', $controller)),
                 ));
+                continue;
             }
+
+            $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::FeatureAccessDeniedTotal, FrameworkMetricLabels::of(
+                MetricLabelValue::of(MetricLabel::Feature, $rule['feature']),
+                MetricLabelValue::of(MetricLabel::Policy, str_replace('\\', '.', $deciding::class)),
+                MetricLabelValue::of(MetricLabel::Controller, str_replace('\\', '.', $controller)),
+                MetricLabelValue::of(MetricLabel::Reason, $decision->name),
+            ));
+            $this->logger?->warning('feature_access.denied', [
+                'feature' => $rule['feature'],
+                'policy' => $deciding::class,
+                'decision' => $decision->name,
+            ]);
+            $this->trace('vortos.feature_access.allowed', false);
+
+            $paymentRequired = $decision === FeatureAccessDecision::PaymentRequired;
+
+            return $this->problemResponse(
+                $request,
+                $decision->httpStatus(),
+                $paymentRequired
+                    ? 'https://docs.vortos.dev/errors/payment-required'
+                    : 'https://docs.vortos.dev/errors/feature-access-denied',
+                $paymentRequired ? 'Payment Required' : 'Forbidden',
+                $paymentRequired
+                    ? 'This feature requires an active subscription.'
+                    : 'Your plan does not include access to this feature.',
+                [
+                    'feature' => $rule['feature'],
+                    'payment_required' => $paymentRequired,
+                ],
+            );
         }
 
         return $next($request);
+    }
+
+    /**
+     * Evaluates every policy for a feature and returns the most restrictive
+     * decision (Forbidden > PaymentRequired > Allowed) together with the policy
+     * that produced it. A feature is allowed only if no policy denies it.
+     *
+     * @return array{0: FeatureAccessDecision, 1: FeatureAccessPolicyInterface}
+     */
+    private function resolve(\Vortos\Auth\Contract\UserIdentityInterface $identity, string $feature): array
+    {
+        $decision = FeatureAccessDecision::Allowed;
+        $deciding = null;
+
+        foreach ($this->policies as $policy) {
+            $result = $policy->evaluate($identity, $feature);
+            if ($deciding === null || $result->weight() > $decision->weight()) {
+                $decision = $result;
+                $deciding = $policy;
+            }
+        }
+
+        return [$decision, $deciding];
     }
 
     private function extractControllerClass(mixed $controller): ?string

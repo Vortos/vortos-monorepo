@@ -10,8 +10,9 @@ namespace Vortos\Auth\FeatureAccess\Attribute;
  *   #[RequiresFeatureAccess('api.bulk_export')]
  *   #[RequiresFeatureAccess(Feature::BulkExport)]
  *
- * Returns 403 when denied.
- * Returns 402 (Payment Required) when subscription is expired — set $paymentRequired: true
+ * The route only declares *what* it requires. Whether a denial is 403 (plan does
+ * not include it) or 402 (entitled but lapsed) is decided at request time by the
+ * FeatureAccessPolicy, since only it knows the identity's billing state.
  */
 #[\Attribute(\Attribute::TARGET_CLASS | \Attribute::TARGET_METHOD | \Attribute::IS_REPEATABLE)]
 final class RequiresFeatureAccess
@@ -20,7 +21,6 @@ final class RequiresFeatureAccess
 
     public function __construct(
         string|\BackedEnum $feature,
-        public readonly bool $paymentRequired = false,
     ) {
         $this->feature = $feature instanceof \BackedEnum ? $feature->value : $feature;
     }

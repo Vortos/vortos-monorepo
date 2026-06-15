@@ -23,7 +23,7 @@ final class JwtServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->config = new JwtConfig(
+        $this->config = JwtConfig::fromSecret(
             secret: 'test-secret-for-unit-tests-only-not-for-production-xxxxxxxxxxxxx',
             accessTokenTtl: 900,
             refreshTokenTtl: 604800,
@@ -197,7 +197,7 @@ final class JwtServiceTest extends TestCase
 
     public function test_validate_throws_on_expired_token(): void
     {
-        $config = new JwtConfig(
+        $config = JwtConfig::fromSecret(
             secret: 'test-secret-for-unit-tests-only-not-for-production-xxxxxxxxxxxxx',
             accessTokenTtl: -1,
             refreshTokenTtl: 604800,
@@ -260,7 +260,7 @@ final class JwtServiceTest extends TestCase
 
     public function test_refresh_throws_on_expired_refresh_token(): void
     {
-        $config = new JwtConfig(
+        $config = JwtConfig::fromSecret(
             secret: 'test-secret-for-unit-tests-only-not-for-production-xxxxxxxxxxxxx',
             accessTokenTtl: 900,
             refreshTokenTtl: -1, // already expired

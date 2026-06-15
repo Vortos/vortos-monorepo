@@ -13,6 +13,8 @@ use Vortos\Auth\Hasher\ArgonPasswordHasher;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Auth\Jwt\JwtConfig;
 use Vortos\Auth\Jwt\JwtService;
+use Vortos\Auth\Jwt\Jwks\JwksController;
+use Vortos\Auth\Jwt\Jwks\JwksExporter;
 use Vortos\Auth\Lockout\LockoutManager;
 use Vortos\Auth\Lockout\Storage\RedisLockoutStore;
 use Vortos\Auth\Middleware\AuthMiddleware;
@@ -25,6 +27,10 @@ use Vortos\Auth\RateLimit\Middleware\RateLimitMiddleware;
 use Vortos\Auth\RateLimit\Storage\RedisRateLimitStore;
 use Vortos\Auth\FeatureAccess\Middleware\FeatureAccessMiddleware;
 use Vortos\Auth\Audit\Middleware\AuditMiddleware;
+use Vortos\Auth\Command\KeysGenerateCommand;
+use Vortos\Auth\Command\KeysListCommand;
+use Vortos\Auth\Tenant\TenantContextMiddleware;
+use Vortos\Tenant\TenantContext;
 use Vortos\Auth\TwoFactor\Middleware\TwoFactorMiddleware;
 use Vortos\Auth\Session\Compiler\SessionCompilerPass;
 use Vortos\Auth\Session\SessionEnforcer;
@@ -73,18 +79,28 @@ final class AuthExtension extends Extension
             $this->ensureRedisService($container, $env);
         }
 
-        // JwtConfig
+        // JwtConfig — signing material comes from the keyring (supports rotation).
+        $keyring = $config->buildKeyring();
         $container->register(JwtConfig::class, JwtConfig::class)
             ->setArguments([
-                $resolved['algorithm'],
-                $resolved['secret'],
-                $resolved['private_key'],
-                $resolved['public_key'],
+                $keyring,
                 $resolved['access_token_ttl'],
                 $resolved['refresh_token_ttl'],
                 $resolved['issuer'],
             ])
             ->setShared(true)->setPublic(false);
+
+        // JWKS endpoint — publishes public signing keys for RS256 keyrings.
+        if ($config->isJwksEnabled()) {
+            $container->register(JwksExporter::class, JwksExporter::class)
+                ->setArguments([$keyring])
+                ->setShared(true)->setPublic(false);
+
+            $container->register(JwksController::class, JwksController::class)
+                ->setArgument('$exporter', new Reference(JwksExporter::class))
+                ->addTag('vortos.api.controller')
+                ->setShared(true)->setPublic(true);
+        }
 
         // Token storage
         if ($this->hasRedisService($container)) {
@@ -203,6 +219,18 @@ final class AuthExtension extends Extension
                 ->addTag('kernel.event_subscriber');
         }
 
+        // Tenant context middleware — populates TenantContext from the identity's tenant claim.
+        if ($container->has(TenantContext::class)) {
+            $container->register(TenantContextMiddleware::class, TenantContextMiddleware::class)
+                ->setArguments([
+                    new Reference(CurrentUserProvider::class),
+                    new Reference(TenantContext::class),
+                    $resolved['tenant_claim'],
+                ])
+                ->setShared(true)->setPublic(true)
+                ->addTag('kernel.event_subscriber');
+        }
+
         // Feature access middleware (no Redis required)
         $container->register(FeatureAccessMiddleware::class, FeatureAccessMiddleware::class)
             ->setArguments([
@@ -248,6 +276,16 @@ final class AuthExtension extends Extension
                 ->addTag('kernel.event_subscriber')
                 ->setShared(true)->setPublic(true);
         }
+
+        // Key management console commands
+        $container->register(KeysListCommand::class, KeysListCommand::class)
+            ->setArgument('$config', new Reference(JwtConfig::class))
+            ->addTag('console.command')
+            ->setPublic(false);
+
+        $container->register(KeysGenerateCommand::class, KeysGenerateCommand::class)
+            ->addTag('console.command')
+            ->setPublic(false);
 
         $container->register('vortos.config_stub.auth', ConfigStub::class)
             ->setArguments(['auth', __DIR__ . '/../stubs/auth.php'])

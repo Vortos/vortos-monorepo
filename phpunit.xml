@@ -8,6 +8,9 @@
         <testsuite name="Auth">
             <directory>packages/Vortos/src/Auth/Tests</directory>
         </testsuite>
+        <testsuite name="Tenant">
+            <directory>packages/Vortos/src/Tenant/Tests</directory>
+        </testsuite>
         <testsuite name="Authorization">
             <directory>packages/Vortos/src/Authorization/Tests</directory>
         </testsuite>

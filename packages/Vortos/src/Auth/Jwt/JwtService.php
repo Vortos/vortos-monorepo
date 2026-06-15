@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Vortos\Auth\Jwt;
 
 use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
 use Vortos\Auth\Contract\TokenStorageInterface;
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Exception\TokenExpiredException;
@@ -42,7 +41,9 @@ use Vortos\Auth\Session\SessionEnforcer;
  * ## Security
  *
  * Tokens are validated by:
- *   1. Signature verification (HMAC-SHA256 with secret key)
+ *   1. Signature verification against the configured Keyring. The token's `kid`
+ *      header selects the verifying key, so tokens signed by a now-retiring key
+ *      keep validating until they expire (zero-downtime key rotation).
  *   2. Expiry check (exp claim vs current time)
  *   3. Issuer check (iss claim vs configured issuer)
  *   4. Revocation check (jti not in blacklist via TokenStorageInterface)
@@ -103,9 +104,9 @@ final class JwtService
             'type' => 'refresh',
         ];
 
-        $signingKey   = $this->config->algorithm === 'RS256' ? $this->config->privateKey : $this->config->secret;
-        $accessToken  = JWT::encode($accessPayload, $signingKey, $this->config->algorithm);
-        $refreshToken = JWT::encode($refreshPayload, $signingKey, $this->config->algorithm);
+        $signingKey   = $this->config->keyring->activeSigningKey();
+        $accessToken  = JWT::encode($accessPayload, $signingKey->signingMaterial(), $signingKey->algorithm, $signingKey->kid);
+        $refreshToken = JWT::encode($refreshPayload, $signingKey->signingMaterial(), $signingKey->algorithm, $signingKey->kid);
 
         // Session enforcement — may throw SessionLimitExceededException
         $this->sessionEnforcer?->enforceOnIssue($identity, $jti, $now, $this->config->refreshTokenTtl);
@@ -238,8 +239,9 @@ final class JwtService
 
     private function decode(string $token): array
     {
-        $verifyKey = $this->config->algorithm === 'RS256' ? $this->config->publicKey : $this->config->secret;
-        return (array) JWT::decode($token, new Key($verifyKey, $this->config->algorithm));
+        // The full keyring is handed to JWT::decode; the token's `kid` header
+        // selects the verifying key. Tokens with an unknown/missing kid fail.
+        return (array) JWT::decode($token, $this->config->keyring->verificationKeys());
     }
 
     /**

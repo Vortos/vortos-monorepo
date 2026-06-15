@@ -93,6 +93,8 @@ jobs:
             split_repository: 'vortos-paddle'
           - local_path: 'packages/Vortos/src/Iac'
             split_repository: 'vortos-iac'
+          - local_path: 'packages/Vortos/src/Tenant'
+            split_repository: 'vortos-tenant'
 
     steps:
       - uses: actions/checkout@v4

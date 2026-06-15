@@ -1,0 +1,22 @@
+{
+    "name": "vortos/vortos-tenant",
+    "description": "Vortos multi-tenancy — ambient tenant context, persistence scoping, and PostgreSQL RLS",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Tenant\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "symfony/service-contracts": "^3.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Tenant\\DependencyInjection\\TenantPackage",
+            "order": 12
+        }
+    }
+}

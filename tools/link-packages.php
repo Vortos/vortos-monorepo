@@ -29,6 +29,7 @@ $packages = [
     'vortos-mcp'           => 'Mcp',
     'vortos-aws-ses'       => 'AwsSes',
     'vortos-object-store'  => 'ObjectStore',
+    'vortos-tenant'        => 'Tenant',
 ];
 
 foreach ($packages as $vendorName => $srcName) {

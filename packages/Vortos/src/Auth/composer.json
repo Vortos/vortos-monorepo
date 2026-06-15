@@ -15,6 +15,7 @@
         "vortos/vortos-http": "^1.0",
         "vortos/vortos-metrics": "^1.0",
         "vortos/vortos-observability": "^1.0",
+        "vortos/vortos-tenant": "^1.0",
         "firebase/php-jwt": "^7.0"
     },
     "extra": {

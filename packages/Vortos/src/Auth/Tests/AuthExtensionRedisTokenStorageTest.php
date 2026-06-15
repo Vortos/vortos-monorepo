@@ -56,7 +56,7 @@ use Vortos\Auth\Storage\RedisTokenStorage;
 
 return static function (VortosAuthConfig $config): void {
     $config
-        ->secret('test-secret-at-least-32-characters-long')
+        ->hs256('test-secret-at-least-sixty-four-characters-long-for-hs256-rotation')
         ->tokenStorage(RedisTokenStorage::class);
 };
 PHP;

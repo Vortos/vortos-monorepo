@@ -68,7 +68,8 @@
       "Vortos\\AwsSes\\": "packages/Vortos/src/AwsSes/",
       "Vortos\\ObjectStore\\": "packages/Vortos/src/ObjectStore/",
       "Vortos\\Paddle\\": "packages/Vortos/src/Paddle/",
-      "Vortos\\Iac\\": "packages/Vortos/src/Iac/"
+      "Vortos\\Iac\\": "packages/Vortos/src/Iac/",
+      "Vortos\\Tenant\\": "packages/Vortos/src/Tenant/"
     }
   },
   "autoload-dev": {

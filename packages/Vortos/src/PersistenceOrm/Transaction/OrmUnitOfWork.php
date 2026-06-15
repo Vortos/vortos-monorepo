@@ -7,6 +7,7 @@ namespace Vortos\PersistenceOrm\Transaction;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Contracts\Service\ResetInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
+use Vortos\Tenant\Session\TenantGucBinderInterface;
 
 /**
  * ORM implementation of UnitOfWorkInterface.
@@ -41,7 +42,14 @@ use Vortos\Persistence\Transaction\UnitOfWorkInterface;
  */
 final class OrmUnitOfWork implements UnitOfWorkInterface, ResetInterface
 {
-    public function __construct(private readonly EntityManagerInterface $em) {}
+    /**
+     * @param TenantGucBinderInterface|null $tenantBinder Binds the tenant GUC for
+     *        RLS at transaction start. Null in single-tenant apps (no tenant package).
+     */
+    public function __construct(
+        private readonly EntityManagerInterface $em,
+        private readonly ?TenantGucBinderInterface $tenantBinder = null,
+    ) {}
 
     public function run(callable $work): mixed
     {
@@ -51,6 +59,9 @@ final class OrmUnitOfWork implements UnitOfWorkInterface, ResetInterface
         $conn->beginTransaction();
 
         try {
+            // Bind the tenant GUC for RLS — transaction-scoped, auto-cleared on commit/rollback.
+            $this->tenantBinder?->bindLocal();
+
             $result = $work();
             $this->em->flush();
             $conn->commit();

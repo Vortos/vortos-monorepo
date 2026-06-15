@@ -11,10 +11,35 @@ use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Auth\Tenant\TenantContextMiddleware;
 use Vortos\Cache\Adapter\ArrayAdapter;
 use Vortos\Http\Request;
+use Vortos\Tenant\Session\TenantGucBinderInterface;
 use Vortos\Tenant\TenantContext;
 
 final class TenantContextMiddlewareTest extends TestCase
 {
+    public function test_binds_the_session_guc_every_request(): void
+    {
+        $binder = new class implements TenantGucBinderInterface {
+            public int $sessionBinds = 0;
+            public function bindSession(): void { $this->sessionBinds++; }
+            public function bindLocal(): void {}
+        };
+
+        $adapter = new ArrayAdapter();
+        $adapter->set('auth:identity', new UserIdentity('user-1', [], ['tenant' => 'acme']));
+
+        $middleware = new TenantContextMiddleware(
+            new CurrentUserProvider($adapter),
+            new TenantContext(),
+            'tenant',
+            $binder,
+        );
+
+        $middleware->handle(new Request(), fn(Request $r) => new Response('ok'));
+
+        $this->assertSame(1, $binder->sessionBinds);
+    }
+
+
     public function test_sets_tenant_from_authenticated_identity_claim(): void
     {
         $tenant = $this->dispatch(new UserIdentity('user-1', ['ROLE_USER'], ['tenant' => 'acme']));

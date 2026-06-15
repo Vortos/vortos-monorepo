@@ -15,7 +15,12 @@ use Vortos\Migration\Service\DependencyFactoryProvider;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\PersistenceOrm\Command\OrmDiffCommand;
 use Vortos\PersistenceOrm\Factory\EntityManagerFactory;
+use Vortos\PersistenceOrm\Tenant\OrmTenantSessionBinder;
+use Vortos\PersistenceOrm\Tenant\TenantFilter;
+use Vortos\PersistenceOrm\Tenant\TenantStampListener;
 use Vortos\PersistenceOrm\Transaction\OrmUnitOfWork;
+use Vortos\Tenant\Session\TenantGucBinderInterface;
+use Vortos\Tenant\TenantContext;
 
 /**
  * Wires Doctrine ORM services.
@@ -52,13 +57,41 @@ final class PersistenceOrmExtension extends Extension
         $devMode     = $container->getParameter('kernel.env') === 'dev';
         $dsn         = (string) $container->getParameter('vortos.persistence.write_dsn');
 
+        // Tenant isolation wiring (only when the tenant package is present).
+        $tenantEnabled = $container->has(TenantContext::class);
+
+        $emFilters        = [];
+        $emEnabledFilters = [];
+        $emEventListeners = [];
+        if ($tenantEnabled) {
+            // Compile-time scoped-entity map; populated by TenantScopedEntitiesPass.
+            if (!$container->hasParameter('vortos.tenant.orm_scoped_entities')) {
+                $container->setParameter('vortos.tenant.orm_scoped_entities', []);
+            }
+
+            $container->register(TenantStampListener::class, TenantStampListener::class)
+                ->setArgument('$tenantContext', new Reference(TenantContext::class))
+                ->setShared(true)->setPublic(false);
+
+            $emFilters        = [TenantFilter::NAME => TenantFilter::class];
+            $emEnabledFilters = [TenantFilter::NAME];
+            $emEventListeners = [[['prePersist'], new Reference(TenantStampListener::class)]];
+        }
+
         // Arg 3 ($metadataCache) is intentionally null here. OrmMetadataCachePass
         // runs after all extensions are merged and patches this argument if
         // TaggedCacheInterface is available — avoiding the false-negative from
         // MergeExtensionConfigurationPass isolating extensions in temp containers.
+        // Positional args 0-3 stay as-is: OrmMetadataCachePass patches index 3
+        // and N1DetectionCompilerPass manages index 4 ($middlewares). The tenant
+        // params are passed by name so they never collide with those indices.
         $container->register(EntityManager::class, EntityManager::class)
             ->setFactory([EntityManagerFactory::class, 'fromDsn'])
             ->setArguments([$dsn, $entityPaths, $devMode, null])
+            ->setArgument('$filters', $emFilters)
+            ->setArgument('$enabledFilters', $emEnabledFilters)
+            ->setArgument('$eventListeners', $emEventListeners)
+            ->setArgument('$scopedEntities', $tenantEnabled ? '%vortos.tenant.orm_scoped_entities%' : [])
             ->setShared(true)
             ->setPublic(true)
             ->setLazy(true);
@@ -74,9 +107,22 @@ final class PersistenceOrmExtension extends Extension
             ->setShared(true)
             ->setPublic(true);
 
-        $container->register(OrmUnitOfWork::class, OrmUnitOfWork::class)
+        $ormUnitOfWork = $container->register(OrmUnitOfWork::class, OrmUnitOfWork::class)
             ->setArgument('$em', new Reference(EntityManager::class))
             ->setPublic(false);
+
+        // Tenant GUC binder — sets app.current_tenant for the ORM filter + RLS.
+        if ($tenantEnabled) {
+            $container->register(OrmTenantSessionBinder::class, OrmTenantSessionBinder::class)
+                ->setArgument('$em', new Reference(EntityManager::class))
+                ->setArgument('$tenantContext', new Reference(TenantContext::class))
+                ->setShared(true)->setPublic(false);
+
+            $container->setAlias(TenantGucBinderInterface::class, OrmTenantSessionBinder::class)
+                ->setPublic(true);
+
+            $ormUnitOfWork->setArgument('$tenantBinder', new Reference(OrmTenantSessionBinder::class));
+        }
 
         $container->setAlias(UnitOfWorkInterface::class, OrmUnitOfWork::class)
             ->setPublic(false);

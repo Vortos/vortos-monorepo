@@ -30,6 +30,7 @@ use Vortos\Auth\Audit\Middleware\AuditMiddleware;
 use Vortos\Auth\Command\KeysGenerateCommand;
 use Vortos\Auth\Command\KeysListCommand;
 use Vortos\Auth\Tenant\TenantContextMiddleware;
+use Vortos\Tenant\Session\TenantGucBinderInterface;
 use Vortos\Tenant\TenantContext;
 use Vortos\Auth\TwoFactor\Middleware\TwoFactorMiddleware;
 use Vortos\Auth\Session\Compiler\SessionCompilerPass;
@@ -226,6 +227,7 @@ final class AuthExtension extends Extension
                     new Reference(CurrentUserProvider::class),
                     new Reference(TenantContext::class),
                     $resolved['tenant_claim'],
+                    new Reference(TenantGucBinderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 ])
                 ->setShared(true)->setPublic(true)
                 ->addTag('kernel.event_subscriber');

@@ -13,6 +13,7 @@
         "vortos/vortos-foundation": "^1.0",
         "vortos/vortos-persistence": "^1.0",
         "vortos/vortos-migration": "^1.0",
+        "vortos/vortos-tenant": "^1.0",
         "doctrine/orm": "^3.0",
         "doctrine/dbal": "^4.0",
         "symfony/cache": "^7.0",

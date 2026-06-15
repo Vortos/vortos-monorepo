@@ -11,6 +11,7 @@ use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\PersistenceDbal\N1Detection\N1DetectionCompilerPass;
 use Vortos\PersistenceOrm\DependencyInjection\Compiler\OrmMetadataCachePass;
 use Vortos\PersistenceOrm\DependencyInjection\Compiler\OrmRepositoryCompilerPass;
+use Vortos\PersistenceOrm\DependencyInjection\Compiler\TenantScopedEntitiesPass;
 
 final class PersistenceOrmPackage implements PackageInterface
 {
@@ -25,6 +26,13 @@ final class PersistenceOrmPackage implements PackageInterface
             new OrmRepositoryCompilerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
             8,
+        );
+        // Runs after OrmRepositoryCompilerPass (priority 8) so all repository
+        // definitions — and thus their entity classes — are available to scan.
+        $container->addCompilerPass(
+            new TenantScopedEntitiesPass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            6,
         );
         $container->addCompilerPass(new N1DetectionCompilerPass());
         // TYPE_BEFORE_OPTIMIZATION runs after all extensions have been merged —

@@ -103,31 +103,6 @@ final class OrmUnitOfWorkTest extends TestCase
         $this->assertFalse($this->makeUow($conn)->isActive());
     }
 
-    public function test_reset_clears_identity_map(): void
-    {
-        $conn = $this->makeConn();
-
-        $em = $this->createMock(EntityManagerInterface::class);
-        $em->method('getConnection')->willReturn($conn);
-        $em->method('isOpen')->willReturn(true);
-        $em->expects($this->once())->method('clear');
-
-        (new OrmUnitOfWork($em))->reset();
-    }
-
-    public function test_reset_closes_connection_and_clears_when_em_is_closed(): void
-    {
-        $conn = $this->makeConn();
-        $conn->expects($this->once())->method('close');
-
-        $em = $this->createMock(EntityManagerInterface::class);
-        $em->method('getConnection')->willReturn($conn);
-        $em->method('isOpen')->willReturn(false);
-        $em->expects($this->once())->method('clear');
-
-        (new OrmUnitOfWork($em))->reset();
-    }
-
     public function test_stale_connection_is_closed_before_transaction(): void
     {
         $conn = $this->createMock(Connection::class);

@@ -7,6 +7,7 @@ namespace Vortos\PersistenceOrm\DependencyInjection;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
+use Vortos\PersistenceOrm\EntityManager\ResettableEntityManager;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
@@ -30,13 +31,14 @@ use Vortos\Tenant\TenantContext;
  *
  * ## Services registered
  *
- *   EntityManager::class          — shared, lazy Doctrine EntityManager
- *   EntityManagerInterface::class — alias
- *   Connection::class             — DBAL connection extracted from EntityManager
- *                                   (shared with OutboxWriter for atomic writes)
- *   OrmUnitOfWork::class          — transaction boundary via DBAL beginTransaction/commit/rollBack
- *   UnitOfWorkInterface::class    — alias (overrides DBAL's alias when only ORM is active)
- *   OrmDiffCommand::class         — vortos:orm:diff  generate migration from entity diff
+ *   EntityManager::class            — shared, lazy raw Doctrine EntityManager (internal)
+ *   ResettableEntityManager::class  — public wrapper; owns ResetInterface lifecycle
+ *   EntityManagerInterface::class   — alias → ResettableEntityManager
+ *   Connection::class               — DBAL connection extracted from EntityManager
+ *                                     (shared with OutboxWriter for atomic writes)
+ *   OrmUnitOfWork::class            — transaction boundary via DBAL beginTransaction/commit/rollBack
+ *   UnitOfWorkInterface::class      — alias (overrides DBAL's alias when only ORM is active)
+ *   OrmDiffCommand::class           — vortos:orm:diff  generate migration from entity diff
  *
  * ## Coexistence with DbalPersistenceExtension
  *
@@ -93,10 +95,15 @@ final class PersistenceOrmExtension extends Extension
             ->setArgument('$eventListeners', $emEventListeners)
             ->setArgument('$scopedEntities', $tenantEnabled ? '%vortos.tenant.orm_scoped_entities%' : [])
             ->setShared(true)
-            ->setPublic(true)
+            ->setPublic(false)
             ->setLazy(true);
 
-        $container->setAlias(EntityManagerInterface::class, EntityManager::class)
+        $container->register(ResettableEntityManager::class, ResettableEntityManager::class)
+            ->setArgument('$inner', new Reference(EntityManager::class))
+            ->setShared(true)
+            ->setPublic(true);
+
+        $container->setAlias(EntityManagerInterface::class, ResettableEntityManager::class)
             ->setPublic(true);
 
         // Expose the connection held by EntityManager so OutboxWriter and
@@ -108,13 +115,13 @@ final class PersistenceOrmExtension extends Extension
             ->setPublic(true);
 
         $ormUnitOfWork = $container->register(OrmUnitOfWork::class, OrmUnitOfWork::class)
-            ->setArgument('$em', new Reference(EntityManager::class))
+            ->setArgument('$em', new Reference(EntityManagerInterface::class))
             ->setPublic(false);
 
         // Tenant GUC binder — sets app.current_tenant for the ORM filter + RLS.
         if ($tenantEnabled) {
             $container->register(OrmTenantSessionBinder::class, OrmTenantSessionBinder::class)
-                ->setArgument('$em', new Reference(EntityManager::class))
+                ->setArgument('$em', new Reference(EntityManagerInterface::class))
                 ->setArgument('$tenantContext', new Reference(TenantContext::class))
                 ->setShared(true)->setPublic(false);
 

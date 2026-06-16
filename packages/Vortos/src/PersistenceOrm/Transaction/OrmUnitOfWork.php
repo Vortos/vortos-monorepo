@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Vortos\PersistenceOrm\Transaction;
 
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Contracts\Service\ResetInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\Tenant\Session\TenantGucBinderInterface;
 
@@ -18,13 +17,13 @@ use Vortos\Tenant\Session\TenantGucBinderInterface;
  * any exception, permanently killing the EntityManager for all subsequent
  * requests in that worker thread. DBAL-level transactions never close the EM.
  *
- * ## Worker mode isolation (ResetInterface)
+ * ## Worker mode isolation
  *
- * Implements ResetInterface so ResettableServicesPass discovers it automatically.
- * Between requests, Runner::cleanUp() calls ServicesResetter::reset(), which
- * calls reset() here. reset() clears Doctrine's identity map and, if the EM was
- * closed by an unexpected path, reopens it via EntityManager::create() — ensuring
- * the next request always starts with a healthy EM.
+ * The injected EntityManagerInterface is ResettableEntityManager, which owns
+ * ResetInterface. Between requests, Runner::cleanUp() calls reset() on it —
+ * clearing Doctrine's identity map and recreating the inner EntityManager via
+ * EntityManager::create() if it was closed. This class does not need its own
+ * ResetInterface; all request-boundary cleanup happens in the wrapper.
  *
  * ## Connection resilience
  *
@@ -40,7 +39,7 @@ use Vortos\Tenant\Session\TenantGucBinderInterface;
  * connection, Doctrine uses savepoints automatically. The outermost run()
  * owns the final commit/rollback.
  */
-final class OrmUnitOfWork implements UnitOfWorkInterface, ResetInterface
+final class OrmUnitOfWork implements UnitOfWorkInterface
 {
     /**
      * @param TenantGucBinderInterface|null $tenantBinder Binds the tenant GUC for
@@ -76,18 +75,6 @@ final class OrmUnitOfWork implements UnitOfWorkInterface, ResetInterface
     public function isActive(): bool
     {
         return $this->em->getConnection()->isTransactionActive();
-    }
-
-    public function reset(): void
-    {
-        if (!$this->em->isOpen()) {
-            // EM was closed by an unexpected code path — reopen for next request.
-            // This is a safety net; the DBAL-level transaction strategy should
-            // prevent the EM from ever being closed in normal operation.
-            $this->em->getConnection()->close();
-        }
-
-        $this->em->clear();
     }
 
     private function ensureConnection(): void

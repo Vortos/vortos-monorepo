@@ -46,6 +46,21 @@ use Vortos\Domain\Aggregate\AggregateRoot as BaseAggregateRoot;
  *            then updates $lockVersion on the entity to the incremented value.
  * On conflict: Doctrine throws OptimisticLockException — OrmStore
  *              translates this to the domain OptimisticLockException.
+ *
+ * ## Why incrementVersion() must NOT touch $lockVersion
+ *
+ * $lockVersion is an #[ORM\Version] field. Doctrine exclusively owns its
+ * in-memory value after every flush: it writes `SET lock_version = lock_version + 1`
+ * at the SQL layer and then syncs the PHP property back to the new value.
+ *
+ * If incrementVersion() also increments $lockVersion on the PHP side, the next
+ * flush sees a stale WHERE clause (lock_version = N+1 instead of N) and either
+ * throws a spurious OptimisticLockException or silently skips the UPDATE.
+ *
+ * OrmStore never calls incrementVersion() — it relies entirely on Doctrine.
+ * The override exists solely to propagate the $persisted flag to the base class
+ * (required by InMemoryWriteRepository in integration tests) without corrupting
+ * the Doctrine-managed version counter.
  */
 #[ORM\MappedSuperclass]
 abstract class AggregateRoot extends BaseAggregateRoot
@@ -59,9 +74,14 @@ abstract class AggregateRoot extends BaseAggregateRoot
         return $this->lockVersion;
     }
 
+    /**
+     * Propagates the $persisted flag to the base class without touching $lockVersion.
+     *
+     * $lockVersion is exclusively managed by Doctrine's #[ORM\Version] mechanism.
+     * Any PHP-side increment before flush corrupts the optimistic-lock WHERE clause.
+     */
     public function incrementVersion(): void
     {
-        $this->lockVersion++;
         parent::incrementVersion();
     }
 

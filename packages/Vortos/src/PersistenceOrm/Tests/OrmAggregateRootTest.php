@@ -36,19 +36,27 @@ final class OrmAggregateRootTest extends TestCase
         $this->assertSame(0, (new OrmTestAggregate())->getVersion());
     }
 
-    public function test_increment_version_increments_lock_version(): void
+    public function test_increment_version_does_not_mutate_lock_version(): void
     {
+        // Doctrine owns $lockVersion via #[ORM\Version] — PHP-side increment
+        // before flush would corrupt the optimistic-lock WHERE clause.
         $agg = new OrmTestAggregate();
         $agg->incrementVersion();
         $agg->incrementVersion();
-        $this->assertSame(2, $agg->getVersion());
+        $this->assertSame(0, $agg->getVersion());
+    }
+
+    public function test_increment_version_marks_aggregate_as_persisted(): void
+    {
+        $agg = new OrmTestAggregate();
+        $this->assertTrue($agg->isNew());
+        $agg->incrementVersion();
+        $this->assertFalse($agg->isNew());
     }
 
     public function test_restore_version_sets_lock_version(): void
     {
         $agg = new OrmTestAggregate();
-        $agg->incrementVersion(); // 1
-        $agg->incrementVersion(); // 2
 
         $ref = new \ReflectionMethod(OrmAggregateRoot::class, 'restoreVersion');
         $ref->invoke($agg, 7);

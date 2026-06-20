@@ -15,7 +15,9 @@ use Vortos\Foundation\Command\DebugBindingsCommand;
 use Vortos\Foundation\Command\DoctorCommand;
 use Vortos\Foundation\Command\HealthCommand;
 use Vortos\Foundation\Doctor\DoctorRegistry;
+use Vortos\Foundation\DependencyInjection\Attribute\AsCompilerPass;
 use Vortos\Foundation\DependencyInjection\Attribute\DefaultImpl;
+use Vortos\Foundation\DependencyInjection\Attribute\ServiceProvider;
 use Vortos\Foundation\Health\HealthDetailPolicy;
 use Vortos\Foundation\Health\HealthRegistry;
 use Vortos\Http\Health\HealthController;
@@ -60,6 +62,23 @@ final class FoundationExtension extends Extension
             DefaultImpl::class,
             static function (ChildDefinition $definition, DefaultImpl $attribute): void {
                 $definition->addTag('vortos.default_impl');
+            },
+        );
+
+        $container->registerAttributeForAutoconfiguration(
+            AsCompilerPass::class,
+            static function (ChildDefinition $definition, AsCompilerPass $attr): void {
+                $definition->addTag('vortos.compiler_pass', [
+                    'type'     => $attr->type->value,
+                    'priority' => $attr->priority,
+                ]);
+            },
+        );
+
+        $container->registerAttributeForAutoconfiguration(
+            ServiceProvider::class,
+            static function (ChildDefinition $definition, ServiceProvider $attr): void {
+                $definition->addTag('vortos.service_provider');
             },
         );
 

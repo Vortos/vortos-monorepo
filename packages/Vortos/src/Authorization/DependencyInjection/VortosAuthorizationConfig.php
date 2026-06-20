@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Authorization\DependencyInjection;
 
+use Vortos\Authorization\Scope\ScopeEnforcement;
+
 /**
  * Fluent configuration for vortos-authorization.
  *
@@ -26,6 +28,9 @@ final class VortosAuthorizationConfig
 {
     /** @var array<string, string[]> */
     private array $roleHierarchy = [];
+
+    /** @var array<string, ScopeEnforcement|string> */
+    private array $scopeEnforcement = [];
 
     private bool $authzVersionCheck = true;
 
@@ -52,6 +57,28 @@ final class VortosAuthorizationConfig
     public function roleHierarchy(array $hierarchy): static
     {
         $this->roleHierarchy = $hierarchy;
+        return $this;
+    }
+
+    /**
+     * Classify app-defined scope names into enforcement kinds.
+     *
+     * Only the universal names are framework-defaulted (`any`/`global` => SelfSufficient,
+     * `own` => Ownership). Container/relationship scopes (`org`, `team`, `federation`, …)
+     * are app concepts and MUST be classified here; any scope left unclassified falls to
+     * Ownership (fail closed) and will require a policy.
+     *
+     *   $config->scopeEnforcement([
+     *       'org'        => ScopeEnforcement::Containment,
+     *       'team'       => ScopeEnforcement::Containment,
+     *       'federation' => ScopeEnforcement::Containment,
+     *   ]);
+     *
+     * @param array<string, ScopeEnforcement|string> $map
+     */
+    public function scopeEnforcement(array $map): static
+    {
+        $this->scopeEnforcement = $map;
         return $this;
     }
 
@@ -113,8 +140,14 @@ final class VortosAuthorizationConfig
     /** @internal */
     public function toArray(): array
     {
+        $scopeEnforcement = [];
+        foreach ($this->scopeEnforcement as $scope => $kind) {
+            $scopeEnforcement[$scope] = $kind instanceof ScopeEnforcement ? $kind->value : $kind;
+        }
+
         return [
             'role_hierarchy' => $this->roleHierarchy,
+            'scope_enforcement' => $scopeEnforcement,
             'authz_version_check' => $this->authzVersionCheck,
             'break_glass_bypass' => $this->breakGlassBypass,
             'break_glass_role' => $this->breakGlassRole,

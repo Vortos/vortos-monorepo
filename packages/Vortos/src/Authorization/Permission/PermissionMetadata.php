@@ -17,6 +17,18 @@ final class PermissionMetadata
         public readonly bool $bypassable,
         public readonly ?string $group,
         public readonly string $catalogClass,
+        /**
+         * When true, this permission ALWAYS requires a resource policy. With no policy
+         * registered the engine fails closed (PolicyRequired) regardless of scope kind —
+         * defense-in-depth for sensitive resources. Takes precedence over $selfEnforced.
+         */
+        public readonly bool $policyRequired = false,
+        /**
+         * When true, the relationship for this permission is deliberately enforced
+         * elsewhere (e.g. inside the handler). With no policy the engine allows and
+         * records the ExternallyEnforced reason so the bypass stays auditable.
+         */
+        public readonly bool $selfEnforced = false,
     ) {
     }
 }

@@ -39,7 +39,9 @@ use Vortos\Authorization\Engine\PolicyRegistry;
 use Vortos\Authorization\Identity\RequestAuthzVersionProvider;
 use Vortos\Authorization\Middleware\AuthorizationMiddleware;
 use Vortos\Authorization\Middleware\ControllerPermissionMap;
+use Vortos\Authorization\Ownership\Contract\OwnerResolverInterface;
 use Vortos\Authorization\Ownership\Middleware\OwnershipMiddleware;
+use Vortos\Authorization\Ownership\OwnerResolverRegistry;
 use Vortos\Authorization\Permission\PermissionRegistry;
 use Vortos\Authorization\Resolver\CachedPermissionResolver;
 use Vortos\Authorization\Resolver\CachedPermissionInvalidator;
@@ -49,6 +51,7 @@ use Vortos\Authorization\Resolver\RequestMemoizedPermissionResolver;
 use Vortos\Authorization\Resolver\RoleGenerationStore;
 use Vortos\Authorization\Scope\Contract\ScopedPermissionStoreInterface;
 use Vortos\Authorization\Scope\Contract\ScopeMode;
+use Vortos\Authorization\Scope\ScopeEnforcementClassifier;
 use Vortos\Authorization\Scope\ScopeResolverRegistry;
 use Vortos\Authorization\Scope\ScopedAuthorizationManager;
 use Vortos\Authorization\Scope\Storage\NullScopedPermissionStore;
@@ -153,6 +156,15 @@ final class AuthorizationExtension extends Extension
             ->setShared(true)
             ->setPublic(true);
 
+        $container->register(ScopeEnforcementClassifier::class, ScopeEnforcementClassifier::class)
+            ->setArgument('$appMap', $resolved['scope_enforcement'])
+            ->setShared(true)->setPublic(false);
+
+        // Owner resolver registry — populated by OwnerResolverCompilerPass.
+        $container->register(OwnerResolverRegistry::class, OwnerResolverRegistry::class)
+            ->setArgument('$resolvers', [])
+            ->setShared(true)->setPublic(false);
+
         $container->register(PolicyEngine::class, PolicyEngine::class)
             ->setArgument('$registry', new Reference(PolicyRegistryInterface::class))
             ->setArgument('$permissionRegistry', new Reference(PermissionRegistryInterface::class))
@@ -166,6 +178,8 @@ final class AuthorizationExtension extends Extension
             ->setArgument('$scopedPermissions', null)
             ->setArgument('$tracer', new Reference(AuthorizationTracer::class))
             ->setArgument('$authzVersionProvider', new Reference(RequestAuthzVersionProvider::class))
+            ->setArgument('$scopeClassifier', new Reference(ScopeEnforcementClassifier::class))
+            ->setArgument('$ownerResolver', new Reference(OwnerResolverRegistry::class))
             ->setShared(true)->setPublic(true);
 
         $container->register(ControllerPermissionMap::class, ControllerPermissionMap::class)
@@ -454,6 +468,8 @@ final class AuthorizationExtension extends Extension
             ->setArgument('$versions', new Reference(AuthorizationVersionStoreInterface::class))
             ->setArgument('$denyList', new Reference(EmergencyDenyListInterface::class))
             ->setArgument('$authzVersionProvider', new Reference(RequestAuthzVersionProvider::class))
+            ->setArgument('$scopeClassifier', new Reference(ScopeEnforcementClassifier::class))
+            ->setArgument('$policies', new Reference(PolicyRegistryInterface::class))
             ->addTag('console.command')
             ->setShared(true)
             ->setPublic(false);
@@ -466,6 +482,9 @@ final class AuthorizationExtension extends Extension
                 $definition->setPublic(true);
             },
         );
+
+        $container->registerForAutoconfiguration(OwnerResolverInterface::class)
+            ->addTag('vortos.owner_resolver');
 
         $container->registerAttributeForAutoconfiguration(
             PermissionCatalog::class,

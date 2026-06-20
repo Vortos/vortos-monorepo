@@ -18,6 +18,8 @@ final class PermissionRegistry implements PermissionRegistryInterface
      *     description: ?string,
      *     dangerous: bool,
      *     bypassable: bool,
+     *     policyRequired?: bool,
+     *     selfEnforced?: bool,
      *     group: ?string,
      *     catalogClass: string
      * }> $permissions
@@ -58,6 +60,8 @@ final class PermissionRegistry implements PermissionRegistryInterface
             $metadata['bypassable'],
             $metadata['group'],
             $metadata['catalogClass'],
+            (bool) ($metadata['policyRequired'] ?? false),
+            (bool) ($metadata['selfEnforced'] ?? false),
         );
     }
 

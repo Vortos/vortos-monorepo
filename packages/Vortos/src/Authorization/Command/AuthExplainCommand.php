@@ -14,10 +14,13 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Authorization\Contract\AuthorizationVersionStoreInterface;
 use Vortos\Authorization\Contract\EmergencyDenyListInterface;
 use Vortos\Authorization\Contract\PermissionResolverInterface;
+use Vortos\Authorization\Contract\PolicyRegistryInterface;
 use Vortos\Authorization\Contract\RolePermissionStoreInterface;
 use Vortos\Authorization\Contract\UserRoleStoreInterface;
+use Vortos\Authorization\Decision\AuthorizationDecisionReason;
 use Vortos\Authorization\Engine\PolicyEngine;
 use Vortos\Authorization\Identity\RequestAuthzVersionProvider;
+use Vortos\Authorization\Scope\ScopeEnforcementClassifier;
 
 #[AsCommand(name: 'vortos:auth:explain', description: 'Explain an authorization decision for a user')]
 final class AuthExplainCommand extends Command
@@ -31,6 +34,8 @@ final class AuthExplainCommand extends Command
         private readonly AuthorizationVersionStoreInterface $versions,
         private readonly EmergencyDenyListInterface $denyList,
         private readonly RequestAuthzVersionProvider $authzVersionProvider,
+        private readonly ScopeEnforcementClassifier $scopeClassifier,
+        private readonly PolicyRegistryInterface $policies,
     ) {
         parent::__construct();
     }
@@ -59,13 +64,23 @@ final class AuthExplainCommand extends Command
         $decision = $this->engine->decide($identity, $permission);
         $roleGrants = $this->rolePermissions->permissionsForRoles($resolved->expandedRoles());
 
+        $parts = explode('.', $permission);
+        $resourceType = $parts[0];
+        $scope = $parts[2] ?? '';
+        $scopeKind = $scope === '' ? null : $this->scopeClassifier->classify($scope)->value;
+        $policyRegistered = $resourceType !== '' && $this->policies->hasForResource($resourceType);
+
         $payload = [
             'user' => $userId,
             'permission' => $permission,
             'decision' => [
                 'allowed' => $decision->allowed(),
                 'reason' => $decision->reason(),
+                'path' => $this->describePath($decision->reason()),
             ],
+            'scope' => $scope,
+            'scopeEnforcement' => $scopeKind,
+            'policyRegistered' => $policyRegistered,
             'tokenRoles' => $identity->roles(),
             'dbRoles' => $this->userRoles->rolesForUser($userId),
             'expandedRoles' => $resolved->expandedRoles(),
@@ -85,10 +100,11 @@ final class AuthExplainCommand extends Command
         }
 
         $output->writeln(sprintf(
-            '%s %s because %s',
+            '%s %s because %s (%s)',
             $decision->allowed() ? '<info>ALLOWED</info>' : '<error>DENIED</error>',
             $permission,
             $decision->reason(),
+            $payload['decision']['path'],
         ));
         $output->writeln('');
 
@@ -96,6 +112,10 @@ final class AuthExplainCommand extends Command
         $table->setHeaders(['Field', 'Value']);
         $table->addRows([
             ['User', $userId],
+            ['Scope', $scope ?: '-'],
+            ['Scope enforcement', $scopeKind ?? '-'],
+            ['Policy registered', $policyRegistered ? 'yes' : 'no'],
+            ['Decision path', $payload['decision']['path']],
             ['Token roles', implode(', ', $payload['tokenRoles']) ?: '-'],
             ['DB roles', implode(', ', $payload['dbRoles']) ?: '-'],
             ['Expanded roles', implode(', ', $payload['expandedRoles']) ?: '-'],
@@ -108,5 +128,29 @@ final class AuthExplainCommand extends Command
         $table->render();
 
         return $decision->allowed() ? Command::SUCCESS : Command::FAILURE;
+    }
+
+    /**
+     * Human-readable description of which layer decided, derived from the reason.
+     */
+    private function describePath(string $reason): string
+    {
+        return match ($reason) {
+            AuthorizationDecisionReason::Allowed->value => 'resource policy allowed',
+            AuthorizationDecisionReason::RbacAuthoritative->value => 'no policy — RBAC authoritative (self-sufficient scope)',
+            AuthorizationDecisionReason::ScopeSatisfied->value => 'no policy — scoped store satisfied the containment binding',
+            AuthorizationDecisionReason::ExternallyEnforced->value => 'no policy — relationship enforced elsewhere (declared)',
+            AuthorizationDecisionReason::ResourceDenied->value => 'resource policy denied',
+            AuthorizationDecisionReason::PolicyOrScopeRequired->value => 'no policy and scope unenforced — fail closed',
+            AuthorizationDecisionReason::PolicyRequired->value => 'permission requires a policy — fail closed',
+            AuthorizationDecisionReason::ScopedPermissionDenied->value => 'scoped store denied the binding',
+            AuthorizationDecisionReason::MissingPermission->value => 'RBAC does not grant this permission',
+            AuthorizationDecisionReason::UnknownPermission->value => 'permission is not registered',
+            AuthorizationDecisionReason::Unauthenticated->value => 'identity is not authenticated',
+            AuthorizationDecisionReason::EmergencyDenied->value => 'identity is on the emergency deny list',
+            AuthorizationDecisionReason::StaleToken->value => 'authz version claim is stale',
+            AuthorizationDecisionReason::InvalidPermissionFormat->value => 'permission string is malformed',
+            default => $reason,
+        };
     }
 }

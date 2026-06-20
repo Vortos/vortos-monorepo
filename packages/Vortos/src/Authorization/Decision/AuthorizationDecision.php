@@ -13,9 +13,15 @@ final class AuthorizationDecision
     ) {
     }
 
-    public static function allow(?string $permission = null): self
-    {
-        return new self(true, AuthorizationDecisionReason::Allowed->value, $permission);
+    public static function allow(
+        ?string $permission = null,
+        AuthorizationDecisionReason|string $reason = AuthorizationDecisionReason::Allowed,
+    ): self {
+        return new self(
+            true,
+            $reason instanceof AuthorizationDecisionReason ? $reason->value : $reason,
+            $permission,
+        );
     }
 
     public static function deny(AuthorizationDecisionReason|string $reason, ?string $permission = null): self

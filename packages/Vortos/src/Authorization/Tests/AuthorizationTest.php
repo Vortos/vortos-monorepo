@@ -582,6 +582,46 @@ final class AuthorizationTest extends TestCase
         $this->assertSame('invalid_permission_format', $decision->reason());
     }
 
+    // --- Phase 0 characterization: pin current decision reasons before the Phase 2 rewrite ---
+
+    public function test_allowed_decision_reports_allowed_reason(): void
+    {
+        $decision = $this->engine->decide(new UserIdentity('user-1', ['ROLE_ADMIN']), 'articles.delete.any');
+
+        $this->assertTrue($decision->allowed());
+        $this->assertSame(AuthorizationDecisionReason::Allowed->value, $decision->reason());
+    }
+
+    public function test_anonymous_decision_reports_unauthenticated_reason(): void
+    {
+        $decision = $this->engine->decide(new AnonymousIdentity(), 'articles.create.any');
+
+        $this->assertFalse($decision->allowed());
+        $this->assertSame(AuthorizationDecisionReason::Unauthenticated->value, $decision->reason());
+    }
+
+    /**
+     * Phase 2 model: when RBAC grants a self-sufficient (any) permission and no policy is
+     * registered for the resource, the engine now treats RBAC as authoritative and allows.
+     * (Pre-Phase-2 this failed closed with PolicyNotFound — see git history.)
+     */
+    public function test_no_policy_for_self_sufficient_scope_allows_rbac_authoritative(): void
+    {
+        $engine = new PolicyEngine(
+            $this->registry, // has 'articles' and 'users' policies only — no 'reports'
+            new PermissionRegistry(['reports.view.any' => $this->permission('reports.view.any')]),
+            new TestPermissionResolver($this->roleVoter, ['ROLE_USER' => ['reports.view.any']]),
+            new NullEmergencyDenyList(),
+            new NullAuthorizationVersionStore(),
+            $this->roleVoter,
+        );
+
+        $decision = $engine->decide(new UserIdentity('user-1', ['ROLE_USER']), 'reports.view.any');
+
+        $this->assertTrue($decision->allowed());
+        $this->assertSame(AuthorizationDecisionReason::RbacAuthoritative->value, $decision->reason());
+    }
+
     private function makeMiddleware(?ScopedPermissionStoreInterface $scopedPermissions = null): AuthorizationMiddleware
     {
         $engine = $scopedPermissions === null ? $this->engine : $this->scopedEngine($scopedPermissions);
@@ -699,8 +739,13 @@ final class AuthorizationTest extends TestCase
         );
     }
 
-    private function permission(string $permission, bool $dangerous = false, bool $bypassable = false): array
-    {
+    private function permission(
+        string $permission,
+        bool $dangerous = false,
+        bool $bypassable = false,
+        bool $policyRequired = false,
+        bool $selfEnforced = false,
+    ): array {
         [$resource, $action, $scope] = explode('.', $permission);
 
         return [
@@ -712,6 +757,8 @@ final class AuthorizationTest extends TestCase
             'description' => null,
             'dangerous' => $dangerous,
             'bypassable' => $bypassable,
+            'policyRequired' => $policyRequired,
+            'selfEnforced' => $selfEnforced,
             'group' => ucfirst($resource),
             'catalogClass' => self::class,
         ];

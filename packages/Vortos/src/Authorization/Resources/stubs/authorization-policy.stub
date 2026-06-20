@@ -7,7 +7,22 @@ namespace {{Namespace}}\Application\Policy;
 use Vortos\Authorization\Attribute\AsPolicy;
 use Vortos\Authorization\Context\AuthorizationContext;
 use Vortos\Authorization\Contract\PolicyInterface;
+use Vortos\Authorization\Decision\PolicyDecision;
 
+/**
+ * A policy REFINES an RBAC grant — it is reached only after RBAC has already
+ * confirmed the role grants this capability, so it may only further RESTRICT.
+ *
+ * Do NOT re-check role floors here (no $auth->atLeast(...) / hasRole(...)). Role =>
+ * capability belongs in your #[PermissionCatalog] grants(), the single source of
+ * truth. A policy earns its place only when it inspects the loaded $resource or the
+ * $scope for something RBAC cannot express:
+ *   - ownership   — "edit your own draft"      => $auth->owns($resource)
+ *   - entity state — "can't delete a published item"
+ *   - invariants  — "can't approve your own submission"
+ *
+ * If a resource has no such rule, do not write a policy at all — RBAC is authoritative.
+ */
 #[AsPolicy(resource: '{{Resource}}')]
 final class {{ClassName}}Policy implements PolicyInterface
 {
@@ -16,14 +31,17 @@ final class {{ClassName}}Policy implements PolicyInterface
         string $action,
         string $scope,
         mixed $resource = null,
-    ): bool {
-        return match ($action) {
-            'list'   => $auth->atLeast('ROLE_USER'),
-            'read'   => $auth->atLeast('ROLE_USER'),
-            'create' => $auth->atLeast('ROLE_ADMIN'),
-            'update' => $auth->atLeast('ROLE_ADMIN'),
-            'delete' => $auth->hasAnyRole(['ROLE_ADMIN', 'ROLE_SUPER_ADMIN']),
-            default  => false,
-        };
+    ): bool|PolicyDecision {
+        // Example: the 'own' scope is a promise that ownership is checked here.
+        if ($auth->scopeIs('own') && !$auth->owns($resource)) {
+            return PolicyDecision::deny('not_owner');
+        }
+
+        // Example: an entity-state invariant RBAC cannot express.
+        // if ($action === 'delete' && $resource?->isPublished()) {
+        //     return PolicyDecision::deny('resource_published');
+        // }
+
+        return PolicyDecision::allow();
     }
 }

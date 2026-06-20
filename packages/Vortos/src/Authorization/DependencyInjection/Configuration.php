@@ -4,6 +4,7 @@ namespace Vortos\Authorization\DependencyInjection;
 
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
+use Vortos\Authorization\Scope\ScopeEnforcement;
 
 final class Configuration implements ConfigurationInterface
 {
@@ -21,6 +22,17 @@ final class Configuration implements ConfigurationInterface
                     ->end()
                     ->defaultValue([])
                     ->info('Role inheritance map. PARENT_ROLE => [CHILD_ROLE_1, CHILD_ROLE_2]')
+                ->end()
+                ->arrayNode('scope_enforcement')
+                    ->useAttributeAsKey('scope')
+                    ->scalarPrototype()
+                        ->validate()
+                            ->ifTrue(static fn($v): bool => ScopeEnforcement::tryFrom((string) $v) === null)
+                            ->thenInvalid('Invalid scope enforcement kind %s. Use one of: self_sufficient, containment, ownership.')
+                        ->end()
+                    ->end()
+                    ->defaultValue([])
+                    ->info('Map app scope names to enforcement kinds. Unlisted scopes fail closed (ownership).')
                 ->end()
                 ->booleanNode('authz_version_check')
                     ->defaultTrue()

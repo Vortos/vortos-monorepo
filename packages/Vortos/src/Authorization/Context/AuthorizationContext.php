@@ -6,6 +6,7 @@ namespace Vortos\Authorization\Context;
 
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Identity\UserIdentity;
+use Vortos\Authorization\Ownership\OwnerResolverRegistry;
 use Vortos\Authorization\Permission\ResolvedPermissions;
 use Vortos\Authorization\Voter\RoleVoter;
 
@@ -15,6 +16,8 @@ final class AuthorizationContext
         private readonly UserIdentityInterface $identity,
         private readonly ResolvedPermissions $resolved,
         private readonly RoleVoter $roleVoter,
+        private readonly string $scope = '',
+        private readonly ?OwnerResolverRegistry $ownerResolver = null,
     ) {
     }
 
@@ -75,5 +78,37 @@ final class AuthorizationContext
     public function resolved(): ResolvedPermissions
     {
         return $this->resolved;
+    }
+
+    /**
+     * The scope segment of the permission being evaluated (e.g. 'own', 'any', 'org').
+     */
+    public function scope(): string
+    {
+        return $this->scope;
+    }
+
+    public function scopeIs(string $scope): bool
+    {
+        return $this->scope === $scope;
+    }
+
+    /**
+     * Whether the current user owns the given resource.
+     *
+     * Ownership is resolved via a registered OwnerResolverInterface for the resource's
+     * type, falling back to its reflective #[Owner] property/getter. Returns false for
+     * null, non-objects, or resources whose owner cannot be determined — the safe
+     * direction (an unresolvable owner never grants access).
+     */
+    public function owns(mixed $resource): bool
+    {
+        if (!is_object($resource) || $this->ownerResolver === null) {
+            return false;
+        }
+
+        $ownerId = $this->ownerResolver->ownerId($resource);
+
+        return $ownerId !== null && $ownerId === $this->identity->id();
     }
 }

@@ -13,9 +13,13 @@ use Vortos\Authorization\Contract\PolicyRegistryInterface;
 use Vortos\Authorization\Context\AuthorizationContext;
 use Vortos\Authorization\Decision\AuthorizationDecision;
 use Vortos\Authorization\Decision\AuthorizationDecisionReason;
+use Vortos\Authorization\Decision\PolicyDecision;
+use Vortos\Authorization\Ownership\OwnerResolverRegistry;
 use Vortos\Authorization\Exception\AccessDeniedException;
 use Vortos\Authorization\Scope\Contract\ScopedPermissionStoreInterface;
 use Vortos\Authorization\Scope\Contract\ScopeMode;
+use Vortos\Authorization\Scope\ScopeEnforcement;
+use Vortos\Authorization\Scope\ScopeEnforcementClassifier;
 use Vortos\Authorization\Identity\RequestAuthzVersionProvider;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
 use Vortos\Authorization\Voter\RoleVoter;
@@ -65,6 +69,21 @@ use Vortos\Observability\Telemetry\TelemetryLabels;
  *   if ($this->policy->can($identity, 'athletes.delete.any', $resource)) {
  *       // show delete button
  *   }
+ *
+ * ## Decision model
+ *
+ * A request is denied unless a registered permission exists, the identity is
+ * authenticated and not denied/stale, and RBAC has() grants it. Only THEN does the
+ * policy/scope layer run, and it can only further restrict:
+ *
+ *   - A registered policy runs and may deny (it never re-authorizes — has() already passed).
+ *   - With no policy, the outcome depends on the scope's enforcement kind
+ *     (see {@see \Vortos\Authorization\Scope\ScopeEnforcement}):
+ *       SelfSufficient (any/global) => allow, RBAC is authoritative;
+ *       Containment (org/team/…)     => allow only if a scoped binding was enforced this request;
+ *       Ownership (own, + unknown)   => deny, a policy is mandatory (fail closed).
+ *   - A permission may opt into a mandatory policy (policyRequired) or declare that the
+ *     relationship is enforced elsewhere (selfEnforced, audited as ExternallyEnforced).
  */
 final class PolicyEngine
 {
@@ -81,7 +100,17 @@ final class PolicyEngine
         private ?ScopedPermissionStoreInterface $scopedPermissions = null,
         private ?AuthorizationTracer $tracer = null,
         private readonly ?RequestAuthzVersionProvider $authzVersionProvider = null,
-    ) {}
+        ?ScopeEnforcementClassifier $scopeClassifier = null,
+        ?OwnerResolverRegistry $ownerResolver = null,
+    ) {
+        // Default to an empty classifier: framework defaults apply and every other
+        // scope falls to Ownership (fail closed).
+        $this->scopeClassifier = $scopeClassifier ?? new ScopeEnforcementClassifier();
+        $this->ownerResolver = $ownerResolver ?? new OwnerResolverRegistry();
+    }
+
+    private readonly ScopeEnforcementClassifier $scopeClassifier;
+    private readonly OwnerResolverRegistry $ownerResolver;
 
     /**
      * Check if identity is authorized. Returns true/false. Never throws.
@@ -251,22 +280,87 @@ final class PolicyEngine
             return AuthorizationDecision::deny(AuthorizationDecisionReason::MissingPermission, $permission);
         }
 
-        if ($scopes !== null && !$this->passesScopedCheck($identity, $permission, $scopes, $scopeMode)) {
-            return AuthorizationDecision::deny(AuthorizationDecisionReason::ScopedPermissionDenied, $permission);
+        // Capture whether the scoped store proved a containment relationship THIS request.
+        // A non-null $scopes that fails the check is an outright denial; if it passes we
+        // remember that fact for the no-policy decision below.
+        $scopeEnforced = false;
+
+        if ($scopes !== null) {
+            $scopeEnforced = $this->passesScopedCheck($identity, $permission, $scopes, $scopeMode);
+
+            if (!$scopeEnforced) {
+                return AuthorizationDecision::deny(AuthorizationDecisionReason::ScopedPermissionDenied, $permission);
+            }
         }
 
-        if (!$this->registry->hasForResource($resourceType)) {
-            return AuthorizationDecision::deny(AuthorizationDecisionReason::PolicyNotFound, $permission);
+        // A registered policy is authoritative for refinement: it runs and may only
+        // further restrict (it can never re-authorize — we are already past has()).
+        if ($this->registry->hasForResource($resourceType)) {
+            $policy = $this->registry->findForResource($resourceType);
+            $context = new AuthorizationContext($identity, $resolved, $this->roleVoter, $scope, $this->ownerResolver);
+
+            $result = $policy->can($context, $action, $scope, $resource);
+
+            if ($result instanceof PolicyDecision) {
+                return $result->allowed
+                    ? AuthorizationDecision::allow($permission)
+                    : AuthorizationDecision::deny(
+                        $result->reason ?? AuthorizationDecisionReason::ResourceDenied->value,
+                        $permission,
+                    );
+            }
+
+            if (!$result) {
+                return AuthorizationDecision::deny(AuthorizationDecisionReason::ResourceDenied, $permission);
+            }
+
+            return AuthorizationDecision::allow($permission);
         }
 
-        $policy = $this->registry->findForResource($resourceType);
-        $context = new AuthorizationContext($identity, $resolved, $this->roleVoter);
+        // No policy registered. RBAC has() has already passed; decide by what the scope
+        // actually promises and whether that promise was kept.
+        return $this->decideWithoutPolicy($permission, $scope, $scopeEnforced);
+    }
 
-        if (!$policy->can($context, $action, $scope, $resource)) {
-            return AuthorizationDecision::deny(AuthorizationDecisionReason::ResourceDenied, $permission);
+    /**
+     * Scope-aware default when no resource policy exists. Safe-by-default: only scopes
+     * the engine can genuinely prove are allowed; everything else fails closed.
+     */
+    private function decideWithoutPolicy(
+        string $permission,
+        string $scope,
+        bool $scopeEnforced,
+    ): AuthorizationDecision {
+        $metadata = $this->permissionRegistry->metadata($permission);
+
+        // Explicit opt-in to mandatory policy wins over everything (defense in depth).
+        if ($metadata?->policyRequired === true) {
+            return AuthorizationDecision::deny(AuthorizationDecisionReason::PolicyRequired, $permission);
         }
 
-        return AuthorizationDecision::allow($permission);
+        // Declared, audited handler-level enforcement.
+        if ($metadata?->selfEnforced === true) {
+            return AuthorizationDecision::allow($permission, AuthorizationDecisionReason::ExternallyEnforced);
+        }
+
+        return match ($this->scopeClassifier->classify($scope)) {
+            // RBAC fully expresses this scope — has() was enough.
+            ScopeEnforcement::SelfSufficient => AuthorizationDecision::allow(
+                $permission,
+                AuthorizationDecisionReason::RbacAuthoritative,
+            ),
+            // Containment is satisfiable ONLY by the scoped store, and only if a matching
+            // binding was actually enforced this request.
+            ScopeEnforcement::Containment => $scopeEnforced
+                ? AuthorizationDecision::allow($permission, AuthorizationDecisionReason::ScopeSatisfied)
+                : AuthorizationDecision::deny(AuthorizationDecisionReason::PolicyOrScopeRequired, $permission),
+            // Ownership can never be proven without a policy — not even by a containment
+            // binding. This is the privilege-escalation guard for `.own` permissions.
+            ScopeEnforcement::Ownership => AuthorizationDecision::deny(
+                AuthorizationDecisionReason::PolicyOrScopeRequired,
+                $permission,
+            ),
+        };
     }
 
     /**

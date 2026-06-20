@@ -102,6 +102,8 @@ final class PermissionRegistryPass implements CompilerPassInterface
                         : null,
                     'dangerous' => (bool) ($metadata['dangerous'] ?? false),
                     'bypassable' => (bool) ($metadata['bypassable'] ?? false),
+                    'policyRequired' => (bool) ($metadata['policyRequired'] ?? false),
+                    'selfEnforced' => (bool) ($metadata['selfEnforced'] ?? false),
                     'group' => $group,
                     'catalogClass' => $class,
                 ];

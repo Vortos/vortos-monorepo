@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
+use Vortos\AwsSes\DependencyInjection\Compiler\AwsSesRuntimeDependenciesPass;
 use Vortos\AwsSes\DependencyInjection\Compiler\BounceHandlerDiscoveryPass;
 use Vortos\AwsSes\DependencyInjection\Compiler\ComplaintHandlerDiscoveryPass;
 use Vortos\AwsSes\DependencyInjection\Compiler\MiddlewareCompilerPass;
@@ -47,6 +48,11 @@ final class AwsSesPackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
+        // Wires \Redis / CacheInterface / GeneratorEngine dependencies that are
+        // invisible to AwsSesExtension::load due to per-extension merge isolation.
+        // Runs before MiddlewareCompilerPass (80) so the rate-limit/dedup store
+        // aliases are settled before the middleware stack is assembled.
+        $container->addCompilerPass(new AwsSesRuntimeDependenciesPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 90);
         $container->addCompilerPass(new MiddlewareCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 80);
         $container->addCompilerPass(new BounceHandlerDiscoveryPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 70);
         $container->addCompilerPass(new ComplaintHandlerDiscoveryPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 70);

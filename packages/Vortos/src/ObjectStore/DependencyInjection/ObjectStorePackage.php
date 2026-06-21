@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\ObjectStore\DependencyInjection\Compiler\MiddlewareCompilerPass;
+use Vortos\ObjectStore\DependencyInjection\Compiler\ObjectStoreRuntimeDependenciesPass;
 
 /**
  * Object storage package.
@@ -26,5 +27,8 @@ final class ObjectStorePackage implements PackageInterface
     public function build(ContainerBuilder $container): void
     {
         $container->addCompilerPass(new MiddlewareCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 80);
+        // Wires Clock/Metrics/Tracing dependencies and default policy/router aliases
+        // that are invisible to ObjectStoreExtension::load due to merge isolation.
+        $container->addCompilerPass(new ObjectStoreRuntimeDependenciesPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION);
     }
 }

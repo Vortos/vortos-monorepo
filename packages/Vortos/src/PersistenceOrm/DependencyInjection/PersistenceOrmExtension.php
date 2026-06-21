@@ -16,12 +16,7 @@ use Vortos\Migration\Service\DependencyFactoryProvider;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\PersistenceOrm\Command\OrmDiffCommand;
 use Vortos\PersistenceOrm\Factory\EntityManagerFactory;
-use Vortos\PersistenceOrm\Tenant\OrmTenantSessionBinder;
-use Vortos\PersistenceOrm\Tenant\TenantFilter;
-use Vortos\PersistenceOrm\Tenant\TenantStampListener;
 use Vortos\PersistenceOrm\Transaction\OrmUnitOfWork;
-use Vortos\Tenant\Session\TenantGucBinderInterface;
-use Vortos\Tenant\TenantContext;
 
 /**
  * Wires Doctrine ORM services.
@@ -59,26 +54,16 @@ final class PersistenceOrmExtension extends Extension
         $devMode     = $container->getParameter('kernel.env') === 'dev';
         $dsn         = (string) $container->getParameter('vortos.persistence.write_dsn');
 
-        // Tenant isolation wiring (only when the tenant package is present).
-        $tenantEnabled = $container->has(TenantContext::class);
-
+        // Tenant isolation wiring is applied by TenantOrmWiringPass
+        // (PersistenceOrmPackage::build): the TenantStampListener, the Doctrine
+        // TenantFilter, the scoped-entity map and the OrmTenantSessionBinder are all
+        // patched onto these definitions there. A has(TenantContext::class) check
+        // inside load() runs against the per-extension merge container, where
+        // TenantContext (owned by vortos-tenant) is never present. The EntityManager
+        // is registered below with tenant-neutral defaults that the pass overwrites.
         $emFilters        = [];
         $emEnabledFilters = [];
         $emEventListeners = [];
-        if ($tenantEnabled) {
-            // Compile-time scoped-entity map; populated by TenantScopedEntitiesPass.
-            if (!$container->hasParameter('vortos.tenant.orm_scoped_entities')) {
-                $container->setParameter('vortos.tenant.orm_scoped_entities', []);
-            }
-
-            $container->register(TenantStampListener::class, TenantStampListener::class)
-                ->setArgument('$tenantContext', new Reference(TenantContext::class))
-                ->setShared(true)->setPublic(false);
-
-            $emFilters        = [TenantFilter::NAME => TenantFilter::class];
-            $emEnabledFilters = [TenantFilter::NAME];
-            $emEventListeners = [[['prePersist'], new Reference(TenantStampListener::class)]];
-        }
 
         // Arg 3 ($metadataCache) is intentionally null here. OrmMetadataCachePass
         // runs after all extensions are merged and patches this argument if
@@ -93,7 +78,7 @@ final class PersistenceOrmExtension extends Extension
             ->setArgument('$filters', $emFilters)
             ->setArgument('$enabledFilters', $emEnabledFilters)
             ->setArgument('$eventListeners', $emEventListeners)
-            ->setArgument('$scopedEntities', $tenantEnabled ? '%vortos.tenant.orm_scoped_entities%' : [])
+            ->setArgument('$scopedEntities', [])
             ->setShared(true)
             ->setPublic(false)
             ->setLazy(true);
@@ -114,22 +99,13 @@ final class PersistenceOrmExtension extends Extension
             ->setShared(true)
             ->setPublic(true);
 
-        $ormUnitOfWork = $container->register(OrmUnitOfWork::class, OrmUnitOfWork::class)
+        $container->register(OrmUnitOfWork::class, OrmUnitOfWork::class)
             ->setArgument('$em', new Reference(EntityManagerInterface::class))
             ->setPublic(false);
 
-        // Tenant GUC binder — sets app.current_tenant for the ORM filter + RLS.
-        if ($tenantEnabled) {
-            $container->register(OrmTenantSessionBinder::class, OrmTenantSessionBinder::class)
-                ->setArgument('$em', new Reference(EntityManagerInterface::class))
-                ->setArgument('$tenantContext', new Reference(TenantContext::class))
-                ->setShared(true)->setPublic(false);
-
-            $container->setAlias(TenantGucBinderInterface::class, OrmTenantSessionBinder::class)
-                ->setPublic(true);
-
-            $ormUnitOfWork->setArgument('$tenantBinder', new Reference(OrmTenantSessionBinder::class));
-        }
+        // The OrmTenantSessionBinder (app.current_tenant GUC for the ORM filter +
+        // RLS) and the OrmUnitOfWork $tenantBinder argument are wired by
+        // TenantOrmWiringPass when the tenant package is present.
 
         $container->setAlias(UnitOfWorkInterface::class, OrmUnitOfWork::class)
             ->setPublic(false);

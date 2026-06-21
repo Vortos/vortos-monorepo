@@ -6,7 +6,6 @@ namespace Vortos\FeatureFlags\DependencyInjection;
 
 use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
-use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
@@ -50,22 +49,19 @@ final class FeatureFlagsExtension extends Extension
             ->setArgument('$table', $prefix . 'feature_flags')
             ->setPublic(false);
 
-        // Wrap with Redis cache if PSR-16 cache is available
-        $cacheRef = $container->has(CacheInterface::class)
-            ? new Reference(CacheInterface::class)
-            : null;
-
-        $redisRef = $container->has(\Redis::class)
-            ? new Reference(\Redis::class, ContainerInterface::NULL_ON_INVALID_REFERENCE)
-            : null;
-
+        // Registered with no cache backing here. FlagStorageCacheCompilerPass
+        // patches the $cache and $redis arguments when a PSR-16 cache / Redis are
+        // present: a has(CacheInterface)/has(Redis) check inside load() runs against
+        // the per-extension merge container, where those services (registered by
+        // CacheExtension/AuthExtension::load) are never visible. Without the pass the
+        // refs are always null and feature flags are silently never cached.
         $container->register(RedisCachingStorage::class, RedisCachingStorage::class)
             ->setArguments([
                 new Reference(DatabaseFlagStorage::class),
-                $cacheRef,
+                null,
                 60,
                 'default',
-                $redisRef,
+                null,
             ])
             ->setPublic(false);
 

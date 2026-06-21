@@ -18,10 +18,6 @@ use Vortos\AwsSes\Driver\Null\NullMailer;
 use Vortos\AwsSes\Driver\Ses\Health\SesHealthCheck;
 use Vortos\AwsSes\Driver\Ses\SesClientFactory;
 use Vortos\AwsSes\Driver\Ses\SesMailer;
-use Vortos\Make\Engine\GeneratorEngine;
-use Vortos\AwsSes\Command\Make\MakeBounceHandlerCommand;
-use Vortos\AwsSes\Command\Make\MakeComplaintHandlerCommand;
-use Vortos\AwsSes\Command\Make\MakeSesEmailMiddlewareCommand;
 use Vortos\AwsSes\Command\SesQuotaCommand;
 use Vortos\AwsSes\Command\SesSendTestCommand;
 use Vortos\AwsSes\Command\SesSuppressionListCommand;
@@ -52,11 +48,8 @@ use Vortos\AwsSes\Outbox\EmailOutboxWriter;
 use Vortos\AwsSes\Outbox\StandaloneMailer;
 use Vortos\AwsSes\Outbox\TransactionalOutboxMailer;
 use Vortos\AwsSes\ImmediateMailer;
-use Psr\SimpleCache\CacheInterface;
-use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\AwsSes\Deduplication\DeduplicationStoreInterface;
 use Vortos\AwsSes\Deduplication\InMemoryDeduplicationStore;
-use Vortos\AwsSes\Deduplication\RedisDeduplicationStore;
 use Vortos\AwsSes\Middleware\DeduplicationMiddleware;
 use Vortos\AwsSes\Middleware\EmailMiddlewareStack;
 use Vortos\AwsSes\Middleware\HookMiddleware;
@@ -66,7 +59,6 @@ use Vortos\AwsSes\Middleware\RateLimitMiddleware;
 use Vortos\AwsSes\Middleware\SuppressionCheckMiddleware;
 use Vortos\AwsSes\Middleware\TracingMiddleware;
 use Vortos\AwsSes\RateLimit\InMemoryTokenBucket;
-use Vortos\AwsSes\RateLimit\RedisTokenBucket;
 use Vortos\AwsSes\RateLimit\TokenBucketInterface;
 use Vortos\AwsSes\Suppression\DbalSuppressionList;
 use Vortos\AwsSes\Suppression\OnSuppressed;
@@ -410,31 +402,21 @@ final class AwsSesExtension extends Extension
 
     private function registerRateLimitAndDeduplication(ContainerBuilder $container, array $c): void
     {
-        $hasRedis = $container->has(\Redis::class);
+        // In-memory token bucket is the default. AwsSesRuntimeDependenciesPass swaps
+        // in RedisTokenBucket (distributed) and overrides the alias when \Redis is
+        // present: a has(\Redis::class) check inside load() runs against the
+        // per-extension merge container, where \Redis (registered by
+        // CacheExtension/AuthExtension::load) is never visible — so without the pass
+        // the in-memory fallback is silently always used.
+        $container->register(InMemoryTokenBucket::class, InMemoryTokenBucket::class)
+            ->setArguments([
+                $c['rate_limit']['max_send_rate'],
+                $c['rate_limit']['burst'],
+            ])
+            ->setShared(true)
+            ->setPublic(false);
 
-        // Token bucket — Redis when available (distributed), in-memory fallback
-        if ($hasRedis) {
-            $container->register(RedisTokenBucket::class, RedisTokenBucket::class)
-                ->setArguments([
-                    new Reference(\Redis::class),
-                    $c['rate_limit']['max_send_rate'],
-                    $c['rate_limit']['burst'],
-                ])
-                ->setShared(true)
-                ->setPublic(false);
-
-            $container->setAlias(TokenBucketInterface::class, RedisTokenBucket::class)->setPublic(false);
-        } else {
-            $container->register(InMemoryTokenBucket::class, InMemoryTokenBucket::class)
-                ->setArguments([
-                    $c['rate_limit']['max_send_rate'],
-                    $c['rate_limit']['burst'],
-                ])
-                ->setShared(true)
-                ->setPublic(false);
-
-            $container->setAlias(TokenBucketInterface::class, InMemoryTokenBucket::class)->setPublic(false);
-        }
+        $container->setAlias(TokenBucketInterface::class, InMemoryTokenBucket::class)->setPublic(false);
 
         // RateLimitMiddleware (priority 550)
         $container->register(RateLimitMiddleware::class, RateLimitMiddleware::class)
@@ -444,21 +426,14 @@ final class AwsSesExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        // Deduplication store — Redis when available (atomic setNx), in-memory fallback
-        if ($hasRedis) {
-            $container->register(RedisDeduplicationStore::class, RedisDeduplicationStore::class)
-                ->setArgument('$cache', new Reference(AtomicCacheInterface::class))
-                ->setShared(true)
-                ->setPublic(false);
+        // In-memory dedup store is the default; AwsSesRuntimeDependenciesPass swaps
+        // in RedisDeduplicationStore (atomic setNx) and overrides the alias when
+        // \Redis is present (see note above on merge isolation).
+        $container->register(InMemoryDeduplicationStore::class, InMemoryDeduplicationStore::class)
+            ->setShared(true)
+            ->setPublic(false);
 
-            $container->setAlias(DeduplicationStoreInterface::class, RedisDeduplicationStore::class)->setPublic(false);
-        } else {
-            $container->register(InMemoryDeduplicationStore::class, InMemoryDeduplicationStore::class)
-                ->setShared(true)
-                ->setPublic(false);
-
-            $container->setAlias(DeduplicationStoreInterface::class, InMemoryDeduplicationStore::class)->setPublic(false);
-        }
+        $container->setAlias(DeduplicationStoreInterface::class, InMemoryDeduplicationStore::class)->setPublic(false);
 
         // DeduplicationMiddleware (priority 850)
         $container->register(DeduplicationMiddleware::class, DeduplicationMiddleware::class)
@@ -534,20 +509,10 @@ final class AwsSesExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        // vortos:ses:make:* — only when the Make package's GeneratorEngine is wired
-        if ($container->has(GeneratorEngine::class)) {
-            foreach ([
-                MakeSesEmailMiddlewareCommand::class,
-                MakeBounceHandlerCommand::class,
-                MakeComplaintHandlerCommand::class,
-            ] as $commandClass) {
-                $container->register($commandClass, $commandClass)
-                    ->setArgument('$engine', new Reference(GeneratorEngine::class))
-                    ->addTag('console.command')
-                    ->setShared(true)
-                    ->setPublic(false);
-            }
-        }
+        // vortos:ses:make:* commands are registered by AwsSesRuntimeDependenciesPass
+        // when the Make package's GeneratorEngine is wired: a has(GeneratorEngine)
+        // check here runs against the per-extension merge container, where the Make
+        // package's service is never visible.
     }
 
     private function registerWebhook(ContainerBuilder $container, array $c): void
@@ -556,28 +521,19 @@ final class AwsSesExtension extends Extension
             return;
         }
 
-        // Use cached cert fetcher when a PSR-16 cache is wired (avoids a remote
-        // HTTPS round-trip to amazonaws.com on every incoming webhook).
-        if ($container->has(CacheInterface::class)) {
-            $container->register('vortos_aws_ses.sns_cert_fetcher', \Closure::class)
-                ->setFactory([SnsSignatureVerifier::class, 'cachedCertFetcher'])
-                ->setArgument(0, new Reference(CacheInterface::class))
-                ->setShared(true)
-                ->setPublic(false);
-
-            $certFetcherArg = new Reference('vortos_aws_ses.sns_cert_fetcher');
-        } else {
-            $container->register('vortos_aws_ses.sns_cert_fetcher', \Closure::class)
-                ->setFactory([SnsSignatureVerifier::class, 'defaultCertFetcher'])
-                ->setShared(true)
-                ->setPublic(false);
-
-            $certFetcherArg = new Reference('vortos_aws_ses.sns_cert_fetcher');
-        }
+        // Default (non-cached) cert fetcher. AwsSesRuntimeDependenciesPass swaps in
+        // the cached fetcher (avoids a remote HTTPS round-trip to amazonaws.com on
+        // every webhook) when a PSR-16 cache is wired: a has(CacheInterface) check
+        // here runs against the per-extension merge container, where CacheExtension's
+        // alias is never visible.
+        $container->register('vortos_aws_ses.sns_cert_fetcher', \Closure::class)
+            ->setFactory([SnsSignatureVerifier::class, 'defaultCertFetcher'])
+            ->setShared(true)
+            ->setPublic(false);
 
         $container->register(SnsSignatureVerifier::class, SnsSignatureVerifier::class)
             ->setArgument('$logger',      new Reference(LoggerInterface::class))
-            ->setArgument('$certFetcher', $certFetcherArg)
+            ->setArgument('$certFetcher', new Reference('vortos_aws_ses.sns_cert_fetcher'))
             ->setShared(true)
             ->setPublic(false);
 

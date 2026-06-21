@@ -29,9 +29,6 @@ use Vortos\Auth\FeatureAccess\Middleware\FeatureAccessMiddleware;
 use Vortos\Auth\Audit\Middleware\AuditMiddleware;
 use Vortos\Auth\Command\KeysGenerateCommand;
 use Vortos\Auth\Command\KeysListCommand;
-use Vortos\Auth\Tenant\TenantContextMiddleware;
-use Vortos\Tenant\Session\TenantGucBinderInterface;
-use Vortos\Tenant\TenantContext;
 use Vortos\Auth\TwoFactor\Middleware\TwoFactorMiddleware;
 use Vortos\Auth\Session\Compiler\SessionCompilerPass;
 use Vortos\Auth\Session\SessionEnforcer;
@@ -75,6 +72,10 @@ final class AuthExtension extends Extension
 
         $resolved = $this->processConfiguration(new Configuration(), [$config->toArray()]);
         $usesRedis = $resolved['token_storage'] === RedisTokenStorage::class;
+
+        // Exposed for TenantMiddlewareCompilerPass, which registers
+        // TenantContextMiddleware after the merge pass (where TenantContext exists).
+        $container->setParameter('vortos.auth.tenant_claim', $resolved['tenant_claim']);
 
         if ($usesRedis) {
             $this->ensureRedisService($container, $env);
@@ -220,18 +221,9 @@ final class AuthExtension extends Extension
                 ->addTag('kernel.event_subscriber');
         }
 
-        // Tenant context middleware — populates TenantContext from the identity's tenant claim.
-        if ($container->has(TenantContext::class)) {
-            $container->register(TenantContextMiddleware::class, TenantContextMiddleware::class)
-                ->setArguments([
-                    new Reference(CurrentUserProvider::class),
-                    new Reference(TenantContext::class),
-                    $resolved['tenant_claim'],
-                    new Reference(TenantGucBinderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
-                ])
-                ->setShared(true)->setPublic(true)
-                ->addTag('kernel.event_subscriber');
-        }
+        // TenantContextMiddleware is registered by TenantMiddlewareCompilerPass
+        // (AuthPackage::build), not here: a has(TenantContext::class) check inside
+        // load() runs against the per-extension merge container and is always false.
 
         // Feature access middleware (no Redis required)
         $container->register(FeatureAccessMiddleware::class, FeatureAccessMiddleware::class)

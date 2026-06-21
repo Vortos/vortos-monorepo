@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\FeatureFlags\DependencyInjection\Compiler\FeatureFlagsCompilerPass;
+use Vortos\FeatureFlags\DependencyInjection\Compiler\FlagStorageCacheCompilerPass;
 use Vortos\Foundation\Contract\PackageInterface;
 
 final class FeatureFlagsPackage implements PackageInterface
@@ -25,6 +26,13 @@ final class FeatureFlagsPackage implements PackageInterface
             new FeatureFlagsCompilerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
             70,
+        );
+
+        // CacheInterface / Redis (CacheExtension/AuthExtension::load) are never
+        // visible during FeatureFlagsExtension::load due to merge isolation.
+        $container->addCompilerPass(
+            new FlagStorageCacheCompilerPass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
         );
     }
 }

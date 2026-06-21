@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Auth\Audit\Compiler\AuditCompilerPass;
 use Vortos\Auth\FeatureAccess\Compiler\FeatureAccessCompilerPass;
 use Vortos\Auth\Middleware\Compiler\AuthCompilerPass;
+use Vortos\Auth\Middleware\Compiler\TenantMiddlewareCompilerPass;
 use Vortos\Auth\Quota\Compiler\QuotaCompilerPass;
 use Vortos\Auth\RateLimit\Compiler\RateLimitCompilerPass;
 use Vortos\Auth\ApiKey\Compiler\ApiKeyCompilerPass;
@@ -33,5 +34,7 @@ final class AuthPackage implements PackageInterface
         $container->addCompilerPass(new TwoFactorCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new SessionCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new ApiKeyCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        // Priority 110: register the middleware before RegisterMiddlewarePass (100).
+        $container->addCompilerPass(new TenantMiddlewareCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 110);
     }
 }

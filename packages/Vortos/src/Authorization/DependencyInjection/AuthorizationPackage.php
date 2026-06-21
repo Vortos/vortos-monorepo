@@ -7,6 +7,7 @@ use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Authorization\DependencyInjection\Compiler\PermissionRegistryPass;
+use Vortos\Authorization\DependencyInjection\Compiler\RedisAuthorizationStoresPass;
 use Vortos\Authorization\DependencyInjection\Compiler\PolicyRegistryPass;
 use Vortos\Authorization\Ownership\Compiler\OwnerResolverCompilerPass;
 use Vortos\Authorization\Ownership\Compiler\OwnershipCompilerPass;
@@ -27,5 +28,8 @@ final class AuthorizationPackage implements PackageInterface
         $container->addCompilerPass(new OwnershipCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new ScopeResolverCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new OwnerResolverCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        // \Redis / RequestStack (Cache/Auth/Http extensions) are never visible during
+        // AuthorizationExtension::load due to per-extension merge isolation.
+        $container->addCompilerPass(new RedisAuthorizationStoresPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 30);
     }
 }

@@ -14,6 +14,7 @@ use Vortos\ObjectStore\Contract\ObjectStoreInterface;
 use Vortos\ObjectStore\Contract\ObjectStoreRouterInterface;
 use Vortos\ObjectStore\Contract\StandaloneDirectUploadManagerInterface;
 use Vortos\ObjectStore\Contract\StandaloneObjectStoreInterface;
+use Vortos\ObjectStore\DependencyInjection\Compiler\ObjectStoreRuntimeDependenciesPass;
 use Vortos\ObjectStore\DependencyInjection\ObjectStoreExtension;
 use Vortos\ObjectStore\DirectUpload\ImmediateDirectUploadManager;
 use Vortos\ObjectStore\DirectUpload\StandaloneDirectUploadManager;
@@ -34,6 +35,9 @@ final class ObjectStoreExtensionDefaultsTest extends TestCase
         $this->container->setParameter('kernel.env', 'test');
 
         (new ObjectStoreExtension())->load([], $this->container);
+        // Default clock / policy / router aliases and cross-package wiring live in
+        // the runtime pass; run it so the container reflects a real build.
+        (new ObjectStoreRuntimeDependenciesPass())->process($this->container);
     }
 
     public function test_alias_is_vortos_object_store(): void

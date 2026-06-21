@@ -10,6 +10,7 @@ use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\Metrics\AutoInstrumentation\CacheMetricsCompilerPass;
 use Vortos\Metrics\AutoInstrumentation\CqrsMetricsCompilerPass;
+use Vortos\Metrics\AutoInstrumentation\MessagingMetricsCompilerPass;
 use Vortos\Metrics\AutoInstrumentation\OperationalMessagingMetricsCompilerPass;
 use Vortos\Metrics\AutoInstrumentation\PersistenceMetricsCompilerPass;
 
@@ -55,6 +56,14 @@ final class MetricsPackage implements PackageInterface
         // CommandBusInterface is only registered after all extensions load.
         $container->addCompilerPass(
             new CqrsMetricsCompilerPass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            -10,
+        );
+
+        // EventBusInterface (MessagingExtension::load) is never visible during
+        // MetricsExtension::load due to per-extension merge isolation.
+        $container->addCompilerPass(
+            new MessagingMetricsCompilerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
             -10,
         );

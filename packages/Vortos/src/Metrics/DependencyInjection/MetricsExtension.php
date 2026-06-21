@@ -14,7 +14,6 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
-use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Metrics\Command\CollectMetricsCommand;
 use Vortos\Metrics\Adapter\NoOpMetrics;
 use Vortos\Metrics\Adapter\OpenTelemetryFlushListener;
@@ -27,7 +26,6 @@ use Vortos\Metrics\AutoInstrumentation\CqrsMetricDefinitions;
 use Vortos\Metrics\AutoInstrumentation\HttpMetricDefinitions;
 use Vortos\Metrics\AutoInstrumentation\HttpMetricsListener;
 use Vortos\Metrics\AutoInstrumentation\MessagingMetricDefinitions;
-use Vortos\Metrics\AutoInstrumentation\MessagingMetricsDecorator;
 use Vortos\Metrics\AutoInstrumentation\PersistenceMetricDefinitions;
 use Vortos\Metrics\AutoInstrumentation\SecurityMetricDefinitions;
 use Vortos\Metrics\Config\MetricsAdapter;
@@ -311,21 +309,11 @@ final class MetricsExtension extends Extension
                 ->setPublic(false);
         }
 
-        // Cqrs decoration is handled by CqrsMetricsCompilerPass — CqrsPackage (order 90)
-        // loads after MetricsPackage (order 55), so CommandBusInterface is not yet defined here.
-
-        if (!in_array(ObservabilityModule::Messaging->value, $disabled, true)
-            && ($container->hasAlias(EventBusInterface::class) || $container->hasDefinition(EventBusInterface::class))
-        ) {
-            $container->register(MessagingMetricsDecorator::class, MessagingMetricsDecorator::class)
-                ->setDecoratedService(EventBusInterface::class)
-                ->setArguments([
-                    new Reference(MessagingMetricsDecorator::class . '.inner'),
-                    new Reference(FrameworkTelemetry::class),
-                ])
-                ->setShared(true)
-                ->setPublic(false);
-        }
+        // Cqrs and Messaging bus decoration are handled by CqrsMetricsCompilerPass
+        // and MessagingMetricsCompilerPass: a hasAlias/hasDefinition check inside
+        // load() runs against the per-extension merge container, where
+        // CommandBusInterface/EventBusInterface are never visible. The passes run
+        // after all extensions have merged, where the bus aliases are present.
 
         // Cache and Persistence auto-instrumentation are applied by compiler passes
         // (CacheMetricsCompilerPass, PersistenceMetricsCompilerPass) registered in MetricsPackage.

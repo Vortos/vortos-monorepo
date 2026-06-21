@@ -207,12 +207,10 @@ final class ObjectStoreExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        if (!$container->has(\Psr\Clock\ClockInterface::class)) {
-            $container->register(\Psr\Clock\ClockInterface::class, \Symfony\Component\Clock\NativeClock::class)
-                ->setShared(true)
-                ->setPublic(false);
-        }
-
+        // A default ClockInterface (NativeClock) is provided by
+        // ObjectStoreRuntimeDependenciesPass when nothing else supplies one: a
+        // has(ClockInterface) check here runs against the per-extension merge
+        // container and never sees a clock registered by the app or another package.
         $container->register(PresignedUrlPolicyMiddleware::class, PresignedUrlPolicyMiddleware::class)
             ->setArgument('$maxPresignTtlSeconds', $config['bucket']['max_presign_ttl_seconds'])
             ->setArgument('$maxUploadSizeBytes', $config['bucket']['max_upload_size_bytes'])
@@ -250,14 +248,10 @@ final class ObjectStoreExtension extends Extension
                     ->setShared(true)
                     ->setPublic(false);
 
-                if ($container->hasDefinition(\Vortos\Metrics\Definition\MetricDefinitionRegistry::class)) {
-                    $definition = $container->getDefinition(\Vortos\Metrics\Definition\MetricDefinitionRegistry::class);
-                    $definitions = $definition->getArgument('$definitions');
-                    foreach ((new ObjectStoreMetricDefinitions())->definitions() as $metricDefinition) {
-                        $definitions[] = $metricDefinition->toArray();
-                    }
-                    $definition->setArgument('$definitions', $definitions);
-                }
+                // The Metrics package's MetricDefinitionRegistry (MetricsExtension::load)
+                // is never visible here due to merge isolation;
+                // ObjectStoreRuntimeDependenciesPass appends our metric definitions
+                // to it after the container is merged.
             }
         }
 
@@ -326,9 +320,10 @@ final class ObjectStoreExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        if (!$container->hasAlias(ObjectPromotionPolicyInterface::class) && !$container->hasDefinition(ObjectPromotionPolicyInterface::class)) {
-            $container->setAlias(ObjectPromotionPolicyInterface::class, NoOpObjectPromotionPolicy::class)->setPublic(false);
-        }
+        // The default ObjectPromotionPolicyInterface alias is set by
+        // ObjectStoreRuntimeDependenciesPass so it yields to an app-provided
+        // override; a hasAlias/hasDefinition check here cannot see the app's
+        // definition (merge isolation).
     }
 
     private function registerRouter(ContainerBuilder $container): void
@@ -338,9 +333,9 @@ final class ObjectStoreExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        if (!$container->hasAlias(ObjectStoreRouterInterface::class) && !$container->hasDefinition(ObjectStoreRouterInterface::class)) {
-            $container->setAlias(ObjectStoreRouterInterface::class, SingleObjectStoreRouter::class)->setPublic(false);
-        }
+        // The default ObjectStoreRouterInterface alias is set by
+        // ObjectStoreRuntimeDependenciesPass so it yields to an app-provided
+        // override (merge isolation hides the app's definition here).
     }
 
     private function registerImmediateDirectUploadManager(ContainerBuilder $container): void
@@ -558,13 +553,13 @@ final class ObjectStoreExtension extends Extension
             ))),
         ];
 
-        if ($config['observability']['tracing'] && interface_exists(TracingInterface::class) && $container->has(TracingInterface::class)) {
-            $arguments['$tracer'] = new Reference(TracingInterface::class);
-        }
-
-        if ($config['observability']['metrics'] && interface_exists(MetricsInterface::class) && $container->has(MetricsInterface::class)) {
-            $arguments['$metrics'] = new Reference(MetricsInterface::class);
-        }
+        // $tracer / $metrics are injected by ObjectStoreRuntimeDependenciesPass when
+        // the corresponding service is present: a has(TracingInterface)/has(MetricsInterface)
+        // check here runs against the per-extension merge container and never sees
+        // services registered by the Tracing/Metrics extensions. These params tell the
+        // pass whether the config opts into each.
+        $container->setParameter('vortos_object_store.lifecycle.wants_tracer', (bool) $config['observability']['tracing']);
+        $container->setParameter('vortos_object_store.lifecycle.wants_metrics', (bool) $config['observability']['metrics']);
 
         $container->register(S3LifecycleManager::class, S3LifecycleManager::class)
             ->setArguments($arguments)

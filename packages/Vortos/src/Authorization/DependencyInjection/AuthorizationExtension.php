@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Vortos\Authorization\DependencyInjection;
 
 use Doctrine\DBAL\Connection;
-use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
@@ -43,30 +42,22 @@ use Vortos\Authorization\Ownership\Contract\OwnerResolverInterface;
 use Vortos\Authorization\Ownership\Middleware\OwnershipMiddleware;
 use Vortos\Authorization\Ownership\OwnerResolverRegistry;
 use Vortos\Authorization\Permission\PermissionRegistry;
-use Vortos\Authorization\Resolver\CachedPermissionResolver;
-use Vortos\Authorization\Resolver\CachedPermissionInvalidator;
 use Vortos\Authorization\Resolver\DatabasePermissionResolver;
 use Vortos\Authorization\Resolver\NullAuthorizationCacheInvalidator;
 use Vortos\Authorization\Resolver\RequestMemoizedPermissionResolver;
-use Vortos\Authorization\Resolver\RoleGenerationStore;
 use Vortos\Authorization\Scope\Contract\ScopedPermissionStoreInterface;
 use Vortos\Authorization\Scope\Contract\ScopeMode;
 use Vortos\Authorization\Scope\ScopeEnforcementClassifier;
 use Vortos\Authorization\Scope\ScopeResolverRegistry;
 use Vortos\Authorization\Scope\ScopedAuthorizationManager;
 use Vortos\Authorization\Scope\Storage\NullScopedPermissionStore;
-use Vortos\Authorization\Scope\Storage\RedisScopedPermissionStore;
 use Vortos\Authorization\Storage\DbalRolePermissionStore;
 use Vortos\Authorization\Storage\DbalUserRoleStore;
 use Vortos\Authorization\Storage\DbalAuthorizationAuditStore;
-use Vortos\Authorization\Storage\GenerationalRolePermissionStore;
 use Vortos\Authorization\Storage\NullAuthorizationVersionStore;
 use Vortos\Authorization\Storage\NullEmergencyDenyList;
-use Vortos\Authorization\Storage\RedisAuthorizationVersionStore;
-use Vortos\Authorization\Storage\RedisEmergencyDenyList;
 use Vortos\Authorization\Temporal\Contract\TemporalPermissionStoreInterface;
 use Vortos\Authorization\Temporal\Storage\NullTemporalPermissionStore;
-use Vortos\Authorization\Temporal\Storage\RedisTemporalPermissionStore;
 use Vortos\Authorization\Temporal\TemporalAuthorizationManager;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
 use Vortos\Authorization\Http\PermissionsController;
@@ -143,10 +134,12 @@ final class AuthorizationExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
+        // $requestStack is injected by RedisAuthorizationStoresPass when the Http
+        // package's RequestStack is present: a hasDefinition/hasAlias check here runs
+        // against the per-extension merge container, where RequestStack
+        // (HttpExtension::load) is never visible.
         $container->register(AuthorizationAuditContextProvider::class, AuthorizationAuditContextProvider::class)
-            ->setArgument('$requestStack', $container->hasDefinition(RequestStack::class) || $container->hasAlias(RequestStack::class)
-                ? new Reference(RequestStack::class)
-                : null)
+            ->setArgument('$requestStack', null)
             ->setArgument('$tracer', $tracingReference)
             ->setShared(true)
             ->setPublic(false);
@@ -268,97 +261,53 @@ final class AuthorizationExtension extends Extension
             ->setArgument('$resolvers', [])
             ->setShared(true)->setPublic(true);
 
-        // Redis-backed scoped + temporal stores
-        if ($container->hasDefinition(\Redis::class)) {
-            $container->register(RedisEmergencyDenyList::class, RedisEmergencyDenyList::class)
-                ->setArgument('$redis', new Reference(\Redis::class))
-                ->setShared(true)
-                ->setPublic(false);
-            $container->setAlias(EmergencyDenyListInterface::class, RedisEmergencyDenyList::class)
-                ->setPublic(false);
+        // Default (no-Redis) scoped/temporal/deny-list/version stores. When \Redis is
+        // present, RedisAuthorizationStoresPass swaps in the Redis-backed
+        // implementations and overrides these aliases — a hasDefinition(\Redis) check
+        // here runs against the per-extension merge container, where \Redis
+        // (CacheExtension/AuthExtension::load) is never visible, so without the pass
+        // the Null stores were always used (no distributed deny-list / versioning).
+        $container->register(NullScopedPermissionStore::class, NullScopedPermissionStore::class)
+            ->setShared(true)
+            ->setPublic(false);
+        $container->setAlias(ScopedPermissionStoreInterface::class, NullScopedPermissionStore::class)
+            ->setPublic(false);
 
-            $container->register(RedisAuthorizationVersionStore::class, RedisAuthorizationVersionStore::class)
-                ->setArgument('$redis', new Reference(\Redis::class))
-                ->setShared(true)
-                ->setPublic(false);
-            $container->setAlias(AuthorizationVersionStoreInterface::class, RedisAuthorizationVersionStore::class)
-                ->setPublic(false);
+        $container->register(ScopedAuthorizationManager::class, ScopedAuthorizationManager::class)
+            ->setArgument('$store', new Reference(ScopedPermissionStoreInterface::class))
+            ->setShared(true)->setPublic(true);
 
-            $container->register(RedisScopedPermissionStore::class, RedisScopedPermissionStore::class)
-                ->setArgument('$redis', new Reference(\Redis::class))
-                ->setShared(true)->setPublic(false);
+        $container->register(NullEmergencyDenyList::class, NullEmergencyDenyList::class)
+            ->setShared(true)
+            ->setPublic(false);
+        $container->setAlias(EmergencyDenyListInterface::class, NullEmergencyDenyList::class)
+            ->setPublic(false);
 
-            $container->setAlias(ScopedPermissionStoreInterface::class, RedisScopedPermissionStore::class)
-                ->setPublic(false);
+        $container->register(NullAuthorizationVersionStore::class, NullAuthorizationVersionStore::class)
+            ->setShared(true)
+            ->setPublic(false);
+        $container->setAlias(AuthorizationVersionStoreInterface::class, NullAuthorizationVersionStore::class)
+            ->setPublic(false);
 
-            $container->register(ScopedAuthorizationManager::class, ScopedAuthorizationManager::class)
-                ->setArgument('$store', new Reference(ScopedPermissionStoreInterface::class))
-                ->setShared(true)->setPublic(true);
+        $container->register(NullTemporalPermissionStore::class, NullTemporalPermissionStore::class)
+            ->setShared(true)
+            ->setPublic(false);
+        $container->setAlias(TemporalPermissionStoreInterface::class, NullTemporalPermissionStore::class)
+            ->setPublic(false);
 
-            $container->register(RedisTemporalPermissionStore::class, RedisTemporalPermissionStore::class)
-                ->setArgument('$redis', new Reference(\Redis::class))
-                ->setShared(true)->setPublic(false);
-            $container->setAlias(TemporalPermissionStoreInterface::class, RedisTemporalPermissionStore::class)
-                ->setPublic(false);
-
-            $container->register(TemporalAuthorizationManager::class, TemporalAuthorizationManager::class)
-                ->setArgument('$store', new Reference(RedisTemporalPermissionStore::class))
-                ->setShared(true)->setPublic(true);
-        } else {
-            $container->register(NullScopedPermissionStore::class, NullScopedPermissionStore::class)
-                ->setShared(true)
-                ->setPublic(false);
-            $container->setAlias(ScopedPermissionStoreInterface::class, NullScopedPermissionStore::class)
-                ->setPublic(false);
-
-            $container->register(ScopedAuthorizationManager::class, ScopedAuthorizationManager::class)
-                ->setArgument('$store', new Reference(ScopedPermissionStoreInterface::class))
-                ->setShared(true)->setPublic(true);
-
-            $container->register(NullEmergencyDenyList::class, NullEmergencyDenyList::class)
-                ->setShared(true)
-                ->setPublic(false);
-            $container->setAlias(EmergencyDenyListInterface::class, NullEmergencyDenyList::class)
-                ->setPublic(false);
-
-            $container->register(NullAuthorizationVersionStore::class, NullAuthorizationVersionStore::class)
-                ->setShared(true)
-                ->setPublic(false);
-            $container->setAlias(AuthorizationVersionStoreInterface::class, NullAuthorizationVersionStore::class)
-                ->setPublic(false);
-
-            $container->register(NullTemporalPermissionStore::class, NullTemporalPermissionStore::class)
-                ->setShared(true)
-                ->setPublic(false);
-            $container->setAlias(TemporalPermissionStoreInterface::class, NullTemporalPermissionStore::class)
-                ->setPublic(false);
-
-            $container->register(TemporalAuthorizationManager::class, TemporalAuthorizationManager::class)
-                ->setArgument('$store', new Reference(TemporalPermissionStoreInterface::class))
-                ->setShared(true)
-                ->setPublic(true);
-        }
+        $container->register(TemporalAuthorizationManager::class, TemporalAuthorizationManager::class)
+            ->setArgument('$store', new Reference(TemporalPermissionStoreInterface::class))
+            ->setShared(true)
+            ->setPublic(true);
 
         $container->getDefinition(PolicyEngine::class)
             ->setArgument('$scopedPermissions', new Reference(ScopedPermissionStoreInterface::class));
 
-        if ($container->hasDefinition(\Redis::class)) {
-            $container->register(RoleGenerationStore::class, RoleGenerationStore::class)
-                ->setArgument('$redis', new Reference(\Redis::class))
-                ->setShared(true)
-                ->setPublic(false);
-
-            $container->register(GenerationalRolePermissionStore::class, GenerationalRolePermissionStore::class)
-                ->setArgument('$inner', new Reference(DbalRolePermissionStore::class))
-                ->setArgument('$generations', new Reference(RoleGenerationStore::class))
-                ->setShared(true)
-                ->setPublic(false);
-            $container->setAlias(RolePermissionStoreInterface::class, GenerationalRolePermissionStore::class)
-                ->setPublic(false);
-        } else {
-            $container->setAlias(RolePermissionStoreInterface::class, DbalRolePermissionStore::class)
-                ->setPublic(false);
-        }
+        // Default DBAL role-permission store. RedisAuthorizationStoresPass swaps in
+        // the generational (Redis-versioned) store and overrides this alias when
+        // \Redis is present.
+        $container->setAlias(RolePermissionStoreInterface::class, DbalRolePermissionStore::class)
+            ->setPublic(false);
 
         $container->register(DatabasePermissionResolver::class, DatabasePermissionResolver::class)
             ->setArgument('$userRoleStore', new Reference(UserRoleStoreInterface::class))
@@ -374,33 +323,18 @@ final class AuthorizationExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        $innerResolver = DatabasePermissionResolver::class;
-
-        if ($container->hasDefinition(\Redis::class)) {
-            $container->register(CachedPermissionResolver::class, CachedPermissionResolver::class)
-                ->setArgument('$inner', new Reference(DatabasePermissionResolver::class))
-                ->setArgument('$redis', new Reference(\Redis::class))
-                ->setArgument('$generations', new Reference(RoleGenerationStore::class))
-                ->setArgument('$tracer', new Reference(AuthorizationTracer::class))
-                ->setShared(true)
-                ->setPublic(false);
-            $container->register(CachedPermissionInvalidator::class, CachedPermissionInvalidator::class)
-                ->setArgument('$resolver', new Reference(CachedPermissionResolver::class))
-                ->setShared(true)
-                ->setPublic(false);
-            $container->setAlias(AuthorizationCacheInvalidatorInterface::class, CachedPermissionInvalidator::class)
-                ->setPublic(false);
-            $innerResolver = CachedPermissionResolver::class;
-        } else {
-            $container->register(NullAuthorizationCacheInvalidator::class, NullAuthorizationCacheInvalidator::class)
-                ->setShared(true)
-                ->setPublic(false);
-            $container->setAlias(AuthorizationCacheInvalidatorInterface::class, NullAuthorizationCacheInvalidator::class)
-                ->setPublic(false);
-        }
+        // Default: no Redis permission cache. RedisAuthorizationStoresPass registers
+        // CachedPermissionResolver, overrides the cache-invalidator alias, and
+        // re-points RequestMemoizedPermissionResolver's $inner to the cached resolver
+        // when \Redis is present.
+        $container->register(NullAuthorizationCacheInvalidator::class, NullAuthorizationCacheInvalidator::class)
+            ->setShared(true)
+            ->setPublic(false);
+        $container->setAlias(AuthorizationCacheInvalidatorInterface::class, NullAuthorizationCacheInvalidator::class)
+            ->setPublic(false);
 
         $container->register(RequestMemoizedPermissionResolver::class, RequestMemoizedPermissionResolver::class)
-            ->setArgument('$inner', new Reference($innerResolver))
+            ->setArgument('$inner', new Reference(DatabasePermissionResolver::class))
             ->setShared(true)
             ->setPublic(false);
 

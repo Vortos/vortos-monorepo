@@ -5,7 +5,7 @@
  * dnd-kit provides accessible, pointer-and-keyboard drag-and-drop without
  * any CDN dependency or eval. Sorting is done within a single flat list.
  */
-import React, { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   closestCenter,
   DndContext,
@@ -212,9 +212,8 @@ function ConditionRow({
 // Main island
 // ---------------------------------------------------------------------------
 
-export function RuleBuilder({ flagName, rules: initialRules = [], onChangeJson }: RuleBuilderProps) {
+export function RuleBuilder({ rules: initialRules = [], onChangeJson }: RuleBuilderProps) {
   const [rules, setRules] = useState<FlagRule[]>(initialRules);
-  const hiddenId = useId();
 
   const sensors = useSensors(
     useSensor(PointerSensor),

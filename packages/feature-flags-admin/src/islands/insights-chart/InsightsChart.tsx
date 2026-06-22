@@ -6,7 +6,7 @@
  * renders a dual-axis line+bar chart of evaluation throughput and latency p99.
  * No CDN dependency; Recharts is bundled by Vite.
  */
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Bar,
   CartesianGrid,

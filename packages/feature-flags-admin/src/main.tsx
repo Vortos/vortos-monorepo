@@ -14,8 +14,8 @@ import { RuleBuilder } from './islands/rule-builder/RuleBuilder';
 import { InsightsChart } from './islands/insights-chart/InsightsChart';
 
 const ISLANDS: Record<string, React.ComponentType<Record<string, unknown>>> = {
-  'rule-builder': RuleBuilder as React.ComponentType<Record<string, unknown>>,
-  'insights-chart': InsightsChart as React.ComponentType<Record<string, unknown>>,
+  'rule-builder': RuleBuilder as unknown as React.ComponentType<Record<string, unknown>>,
+  'insights-chart': InsightsChart as unknown as React.ComponentType<Record<string, unknown>>,
 };
 
 function mount(): void {

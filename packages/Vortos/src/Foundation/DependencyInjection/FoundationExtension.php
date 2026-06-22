@@ -11,6 +11,8 @@ use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\DependencyInjection\ChildDefinition;
+use Vortos\Foundation\Assets\AssetPublisher;
+use Vortos\Foundation\Command\AssetsPublishCommand;
 use Vortos\Foundation\Command\DebugBindingsCommand;
 use Vortos\Foundation\Command\DoctorCommand;
 use Vortos\Foundation\Command\HealthCommand;
@@ -87,6 +89,17 @@ final class FoundationExtension extends Extension
 
         $container->register(DoctorCommand::class, DoctorCommand::class)
             ->setArgument('$registry', new Reference(DoctorRegistry::class))
+            ->addTag('console.command')
+            ->setPublic(true);
+
+        $container->register(AssetPublisher::class, AssetPublisher::class)
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(AssetsPublishCommand::class, AssetsPublishCommand::class)
+            ->setArgument('$publisher', new Reference(AssetPublisher::class))
+            ->setArgument('$vendorDir', '%kernel.project_dir%/vendor')
+            ->setArgument('$defaultPublicDir', '%kernel.project_dir%/public')
             ->addTag('console.command')
             ->setPublic(true);
     }

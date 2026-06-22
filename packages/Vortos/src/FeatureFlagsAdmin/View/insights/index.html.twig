@@ -1,0 +1,43 @@
+{% extends "layout/base.html.twig" %}
+
+{% block title %}Insights{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Insights</h1>
+</div>
+
+<div class="flex items-center gap-3 mb-4">
+    <input type="text"
+           name="flag"
+           value="{{ flag_name }}"
+           class="input"
+           placeholder="Enter flag name for metrics..."
+           style="max-width:320px">
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">Evaluation Metrics</div>
+    <div class="card-body">
+        <div data-island="insights-chart"
+             data-props-id="insights-props">
+        </div>
+        <script type="application/json" id="insights-props" nonce="{{ csp_nonce() }}">
+            {{ island_props({'flagName': flag_name, 'dataEndpoint': prefix ~ '/insights/data', 'allowedLabels': allowed_labels})|raw }}
+        </script>
+        <noscript>
+            <p class="text-muted">Insights charts require JavaScript to render.</p>
+        </noscript>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Bounded Labels</div>
+    <div class="card-body" style="font-size:0.8125rem">
+        <p class="text-dim mb-4">Only these metric labels are surfaced (cardinality-bounded):</p>
+        {% for label in allowed_labels %}
+            <span class="badge badge-muted" style="margin-right:0.25rem">{{ label }}</span>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

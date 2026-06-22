@@ -1,0 +1,66 @@
+{% if requests is empty %}
+    <div class="empty-state">No change requests found.</div>
+{% else %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Flag</th>
+                <th>Change</th>
+                <th>Environment</th>
+                <th>Requested By</th>
+                <th>Reason</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for req in requests %}
+            <tr id="approval-{{ req.id }}">
+                <td class="mono">{{ req.flagName }}</td>
+                <td><span class="badge badge-info">{{ req.changeType.value }}</span></td>
+                <td><span class="badge badge-muted">{{ req.environment }}</span></td>
+                <td class="text-muted mono" style="font-size:0.75rem">{{ req.requestedBy }}</td>
+                <td class="text-muted" style="font-size:0.75rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ req.reason }}</td>
+                <td>
+                    {% if req.status.value == 'pending' %}
+                        <span class="badge badge-warning">Pending</span>
+                    {% elseif req.status.value == 'approved' %}
+                        <span class="badge badge-success">Approved</span>
+                    {% elseif req.status.value == 'rejected' %}
+                        <span class="badge badge-danger">Rejected</span>
+                    {% elseif req.status.value == 'applied' %}
+                        <span class="badge badge-info">Applied</span>
+                    {% else %}
+                        <span class="badge badge-muted">{{ req.status.value }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.status.value == 'pending' %}
+                    <div class="flex gap-2 items-center">
+                        <input type="text" name="reason" class="input" placeholder="Reason (min 10 chars)" style="font-size:0.75rem;width:160px">
+                        <button class="btn btn-primary btn-sm"
+                                hx-post="{{ prefix }}/approvals/{{ req.id }}/approve"
+                                hx-include="closest tr [name='reason']"
+                                hx-target="#approval-{{ req.id }}"
+                                hx-swap="outerHTML"
+                                style="font-size:0.6875rem">
+                            Approve
+                        </button>
+                        <button class="btn btn-danger btn-sm"
+                                hx-post="{{ prefix }}/approvals/{{ req.id }}/reject"
+                                hx-include="closest tr [name='reason']"
+                                hx-target="#approval-{{ req.id }}"
+                                hx-swap="outerHTML"
+                                style="font-size:0.6875rem">
+                            Reject
+                        </button>
+                    </div>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}

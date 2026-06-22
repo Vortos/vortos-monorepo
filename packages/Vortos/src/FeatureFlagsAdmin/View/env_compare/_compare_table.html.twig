@@ -1,0 +1,58 @@
+{% if comparisons is empty %}
+    <div class="empty-state">No flags to compare.</div>
+{% else %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Flag</th>
+                <th>{{ env_a }}</th>
+                <th>{{ env_b }}</th>
+                <th>Diff</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cmp in comparisons %}
+            <tr>
+                <td class="mono text-bright">{{ cmp.name }}</td>
+                <td>
+                    {% if cmp.a %}
+                        {% if cmp.a.enabled %}
+                            <span class="badge badge-success">ON</span>
+                        {% else %}
+                            <span class="badge badge-danger">OFF</span>
+                        {% endif %}
+                        <span class="text-dim" style="font-size:0.6875rem">{{ cmp.a.ruleCount }} rules</span>
+                    {% else %}
+                        <span class="text-dim">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if cmp.b %}
+                        {% if cmp.b.enabled %}
+                            <span class="badge badge-success">ON</span>
+                        {% else %}
+                            <span class="badge badge-danger">OFF</span>
+                        {% endif %}
+                        <span class="text-dim" style="font-size:0.6875rem">{{ cmp.b.ruleCount }} rules</span>
+                    {% else %}
+                        <span class="text-dim">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if cmp.status == 'same' %}
+                        <span class="text-dim">Identical</span>
+                    {% elseif cmp.status == 'only_a' %}
+                        <span class="badge badge-warning">Only in {{ env_a }}</span>
+                    {% elseif cmp.status == 'only_b' %}
+                        <span class="badge badge-warning">Only in {{ env_b }}</span>
+                    {% elseif cmp.status == 'different' %}
+                        <span class="badge badge-danger">Different</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}

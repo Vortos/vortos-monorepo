@@ -1,0 +1,28 @@
+<tr id="killswitch-{{ flag.name }}">
+    <td class="mono text-bright">{{ flag.name }}</td>
+    <td>
+        {% if flag.enabled %}
+            <span class="badge badge-success">Enabled</span>
+        {% else %}
+            <span class="badge badge-danger">Disabled</span>
+        {% endif %}
+    </td>
+    <td>
+        {% if guardrails is not empty %}
+            {% for g in guardrails %}
+                <span class="badge badge-warning" style="margin-right:0.25rem">{{ g.metricName|default('active') }}</span>
+            {% endfor %}
+        {% else %}
+            <span class="text-dim">None</span>
+        {% endif %}
+    </td>
+    <td>
+        <button class="btn {% if flag.enabled %}btn-danger{% else %}btn-primary{% endif %} btn-sm kill-switch-btn"
+                hx-post="{{ prefix }}/kill-switch/{{ flag.name }}/toggle"
+                hx-vals='{"env":"{{ env|default('production') }}"}'
+                hx-target="#killswitch-{{ flag.name }}"
+                hx-swap="outerHTML">
+            {% if flag.enabled %}Kill{% else %}Activate{% endif %}
+        </button>
+    </td>
+</tr>

@@ -1,0 +1,14 @@
+<div class="card">
+    <div class="card-header">Diff: {{ entry_a.eventId|slice(0, 8) }} &rarr; {{ entry_b.eventId|slice(0, 8) }}</div>
+    <div class="card-body" style="padding:0">
+        {% for line in diff_lines %}
+            {% if line.type == 'add' %}
+                <div class="diff-line diff-add">+ {{ line.content }}</div>
+            {% elseif line.type == 'remove' %}
+                <div class="diff-line diff-remove">- {{ line.content }}</div>
+            {% else %}
+                <div class="diff-line">  {{ line.content }}</div>
+            {% endif %}
+        {% endfor %}
+    </div>
+</div>

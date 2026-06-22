@@ -11,24 +11,41 @@ use Symfony\Component\Console\Helper\TableStyle;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Vortos\FeatureFlags\FlagScopeContext;
+use Vortos\FeatureFlags\ProjectContext;
 use Vortos\FeatureFlags\Storage\FlagStorageInterface;
 
 #[AsCommand(name: 'vortos:flags:list', description: 'List all feature flags')]
 final class FlagsListCommand extends Command
 {
-    public function __construct(private readonly FlagStorageInterface $storage)
-    {
+    public function __construct(
+        private readonly FlagStorageInterface $storage,
+        private readonly FlagScopeContext $scope = new FlagScopeContext(),
+        private readonly ProjectContext $projectContext = new ProjectContext(),
+    ) {
         parent::__construct();
     }
 
     protected function configure(): void
     {
-        $this->addOption('json', null, InputOption::VALUE_NONE, 'Output as JSON');
+        $this
+            ->addOption('json',    null, InputOption::VALUE_NONE, 'Output as JSON')
+            ->addOption('env',     null, InputOption::VALUE_REQUIRED, 'Filter by environment (default: production)', FlagScopeContext::ENV_PRODUCTION)
+            ->addOption('project', null, InputOption::VALUE_REQUIRED, 'Filter by project slug (default: all)', null);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $env     = (string) ($input->getOption('env') ?? FlagScopeContext::ENV_PRODUCTION);
+        $project = $input->getOption('project');
+        $this->scope->withEnvironment($env);
+
         $flags = $this->storage->findAll();
+
+        if ($project !== null) {
+            $project = (string) $project;
+            $flags   = array_values(array_filter($flags, fn($f) => $f->projectId === $project));
+        }
 
         if ($input->getOption('json')) {
             $output->writeln(json_encode(array_map(fn($f) => [
@@ -36,12 +53,19 @@ final class FlagsListCommand extends Command
                 'enabled'     => $f->enabled,
                 'rules'       => count($f->rules),
                 'description' => $f->description,
+                'project_id'  => $f->projectId,
             ], $flags), JSON_PRETTY_PRINT));
             return Command::SUCCESS;
         }
 
+        $projectLabel = $project !== null ? " [project: {$project}]" : '';
         $output->writeln('');
-        $output->writeln(sprintf(' <fg=white;options=bold>Feature Flags</> <fg=gray>(%d)</>',  count($flags)));
+        $output->writeln(sprintf(
+            ' <fg=white;options=bold>Feature Flags</> <fg=gray>(%d)</> <fg=gray>[env: %s%s]</>',
+            count($flags),
+            $env,
+            $projectLabel,
+        ));
         $output->writeln('');
 
         if (empty($flags)) {
@@ -57,7 +81,7 @@ final class FlagsListCommand extends Command
 
         $table = new Table($output);
         $table->setStyle($style);
-        $table->setHeaders(['<fg=gray>Name</>', '<fg=gray>Status</>', '<fg=gray>Rules</>', '<fg=gray>Description</>']);
+        $table->setHeaders(['<fg=gray>Name</>', '<fg=gray>Status</>', '<fg=gray>Rules</>', '<fg=gray>Project</>', '<fg=gray>Description</>']);
 
         foreach ($flags as $flag) {
             $status = $flag->enabled
@@ -72,6 +96,7 @@ final class FlagsListCommand extends Command
                 sprintf('<fg=white>%s</>', $flag->name),
                 $status,
                 $rules,
+                sprintf('<fg=gray>%s</>', $flag->projectId),
                 sprintf('<fg=gray>%s</>', $flag->description ?: '—'),
             ]);
         }

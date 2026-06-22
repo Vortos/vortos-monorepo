@@ -1,0 +1,96 @@
+{% extends "layout/base.html.twig" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Feature Flags</h1>
+    <div class="flex items-center gap-2">
+        <span class="text-muted" style="font-size:0.8125rem">{{ total }} flags</span>
+        <button class="btn btn-primary btn-sm"
+                hx-get="{{ prefix }}/fragment/create-form?env={{ env }}"
+                hx-target="#create-flag-modal"
+                hx-swap="innerHTML">
+            + New Flag
+        </button>
+    </div>
+</div>
+<div id="create-flag-modal"></div>
+
+<div class="flex items-center gap-3 mb-4">
+    <div class="env-tabs">
+        {% for e in environments %}
+            <a href="{{ prefix }}?env={{ e }}&q={{ search }}&kind={{ kind_filter }}&status={{ status_filter }}"
+               class="env-tab{% if env == e %} active{% endif %}">{{ e }}</a>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="flex items-center gap-3 mb-4">
+    <div class="search-box">
+        <input type="text"
+               class="input"
+               name="q"
+               value="{{ search }}"
+               placeholder="Search flags..."
+               hx-get="{{ prefix }}"
+               hx-trigger="keyup changed delay:300ms"
+               hx-target="#flag-table-container"
+               hx-include="[name='env'],[name='kind'],[name='status']"
+               hx-push-url="true">
+    </div>
+    <input type="hidden" name="env" value="{{ env }}">
+    <select name="kind" class="input" style="width:auto"
+            hx-get="{{ prefix }}"
+            hx-trigger="change"
+            hx-target="#flag-table-container"
+            hx-include="[name='env'],[name='q'],[name='status']">
+        <option value="">All kinds</option>
+        <option value="release"{% if kind_filter == 'release' %} selected{% endif %}>Release</option>
+        <option value="experiment"{% if kind_filter == 'experiment' %} selected{% endif %}>Experiment</option>
+        <option value="ops"{% if kind_filter == 'ops' %} selected{% endif %}>Ops</option>
+        <option value="permission"{% if kind_filter == 'permission' %} selected{% endif %}>Permission</option>
+    </select>
+    <select name="status" class="input" style="width:auto"
+            hx-get="{{ prefix }}"
+            hx-trigger="change"
+            hx-target="#flag-table-container"
+            hx-include="[name='env'],[name='q'],[name='kind']">
+        <option value="">All statuses</option>
+        <option value="enabled"{% if status_filter == 'enabled' %} selected{% endif %}>Enabled</option>
+        <option value="disabled"{% if status_filter == 'disabled' %} selected{% endif %}>Disabled</option>
+        <option value="archived"{% if status_filter == 'archived' %} selected{% endif %}>Archived</option>
+    </select>
+</div>
+
+<div id="flag-table-container">
+    {% include "flags/_flag_table.html.twig" %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+    document.body.addEventListener('htmx:responseError', function(e) {
+        if (e.detail.xhr.status === 403) {
+            alert('Permission denied. You may need a change request for this action.');
+        }
+    });
+
+    (function () {
+        var env = {{ env|json_encode|raw }};
+        var prefix = {{ prefix|json_encode|raw }};
+        var src = new EventSource(prefix + '/stream?env=' + encodeURIComponent(env));
+        src.addEventListener('flag-change', function () {
+            var q = document.querySelector('[name="q"]') ? document.querySelector('[name="q"]').value : '';
+            var kind = document.querySelector('[name="kind"]') ? document.querySelector('[name="kind"]').value : '';
+            var status = document.querySelector('[name="status"]') ? document.querySelector('[name="status"]').value : '';
+            var params = new URLSearchParams({env: env, q: q, kind: kind, status: status});
+            htmx.ajax('GET', prefix + '?' + params.toString(), {
+                target: '#flag-table-container',
+                swap: 'innerHTML'
+            });
+        });
+        src.addEventListener('error', function () { src.close(); });
+    })();
+</script>
+{% endblock %}

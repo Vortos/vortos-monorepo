@@ -1,9 +1,9 @@
 <?php return array(
     'root' => array(
         'name' => 'fortizan/squaura',
-        'pretty_version' => 'dev-main',
-        'version' => 'dev-main',
-        'reference' => '12dfed66e54ab740dbdc076d62da9cac630e378b',
+        'pretty_version' => '1.0.0+no-version-set',
+        'version' => '1.0.0.0',
+        'reference' => null,
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -155,9 +155,9 @@
             'dev_requirement' => false,
         ),
         'fortizan/squaura' => array(
-            'pretty_version' => 'dev-main',
-            'version' => 'dev-main',
-            'reference' => '12dfed66e54ab740dbdc076d62da9cac630e378b',
+            'pretty_version' => '1.0.0+no-version-set',
+            'version' => '1.0.0.0',
+            'reference' => null,
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
@@ -1231,6 +1231,15 @@
             'install_path' => __DIR__ . '/../theseer/tokenizer',
             'aliases' => array(),
             'dev_requirement' => true,
+        ),
+        'twig/twig' => array(
+            'pretty_version' => 'v3.27.1',
+            'version' => '3.27.1.0',
+            'reference' => 'ae2071bffb38f04847fc0864d730c94b9cb8ab74',
+            'type' => 'library',
+            'install_path' => __DIR__ . '/../twig/twig',
+            'aliases' => array(),
+            'dev_requirement' => false,
         ),
         'vortos/vortos' => array(
             'pretty_version' => 'v1.0.0-alpha-4',

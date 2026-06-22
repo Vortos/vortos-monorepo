@@ -1,0 +1,41 @@
+<tr id="flag-row-{{ flag.flagName }}">
+    <td>
+        <a href="{{ prefix }}/detail/{{ flag.flagName }}?env={{ env }}" class="text-bright" style="text-decoration:none;font-weight:500">
+            <span class="mono">{{ flag.flagName }}</span>
+        </a>
+    </td>
+    <td><span class="badge badge-info">{{ flag.kind }}</span></td>
+    <td>
+        {% if flag.archived %}
+            <span class="badge badge-muted">Archived</span>
+        {% elseif flag.enabled %}
+            <span class="badge badge-success">Enabled</span>
+        {% else %}
+            <span class="badge badge-danger">Disabled</span>
+        {% endif %}
+    </td>
+    <td>
+        {% if flag.ruleCount > 0 %}
+            <div class="rollout-bar">
+                <div class="rollout-fill" style="width:100%"></div>
+            </div>
+        {% else %}
+            <span class="text-dim">-</span>
+        {% endif %}
+    </td>
+    <td class="text-muted">{{ flag.ruleCount }}</td>
+    <td class="text-muted" style="font-size:0.75rem">{{ flag.updatedAt|slice(0, 16) }}</td>
+    <td>
+        {% if not flag.archived %}
+        <label class="toggle">
+            <input type="checkbox"
+                   {% if flag.enabled %}checked{% endif %}
+                   hx-post="{{ prefix }}/fragment/{{ flag.flagName }}/toggle"
+                   hx-vals='{"env":"{{ env }}"}'
+                   hx-target="#flag-row-{{ flag.flagName }}"
+                   hx-swap="outerHTML">
+            <span class="toggle-slider"></span>
+        </label>
+        {% endif %}
+    </td>
+</tr>

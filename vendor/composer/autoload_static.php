@@ -42,6 +42,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         '157bbd0180425c7142fbaf1b1646bec3' => __DIR__ . '/..' . '/open-telemetry/exporter-otlp/_register.php',
         '9b38cf48e83f5d8f60375221cd213eee' => __DIR__ . '/..' . '/phpstan/phpstan/bootstrap.php',
         'ec07570ca5a812141189b1fa81503674' => __DIR__ . '/..' . '/phpunit/phpunit/src/Framework/Assert/Functions.php',
+        '89efb1254ef2d1c5d80096acd12c4098' => __DIR__ . '/..' . '/twig/twig/src/Resources/core.php',
+        'ffecb95d45175fd40f75be8a23b34f90' => __DIR__ . '/..' . '/twig/twig/src/Resources/debug.php',
+        'c7baa00073ee9c61edf148c51917cfb4' => __DIR__ . '/..' . '/twig/twig/src/Resources/escaper.php',
+        'f844ccf1d25df8663951193c3fc307c8' => __DIR__ . '/..' . '/twig/twig/src/Resources/string_loader.php',
     );
 
     public static $prefixLengthsPsr4 = array (
@@ -68,6 +72,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Http\\' => 12,
             'Vortos\\Foundation\\' => 18,
             'Vortos\\FeatureFlags\\' => 20,
+            'Vortos\\FeatureFlagsAdmin\\' => 25,
             'Vortos\\Domain\\' => 14,
             'Vortos\\Docker\\' => 14,
             'Vortos\\Debug\\' => 13,
@@ -77,6 +82,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\AwsSes\\' => 14,
             'Vortos\\Authorization\\' => 21,
             'Vortos\\Auth\\' => 12,
+        ),
+        'T' =>
+        array (
+            'Twig\\' => 5,
         ),
         'S' =>
         array (
@@ -306,6 +315,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/FeatureFlags',
         ),
+        'Vortos\\FeatureFlagsAdmin\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/FeatureFlagsAdmin',
+        ),
         'Vortos\\Domain\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-domain',
@@ -341,6 +354,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Auth\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-auth',
+        ),
+        'Twig\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/twig/twig/src',
         ),
         'Symfony\\Polyfill\\Uuid\\' =>
         array (

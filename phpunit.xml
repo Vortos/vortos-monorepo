@@ -7,6 +7,7 @@
     <testsuites>
         <testsuite name="Auth">
             <directory>packages/Vortos/src/Auth/Tests</directory>
+            <directory>packages/Vortos/src/Auth/Scim/Tests</directory>
         </testsuite>
         <testsuite name="Tenant">
             <directory>packages/Vortos/src/Tenant/Tests</directory>
@@ -31,6 +32,9 @@
         </testsuite>
         <testsuite name="FeatureFlags">
             <directory>packages/Vortos/src/FeatureFlags/Tests</directory>
+        </testsuite>
+        <testsuite name="FeatureFlagsAdmin">
+            <directory>packages/Vortos/src/FeatureFlagsAdmin/Tests</directory>
         </testsuite>
         <testsuite name="Foundation">
             <directory>packages/Vortos/src/Foundation/Tests</directory>

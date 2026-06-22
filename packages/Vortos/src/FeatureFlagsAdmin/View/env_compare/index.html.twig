@@ -1,0 +1,37 @@
+{% extends "layout/base.html.twig" %}
+
+{% block title %}Environment Compare{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Environment Compare</h1>
+</div>
+
+<div class="flex items-center gap-3 mb-4">
+    <select name="env_a" class="input" style="width:auto"
+            hx-get="{{ prefix }}/env-compare"
+            hx-trigger="change"
+            hx-target="#compare-container"
+            hx-include="[name='env_b']"
+            hx-push-url="true">
+        {% for e in environments %}
+            <option value="{{ e }}"{% if env_a == e %} selected{% endif %}>{{ e }}</option>
+        {% endfor %}
+    </select>
+    <span class="text-dim">vs</span>
+    <select name="env_b" class="input" style="width:auto"
+            hx-get="{{ prefix }}/env-compare"
+            hx-trigger="change"
+            hx-target="#compare-container"
+            hx-include="[name='env_a']"
+            hx-push-url="true">
+        {% for e in environments %}
+            <option value="{{ e }}"{% if env_b == e %} selected{% endif %}>{{ e }}</option>
+        {% endfor %}
+    </select>
+</div>
+
+<div id="compare-container">
+    {% include "env_compare/_compare_table.html.twig" %}
+</div>
+{% endblock %}

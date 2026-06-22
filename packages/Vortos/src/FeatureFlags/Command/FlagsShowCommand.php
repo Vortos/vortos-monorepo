@@ -12,13 +12,18 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\FeatureFlags\FeatureFlag;
 use Vortos\FeatureFlags\FlagRule;
+use Vortos\FeatureFlags\FlagScopeContext;
+use Vortos\FeatureFlags\ProjectContext;
 use Vortos\FeatureFlags\Storage\FlagStorageInterface;
 
 #[AsCommand(name: 'vortos:flags:show', description: 'Show full details of a feature flag including all targeting rules')]
 final class FlagsShowCommand extends Command
 {
-    public function __construct(private readonly FlagStorageInterface $storage)
-    {
+    public function __construct(
+        private readonly FlagStorageInterface $storage,
+        private readonly FlagScopeContext $scope = new FlagScopeContext(),
+        private readonly ProjectContext $projectContext = new ProjectContext(),
+    ) {
         parent::__construct();
     }
 
@@ -26,11 +31,18 @@ final class FlagsShowCommand extends Command
     {
         $this
             ->addArgument('name', InputArgument::REQUIRED, 'Flag name')
-            ->addOption('json', null, InputOption::VALUE_NONE, 'Output as JSON');
+            ->addOption('json',    null, InputOption::VALUE_NONE, 'Output as JSON')
+            ->addOption('env',     null, InputOption::VALUE_REQUIRED, 'Target environment (default: production)', FlagScopeContext::ENV_PRODUCTION)
+            ->addOption('project', null, InputOption::VALUE_REQUIRED, 'Project slug (default: default)', ProjectContext::DEFAULT_PROJECT);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $env     = (string) ($input->getOption('env') ?? FlagScopeContext::ENV_PRODUCTION);
+        $project = (string) ($input->getOption('project') ?? ProjectContext::DEFAULT_PROJECT);
+        $this->scope->withEnvironment($env);
+        $this->projectContext->withProject($project);
+
         $name = (string) $input->getArgument('name');
         $flag = $this->storage->findByName($name);
 
@@ -57,6 +69,8 @@ final class FlagsShowCommand extends Command
 
         $output->writeln('');
         $output->writeln(sprintf(' <fg=gray>Flag</>        <fg=white;options=bold>%s</>', $flag->name));
+        $output->writeln(sprintf(' <fg=gray>Env</>         <fg=cyan>%s</>', $flag->environment));
+        $output->writeln(sprintf(' <fg=gray>Project</>     <fg=cyan>%s</>', $flag->projectId));
         $output->writeln(sprintf(' <fg=gray>Status</>      <fg=%s>%s</>', $statusFg, $statusLabel));
         $output->writeln(sprintf(' <fg=gray>Description</>  %s', $flag->description ?: '<fg=gray>(none)</>'));
         $output->writeln(sprintf(

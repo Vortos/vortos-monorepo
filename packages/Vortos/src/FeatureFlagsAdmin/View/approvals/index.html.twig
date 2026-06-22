@@ -1,0 +1,38 @@
+{% extends "layout/base.html.twig" %}
+
+{% block title %}Approvals{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Approval Inbox</h1>
+</div>
+
+<div class="flex items-center gap-3 mb-4">
+    <select name="status" class="input" style="width:auto"
+            hx-get="{{ prefix }}/approvals"
+            hx-trigger="change"
+            hx-target="#approvals-container"
+            hx-include="[name='flag']"
+            hx-push-url="true">
+        <option value="pending"{% if status_filter == 'pending' %} selected{% endif %}>Pending</option>
+        <option value="approved"{% if status_filter == 'approved' %} selected{% endif %}>Approved</option>
+        <option value="rejected"{% if status_filter == 'rejected' %} selected{% endif %}>Rejected</option>
+        <option value="applied"{% if status_filter == 'applied' %} selected{% endif %}>Applied</option>
+    </select>
+    <input type="text"
+           name="flag"
+           value="{{ flag_filter }}"
+           class="input"
+           placeholder="Filter by flag..."
+           style="max-width:240px"
+           hx-get="{{ prefix }}/approvals"
+           hx-trigger="keyup changed delay:300ms"
+           hx-target="#approvals-container"
+           hx-include="[name='status']"
+           hx-push-url="true">
+</div>
+
+<div id="approvals-container">
+    {% include "approvals/_request_list.html.twig" %}
+</div>
+{% endblock %}

@@ -41,14 +41,16 @@
     "open-telemetry/exporter-otlp": "^1.0",
     "guzzlehttp/guzzle": "^7.0",
     "aws/aws-sdk-php": "^3.382",
-    "paddlehq/paddle-php-sdk": "^1.0"
+    "paddlehq/paddle-php-sdk": "^1.0",
+    "twig/twig": "^3.0"
   },
   "require-dev": {
     "vortos/vortos-make": "@dev",
     "phpunit/phpunit": "^11.0",
     "kwn/php-rdkafka-stubs": "^2.0",
     "open-telemetry/api": "^1.8",
-    "phpstan/phpstan": "^2.1"
+    "phpstan/phpstan": "^2.1",
+    "phpbench/phpbench": "^1.3"
   },
   "autoload": {
     "psr-4": {
@@ -58,6 +60,7 @@
       "Vortos\\Debug\\": "packages/Vortos/src/Debug/",
       "Vortos\\PersistenceOrm\\": "packages/Vortos/src/PersistenceOrm/",
       "Vortos\\FeatureFlags\\": "packages/Vortos/src/FeatureFlags/",
+      "Vortos\\FeatureFlagsAdmin\\": "packages/Vortos/src/FeatureFlagsAdmin/",
       "Vortos\\Docker\\": "packages/Vortos/src/Docker/",
       "Vortos\\Setup\\": "packages/Vortos/src/Setup/",
       "Vortos\\Metrics\\": "packages/Vortos/src/Metrics/",

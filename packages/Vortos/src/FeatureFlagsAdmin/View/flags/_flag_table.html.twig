@@ -1,0 +1,35 @@
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Kind</th>
+                <th>Status</th>
+                <th>Rollout</th>
+                <th>Rules</th>
+                <th>Updated</th>
+                <th>Toggle</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if flags is empty %}
+                <tr><td colspan="7" class="empty-state">No flags found.</td></tr>
+            {% endif %}
+            {% for flag in flags %}
+                {% include "flags/_flag_row.html.twig" with {'flag': flag, 'env': env} %}
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+        <a href="{{ prefix }}?page={{ page - 1 }}&env={{ env }}" class="btn btn-ghost btn-sm">Previous</a>
+    {% endif %}
+    <span class="text-muted" style="font-size:0.8125rem">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+        <a href="{{ prefix }}?page={{ page + 1 }}&env={{ env }}" class="btn btn-ghost btn-sm">Next</a>
+    {% endif %}
+</div>
+{% endif %}

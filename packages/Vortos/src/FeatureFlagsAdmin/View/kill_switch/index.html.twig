@@ -1,0 +1,47 @@
+{% extends "layout/base.html.twig" %}
+
+{% block title %}Kill Switch{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Kill Switch</h1>
+    <span class="text-muted" style="font-size:0.8125rem">Ops/kill-switch flags only</span>
+</div>
+
+{% if flags is empty %}
+    <div class="empty-state">No ops/kill-switch flags defined.</div>
+{% else %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Flag</th>
+                <th>Status</th>
+                <th>Guardrails</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for flag in flags %}
+                {% include "kill_switch/_flag_row.html.twig" with {
+                    'flag': flag,
+                    'guardrails': guardrail_states[flag.name]|default([])
+                } %}
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+    document.body.addEventListener('htmx:confirm', function(e) {
+        if (e.target.classList.contains('kill-switch-btn')) {
+            if (!confirm('Are you sure you want to toggle this kill switch?')) {
+                e.preventDefault();
+            }
+        }
+    });
+</script>
+{% endblock %}

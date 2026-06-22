@@ -1,0 +1,53 @@
+<div style="position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:1000"
+     id="create-flag-overlay">
+    <div class="card" style="width:480px;padding:1.5rem">
+        <div class="flex justify-between items-center mb-4">
+            <h2 style="font-size:1rem;font-weight:700;color:var(--text-bright)">New Feature Flag</h2>
+            <button type="button" class="btn btn-ghost btn-sm"
+                    onclick="document.getElementById('create-flag-modal').innerHTML=''">&#x2715;</button>
+        </div>
+        {% if error is defined and error %}
+            <div class="flash flash-error mb-4">{{ error }}</div>
+        {% endif %}
+        <form hx-post="{{ prefix }}/fragment/create"
+              hx-target="#create-flag-modal"
+              hx-swap="innerHTML">
+            <input type="hidden" name="env" value="{{ env }}">
+            <div class="mb-4">
+                <label class="text-dim" style="font-size:0.75rem;display:block;margin-bottom:0.25rem">Flag name *</label>
+                <input type="text" name="name" class="input" placeholder="e.g. new-checkout" required autofocus
+                       pattern="[a-z0-9][a-z0-9\-]*"
+                       title="Lowercase letters, numbers and hyphens only">
+            </div>
+            <div class="mb-4">
+                <label class="text-dim" style="font-size:0.75rem;display:block;margin-bottom:0.25rem">Description</label>
+                <input type="text" name="description" class="input" placeholder="Short description">
+            </div>
+            <div class="flex gap-2 mb-4">
+                <div style="flex:1">
+                    <label class="text-dim" style="font-size:0.75rem;display:block;margin-bottom:0.25rem">Kind</label>
+                    <select name="kind" class="input">
+                        <option value="release">Release</option>
+                        <option value="experiment">Experiment</option>
+                        <option value="ops">Ops / Kill-switch</option>
+                        <option value="permission">Permission</option>
+                    </select>
+                </div>
+                <div style="flex:1">
+                    <label class="text-dim" style="font-size:0.75rem;display:block;margin-bottom:0.25rem">Value type</label>
+                    <select name="value_type" class="input">
+                        <option value="bool">Boolean</option>
+                        <option value="string">String</option>
+                        <option value="number">Number</option>
+                        <option value="json">JSON</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="btn btn-primary">Create Flag</button>
+                <button type="button" class="btn btn-ghost"
+                        onclick="document.getElementById('create-flag-modal').innerHTML=''">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

@@ -23,7 +23,32 @@ final class FlagsController
     {
         $context = $this->contextResolver->resolve($request);
         $result  = $this->registry->allForContext($context);
+        $etag    = '"' . $result['version'] . '"';
 
-        return new JsonResponse($result);
+        // Block 16 — ETag / 304: if the client's flag config is current, skip serialization.
+        $ifNoneMatch = $request->headers->get('If-None-Match');
+        if ($ifNoneMatch !== null && $this->etagMatches($ifNoneMatch, $etag)) {
+            return new JsonResponse(null, 304, ['ETag' => $etag]);
+        }
+
+        $response = new JsonResponse($result);
+        $response->headers->set('ETag', $etag);
+
+        return $response;
+    }
+
+    private function etagMatches(string $ifNoneMatch, string $etag): bool
+    {
+        if ($ifNoneMatch === '*') {
+            return true;
+        }
+
+        foreach (explode(',', $ifNoneMatch) as $candidate) {
+            if (trim($candidate) === $etag) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

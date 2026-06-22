@@ -1,0 +1,333 @@
+{% extends "layout/base.html.twig" %}
+
+{% block title %}{{ flag.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ prefix }}?env={{ env }}" class="text-muted" style="text-decoration:none;font-size:0.8125rem">&larr; Dashboard</a>
+        <h1 class="page-title mt-1"><span class="mono">{{ flag.name }}</span></h1>
+        <div class="flex items-center gap-2 mt-1">
+            <span class="badge badge-info">{{ flag.kind.value|default(flag.kind) }}</span>
+            <span class="badge badge-muted">{{ flag.valueType.value|default(flag.valueType) }}</span>
+            {% if flag.enabled %}
+                <span class="badge badge-success">Enabled</span>
+            {% else %}
+                <span class="badge badge-danger">Disabled</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="flex items-center gap-2">
+        <label class="toggle" style="transform:scale(1.2)">
+            <input type="checkbox"
+                   {% if flag.enabled %}checked{% endif %}
+                   hx-post="{{ prefix }}/fragment/{{ flag.name }}/toggle"
+                   hx-vals='{"env":"{{ env }}"}'
+                   hx-target="#flag-status-badge"
+                   hx-swap="outerHTML">
+            <span class="toggle-slider"></span>
+        </label>
+    </div>
+</div>
+
+<div class="env-tabs">
+    {% for e in environments %}
+        <a href="{{ prefix }}/detail/{{ flag.name }}?env={{ e }}"
+           class="env-tab{% if env == e %} active{% endif %}">{{ e }}</a>
+    {% endfor %}
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:1.5rem">
+    <div>
+        {# Targeting Rules — island mount point #}
+        <div class="card mb-4">
+            <div class="card-header flex justify-between items-center">
+                <span>Targeting Rules</span>
+                <span class="text-dim" style="font-size:0.75rem">{{ flag.rules|length }} rules</span>
+            </div>
+            <div class="card-body">
+                <div data-island="rule-builder"
+                     data-props-id="rule-builder-props-{{ flag.name }}">
+                </div>
+                <script type="application/json" id="rule-builder-props-{{ flag.name }}" nonce="{{ csp_nonce() }}">
+                    {{ rules_json|raw }}
+                </script>
+                <div id="rules-feedback"></div>
+                <div class="mt-4 flex justify-between">
+                    <button class="btn btn-primary btn-sm"
+                            id="save-rules-btn"
+                            hx-put="{{ prefix }}/fragment/{{ flag.name }}/rules"
+                            hx-target="#rules-feedback"
+                            hx-swap="innerHTML">
+                        Save Rules
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {# Rollout slider #}
+        <div class="card mb-4" id="rollout-panel">
+            <div class="card-header">Rollout</div>
+            <div class="card-body">
+                {% include "flags/_rollout_slider.html.twig" with {
+                    'flag_name': flag.name,
+                    'percentage': 0,
+                    'env': env
+                } %}
+            </div>
+        </div>
+
+        {# Variants #}
+        <div class="card mb-4">
+            <div class="card-header">Variants</div>
+            <div class="card-body">
+                <div id="variants-rows">
+                    {% if flag.variants %}
+                        {% for variant, weight in flag.variants %}
+                        <div class="variant-row flex gap-2 mb-2">
+                            <input type="text" name="variant_name" value="{{ variant }}" placeholder="variant-name" class="input" style="flex:2">
+                            <input type="number" name="variant_weight" value="{{ weight }}" min="0" max="100" placeholder="50" class="input" style="flex:1;max-width:80px">
+                            <button type="button" class="btn btn-ghost btn-sm" onclick="this.closest('.variant-row').remove()">✕</button>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="variant-row flex gap-2 mb-2">
+                            <input type="text" name="variant_name" value="control" placeholder="variant-name" class="input" style="flex:2">
+                            <input type="number" name="variant_weight" value="50" min="0" max="100" class="input" style="flex:1;max-width:80px">
+                            <button type="button" class="btn btn-ghost btn-sm" onclick="this.closest('.variant-row').remove()">✕</button>
+                        </div>
+                    {% endif %}
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm mt-2" id="add-variant-btn">+ Add variant</button>
+                <div id="variants-feedback" class="mt-2"></div>
+                <div class="mt-4 flex gap-2">
+                    <button type="button" class="btn btn-primary btn-sm" id="save-variants-btn">Save Variants</button>
+                </div>
+            </div>
+        </div>
+
+        {# Scheduled rollout #}
+        <div class="card mb-4">
+            <div class="card-header">Scheduled Rollout</div>
+            <div class="card-body">
+                <div class="flex gap-2 mb-4">
+                    <div style="flex:1">
+                        <label class="text-dim" style="font-size:0.75rem;display:block;margin-bottom:0.25rem">Enable at (UTC)</label>
+                        <input type="datetime-local" id="sched-enable-at" class="input"
+                               value="{{ flag.schedule.enableAt|date('Y-m-d\\TH:i') if flag.schedule and flag.schedule.enableAt else '' }}">
+                    </div>
+                    <div style="flex:1">
+                        <label class="text-dim" style="font-size:0.75rem;display:block;margin-bottom:0.25rem">Disable at (UTC)</label>
+                        <input type="datetime-local" id="sched-disable-at" class="input"
+                               value="{{ flag.schedule.disableAt|date('Y-m-d\\TH:i') if flag.schedule and flag.schedule.disableAt else '' }}">
+                    </div>
+                </div>
+                <p class="text-dim mb-2" style="font-size:0.75rem">Ramp stops — each stop sets percentage at that moment (interpolated between stops)</p>
+                <div id="schedule-stops">
+                    {% if flag.schedule and flag.schedule.stops %}
+                        {% for stop in flag.schedule.stops %}
+                        <div class="schedule-stop flex gap-2 mb-2">
+                            <input type="datetime-local" name="stop_at" value="{{ stop.at|date('Y-m-d\\TH:i') }}" class="input" style="flex:2">
+                            <input type="number" name="stop_pct" value="{{ stop.percentage }}" min="0" max="100" placeholder="%" class="input" style="flex:1;max-width:80px">
+                            <button type="button" class="btn btn-ghost btn-sm" onclick="this.closest('.schedule-stop').remove()">✕</button>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm mt-2" id="add-stop-btn">+ Add ramp stop</button>
+                <div id="schedule-feedback" class="mt-2"></div>
+                <div class="mt-4 flex gap-2">
+                    <button type="button" class="btn btn-primary btn-sm" id="save-schedule-btn">Save Schedule</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="clear-schedule-btn">Clear Schedule</button>
+                </div>
+            </div>
+        </div>
+
+        {# Preview as user #}
+        <div class="card mb-4">
+            <div class="card-header">Preview as User</div>
+            <div class="card-body">
+                <div class="flex gap-2 mb-4">
+                    <input type="text" name="preview_user_id" class="input" placeholder="User ID" style="flex:1">
+                    <input type="text" name="preview_tenant_id" class="input" placeholder="Tenant ID" style="flex:1">
+                </div>
+                <input type="text" name="preview_attributes" class="input mb-4" placeholder='Additional attributes (JSON): {"plan":"pro","country":"US"}'>
+                <button class="btn btn-ghost btn-sm"
+                        hx-post="{{ prefix }}/detail/{{ flag.name }}/preview"
+                        hx-include="[name^='preview_']"
+                        hx-vals='{"env":"{{ env }}"}'
+                        hx-target="#preview-result"
+                        hx-swap="innerHTML">
+                    Evaluate
+                </button>
+                <div id="preview-result" class="mt-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <div>
+        {# Meta sidebar #}
+        <div class="card mb-4">
+            <div class="card-header">Details</div>
+            <div class="card-body" style="font-size:0.8125rem">
+                <div class="mb-4">
+                    <span class="text-dim">Description</span>
+                    <p class="mt-1">{{ flag.description|default('No description') }}</p>
+                </div>
+                <div class="mb-4">
+                    <span class="text-dim">Owner</span>
+                    <p class="mt-1 mono">{{ flag.owner|default('Unassigned') }}</p>
+                </div>
+                <div class="mb-4">
+                    <span class="text-dim">Environment</span>
+                    <p class="mt-1"><span class="badge badge-info">{{ env }}</span></p>
+                </div>
+                <div class="mb-4">
+                    <span class="text-dim">Bucket By</span>
+                    <p class="mt-1 mono">{{ flag.bucketBy|default('userId') }}</p>
+                </div>
+                {% if flag.prerequisites is not empty %}
+                <div class="mb-4">
+                    <span class="text-dim">Prerequisites</span>
+                    {% for prereq in flag.prerequisites %}
+                        <p class="mt-1 mono">{{ prereq.flagName }} = {{ prereq.requiredState ? 'on' : 'off' }}</p>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# Guardrails #}
+        {% if guardrails is not empty %}
+        <div class="card mb-4">
+            <div class="card-header">Guardrails</div>
+            <div class="card-body">
+                {% for g in guardrails %}
+                <div class="mb-4" style="font-size:0.8125rem">
+                    <span class="badge badge-warning">{{ g.metricName|default('metric') }}</span>
+                    <span class="text-muted"> {{ g.condition|default('threshold') }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# Recent history #}
+        <div class="card">
+            <div class="card-header flex justify-between items-center">
+                <span>Recent History</span>
+                <a href="{{ prefix }}/history?flag={{ flag.name }}" class="text-muted" style="font-size:0.75rem;text-decoration:none">View all &rarr;</a>
+            </div>
+            <div class="card-body">
+                {% if history is empty %}
+                    <p class="text-dim" style="font-size:0.8125rem">No history yet.</p>
+                {% else %}
+                    {% for entry in history|slice(0, 5) %}
+                    <div style="border-bottom:1px solid var(--border-dim);padding:0.5rem 0;font-size:0.75rem" {% if loop.last %}style="border-bottom:none"{% endif %}>
+                        <span class="badge badge-muted">{{ entry.eventType }}</span>
+                        <span class="text-muted">{{ entry.actorId }}</span>
+                        <span class="text-dim">{{ entry.occurredAt|slice(0, 16) }}</span>
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Danger zone #}
+<div class="card mt-4" style="border-color:rgba(239,68,68,0.35)">
+    <div class="card-header" style="color:var(--accent-danger)">Danger Zone</div>
+    <div class="card-body flex items-center justify-between">
+        <div>
+            <p style="font-size:0.875rem;font-weight:600;color:var(--text-bright)">Delete this flag</p>
+            <p class="text-dim" style="font-size:0.8125rem">Permanently removes the flag and all its configuration.</p>
+        </div>
+        <button class="btn btn-danger btn-sm"
+                id="delete-flag-btn"
+                hx-delete="{{ prefix }}/fragment/{{ flag.name }}"
+                hx-confirm="Delete '{{ flag.name }}' permanently? This cannot be undone."
+                hx-target="body"
+                hx-push-url="{{ prefix }}">
+            Delete Flag
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+    var FLAG = {{ flag.name|json_encode|raw }};
+    var PREFIX = {{ prefix|json_encode|raw }};
+    var CSRF = document.querySelector('meta[name="csrf-token"]').content;
+
+    function jsonFetch(method, path, payload, targetId) {
+        fetch(path, {
+            method: method,
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF},
+            body: JSON.stringify(payload)
+        })
+        .then(function (r) { return r.text(); })
+        .then(function (html) { document.getElementById(targetId).innerHTML = html; })
+        .catch(function () {
+            document.getElementById(targetId).innerHTML = '<div class="flash flash-error">Request failed. Try again.</div>';
+        });
+    }
+
+    // --- Variant editor ---
+    document.getElementById('add-variant-btn').addEventListener('click', function () {
+        var row = document.createElement('div');
+        row.className = 'variant-row flex gap-2 mb-2';
+        row.innerHTML = '<input type="text" name="variant_name" placeholder="variant-name" class="input" style="flex:2">'
+            + '<input type="number" name="variant_weight" value="0" min="0" max="100" class="input" style="flex:1;max-width:80px">'
+            + '<button type="button" class="btn btn-ghost btn-sm" onclick="this.closest(\'.variant-row\').remove()">&#x2715;</button>';
+        document.getElementById('variants-rows').appendChild(row);
+    });
+
+    function collectVariants() {
+        var variants = {};
+        document.querySelectorAll('#variants-rows .variant-row').forEach(function (row) {
+            var name = row.querySelector('[name="variant_name"]').value.trim();
+            var weight = parseInt(row.querySelector('[name="variant_weight"]').value, 10) || 0;
+            if (name) { variants[name] = weight; }
+        });
+        return variants;
+    }
+
+    document.getElementById('save-variants-btn').addEventListener('click', function () {
+        jsonFetch('PUT', PREFIX + '/fragment/' + FLAG + '/variants', collectVariants(), 'variants-feedback');
+    });
+
+    // --- Schedule editor ---
+    document.getElementById('add-stop-btn').addEventListener('click', function () {
+        var stop = document.createElement('div');
+        stop.className = 'schedule-stop flex gap-2 mb-2';
+        stop.innerHTML = '<input type="datetime-local" name="stop_at" class="input" style="flex:2">'
+            + '<input type="number" name="stop_pct" value="0" min="0" max="100" placeholder="%" class="input" style="flex:1;max-width:80px">'
+            + '<button type="button" class="btn btn-ghost btn-sm" onclick="this.closest(\'.schedule-stop\').remove()">&#x2715;</button>';
+        document.getElementById('schedule-stops').appendChild(stop);
+    });
+
+    function collectSchedule() {
+        var enableAt = document.getElementById('sched-enable-at').value;
+        var disableAt = document.getElementById('sched-disable-at').value;
+        var stops = [];
+        document.querySelectorAll('#schedule-stops .schedule-stop').forEach(function (row) {
+            var at = row.querySelector('[name="stop_at"]').value;
+            var pct = parseInt(row.querySelector('[name="stop_pct"]').value, 10) || 0;
+            if (at) { stops.push({at: at + ':00Z', percentage: pct}); }
+        });
+        return {enable_at: enableAt ? enableAt + ':00Z' : null, disable_at: disableAt ? disableAt + ':00Z' : null, stops: stops};
+    }
+
+    document.getElementById('save-schedule-btn').addEventListener('click', function () {
+        jsonFetch('POST', PREFIX + '/fragment/' + FLAG + '/schedule', collectSchedule(), 'schedule-feedback');
+    });
+
+    document.getElementById('clear-schedule-btn').addEventListener('click', function () {
+        jsonFetch('POST', PREFIX + '/fragment/' + FLAG + '/schedule', {}, 'schedule-feedback');
+    });
+})();
+</script>
+{% endblock %}

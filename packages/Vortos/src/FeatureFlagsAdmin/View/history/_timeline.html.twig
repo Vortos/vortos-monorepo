@@ -1,0 +1,67 @@
+{% if entries is empty %}
+    <div class="empty-state">
+        {% if flag_name %}
+            No history found for <span class="mono">{{ flag_name }}</span>. Enter a flag name to view its audit trail.
+        {% else %}
+            Enter a flag name to view its audit trail.
+        {% endif %}
+    </div>
+{% else %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Event</th>
+                <th>Flag</th>
+                <th>Actor</th>
+                <th>Reason</th>
+                <th>Time</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in entries %}
+            <tr>
+                <td>
+                    {% if entry.eventType == 'FlagCreated' %}
+                        <span class="badge badge-success">Created</span>
+                    {% elseif entry.eventType == 'FlagEnabled' %}
+                        <span class="badge badge-success">Enabled</span>
+                    {% elseif entry.eventType == 'FlagDisabled' %}
+                        <span class="badge badge-danger">Disabled</span>
+                    {% elseif entry.eventType == 'FlagReverted' %}
+                        <span class="badge badge-warning">Reverted</span>
+                    {% elseif entry.eventType == 'FlagArchived' %}
+                        <span class="badge badge-muted">Archived</span>
+                    {% else %}
+                        <span class="badge badge-info">{{ entry.eventType }}</span>
+                    {% endif %}
+                </td>
+                <td class="mono">{{ entry.flagName }}</td>
+                <td class="text-muted mono" style="font-size:0.75rem">{{ entry.actorId }}</td>
+                <td class="text-muted" style="font-size:0.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ entry.reason|default('-') }}</td>
+                <td class="text-dim" style="font-size:0.75rem">{{ entry.occurredAt|slice(0, 16) }}</td>
+                <td>
+                    <button class="btn btn-ghost btn-sm"
+                            onclick="this.closest('tr').querySelector('.revert-form').style.display='block'"
+                            style="font-size:0.6875rem">
+                        Revert
+                    </button>
+                    <div class="revert-form" style="display:none;margin-top:0.5rem">
+                        <input type="text" name="reason" class="input" placeholder="Reason for revert (min 10 chars)" style="font-size:0.75rem;margin-bottom:0.25rem">
+                        <button class="btn btn-danger btn-sm"
+                                hx-post="{{ prefix }}/history/{{ entry.flagName }}/revert/{{ entry.eventId }}"
+                                hx-include="closest tr [name='reason']"
+                                hx-target="closest tr"
+                                hx-swap="outerHTML"
+                                hx-confirm="Revert flag to this state?">
+                            Confirm Revert
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}

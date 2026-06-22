@@ -1,0 +1,33 @@
+<div class="card" style="border-color:var(--accent-info)">
+    <div class="card-body" style="font-size:0.8125rem">
+        <div class="flex items-center gap-2 mb-4">
+            <span class="text-dim">Result:</span>
+            <span class="mono">{{ explanation.value.raw }}</span>
+            {% if explanation.variant %}
+                <span class="badge badge-info">{{ explanation.variant }}</span>
+            {% endif %}
+        </div>
+        <div class="mb-4">
+            <span class="text-dim">Reason:</span>
+            <span class="mono">{{ explanation.reason.value }}</span>
+        </div>
+        {% if explanation.matchedRuleIndex is not null %}
+        <div class="mb-4">
+            <span class="text-dim">Matched Rule:</span>
+            <span class="mono">#{{ explanation.matchedRuleIndex }}{% if explanation.matchedRuleDescription %} — {{ explanation.matchedRuleDescription }}{% endif %}</span>
+        </div>
+        {% endif %}
+        {% if explanation.bucket is not null %}
+        <div class="mb-4">
+            <span class="text-dim">Bucket:</span>
+            <span class="mono">{{ explanation.bucket }}{% if explanation.bucketBy %} (by {{ explanation.bucketBy }}){% endif %}</span>
+        </div>
+        {% endif %}
+        {% if explanation.errorMessage %}
+        <div>
+            <span class="text-dim">Error:</span>
+            <span style="color:var(--accent-danger)">{{ explanation.errorMessage }}</span>
+        </div>
+        {% endif %}
+    </div>
+</div>

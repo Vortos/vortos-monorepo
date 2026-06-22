@@ -1,0 +1,18 @@
+<div class="flex items-center gap-3" id="rollout-slider-{{ flag_name }}">
+    <input type="range"
+           min="0" max="100"
+           value="{{ percentage }}"
+           class="input"
+           style="width:200px;padding:0"
+           name="percentage"
+           oninput="this.nextElementSibling.textContent=this.value+'%'">
+    <span class="mono text-muted" style="width:3rem">{{ percentage }}%</span>
+    <button class="btn btn-primary btn-sm"
+            hx-post="{{ prefix }}/fragment/{{ flag_name }}/rollout"
+            hx-include="[name='percentage']"
+            hx-vals='{"env":"{{ env }}"}'
+            hx-target="#rollout-slider-{{ flag_name }}"
+            hx-swap="outerHTML">
+        Apply
+    </button>
+</div>

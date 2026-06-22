@@ -1,0 +1,38 @@
+{% extends "layout/base.html.twig" %}
+
+{% block title %}Segment: {{ segment.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ prefix }}/segments" class="text-muted" style="text-decoration:none;font-size:0.8125rem">&larr; Segments</a>
+        <h1 class="page-title mt-1">{{ segment.name }}</h1>
+        <p class="text-muted mt-1" style="font-size:0.8125rem">{{ segment.description|default('No description') }}</p>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header flex justify-between items-center">
+        <span>Targeting Rules</span>
+        <span class="text-dim" style="font-size:0.75rem">{{ segment.rules|length }} rules</span>
+    </div>
+    <div class="card-body">
+        <div data-island="rule-builder"
+             data-props-id="segment-rule-builder-props">
+        </div>
+        <script type="application/json" id="segment-rule-builder-props" nonce="{{ csp_nonce() }}">
+            {{ rules_json|raw }}
+        </script>
+        <div id="segment-rules-feedback"></div>
+        <div class="mt-4">
+            <button class="btn btn-primary btn-sm"
+                    id="save-segment-rules-btn"
+                    hx-put="{{ prefix }}/fragment/segments/{{ segment.id }}/rules"
+                    hx-target="#segment-rules-feedback"
+                    hx-swap="innerHTML">
+                Save Rules
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}

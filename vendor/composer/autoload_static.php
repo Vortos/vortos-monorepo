@@ -40,6 +40,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         '662a729f963d39afe703c9d9b7ab4a8c' => __DIR__ . '/..' . '/symfony/polyfill-php83/bootstrap.php',
         '8a9dc1de0ca7e01f3e08231539562f61' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/functions.php',
         '157bbd0180425c7142fbaf1b1646bec3' => __DIR__ . '/..' . '/open-telemetry/exporter-otlp/_register.php',
+        '78dd4c920943015ac94e71219b7d445d' => __DIR__ . '/..' . '/phpbench/phpbench/lib/Report/Func/functions.php',
         '9b38cf48e83f5d8f60375221cd213eee' => __DIR__ . '/..' . '/phpstan/phpstan/bootstrap.php',
         'ec07570ca5a812141189b1fa81503674' => __DIR__ . '/..' . '/phpunit/phpunit/src/Framework/Assert/Functions.php',
         '89efb1254ef2d1c5d80096acd12c4098' => __DIR__ . '/..' . '/twig/twig/src/Resources/core.php',
@@ -49,6 +50,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
     );
 
     public static $prefixLengthsPsr4 = array (
+        'W' =>
+        array (
+            'Webmozart\\Glob\\' => 15,
+        ),
         'V' =>
         array (
             'Vortos\\Tracing\\' => 15,
@@ -114,6 +119,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Symfony\\Component\\Routing\\' => 26,
             'Symfony\\Component\\PropertyInfo\\' => 31,
             'Symfony\\Component\\PropertyAccess\\' => 33,
+            'Symfony\\Component\\Process\\' => 26,
             'Symfony\\Component\\OptionsResolver\\' => 34,
             'Symfony\\Component\\Messenger\\Bridge\\Redis\\' => 41,
             'Symfony\\Component\\Messenger\\Bridge\\Doctrine\\' => 44,
@@ -121,6 +127,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Symfony\\Component\\Messenger\\' => 28,
             'Symfony\\Component\\HttpKernel\\' => 29,
             'Symfony\\Component\\HttpFoundation\\' => 33,
+            'Symfony\\Component\\Finder\\' => 25,
             'Symfony\\Component\\Filesystem\\' => 29,
             'Symfony\\Component\\EventDispatcher\\' => 34,
             'Symfony\\Component\\ErrorHandler\\' => 31,
@@ -130,6 +137,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Symfony\\Component\\Config\\' => 25,
             'Symfony\\Component\\Clock\\' => 24,
             'Symfony\\Component\\Cache\\' => 24,
+            'Seld\\JsonLint\\' => 14,
         ),
         'R' =>
         array (
@@ -147,6 +155,9 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Psr\\Clock\\' => 10,
             'Psr\\Cache\\' => 10,
             'PhpParser\\' => 10,
+            'PhpBench\\Extensions\\XDebug\\' => 27,
+            'PhpBench\\DependencyInjection\\' => 29,
+            'PhpBench\\' => 9,
             'Paddle\\SDK\\' => 11,
         ),
         'O' =>
@@ -210,6 +221,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Doctrine\\DBAL\\' => 14,
             'Doctrine\\Common\\Lexer\\' => 22,
             'Doctrine\\Common\\Collections\\' => 28,
+            'Doctrine\\Common\\Annotations\\' => 28,
             'Doctrine\\Common\\' => 16,
             'DeepCopy\\' => 9,
         ),
@@ -231,6 +243,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
     );
 
     public static $prefixDirsPsr4 = array (
+        'Webmozart\\Glob\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/webmozart/glob/src',
+        ),
         'Vortos\\Tracing\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-tracing',
@@ -459,6 +475,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/..' . '/symfony/property-access',
         ),
+        'Symfony\\Component\\Process\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/symfony/process',
+        ),
         'Symfony\\Component\\OptionsResolver\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/options-resolver',
@@ -486,6 +506,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Symfony\\Component\\HttpFoundation\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/http-foundation',
+        ),
+        'Symfony\\Component\\Finder\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/symfony/finder',
         ),
         'Symfony\\Component\\Filesystem\\' =>
         array (
@@ -522,6 +546,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Symfony\\Component\\Cache\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/cache',
+        ),
+        'Seld\\JsonLint\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/seld/jsonlint/src/Seld/JsonLint',
         ),
         'Ramsey\\Uuid\\' =>
         array (
@@ -567,6 +595,18 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'PhpParser\\' =>
         array (
             0 => __DIR__ . '/..' . '/nikic/php-parser/lib/PhpParser',
+        ),
+        'PhpBench\\Extensions\\XDebug\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/phpbench/phpbench/extensions/xdebug/lib',
+        ),
+        'PhpBench\\DependencyInjection\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/phpbench/container/lib',
+        ),
+        'PhpBench\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/phpbench/phpbench/lib',
         ),
         'Paddle\\SDK\\' =>
         array (
@@ -711,6 +751,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Doctrine\\Common\\Collections\\' =>
         array (
             0 => __DIR__ . '/..' . '/doctrine/collections/src',
+        ),
+        'Doctrine\\Common\\Annotations\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/annotations/lib/Doctrine/Common/Annotations',
         ),
         'Doctrine\\Common\\' =>
         array (

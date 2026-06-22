@@ -72,7 +72,7 @@ jobs:
         working-directory: packages/feature-flags-admin
 
   split:
-    needs: tests
+    needs: [tests, ui-build]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

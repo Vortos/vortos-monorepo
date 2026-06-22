@@ -8,13 +8,5 @@
         "opcache.jit": "tracing",
         "opcache.jit_buffer_size": "256M",
         "xdebug.mode": "off"
-    },
-    "report.generators": {
-        "aggregate": {
-            "extends": "aggregate"
-        }
-    },
-    "assertion.warn_on_failure": false,
-    "storage": "json",
-    "storage.json_path": "packages/Vortos/src/FeatureFlags/Tests/Benchmark/baseline"
+    }
 }

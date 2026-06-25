@@ -13,13 +13,19 @@ use Vortos\Pipeline\Builder\StageGate;
 use Vortos\Pipeline\Console\PipelineGenerateCommand;
 use Vortos\Pipeline\Console\PipelineVerifyCommand;
 use Vortos\Pipeline\Definition\PipelineDefinition;
+use Vortos\Pipeline\DependencyInjection\Compiler\CollectCiRegistryLoginProvidersPass;
 use Vortos\Pipeline\DependencyInjection\Compiler\CollectPipelineEmittersPass;
 use Vortos\Pipeline\Driver\GitHubActions\GitHubActionsEmitter;
 use Vortos\Pipeline\Driver\GitHubActions\GitHubWorkflowMapper;
 use Vortos\Pipeline\Driver\GitHubActions\SplitWorkflowGenerator;
 use Vortos\Pipeline\Driver\GitHubActions\WorkflowYamlWriter;
+use Vortos\Pipeline\Driver\Registry\DockerHubCiLoginProvider;
+use Vortos\Pipeline\Driver\Registry\GcpArtifactRegistryCiLoginProvider;
+use Vortos\Pipeline\Driver\Registry\GhcrCiLoginProvider;
 use Vortos\Pipeline\Emitter\PipelineEmitterInterface;
 use Vortos\Pipeline\Emitter\PipelineEmitterRegistry;
+use Vortos\Pipeline\Registry\CiRegistryLoginProviderInterface;
+use Vortos\Pipeline\Registry\CiRegistryLoginProviderRegistry;
 
 final class PipelineExtension extends Extension
 {
@@ -31,12 +37,39 @@ final class PipelineExtension extends Extension
     public function load(array $configs, ContainerBuilder $container): void
     {
         $this->registerEmitterSeam($container);
+        $this->registerCiLoginProviderSeam($container);
         $this->registerDefaultDriver($container);
         $this->registerBuilder($container);
         $this->registerCommands($container);
 
         $container->registerForAutoconfiguration(PipelineEmitterInterface::class)
             ->addTag(CollectPipelineEmittersPass::TAG);
+
+        $container->registerForAutoconfiguration(CiRegistryLoginProviderInterface::class)
+            ->addTag(CollectCiRegistryLoginProvidersPass::TAG);
+    }
+
+    private function registerCiLoginProviderSeam(ContainerBuilder $container): void
+    {
+        $container->register(CollectCiRegistryLoginProvidersPass::LOCATOR_ID)
+            ->addTag('container.service_locator')
+            ->setArgument(0, []);
+
+        $container->register(CiRegistryLoginProviderRegistry::class, CiRegistryLoginProviderRegistry::class)
+            ->setArgument('$drivers', new Reference(CollectCiRegistryLoginProvidersPass::LOCATOR_ID))
+            ->setPublic(false);
+
+        $container->register(GhcrCiLoginProvider::class, GhcrCiLoginProvider::class)
+            ->addTag(CollectCiRegistryLoginProvidersPass::TAG, ['key' => 'ghcr'])
+            ->setPublic(false);
+
+        $container->register(DockerHubCiLoginProvider::class, DockerHubCiLoginProvider::class)
+            ->addTag(CollectCiRegistryLoginProvidersPass::TAG, ['key' => 'docker-hub'])
+            ->setPublic(false);
+
+        $container->register(GcpArtifactRegistryCiLoginProvider::class, GcpArtifactRegistryCiLoginProvider::class)
+            ->addTag(CollectCiRegistryLoginProvidersPass::TAG, ['key' => 'gcp-artifact-registry'])
+            ->setPublic(false);
     }
 
     private function registerEmitterSeam(ContainerBuilder $container): void
@@ -80,6 +113,7 @@ final class PipelineExtension extends Extension
 
         $container->register(PipelineBuilder::class, PipelineBuilder::class)
             ->setArgument('$gate', new Reference(StageGate::class))
+            ->setArgument('$loginProviders', new Reference(CiRegistryLoginProviderRegistry::class))
             ->setPublic(false);
     }
 

@@ -63,6 +63,16 @@ use Vortos\Deploy\Cutover\ReconcileRateLimiter;
 use Vortos\Deploy\Definition\DeploymentDefinitionValidator;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectContainerRegistriesPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectCredentialProvidersPass;
+use Vortos\Deploy\DependencyInjection\Compiler\CollectRegistryAuthStrategiesPass;
+use Vortos\Deploy\Driver\Registry\Auth\DockerHubAuthStrategy;
+use Vortos\Deploy\Driver\Registry\Auth\GcpArtifactRegistryAuthStrategy;
+use Vortos\Deploy\Driver\Registry\Auth\GhcrAuthStrategy;
+use Vortos\Deploy\Driver\Registry\DockerHubRegistry;
+use Vortos\Deploy\Driver\Registry\GcpArtifactRegistry;
+use Vortos\Deploy\Driver\Registry\GhcrRegistry;
+use Vortos\Deploy\Registry\Auth\RegistryAuthStrategyInterface;
+use Vortos\Deploy\Registry\Auth\RegistryAuthStrategyRegistry;
+use Vortos\Deploy\Registry\ContainerRegistryInterface;
 use Vortos\Deploy\Driver\GitHubOidc\GitHubActionsOidcTokenSource;
 use Vortos\Deploy\Driver\ReleaseKey\ReleaseKeyManifestSigner;
 use Vortos\Deploy\Driver\ReleaseKey\ReleaseKeyManifestVerifier;
@@ -125,7 +135,6 @@ use Vortos\Migration\Schema\MigrationPhaseReaderInterface;
 use Vortos\Migration\Service\MigrationLockSafetyEnforcer;
 use Vortos\Release\Migration\AppliedMigrationSetReaderInterface;
 use Vortos\Release\ReadModel\ManifestReadModelInterface;
-use Vortos\Deploy\Registry\ContainerRegistryInterface;
 use Vortos\Deploy\Registry\ContainerRegistryRegistry;
 use Vortos\Deploy\State\DeployStateStoreInterface;
 use Vortos\Deploy\State\DeployStateStoreRegistry;
@@ -234,6 +243,27 @@ final class DeployExtension extends Extension
 
         $container->registerForAutoconfiguration(CredentialProviderInterface::class)
             ->addTag(CollectCredentialProvidersPass::TAG);
+
+        // ── Registry auth strategy port locator + registry ──
+
+        $container->register(CollectRegistryAuthStrategiesPass::LOCATOR_ID)
+            ->addTag('container.service_locator')
+            ->setArgument(0, []);
+
+        $container->register(RegistryAuthStrategyRegistry::class, RegistryAuthStrategyRegistry::class)
+            ->setArgument('$drivers', new Reference(CollectRegistryAuthStrategiesPass::LOCATOR_ID))
+            ->setPublic(false);
+
+        $container->registerForAutoconfiguration(RegistryAuthStrategyInterface::class)
+            ->addTag(CollectRegistryAuthStrategiesPass::TAG);
+
+        // ── Registry auth strategy drivers ──
+
+        foreach ([GhcrAuthStrategy::class, DockerHubAuthStrategy::class, GcpArtifactRegistryAuthStrategy::class] as $stratClass) {
+            $container->register($stratClass, $stratClass)
+                ->addTag(CollectRegistryAuthStrategiesPass::TAG)
+                ->setPublic(false);
+        }
 
         // ── Strategy registry + built-in strategies ──
 
@@ -355,12 +385,26 @@ final class DeployExtension extends Extension
             ->addTag(CollectDeployStateStoresPass::TAG)
             ->setPublic(false);
 
-        // ── Block 7: OCI registry driver ──
-
+        // ── Block 7: OCI registry drivers ──
+        // OciRegistry: zero-auth, for pre-authenticated or anonymous registries.
         $container->register(OciRegistry::class, OciRegistry::class)
             ->setArgument('$runner', new Reference(CommandRunnerInterface::class))
             ->setArgument('$signer', new Reference(ImageSignerInterface::class))
             ->addTag(CollectContainerRegistriesPass::TAG)
+            ->setPublic(false);
+
+        // Per-registry drivers — credentials are null by default; apps inject SecretValue
+        // parameters (e.g. via a secrets provider) to activate a specific driver.
+        foreach ([GhcrRegistry::class, DockerHubRegistry::class, GcpArtifactRegistry::class] as $regClass) {
+            $container->register($regClass, $regClass)
+                ->setArgument('$runner', new Reference(CommandRunnerInterface::class))
+                ->setArgument('$signer', new Reference(ImageSignerInterface::class))
+                ->addTag(CollectContainerRegistriesPass::TAG)
+                ->setPublic(false);
+        }
+
+        // Default runtime registry alias — apps override this to pick their provider.
+        $container->setAlias(ContainerRegistryInterface::class, GhcrRegistry::class)
             ->setPublic(false);
 
         // ── Block 8: Rollback guard ──
@@ -586,7 +630,7 @@ final class DeployExtension extends Extension
 
         $stepExecutorDef = $container->register(StepExecutor::class, StepExecutor::class)
             ->setArgument('$stateStore', new Reference(FileDeployStateStore::class))
-            ->setArgument('$registry', new Reference(OciRegistry::class))
+            ->setArgument('$registry', new Reference(ContainerRegistryInterface::class))
             ->setArgument('$readinessGate', new Reference(ReadinessGateInterface::class))
             ->setArgument('$smokeRunner', new Reference(SmokeRunnerInterface::class))
             ->setArgument('$composeFactory', new Reference(ComposeProjectFactory::class))
@@ -610,7 +654,7 @@ final class DeployExtension extends Extension
         $sshTargetDef = $container->register(SshComposeTarget::class, SshComposeTarget::class)
             ->setArgument('$planner', new Reference(DeployPlanner::class))
             ->setArgument('$executor', new Reference(StepExecutor::class))
-            ->setArgument('$registry', new Reference(OciRegistry::class))
+            ->setArgument('$registry', new Reference(ContainerRegistryInterface::class))
             ->setArgument('$stateStore', new Reference(FileDeployStateStore::class))
             ->setArgument('$releaseStore', new Reference(FileDeployStateStore::class))
             ->addTag(CollectDeployTargetsPass::TAG)

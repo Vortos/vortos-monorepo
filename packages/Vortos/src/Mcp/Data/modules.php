@@ -501,13 +501,15 @@ return [
 
     'pipeline' => [
         'package'     => 'vortos/vortos-pipeline',
-        'description' => 'Generates CI/CD workflow files from a provider-agnostic model — fully digest-pinned GitHub Actions, native ARM64 builds, and OIDC instead of standing registry secrets. Does NOT run builds itself — it only generates the YAML that does. Do not hand-edit generated workflow files; change the model and regenerate.',
+        'description' => 'Generates CI/CD workflow files from a provider-agnostic model — fully digest-pinned GitHub Actions, native ARM64 builds, multi-registry login, and OIDC instead of standing registry secrets. Does NOT run builds itself — it only generates the YAML that does. Do not hand-edit generated workflow files; change the model and regenerate.',
         'provides'    => [
-            'PipelineBuilder'         => 'Assembles stages from a PipelineDefinition + StageGate. Test/StaticAnalysis/Agnosticism/Deploy/Split always emit; other stages gated behind enabledFutureStages.',
-            'PinnedAction'            => 'Refuses construction unless sha is a full 40-char hex commit SHA — no floating @v4-style tags ever land in a generated workflow.',
-            'BuildMode::Native'       => 'Generates a matrix that builds ARM64 on a real ARM64 runner instead of QEMU emulation.',
-            'ArchAssertionScript'     => 'Generates a CI step that inspects the published image manifest and fails the build if the architecture doesn\'t match what was requested.',
-            'PipelineDefinition(oidc: true)' => 'Requests id-token: write and exchanges a short-lived OIDC token for registry access instead of a long-lived REGISTRY_PASSWORD repository secret.',
+            'PipelineBuilder'                   => 'Assembles stages from a PipelineDefinition + StageGate. Test/StaticAnalysis/Agnosticism/Deploy/Split always emit; other stages gated behind enabledFutureStages.',
+            'PinnedAction'                      => 'Refuses construction unless sha is a full 40-char hex commit SHA — no floating @v4-style tags ever land in a generated workflow.',
+            'BuildMode::Native'                 => 'Generates a matrix that builds ARM64 on a real ARM64 runner instead of QEMU emulation.',
+            'ArchAssertionScript'               => 'Generates a CI step that inspects the published image manifest and fails the build if the architecture doesn\'t match what was requested.',
+            'PipelineDefinition(registryProvider)' => 'Selects the CI registry login provider. Values: "ghcr" (default, uses built-in GITHUB_TOKEN + packages:write), "docker-hub" (needs DOCKER_USERNAME + DOCKER_TOKEN secrets), "gcp-artifact-registry" (needs GCP_SA_KEY secret). Each provider declares only the job permissions it actually needs — no hardcoded packages:write for non-GHCR registries.',
+            'CiRegistryLoginProviderInterface'  => 'Ops Kit port (Driver\\ namespace). Implement + tag #[AsDriver(\'my-registry\')] to add a custom registry. loginStep() returns a docker/login-action ActionStep; requiredPermissions() is merged into the build job\'s permission set automatically.',
+            'PipelineDefinition(oidc: true)'    => 'Requests id-token: write and exchanges a short-lived OIDC token for registry access instead of a long-lived REGISTRY_PASSWORD repository secret.',
         ],
         'config'   => null,
         'commands' => [
@@ -518,15 +520,16 @@ return [
 
     'deploy' => [
         'package'     => 'vortos/vortos-deploy (+ vortos-deploy-k8s for a Kubernetes target — see the deploy_k8s module)',
-        'description' => 'A fail-closed deploy engine — content-hashed plans, swappable targets, blue-green/canary/rolling/recreate strategies, phase-gated expand/contract migration safety, Caddy edge-router cutover, and zero-standing-secrets credential issuance. "When in doubt, refuse, don\'t guess" — do not hand-write deploy scripts if this package is installed.',
+        'description' => 'A fail-closed deploy engine — content-hashed plans, swappable targets, blue-green/canary/rolling/recreate strategies, phase-gated expand/contract migration safety, Caddy edge-router cutover, zero-standing-secrets credential issuance, and multi-registry container authentication. "When in doubt, refuse, don\'t guess" — do not hand-write deploy scripts if this package is installed.',
         'provides'    => [
-            'DeployPlanner::plan()'   => 'PURE — same DeployContext always produces the same content-hashed DeployPlan, no I/O. PhaseGate::assertNoPendingContract() refuses planning while a contract migration from a prior expand/contract cycle is still owed.',
-            'DeployTargetInterface'  => 'plan/push/migrate/release/rollback/status. Drivers: ssh-compose (in-core), k8s (separate vortos-deploy-k8s package).',
-            'DeployStrategyInterface' => 'Drivers: BlueGreenStrategy, CanaryStrategy (5/25/50/100% weighted steps + health re-check at each), RollingStrategy, RecreateStrategy. Each declares RequiredCapabilities checked against the target BEFORE planning, not mid-rollout.',
-            'PhaseOrderPolicy'        => 'Enforces RollWorkers precedes Cutover and StageColor — violating either throws at plan time.',
-            'CutoverCoordinator'      => 'Cuts over, verifies the new upstream is actually live, auto-reverts (and records why) on verification failure. Every recorded release carries a monotonic generation number for compare-and-swap against a stale reconciler.',
+            'DeployPlanner::plan()'        => 'PURE — same DeployContext always produces the same content-hashed DeployPlan, no I/O. PhaseGate::assertNoPendingContract() refuses planning while a contract migration from a prior expand/contract cycle is still owed.',
+            'DeployTargetInterface'        => 'plan/push/migrate/release/rollback/status. Drivers: ssh-compose (in-core), k8s (separate vortos-deploy-k8s package).',
+            'DeployStrategyInterface'      => 'Drivers: BlueGreenStrategy, CanaryStrategy (5/25/50/100% weighted steps + health re-check at each), RollingStrategy, RecreateStrategy. Each declares RequiredCapabilities checked against the target BEFORE planning, not mid-rollout.',
+            'PhaseOrderPolicy'             => 'Enforces RollWorkers precedes Cutover and StageColor — violating either throws at plan time.',
+            'CutoverCoordinator'           => 'Cuts over, verifies the new upstream is actually live, auto-reverts (and records why) on verification failure. Every recorded release carries a monotonic generation number for compare-and-swap against a stale reconciler.',
             'RollbackGuard::assertLegal()' => 'Consults vortos-release\'s RollbackInvariant before any rollback — refuses one that would not be schema-safe, with the exact reason.',
-            'CredentialProviderInterface' => 'issue()/assertIssuable(). Zero-standing-secrets. Drivers: ssh-ca-oidc (300s-TTL cert minted from an OIDC token), ssh-key, pull-agent (NoInboundNetwork capability — the target polls a signed manifest rather than being pushed to over SSH).',
+            'CredentialProviderInterface'  => 'issue()/assertIssuable(). Zero-standing-secrets. Drivers: ssh-ca-oidc (300s-TTL cert minted from an OIDC token), ssh-key, pull-agent (NoInboundNetwork capability — the target polls a signed manifest rather than being pushed to over SSH).',
+            'RegistryAuthStrategyInterface' => 'Ops Kit port for deploy-time container registry login. Credentials always passed via stdin, never argv. Drivers: ghcr (PatTokenCredential — username + PAT), docker-hub (BasicAuthCredential), gcp-artifact-registry (GcpServiceAccountCredential — _json_key JSON via stdin). ContainerRegistryInterface is the alias StepExecutor/SshComposeTarget inject — default binding is GhcrRegistry; rebind to switch registries.',
         ],
         'config'   => null,
         'commands' => [

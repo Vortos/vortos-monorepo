@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\OpsKit\Driver\DependencyInjection\CollectDriversCompilerPass;
+use Vortos\Pipeline\DependencyInjection\Compiler\CollectCiRegistryLoginProvidersPass;
 use Vortos\Pipeline\DependencyInjection\Compiler\CollectPipelineEmittersPass;
 
 final class PipelinePackage implements PackageInterface
@@ -20,5 +21,6 @@ final class PipelinePackage implements PackageInterface
     public function build(ContainerBuilder $container): void
     {
         CollectDriversCompilerPass::register($container, new CollectPipelineEmittersPass());
+        CollectDriversCompilerPass::register($container, new CollectCiRegistryLoginProvidersPass());
     }
 }

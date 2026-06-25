@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Pipeline\Tests\Contract;
 
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Pipeline\Builder\KnownActionFactory;
 use Vortos\Pipeline\Builder\PipelineBuilder;
 use Vortos\Pipeline\Builder\StageGate;
@@ -13,14 +14,27 @@ use Vortos\Pipeline\Driver\GitHubActions\GitHubActionsEmitter;
 use Vortos\Pipeline\Driver\GitHubActions\GitHubWorkflowMapper;
 use Vortos\Pipeline\Driver\GitHubActions\SplitWorkflowGenerator;
 use Vortos\Pipeline\Driver\GitHubActions\WorkflowYamlWriter;
+use Vortos\Pipeline\Driver\Registry\DockerHubCiLoginProvider;
+use Vortos\Pipeline\Driver\Registry\GcpArtifactRegistryCiLoginProvider;
+use Vortos\Pipeline\Driver\Registry\GhcrCiLoginProvider;
 use Vortos\Pipeline\Model\BuildMode;
+use Vortos\Pipeline\Registry\CiRegistryLoginProviderRegistry;
 use Vortos\Release\Manifest\Arch;
 
 final class BuildStageContractTest extends TestCase
 {
+    private static function makeLoginProviderRegistry(): CiRegistryLoginProviderRegistry
+    {
+        return new CiRegistryLoginProviderRegistry(new ServiceLocator([
+            'ghcr' => static fn () => new GhcrCiLoginProvider(),
+            'docker-hub' => static fn () => new DockerHubCiLoginProvider(),
+            'gcp-artifact-registry' => static fn () => new GcpArtifactRegistryCiLoginProvider(),
+        ]));
+    }
+
     private function emitYaml(PipelineDefinition $def): string
     {
-        $builder = new PipelineBuilder(new StageGate());
+        $builder = new PipelineBuilder(new StageGate(), self::makeLoginProviderRegistry());
         $pipeline = $builder->build($def);
 
         $emitter = new GitHubActionsEmitter(
@@ -45,7 +59,7 @@ final class BuildStageContractTest extends TestCase
 
     private function emitArray(PipelineDefinition $def): array
     {
-        $builder = new PipelineBuilder(new StageGate());
+        $builder = new PipelineBuilder(new StageGate(), self::makeLoginProviderRegistry());
         $pipeline = $builder->build($def);
 
         $mapper = new GitHubWorkflowMapper();

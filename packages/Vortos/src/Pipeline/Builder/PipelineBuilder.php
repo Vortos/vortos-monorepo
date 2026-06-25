@@ -21,11 +21,15 @@ use Vortos\Pipeline\Model\StageCatalog;
 use Vortos\Pipeline\Model\StageKind;
 use Vortos\Pipeline\Model\Trigger;
 use Vortos\Pipeline\Model\TriggerEvent;
+use Vortos\Pipeline\Registry\CiRegistryLoginProviderInterface;
+use Vortos\Pipeline\Registry\CiRegistryLoginProviderRegistry;
+use Vortos\Pipeline\Registry\RegistryLoginContext;
 
 final class PipelineBuilder
 {
     public function __construct(
         private readonly StageGate $gate,
+        private readonly ?CiRegistryLoginProviderRegistry $loginProviders = null,
     ) {}
 
     /**
@@ -161,6 +165,9 @@ final class PipelineBuilder
         $repo = $definition->imageRepository;
         \assert($repo !== null);
 
+        $loginProvider = $this->requireLoginProvider($definition->registryProvider);
+        $loginContext = new RegistryLoginContext($definition);
+
         $archScript = new ArchAssertionScript();
         $steps = [];
 
@@ -172,17 +179,7 @@ final class PipelineBuilder
             $steps[] = new ActionStep('Set up QEMU', KnownActionFactory::setupQemu());
         }
 
-        if ($definition->oidc) {
-            $steps[] = new CommandStep(
-                'Registry login via OIDC',
-                "echo \"\${{ secrets.GITHUB_TOKEN }}\" | docker login ghcr.io -u \${{ github.actor }} --password-stdin",
-            );
-        } else {
-            $steps[] = new CommandStep(
-                'Registry login',
-                "echo \"\${{ secrets.GITHUB_TOKEN }}\" | docker login ghcr.io -u \${{ github.actor }} --password-stdin",
-            );
-        }
+        $steps[] = $loginProvider->loginStep($loginContext);
 
         $archValue = $definition->targetArch->value;
 
@@ -246,10 +243,11 @@ final class PipelineBuilder
             ? new RunnerSpec(label: $definition->nativeRunnerLabel, archHint: $archValue)
             : new RunnerSpec(label: 'ubuntu-latest');
 
-        $permissions = new Permissions([
+        $basePermissions = new Permissions([
             new Permission(PermissionScope::Contents, PermissionAccess::Read),
-            new Permission(PermissionScope::Packages, PermissionAccess::Write),
         ]);
+
+        $permissions = $basePermissions->merge($loginProvider->requiredPermissions());
 
         if ($definition->oidc) {
             $permissions = $permissions->with(
@@ -269,6 +267,18 @@ final class PipelineBuilder
             outputs: ['image' => '${{ steps.image.outputs.digest }}'],
             condition: "github.ref == 'refs/heads/main' && github.event_name == 'push' || github.ref_type == 'tag'",
         );
+    }
+
+    private function requireLoginProvider(string $providerKey): CiRegistryLoginProviderInterface
+    {
+        if ($this->loginProviders === null) {
+            throw new \LogicException(
+                'PipelineBuilder requires a CiRegistryLoginProviderRegistry to build image stages. ' .
+                'Wire one via the constructor or use PipelineExtension.'
+            );
+        }
+
+        return $this->loginProviders->provider($providerKey);
     }
 
     private function deployStage(PipelineDefinition $definition): Stage

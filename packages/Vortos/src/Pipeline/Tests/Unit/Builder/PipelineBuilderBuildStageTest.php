@@ -5,20 +5,34 @@ declare(strict_types=1);
 namespace Vortos\Pipeline\Tests\Unit\Builder;
 
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Pipeline\Builder\PipelineBuilder;
 use Vortos\Pipeline\Builder\StageGate;
 use Vortos\Pipeline\Definition\PipelineDefinition;
+use Vortos\Pipeline\Driver\Registry\DockerHubCiLoginProvider;
+use Vortos\Pipeline\Driver\Registry\GcpArtifactRegistryCiLoginProvider;
+use Vortos\Pipeline\Driver\Registry\GhcrCiLoginProvider;
 use Vortos\Pipeline\Model\ActionStep;
 use Vortos\Pipeline\Model\BuildMode;
 use Vortos\Pipeline\Model\CommandStep;
 use Vortos\Pipeline\Model\StageKind;
+use Vortos\Pipeline\Registry\CiRegistryLoginProviderRegistry;
 use Vortos\Release\Manifest\Arch;
 
 final class PipelineBuilderBuildStageTest extends TestCase
 {
+    private static function makeLoginProviderRegistry(): CiRegistryLoginProviderRegistry
+    {
+        return new CiRegistryLoginProviderRegistry(new ServiceLocator([
+            'ghcr' => static fn () => new GhcrCiLoginProvider(),
+            'docker-hub' => static fn () => new DockerHubCiLoginProvider(),
+            'gcp-artifact-registry' => static fn () => new GcpArtifactRegistryCiLoginProvider(),
+        ]));
+    }
+
     private function buildPipeline(PipelineDefinition $definition): \Vortos\Pipeline\Model\Pipeline
     {
-        return (new PipelineBuilder(new StageGate()))->build($definition);
+        return (new PipelineBuilder(new StageGate(), self::makeLoginProviderRegistry()))->build($definition);
     }
 
     private function findStage(\Vortos\Pipeline\Model\Pipeline $pipeline, StageKind $kind): ?\Vortos\Pipeline\Model\Stage
@@ -367,7 +381,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
 
     public function test_back_compat_no_build_stage_produces_identical_stages(): void
     {
-        $withoutBuild = (new PipelineBuilder(new StageGate()))->build(new PipelineDefinition());
+        $withoutBuild = (new PipelineBuilder(new StageGate(), self::makeLoginProviderRegistry()))->build(new PipelineDefinition());
         $stageIds = array_map(fn ($s) => $s->id, $withoutBuild->stages);
 
         $this->assertContains('tests', $stageIds);

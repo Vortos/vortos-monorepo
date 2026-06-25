@@ -519,12 +519,16 @@ final class FeatureFlagsExtension extends Extension
             ->setPublic(false);
 
         // Block 13 — SDK key authentication middleware (eval plane guard).
+        // Implements Vortos\Http\Contract\MiddlewareInterface — HttpExtension's
+        // registerForAutoconfiguration() already tags it 'vortos.http_middleware'.
+        // Do NOT addTag('vortos.middleware') here: that's Messaging's middleware
+        // tag, and its MiddlewareCompilerPass asserts every 'vortos.middleware'
+        // service implements Messaging's own MiddlewareInterface — it doesn't.
         $container->register(SdkKeyAuthMiddleware::class, SdkKeyAuthMiddleware::class)
             ->setArgument('$sdkKeyService', new Reference(SdkKeyService::class))
             ->setArgument('$projectContext', new Reference(ProjectContext::class))
             ->setArgument('$scopeContext', new Reference(FlagScopeContext::class))
             ->setArgument('$ipResolver', new Reference(IpResolverInterface::class))
-            ->addTag('vortos.middleware')
             ->setPublic(false);
 
         // Block 13 — management authz gate. Default = null (allow all); compiler pass
@@ -804,10 +808,12 @@ final class FeatureFlagsExtension extends Extension
             ->setPublic(true);
 
         // Block 19 — override middleware (reads X-Vortos-Flag-Override header).
+        // Implements Vortos\Http\Contract\MiddlewareInterface — auto-tagged
+        // 'vortos.http_middleware' by HttpExtension's autoconfiguration. See the
+        // note on SdkKeyAuthMiddleware above for why no manual addTag() belongs here.
         $container->register(FlagOverrideMiddleware::class, FlagOverrideMiddleware::class)
             ->setArgument('$overrideService', new Reference(FlagOverrideService::class))
             ->setArgument('$scopeContext', new Reference(FlagScopeContext::class))
-            ->addTag('vortos.middleware')
             ->setPublic(false);
 
         // Block 19 — preview controller (management plane, authz gated).

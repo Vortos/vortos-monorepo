@@ -38,9 +38,14 @@ final readonly class PipelineDefinition
         public string $dockerfilePath = 'Dockerfile',
         public bool $emitScanGate = false,
         public bool $emitSign = false,
+        public string $registryProvider = 'ghcr',
     ) {
         if ($emitter === '') {
             throw new \InvalidArgumentException('Pipeline emitter must be non-empty.');
+        }
+
+        if ($registryProvider === '') {
+            throw new \InvalidArgumentException('Registry provider must be non-empty.');
         }
 
         if ($defaultTimeoutMinutes < 1) {
@@ -86,6 +91,7 @@ final readonly class PipelineDefinition
             'oidc' => $this->oidc,
             'php_extensions' => $this->phpExtensions,
             'php_version' => $this->phpVersion,
+            'registry_provider' => $this->registryProvider,
             'target_arch' => $this->targetArch->value,
             'ui_build' => $this->uiBuild,
         ];

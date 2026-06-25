@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Pipeline\Tests\Architecture;
 
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Pipeline\Builder\PipelineBuilder;
 use Vortos\Pipeline\Builder\StageGate;
 use Vortos\Pipeline\Definition\PipelineDefinition;
@@ -12,13 +13,22 @@ use Vortos\Pipeline\Driver\GitHubActions\GitHubActionsEmitter;
 use Vortos\Pipeline\Driver\GitHubActions\GitHubWorkflowMapper;
 use Vortos\Pipeline\Driver\GitHubActions\SplitWorkflowGenerator;
 use Vortos\Pipeline\Driver\GitHubActions\WorkflowYamlWriter;
+use Vortos\Pipeline\Driver\Registry\GhcrCiLoginProvider;
+use Vortos\Pipeline\Registry\CiRegistryLoginProviderRegistry;
 
 final class OidcZeroStandingSecretTest extends TestCase
 {
+    private static function makeLoginProviderRegistry(): CiRegistryLoginProviderRegistry
+    {
+        return new CiRegistryLoginProviderRegistry(new ServiceLocator([
+            'ghcr' => static fn () => new GhcrCiLoginProvider(),
+        ]));
+    }
+
     public function test_no_static_credential_in_build_workflow_with_oidc(): void
     {
         $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true);
-        $builder = new PipelineBuilder(new StageGate());
+        $builder = new PipelineBuilder(new StageGate(), self::makeLoginProviderRegistry());
         $pipeline = $builder->build($def);
 
         $emitter = new GitHubActionsEmitter(
@@ -60,7 +70,7 @@ final class OidcZeroStandingSecretTest extends TestCase
     public function test_build_and_deploy_use_only_github_token_or_oidc(): void
     {
         $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true);
-        $builder = new PipelineBuilder(new StageGate());
+        $builder = new PipelineBuilder(new StageGate(), self::makeLoginProviderRegistry());
         $pipeline = $builder->build($def);
 
         $mapper = new GitHubWorkflowMapper();

@@ -16,7 +16,8 @@ return [
     ],
 
     'security' => [
-        'Never put raw secrets in .env for production — use VaultSecretsProvider or AwsSsmSecretsProvider.',
+        'Never put raw secrets in .env for production — use VaultSecretsProvider or AwsSsmSecretsProvider (vortos-security) for app-config lookups, or vortos-secrets (if installed) for anything needing envelope encryption, off-host key custody, or rotation.',
+        'If a value is a SecretValue (vortos-secrets), call reveal() as late as possible and never store the revealed string — hold the wrapped value as long as you can, pass the raw string straight into the call that needs it, then let it go out of scope.',
         'Enable SecurityHeadersMiddleware in production — HSTS, CSP, X-Frame-Options, X-Content-Type-Options.',
         'Enable CsrfMiddleware for all state-changing web routes (POST/PUT/PATCH/DELETE that originate from a browser).',
         'Use RequestSignatureMiddleware for all webhook endpoints — verify HMAC before processing the payload.',
@@ -56,5 +57,15 @@ return [
         'Configure retry policies per consumer — exponential backoff with jitter prevents thundering herd on recovery.',
         'The outbox pattern eliminates the dual-write problem — domain write and event write are in the same DB transaction.',
         'Do not produce directly to Kafka from a handler — always go through EventBus → outbox → relay. Direct production has no delivery guarantee if Kafka is temporarily unavailable.',
+    ],
+
+    'deployment_and_ops' => [
+        'Before writing ANY custom deploy script, CI workflow, Terraform file, backup cron, or alerting integration, call get_module_docs / list_project_modules first — there is very likely a vortos:* command or installable package that already does it.',
+        'Most deployment/ops packages (vortos-deploy, vortos-secrets, vortos-backup, vortos-alerts, vortos-pipeline, vortos-release, vortos-iac, vortos-analytics, vortos-health) are OPT-IN — installed only if explicitly composer-required. Check list_project_modules / composer.lock before assuming any of them exist in a given project.',
+        'Never hand-edit a generated artifact: CI workflows come from `pipeline:generate` (vortos-pipeline), Terraform from `vortos:iac:export` (vortos-iac). Change the source model/declaration and regenerate — wire `pipeline:verify` / `vortos:iac:export --check` into CI so a hand-edit is caught the same run it lands.',
+        'Every Ops Kit driver port (DeployTargetInterface, BackupTargetInterface, NotifierInterface, MetricsSinkInterface, etc.) declares capabilities() — check CapabilityDescriptor::supports() or rely on CapabilityValidator::assertSatisfies() before assuming a driver supports an operation. A driver that does not support something MUST throw UnsupportedCapabilityException, never silently no-op.',
+        'deploy:rollback and vortos:iac plans can legitimately REFUSE (RollbackRefusedException, PlanStaleException, DestructiveChangeRefusedException, PolicyViolationException) — that is the fail-closed design working as intended, not a bug to route around. Read the refusal reason; it names the exact fix.',
+        'Choose FailClosed vs FailOpen deliberately per use case, not by copying a default: FailClosed for anything security-relevant (login lockout), FailOpen for general throughput limiting where availability matters more than strict enforcement during a backing-store outage.',
+        'Reach for vortos:auth:revoke-all-tokens (global min-iat) only for genuine incident response (leaked key, suspected mass compromise) — it logs out every session for every user. Use per-user token-storage revocation for routine logout/password-change.',
     ],
 ];

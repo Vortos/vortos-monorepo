@@ -38,13 +38,16 @@ final class McpExtension extends Extension
         // Tools
         foreach ([
             GetConventionsTool::class,
-            GetModuleDocsTool::class,
             GetArchitectureTool::class,
             GetBestPracticesTool::class,
             GetMistakesTool::class,
         ] as $toolClass) {
             $container->register($toolClass, $toolClass)->setPublic(false);
         }
+
+        $container->register(GetModuleDocsTool::class, GetModuleDocsTool::class)
+            ->setArgument('$projectDir', $projectDir)
+            ->setPublic(false);
 
         $container->register(ListProjectModulesTool::class, ListProjectModulesTool::class)
             ->setArgument('$projectDir', $projectDir)

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 return [
     'domain' => [
+        'package'     => 'vortos/vortos-domain',
         'description' => 'Base classes for DDD/CQRS building blocks. No DI extension — pure PHP abstractions.',
         'provides'    => [
             'AggregateRoot'  => 'Base class for all aggregates. recordEvent(object $payload) wraps the POPO in an EventEnvelope and registers it with the DomainEventLedger for automatic dispatch by the bus. pullDomainEvents() drains the aggregate-local buffer — testing/inspection only, never for dispatch.',
@@ -19,6 +20,7 @@ return [
     ],
 
     'cqrs' => [
+        'package'     => 'vortos/vortos-cqrs',
         'description' => 'CommandBus and QueryBus with compile-time handler wiring, idempotency, and validation.',
         'provides'    => [
             'CommandBusInterface' => 'dispatch(Command): void — wraps handler in transaction, pulls domain events, dispatches to EventBus.',
@@ -38,6 +40,7 @@ return [
     ],
 
     'messaging' => [
+        'package'     => 'vortos/vortos-messaging',
         'description' => 'Event-driven messaging: Kafka producer/consumer, transactional outbox, dead letter queue, hooks, middleware.',
         'provides'    => [
             'EventBusInterface'      => 'dispatch(EventEnvelope): void — writes to outbox (default) or produces directly. dispatchBatch() for multiple envelopes.',
@@ -76,6 +79,7 @@ return [
     ],
 
     'persistence' => [
+        'package'     => 'vortos/vortos-persistence (+ vortos-persistence-dbal, vortos-persistence-orm, vortos-persistence-mongo drivers)',
         'description' => 'Abstractions for write (PostgreSQL/DBAL) and read (MongoDB) stores.',
         'provides'    => [
             'UnitOfWorkInterface'          => 'run(callable): void — wraps the callable in a DB transaction. CommandBus calls this automatically.',
@@ -103,6 +107,7 @@ return [
     ],
 
     'cache' => [
+        'package'     => 'vortos/vortos-cache',
         'description' => 'PSR-16 CacheInterface + TaggedCacheInterface. Drivers: Redis (prod), InMemory (dev/test).',
         'provides'    => [
             'CacheInterface'       => 'PSR-16 get/set/delete/clear — backed by active driver',
@@ -121,13 +126,21 @@ return [
     ],
 
     'auth' => [
-        'description' => 'JWT authentication, password hashing, token storage, rate limiting, API key M2M auth.',
+        'package'     => 'vortos/vortos-auth',
+        'description' => 'JWT authentication, password hashing, token storage, rate limiting, API key M2M auth, SCIM/SSO provisioning, lockout/rate-limit circuit breakers, global token revocation, and tamper-evident audit logging.',
         'provides'    => [
             'AuthMiddleware'         => 'Validates JWT bearer token on every request. Sets CurrentUser in RequestContext.',
             'CurrentUserProvider'    => 'getCurrentUser(): CurrentUser — identity of the authenticated caller.',
             'JwtService'             => 'issue(userId, claims): string, verify(token): Claims',
             'ArgonPasswordHasher'    => 'hash(password): string, verify(password, hash): bool',
             'ApiKeyAuthMiddleware'   => 'Validates X-API-Key header for M2M service calls.',
+            'ScimService'            => 'RFC 7643/7644 SCIM 2.0 user/group provisioning. Tenant-scoped (fail-closed via TenantContext::requireTenantId()), idempotent by externalId — IdP re-delivery updates, never duplicates. Deactivation sets active=false AND revokes every platform role in the same operation.',
+            'ClaimsRoleMapper'       => 'Maps IdP groups/claims to platform roles. A malformed mapping pattern fails to an EMPTY role list, never the default role — a broken regex can\'t accidentally grant privilege.',
+            'ScimRoleGuard'          => 'assertPermittedRoles(token, roles) — restricts which roles a given SCIM integration token is allowed to assign. Scope SCIM tokens narrowly.',
+            'RateLimitCircuitBreaker / LockoutCircuitBreaker' => 'Trips Open after N consecutive store failures (default 5), stops hammering a dead Redis, half-opens after a reset timeout (default 30s) to test recovery.',
+            'RateLimitFailureMode / LockoutFailureMode'       => 'FailClosed (reject when the store is unreachable — use for lockout/login) vs FailOpen (allow through — use for general throughput limiting). Two independent decisions: circuit-breaker state vs what to do about a request when it\'s tripped.',
+            'MinIatGuard'            => 'TokenFreshnessGuardInterface checked on every request via CompositeTokenFreshnessGuard. A store-read failure fails CLOSED (rejects), never open.',
+            'AuthAuditHashChain'     => 'Each AuditEntry\'s content hash incorporates the previous entry\'s hash; the chain head is HMAC-signed. Editing any historical row breaks the chain from that point forward — detectable, not just append-only-by-permission.',
         ],
         'config' => [
             'algorithm'       => 'HS256 (default) | RS256. HS256 uses a shared secret; RS256 uses a private/public key pair.',
@@ -138,11 +151,19 @@ return [
             'refresh_ttl'     => 'Refresh token TTL in seconds (default: 604800)',
             'issuer'          => 'JWT iss claim (default: app name)',
             'token_storage'   => 'redis (default) | in-memory',
+            'audit_hmac_key'  => 'Opt-in. Empty by default — hash-chain integrity verification is disabled (and costs nothing extra) until this is set.',
+            'lockout.failure_mode / rate_limit.failure_mode' => 'fail_closed | fail_open — choose per deployment, not a single framework-wide default.',
         ],
-        'commands' => [],
+        'commands' => [
+            'vortos:auth:revoke-all-tokens'    => 'Sets a global minimum issued-at epoch — every token issued before now is rejected, for every user, immediately. Incident-response lever, not routine account management. Prefer per-user token-storage revocation for normal logout/password-change flows.',
+            'vortos:auth:verify-audit-chain'   => 'Walks the hash-chained audit log; fails at the first broken link (tamper, gap, or forged signature) with the exact entry. No-ops with an explanatory message if audit_hmac_key is not configured.',
+            'vortos:auth:keys:generate'        => 'Issue an API/SCIM key.',
+            'vortos:auth:keys:list'            => 'List issued keys.',
+        ],
     ],
 
     'authorization' => [
+        'package'     => 'vortos/vortos-authorization',
         'description' => 'Policy engine, role hierarchy, scoped/temporal permissions, RBAC, ownership checks.',
         'provides'    => [
             'PolicyEngine'              => 'can(userId, permission, resource?): bool',
@@ -168,6 +189,7 @@ return [
     ],
 
     'http' => [
+        'package'     => 'vortos/vortos-http',
         'description' => 'HTTP routing, controllers, request/response pipeline, event subscribers.',
         'provides'    => [
             '#[AsRoute]'          => 'Attribute on a Controller method to register an HTTP route.',
@@ -183,7 +205,8 @@ return [
     ],
 
     'security' => [
-        'description' => 'HTTP security headers, CORS, CSRF, IP filter, request signing, encryption, secrets, data masking.',
+        'package'     => 'vortos/vortos-security',
+        'description' => 'HTTP security headers, CORS, CSRF, IP filter, request signing, encryption, secrets, data masking, and supply-chain security (SBOM, signing, SLSA provenance, KEV-aware CVE gate).',
         'provides'    => [
             'SecurityHeadersMiddleware'   => 'Adds HSTS, CSP, X-Frame-Options, X-Content-Type-Options headers.',
             'CorsMiddleware'              => 'Handles CORS preflight and adds Access-Control headers.',
@@ -191,9 +214,14 @@ return [
             'IpFilterMiddleware'          => 'IP allowlist/denylist.',
             'RequestSignatureMiddleware'  => 'HMAC signature verification for webhooks.',
             'EncryptionService'           => 'AES-256-GCM encryption/decryption.',
-            'SecretsProvider'             => 'EnvSecretsProvider | VaultSecretsProvider | AwsSsmSecretsProvider',
+            'SecretsProvider'             => 'EnvSecretsProvider | VaultSecretsProvider | AwsSsmSecretsProvider — simple app-config lookup. For envelope encryption / off-host key custody / rotation, use the separate vortos-secrets package instead.',
             'DataMaskingProcessor'        => 'Strips PII (email, phone, password fields) from log entries.',
             'PasswordPolicyService'       => 'Enforces min/max length, complexity rules, breach detection (HaveIBeenPwned).',
+            'SbomGeneratorInterface'      => 'Driver: syft. Generates a CycloneDX/SPDX SBOM for a built artifact.',
+            'VulnerabilityScannerInterface' => 'Driver: trivy. Scans an SBOM/image for known vulnerabilities.',
+            'ArtifactSignerInterface'     => 'Driver: cosign. Signs/verifies artifact signatures — used by Deploy preflight (SignatureVerificationCheck) to refuse an unsigned or untrusted image before release().',
+            'CveGate::evaluate()'         => 'Fails on a CISA KEV-listed CVE regardless of CVSS severity; otherwise fails only at/above a configured severity AND (optionally) only if a fix is actually available. Time-boxed CveIgnoreEntry exceptions, not silent permanent bypasses.',
+            'SecretHygieneAuditor'        => 'Scans for leaked-looking credentials (AWS keys, PEM headers, GitHub tokens) and secrets overdue for rotation — a detection backstop, not a substitute for vortos-secrets\' redact-by-construction SecretValue.',
         ],
         'config' => [
             'headers_enabled'    => 'bool (default: true)',
@@ -203,12 +231,14 @@ return [
             'ip_filter_list'     => 'array of IPs/CIDRs',
             'secrets_provider'   => 'env | vault | aws-ssm',
             'masking_fields'     => 'array of field names to redact in logs',
+            'supply_chain.cve_gate_policy' => 'failOn severity, requireFixAvailable, failOnKevAnySeverity — all opt-in, no default policy configured.',
         ],
         'commands' => [],
     ],
 
     'make' => [
-        'description' => 'Code generator — 22 vortos:make:* commands scaffold DDD/CQRS artifacts from stubs.',
+        'package'     => 'vortos/vortos-make (require-dev)',
+        'description' => 'Code generator — 22 vortos:make:* commands scaffold DDD/CQRS artifacts from stubs. See also vortos:make:driver (vortos-ops-kit) for scaffolding a swappable-driver implementation.',
         'provides'    => ['GeneratorEngine — reads stubs from module Resources/stubs/ or app root stubs/ (user overrides)'],
         'config'      => null,
         'commands'    => [
@@ -239,6 +269,7 @@ return [
     ],
 
     'logger' => [
+        'package'     => 'vortos/vortos-logger',
         'description' => 'PSR-3/Monolog logging with named channels, structured records, redaction, request context, trace correlation, and alert integrations.',
         'provides' => [
             'LoggerInterface (PSR-3)' => 'Aliased to the app channel. Inject LoggerInterface for general logging.',
@@ -265,6 +296,7 @@ return [
     ],
 
     'tracing' => [
+        'package'     => 'vortos/vortos-tracing',
         'description' => 'NoOp-by-default tracing abstraction with OpenTelemetry OTLP export, parent-based trace-level sampling, propagation, and safe baggage.',
         'provides'    => [
             'TracingInterface'      => 'startSpan(name, attributes), injectHeaders(headers), extractContext(headers), baggage methods, currentCorrelationId()',
@@ -288,7 +320,8 @@ return [
     ],
 
     'observability' => [
-        'description' => 'Publishable observability templates for Prometheus, Grafana, Alertmanager, Datadog, and New Relic. No runtime exporters or network calls.',
+        'package'     => 'vortos/vortos-observability',
+        'description' => 'Publishable observability templates (Prometheus, Grafana, Alertmanager, Datadog, New Relic) PLUS a config-only backend-switching collector seam, a hash-chained deploy audit ledger, a dead-man heartbeat emitter, deploy/rollback dashboard markers, and declared SLO resources.',
         'provides' => [
             'Template registry' => 'Lists available stacks and files.',
             'Template publisher' => 'Copies starter assets into the application observability/ directory.',
@@ -297,18 +330,31 @@ return [
             'Alertmanager assets' => 'Routing and receiver example for Vortos labels.',
             'Datadog assets' => 'Dashboard and monitor examples for StatsD metrics, JSON logs, and OTLP traces.',
             'New Relic assets' => 'Dashboard and alert examples for metrics, logs, and OTLP traces.',
+            'MetricsSinkInterface / ErrorSinkInterface' => 'A sink driver never transports telemetry itself — it only declares capabilities and renders the collector\'s exporter fragment for its backend. Switching grafana → datadog is a one-line config change; app code never touches a vendor SDK. Generated collector config always binds the OTLP receiver to loopback-only, includes memory_limiter+batch, and disk-buffers exporter retries.',
+            'BoundedSpool'      => 'Crash-safe, byte-capped on-disk FIFO behind error delivery — never blocks the emit path, never grows unbounded (drops oldest on overflow), survives a mid-write crash.',
+            'MessageScrubber'   => 'Redacts emails/tokens/JWTs/card numbers from error messages before they leave the process — the same defense-in-depth posture as Secrets\' SecretValue and Analytics\' PiiRedactor.',
+            'AuditHashChain (deploy ledger)' => 'Same chaining technique as vortos-auth\'s audit log, applied to Deploy\'s LifecycleEvents — every deploy/rollback/reconcile is tamper-evidently recorded.',
+            'HeartbeatEmitterInterface' => 'Dead-man\'s-switch push — detected by absence, off-host. One of the 3 detectors vortos-health\'s DetectorIndependenceDoctorCheck requires in production.',
+            'DeployMarker'      => 'Dashboard annotation linking a regression to the exact deploy (buildId, gitSha, imageDigest) — carries no secrets/PII. Buffered via OutboxMarkerEmitter, never emitted synchronously during a deploy.',
+            'Slo / SloRegistry' => 'A declared, validated SLO resource (objective must be in (0,1), enforced at construction) — single source of truth both dashboards and Alerts\' SloBurnCondition read from, instead of drifting hand-maintained dashboard config.',
         ],
         'config' => null,
         'commands' => [
             'vortos:observability:list' => 'List available observability template stacks',
             'vortos:observability:publish' => 'Publish templates with --stack, --force, and --dry-run',
+            'vortos:observability:collector' => 'Generate collector config from the selected MetricsSinkInterface driver.',
+            'vortos:observability:audit:verify' => 'Verify the deploy audit ledger hash chain for an environment — fails at the first broken link.',
+            'vortos:observability:audit:export' => 'Stream a signed deploy-audit export (NDJSON or CSV). Flags: --env, --format',
+            'vortos:observability:heartbeat' => 'Send one dead-man heartbeat ping.',
+            'vortos:observability:markers:drain' => 'Drain the buffered deploy-marker outbox to the configured emitter.',
         ],
     ],
 
     'foundation' => [
-        'description' => 'Health checks, pre-flight diagnostics, boot error rendering, and worker mode service resetter.',
+        'package'     => 'vortos/vortos-foundation',
+        'description' => 'Health checks, pre-flight diagnostics, boot error rendering, and worker mode service resetter. If vortos-health is installed, that package\'s tri-state probe aggregator serves /health/* instead, and BridgeLegacyHealthChecksPass auto-wraps every HealthCheckInterface below as a probe — zero migration needed.',
         'provides'    => [
-            'HealthRegistry'         => 'Register HealthCheckInterface implementations. Exposed via /health/ready and /health/live.',
+            'HealthRegistry'         => 'Register HealthCheckInterface implementations. Exposed via /health/ready and /health/live (or bridged into vortos-health if that package is installed — see the health module).',
             'ServicesResetter'       => 'Calls reset() on all ResettableInterface services after each request in worker mode.',
             'DoctorRegistry'         => 'Runs all registered DoctorCheckInterface implementations. Tag with #[AsDoctor].',
             '#[AsDoctor]'            => 'Attribute to register a DoctorCheckInterface as a pre-flight diagnostic check.',
@@ -323,6 +369,7 @@ return [
     ],
 
     'setup' => [
+        'package'     => 'vortos/vortos-setup',
         'description' => 'Project bootstrap wizard — writes .env, Docker files, and config stubs.',
         'provides'    => ['Interactive setup: preset selection, env generation, Docker file publishing, config publishing'],
         'config'      => null,
@@ -333,6 +380,7 @@ return [
     ],
 
     'feature_flags' => [
+        'package'     => 'vortos/vortos-feature-flags (+ vortos-feature-flags-admin for the UI)',
         'description' => 'Runtime feature flags with per-user, attribute, and percentage-rollout targeting rules.',
         'provides'    => [
             'FlagRegistry'              => 'isEnabled(name): bool, getVariant(name): ?string — evaluate flags against the current request context.',
@@ -357,21 +405,30 @@ return [
     ],
 
     'iac' => [
-        'description' => 'Terraform export — generates .tf.json files from framework resource declarations (Kafka topics, object-store buckets). Pure codegen: no cloud credentials, no network calls; Terraform stays the provisioning engine.',
+        'package'     => 'vortos/vortos-iac',
+        'description' => 'Export real infrastructure to deterministic Terraform JSON (Kafka topics, object-store buckets, compute, database, network, queue, cache, DNS, IAM — 10 exporter families), then plan/apply/destroy through a policy-gated, audited, blast-radius-limited lifecycle. Terraform stays the provisioning engine; this is codegen + governance around it, not a replacement.',
         'provides'    => [
             '#[InfraConfig]'               => 'Marks a Terraform export configuration class. Deployment concern — canonical home is src/Shared/Infrastructure/Iac/, NOT per bounded context. Resource shape (partitions, retention) stays in MessagingConfig; InfraConfig only chooses providers and output files.',
             '#[RegisterTerraformExporter]' => 'Method attribute returning an exporter definition, e.g. KafkaTopicsExporterDefinition::create(\'kafka-topics\')->provider(KafkaProvider::Confluent)->clusterRef(\'confluent_kafka_cluster.main\')->outputFile(\'infra/kafka_topics.tf.json\'). Compiled to a static spec at container build time.',
             'Env → Terraform variables'    => 'Env references in definitions export as typed Terraform variables (sensitive when the name looks secret) — values NEVER appear in generated files; operators supply them via terraform.tfvars. SASL/SSL/DSN are never exported.',
-            'Generated-file safety'        => 'Output jailed to the project dir (.tf.json only, no traversal/symlink escape), atomic writes, refuses to overwrite files lacking the generated header. No --force by design.',
+            'TerraformDocument secret gate' => 'Lives in the renderer itself, not per-exporter, so no exporter can bypass it: a literal string assigned to a secret-looking attribute name fails the export unless explicitly allow-listed. Output renders deterministically (sorted keys, stable formatting) — same input always produces byte-identical .tf.json, which is what makes --check an exact CI gate.',
+            'IacLifecycleService::apply()' => 'Three guards before anything touches infrastructure: guardPlanFile() re-hashes the plan file (PlanStaleException if it changed since plan), guardBlastRadius() refuses more than maxDestructiveProd (default 0!) destructive changes in prod without an explicit override, guardPolicy() runs your PlanPolicyInterface rules.',
+            'PlanPolicyInterface'          => 'Your own org-specific rules (region restrictions, required tags, etc.) — an Ops Kit driver port, evaluated against every plan before apply.',
+            'IacDriftAuditor'              => 'Detects when real infrastructure has drifted from what\'s declared. Feeds Deploy\'s doctor check (IacDriftCheck) — a deploy fails preflight against drifted infra rather than deploying onto it blind.',
         ],
         'config'      => null,
         'commands'    => [
             'vortos:iac:export'        => 'Generate all configured Terraform files. Flags: --check (CI drift guard, exit 1 on mismatch), --dry-run (print to stdout)',
+            'vortos:iac:plan'          => 'Plan against a target environment. Flags: --env',
+            'vortos:iac:apply'         => 'Apply a previously generated plan (requires the exact, unmodified plan file — see guardPlanFile). Flags: --env',
+            'vortos:iac:destroy'       => 'Destroy environment infrastructure. Flags: --env',
+            'vortos:iac:drift'         => 'Detect drift between declared and actual infrastructure. Flags: --env',
             'vortos:make:infra-config' => 'Scaffold src/Shared/Infrastructure/Iac/AppInfraConfig.php. Options: --provider=confluent|kafka, --output',
         ],
     ],
 
     'mcp' => [
+        'package'     => 'vortos/vortos-mcp',
         'description' => 'MCP server for AI-assisted Vortos development. Exposes framework and project knowledge as MCP tools.',
         'provides'    => ['vortos:mcp:serve (stdio MCP server)', 'vortos:mcp:install (client config writer)', 'vortos:mcp:doctor (status check)'],
         'config'      => null,
@@ -379,6 +436,210 @@ return [
             'vortos:mcp:serve'   => 'Start the MCP server (stdio — AI clients auto-start this). Flags: --http, --port',
             'vortos:mcp:install' => 'Write MCP config to AI client settings. Flags: --client=auto|codex|claude|cursor|windsurf|all, --global',
             'vortos:mcp:doctor'  => 'Show MCP server status, detected clients, and available tools',
+        ],
+    ],
+
+    // ---------------------------------------------------------------------
+    // Deployment / CI-CD platform — ALL of the following are separate,
+    // OPT-IN packages. None are installed by default. Call
+    // list_project_modules first to see which (if any) are actually
+    // present in composer.lock before assuming a class/command exists.
+    // ---------------------------------------------------------------------
+
+    'ops_kit' => [
+        'package'     => 'vortos/vortos-ops-kit',
+        'description' => 'The swappable-driver pattern shared by every operations package below (Deploy, Backup, Secrets, Alerts, Observability, Analytics, Migration, IaC, Pipeline) — ports, drivers, capability negotiation, registries, zero runtime reflection. Not something you configure directly unless authoring a NEW driver for one of those concerns.',
+        'provides'    => [
+            '#[AsDriver(key)]'        => 'Marks a class as the driver for a port. Key must be lower-kebab (^[a-z][a-z0-9-]*$), validated at compile time, not runtime.',
+            'DriverInterface'         => 'Base interface every port extends. Single required method: capabilities(): CapabilityDescriptor.',
+            'TaggedDriverRegistry'    => 'Base class for a concern\'s typed registry — lazy key→driver lookup backed by a compile-time ServiceLocator. get(key) throws UnknownDriverException listing every key that IS registered.',
+            'CapabilityDescriptor / RequiredCapabilities' => 'CapabilityValidator::assertSatisfies() reconciles what a driver declares vs what a strategy/config needs — mismatches fail at CONFIG time with an actionable message, never silently at runtime.',
+            'ConformanceTestCase (TCK)' => 'Universal PHPUnit base every driver test extends — 6 built-in tests, plus assertRejectsUnsupportedCapability()/assertHonestlyUnsupported() helpers for proving a driver refuses loudly rather than silently no-opping an unsupported operation.',
+            'AgnosticismLintTestCase / AgnosticismRule' => 'A PHPUnit test + PHPStan rule that fails if a provider name (caddy, kubernetes, posthog, betterstack, etc.) leaks outside a Driver\\ namespace — keeps core engine code provider-agnostic.',
+        ],
+        'config'   => null,
+        'commands' => [
+            'vortos:make:driver' => 'Scaffold a driver + its conformance test for a concern. Args: <concern> <name>. Options: --port, --tck, --tag, --namespace, --split (also scaffold a full installable Composer package — this is how out-of-tree drivers like vortos-deploy-k8s and vortos-analytics-posthog are built).',
+        ],
+    ],
+
+    'secrets' => [
+        'package'     => 'vortos/vortos-secrets',
+        'description' => 'Redact-by-construction secret values, envelope encryption with off-host key custody, and policy-driven two-phase rotation. NOT the same as Security\'s SecretsProvider (simple env-var lookup) — this is the operational secrets layer used by Deploy and Backup. Used for credential/payload encryption, not for general app config values.',
+        'provides'    => [
+            'SecretValue'             => 'fromString(plaintext): self. reveal(): string is the ONLY method that returns the plaintext — call it as late as possible. __toString()/var_dump()/print_r()/json_encode() all render "***"; the plaintext lives in a private static WeakMap, never an instance property, so even var_export()-style reflection finds nothing. wipe() zeroizes and permanently disables reveal() (throws SecretAlreadyWipedException after). Serializing a SecretValue throws — it must never be.',
+            'EnvelopeCipher'          => 'XChaCha20-Poly1305 AEAD payload encryption. generateDataKey()/encryptPayload()/decryptPayload() — a tampered ciphertext or wrong key throws DecryptionFailedException, never returns partial/garbage plaintext.',
+            'KeyProviderInterface'    => 'wrap(DataKey)/unwrap(WrappedKey) — off-host key custody. Driver: age (X25519 sealed-box). wrap() only ever needs the PUBLIC key (safe to bake into a build image); unwrap() reads the PRIVATE identity from an env var at use-time, never from a tracked file.',
+            'SecretsProviderInterface'=> 'get/put/rotate/list/versions. Drivers: env, file, age. list() returns key NAMES only, never values — presence checks never require revealing anything.',
+            'RotationManager'        => 'rotateIfDue(key, policy, now) — decides whether due, policy-driven. forceRotate() — explicit operator action regardless of due-date. Two-phase: old AND new versions both valid during the grace window.',
+            'SecretsPreflight'       => 'Diffs RequiredSecrets against what a provider actually has. Feeds deploy:doctor — a deploy missing a required secret fails before touching infrastructure.',
+        ],
+        'config'   => null,
+        'commands' => [
+            'secrets:list'       => 'List known secret keys (names only, never values). Flags: --env=<driver-key>, --json',
+            'secrets:set'        => 'Set a secret value. Args: <key>. Flags: --env, --stdin (pipe a value for CI instead of an interactive hidden prompt)',
+            'secrets:rotate'     => 'Rotate a secret. Args: <key>. Flags: --env, --interval, --grace, --max-age',
+            'secrets:preflight'  => 'Check that every required secret is actually present. Flags: --env, --json',
+        ],
+    ],
+
+    'release' => [
+        'package'     => 'vortos/vortos-release',
+        'description' => 'Immutable build manifests, schema fingerprinting, the rollback-safety invariant, and coordinated semver tagging + changelogs across a split monorepo.',
+        'provides'    => [
+            'BuildManifest'           => 'Immutable record of one build: buildId, gitSha, imageDigest, targetArch, schemaFingerprint. Recorded append-only — a duplicate buildId throws ManifestAlreadyExistsException rather than overwriting.',
+            'SchemaFingerprint'       => 'Sorted, deduplicated migration-ID set reduced to a SHA-256 hash. isSubsetOf()/relationTo() — pure, order-independent, no I/O.',
+            'RollbackInvariant::evaluate()' => 'A rollback is legal only when the target build\'s schema fingerprint is a SUBSET of what\'s currently applied. Returns a RollbackDecision whose explain() names the exact missing/unknown migrations and what to do about them — used directly by Deploy\'s RollbackGuard.',
+            'ConventionalSemverStrategy' => 'Computes the next version from Conventional Commits (feat:/fix:/BREAKING CHANGE:).',
+        ],
+        'config'   => null,
+        'commands' => [
+            'vortos:release:tag'       => 'Coordinated semver tagging across every vortos package. Dry-run by default. Flags: --apply, --sign, --bump=auto|patch|minor|major, --package, --undo=<tx-id>, --allow-dirty, --json',
+            'vortos:release:changelog' => 'Generate changelogs from conventional commits. Flags: --package, --write, --unreleased',
+        ],
+    ],
+
+    'pipeline' => [
+        'package'     => 'vortos/vortos-pipeline',
+        'description' => 'Generates CI/CD workflow files from a provider-agnostic model — fully digest-pinned GitHub Actions, native ARM64 builds, and OIDC instead of standing registry secrets. Does NOT run builds itself — it only generates the YAML that does. Do not hand-edit generated workflow files; change the model and regenerate.',
+        'provides'    => [
+            'PipelineBuilder'         => 'Assembles stages from a PipelineDefinition + StageGate. Test/StaticAnalysis/Agnosticism/Deploy/Split always emit; other stages gated behind enabledFutureStages.',
+            'PinnedAction'            => 'Refuses construction unless sha is a full 40-char hex commit SHA — no floating @v4-style tags ever land in a generated workflow.',
+            'BuildMode::Native'       => 'Generates a matrix that builds ARM64 on a real ARM64 runner instead of QEMU emulation.',
+            'ArchAssertionScript'     => 'Generates a CI step that inspects the published image manifest and fails the build if the architecture doesn\'t match what was requested.',
+            'PipelineDefinition(oidc: true)' => 'Requests id-token: write and exchanges a short-lived OIDC token for registry access instead of a long-lived REGISTRY_PASSWORD repository secret.',
+        ],
+        'config'   => null,
+        'commands' => [
+            'pipeline:generate' => 'Generate workflow files from the model. Flags: --emitter=github, --dry-run, --force, --json',
+            'pipeline:verify'   => 'Detect drift between the model and the committed workflow file — wire into CI on every PR.',
+        ],
+    ],
+
+    'deploy' => [
+        'package'     => 'vortos/vortos-deploy (+ vortos-deploy-k8s for a Kubernetes target — see the deploy_k8s module)',
+        'description' => 'A fail-closed deploy engine — content-hashed plans, swappable targets, blue-green/canary/rolling/recreate strategies, phase-gated expand/contract migration safety, Caddy edge-router cutover, and zero-standing-secrets credential issuance. "When in doubt, refuse, don\'t guess" — do not hand-write deploy scripts if this package is installed.',
+        'provides'    => [
+            'DeployPlanner::plan()'   => 'PURE — same DeployContext always produces the same content-hashed DeployPlan, no I/O. PhaseGate::assertNoPendingContract() refuses planning while a contract migration from a prior expand/contract cycle is still owed.',
+            'DeployTargetInterface'  => 'plan/push/migrate/release/rollback/status. Drivers: ssh-compose (in-core), k8s (separate vortos-deploy-k8s package).',
+            'DeployStrategyInterface' => 'Drivers: BlueGreenStrategy, CanaryStrategy (5/25/50/100% weighted steps + health re-check at each), RollingStrategy, RecreateStrategy. Each declares RequiredCapabilities checked against the target BEFORE planning, not mid-rollout.',
+            'PhaseOrderPolicy'        => 'Enforces RollWorkers precedes Cutover and StageColor — violating either throws at plan time.',
+            'CutoverCoordinator'      => 'Cuts over, verifies the new upstream is actually live, auto-reverts (and records why) on verification failure. Every recorded release carries a monotonic generation number for compare-and-swap against a stale reconciler.',
+            'RollbackGuard::assertLegal()' => 'Consults vortos-release\'s RollbackInvariant before any rollback — refuses one that would not be schema-safe, with the exact reason.',
+            'CredentialProviderInterface' => 'issue()/assertIssuable(). Zero-standing-secrets. Drivers: ssh-ca-oidc (300s-TTL cert minted from an OIDC token), ssh-key, pull-agent (NoInboundNetwork capability — the target polls a signed manifest rather than being pushed to over SSH).',
+        ],
+        'config'   => null,
+        'commands' => [
+            'deploy'              => 'Deploy an environment through the fail-closed preflight loop. Flags: --env, --dry-run (rehearse, zero mutation), --image-digest, --resume, --actor, --json',
+            'deploy:doctor'       => 'The same fail-closed preflight `deploy` runs automatically, runnable on its own. Read-only — never mutates anything. Flags: --env, --json, --strict',
+            'deploy:rollback'     => 'Roll back to the previous known-good build, or an explicit one. Refuses if RollbackGuard says it\'s not schema-safe. Flags: --env, --to=<build-id>, --actor, --json',
+            'deploy:reconcile'    => 'Idempotent, rate-limited reconciliation of edge-router state with the desired release — run on a schedule as drift protection.',
+            'deploy:edge:init'    => 'Scaffold edge Caddy configuration files for a blue/green setup.',
+            'deploy:agent'        => 'Pull-agent reconciliation loop for a target with no inbound network access.',
+        ],
+    ],
+
+    'deploy_k8s' => [
+        'package'     => 'vortos/vortos-deploy-k8s',
+        'description' => 'A second DeployTargetInterface implementation on top of kubectl — proves the Ops Kit driver pattern works out-of-tree. Only install this if actually deploying to Kubernetes; vortos-deploy has zero dependency on a Kubernetes client otherwise.',
+        'provides'    => [
+            'KubernetesTarget'        => '#[AsDriver(\'k8s\')], setAutoconfigured(true) — discovered automatically by vortos-deploy\'s compiler pass the moment this package is installed. No manual wiring beyond `composer require` plus selecting target(\'k8s\') in config.',
+            'KubernetesEdgeRouter'    => 'Implements EdgeRouterInterface against a Kubernetes Service/Ingress instead of Caddy.',
+            'KubernetesWorkerController' => 'Drains/restarts background workers running as pods.',
+        ],
+        'config'   => null,
+        'commands' => [],
+    ],
+
+    'backup' => [
+        'package'     => 'vortos/vortos-backup',
+        'description' => 'Streaming database backups (NEVER buffered to disk — a multi-GB dump never sits as a readable temp file) with envelope encryption, GFS retention with hard safety floors, an append-only catalog, Postgres PITR, automated restore drills with measured RTO, DR runbook generation, and 3-2-1 replication.',
+        'provides'    => [
+            'BackupTargetInterface'  => 'dump()/engine() — must stream, never buffer the whole dump. Drivers: postgres, mongo.',
+            'RetentionPolicy::plan()' => 'PURE GFS retention. Two hard floors that make "delete the only good copy" structurally impossible: the most-recent minKeepFloor artifacts are ALWAYS kept; the single most-recent artifact is NEVER placed in delete — moved to refused with a reason instead, however the rules would otherwise score it.',
+            'ObjectLockPolicy'       => 'WORM retention. compliance mode cannot be overridden early even by an admin; governance mode allows an audited exception.',
+            'WalChain'               => 'Pure, contiguous-chain check for PITR — detects a missing WAL segment BEFORE a restore is attempted, not during one.',
+            'DrillRunner::run()'     => 'provision → restore → invariant checks (row count / referential integrity / smoke query) → teardown. Measures actual RTO against declared RecoveryObjectives — the only honest way to know a declared recovery-time target is real.',
+            'DrRunbookGenerator'     => 'Generates a DR runbook from LIVE config + the most recent REAL drill data — not a static hand-written document that quietly goes stale.',
+        ],
+        'config'   => null,
+        'commands' => [
+            'backup:run'         => 'Run a backup — dump, store, verify, catalog. Flags: --engine, --environment',
+            'backup:verify'      => 'Verify a cataloged backup\'s integrity. Args: <backup-id>',
+            'backup:list'        => 'List cataloged backups. Flags: --engine, --environment',
+            'backup:restore'     => 'Operator-driven restore to a target database. Args: <backup-id>. Flags: --target',
+            'backup:drill'       => 'Run a restore drill. Flags: --engine, --environment, --shallow',
+            'backup:dr-runbook'  => 'Generate a DR runbook from live config + the latest drill data.',
+            'backup:replicate'   => '3-2-1 reconciliation — copy any artifact missing its secondary location.',
+            'backup:retention'   => 'Plan (dry-run) or apply retention.',
+            'backup:schedule'    => 'Generate the host cron fragment for declared backup schedules.',
+            'backup:wal-archive' => 'Archive one Postgres WAL segment — wired into archive_command.',
+        ],
+    ],
+
+    'alerts' => [
+        'package'     => 'vortos/vortos-alerts',
+        'description' => 'Alert dedupe, flap damping, escalation with quiet hours + on-call rotation, SSRF-hardened webhook delivery, and acknowledgement/silencing. Integrates with Health, Backup, and Deploy as an event sink — those packages route INTO Alerts, Alerts never depends on them.',
+        'provides'    => [
+            'NotifierInterface'      => 'notify() MUST NOT throw into the dispatcher — a transport failure returns NotificationResult::failed() for OutboxNotifier to retry/fall back, so a notifier outage can never become a second failure on the system it\'s monitoring. Drivers: slack, telegram, ses, webhook.',
+            'SsrfGuard'              => 'Validates webhook destinations — denies non-https schemes outside dev, every private/link-local/loopback/cloud-metadata IP range (incl. 169.254.169.254), IPv6 ULA/link-local. Redirect-following is disabled at the transport layer, not just checked once.',
+            'Dedupe / FlapDamper'    => 'Groups alert events by fingerprint (one notification per ongoing incident, not one per occurrence). A rapid open→resolve→open cycle escalates ONCE then damps — never pages on every toggle.',
+            'EscalationEngine::tick()' => 'PURE function of (event, state, ack, active silences, now) — deterministically testable timers, time never read from the system clock internally. Respects QuietHoursPolicy and MaintenanceSilence before ever paging.',
+            'SlidingWindowOutboundRateLimiter' => 'Caps outbound notification volume per channel, independent of dedupe — protects against a misconfigured rule generating many distinct fingerprints.',
+        ],
+        'config'   => null,
+        'commands' => [
+            'vortos:alerts:drain'          => 'Flush queued outbox deliveries.',
+            'vortos:alerts:ack'            => 'Acknowledge an open alert. Args: <fingerprint>. Flags: --by',
+            'vortos:alerts:silence'        => 'Silence a rule for planned maintenance — time-boxed, auto-expires. Flags: --rule, --duration, --reason',
+            'vortos:alerts:rotation:show'  => 'Show who is currently on call.',
+            'vortos:alerts:rules:validate' => 'Validate alert rule definitions before relying on them.',
+            'vortos:alerts:test'           => 'Send a synthetic test alert through the full pipeline (dedupe, routing, delivery). Flags: --rule',
+        ],
+    ],
+
+    'analytics' => [
+        'package'     => 'vortos/vortos-analytics (+ vortos-analytics-posthog driver — see analytics_posthog module)',
+        'description' => 'Privacy-by-default product analytics — "what are users doing", deliberately kept separate from Observability\'s system telemetry (an architecture test enforces this; never conflate the two). The base install sends NOTHING, by design, even with a real driver configured, until the app supplies its own consent resolver.',
+        'provides'    => [
+            'AnalyticsInterface'     => 'capture/identify/group/flush — every method best-effort, MUST NOT throw into the caller. App code always receives the privacy-filtering + batching decorator chain, never the bare driver — there is no code path that bypasses privacy filtering.',
+            'ConsentGate'            => 'DenyAllConsentResolver is the framework default — denies everyone until you implement ConsentResolverInterface against real consent records.',
+            'PropertyAllowlist / PiiRedactor' => 'TWO independent layers: a positive property allowlist, then a pattern-based PII scrub (email/phone/card-shaped strings → salted SHA-256 hash) that still catches a leak even if the allowlist is misconfigured.',
+            'AnalyticsExposureObserver' => 'Bridges accepted Feature Flag exposures into a provider-agnostic feature_flag_exposure event. Opt-in (default OFF) and deterministically sampled — only activates if vortos-feature-flags is also installed.',
+        ],
+        'config'   => null,
+        'commands' => [
+            'vortos:analytics:flush' => 'Flush any buffered/spooled events immediately. Also flushes automatically on kernel.terminate.',
+        ],
+    ],
+
+    'analytics_posthog' => [
+        'package'     => 'vortos/vortos-analytics-posthog',
+        'description' => 'The PostHog driver for vortos-analytics, shipped as a separate package so the core analytics port has zero dependency on PostHog\'s API unless this is installed.',
+        'provides'    => [
+            'PosthogAnalytics'  => '#[AsDriver(\'posthog\')], buffers and collapses calls into a single /batch POST on flush(). Reads POSTHOG_HOST/POSTHOG_PROJECT_API_KEY from env at use-time — a write-only ingestion key, never logged.',
+            'PosthogEventMapper' => 'Translates the agnostic feature_flag_exposure event into PostHog\'s native $feature_flag_called shape.',
+        ],
+        'config'   => 'POSTHOG_HOST, POSTHOG_PROJECT_API_KEY environment variables.',
+        'commands' => [],
+    ],
+
+    'health' => [
+        'package'     => 'vortos/vortos-health',
+        'description' => 'Tri-state (pass/warn/fail — not just healthy/unhealthy) liveness/readiness/startup probes with a budget-bound aggregator, disk/memory/CPU capacity probes, graduated TLS-cert-expiry probes, off-host synthetic uptime monitoring, and a doctor check requiring 3 INDEPENDENT failure detectors in production. If installed, this serves /health/* instead of vortos-foundation\'s older HealthRegistry — but BridgeLegacyHealthChecksPass auto-wraps every existing HealthCheckInterface as a probe, so no migration is needed.',
+        'provides'    => [
+            'HealthProbeInterface'   => 'name/kind/check — ProbeKind::Liveness|Readiness|Startup. A probe declares which question it answers; the aggregator only runs probes relevant to the endpoint hit (a DB probe never runs on /health/live).',
+            'HealthAggregator / HealthBudget' => 'perProbeDeadlineMs MUST be <= overallBudgetMs (enforced at construction). /health/ready briefly caches its result (readyCacheTtlMs) so a hammering load balancer doesn\'t re-run every probe per request.',
+            'AbstractCapacityProbe' => 'Tri-state: below warnPct = pass, [warnPct,criticalPct) = warn (DRAINS the node from the LB, never fails liveness), >= criticalPct = fail. Drivers: DiskCapacityProbe, MemoryCapacityProbe, CpuLoadProbe. Readiness-only, by design — restarting a process doesn\'t free disk space any faster.',
+            'CertExpiryProbe'       => 'Graduated thresholds (14/7/1 days default) — a proactive renewal nudge, not a 3am page; only the final day before expiry is critical.',
+            'UptimeMonitorInterface' => 'CONTROL-PLANE-ONLY — the app declares a SyntheticJourney and reads the verdict; the actual probing happens off-host on the provider\'s infrastructure (this is what makes it an independent detector). Driver: betterstack. SyntheticJourney construction REFUSES fewer than 2 steps or zero body-invariant assertions — cannot degrade to a bare "200 OK" ping.',
+            'DetectorIndependenceDoctorCheck' => 'Refuses a PRODUCTION deploy without 3 independent failure detectors configured: in-app probes, the dead-man heartbeat (vortos-observability), and a real external synthetic prober (not the null uptime driver). Non-prod environments are not fail-closed on this.',
+        ],
+        'config'   => null,
+        'commands' => [
+            'health:monitor:sync'   => 'Idempotently declare/update the off-host uptime monitor for a journey. Safe to re-run — must not mutate provider state if the descriptor is unchanged.',
+            'health:monitor:status' => 'Read back the current off-host verdict for synced monitors. Bounded timeout, never throws — a broken provider reports MonitorState::Unknown.',
+            'health:monitor:tick'   => 'Scheduled job — runs the local probe rollup and drives the dead-man heartbeat (Start/Success/Fail) from the result.',
         ],
     ],
 ];

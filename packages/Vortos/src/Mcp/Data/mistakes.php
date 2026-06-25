@@ -88,4 +88,29 @@ return [
         'right'  => 'Controllers are thin: validate input, dispatch a Command or Query via the bus, return a response. All business logic lives in the Domain or Application layer.',
         'why'    => 'Domain logic in controllers cannot be tested without an HTTP stack, cannot be reused from CLI commands, and violates layer separation.',
     ],
+    [
+        'wrong'  => 'Assuming a deployment/ops package (vortos-deploy, vortos-secrets, vortos-backup, vortos-alerts, vortos-pipeline, vortos-release, vortos-iac, vortos-analytics, vortos-health, vortos-ops-kit) is available because the framework version was bumped',
+        'right'  => 'Call list_project_modules (reads composer.lock) or get_module_docs first — composer update only updates packages already required; it never adds new ones. Most of these are opt-in split packages.',
+        'why'    => 'These classes/commands/DI services simply do not exist in vendor/ unless explicitly composer-required, regardless of how new the framework is. Writing code against them when they are not installed produces a class-not-found error, not a graceful fallback.',
+    ],
+    [
+        'wrong'  => 'Hand-writing a GitHub Actions workflow or Terraform .tf.json file when vortos-pipeline / vortos-iac is installed',
+        'right'  => 'Change the PipelineDefinition / #[InfraConfig] declaration and regenerate with `pipeline:generate` / `vortos:iac:export`',
+        'why'    => 'Both tools render deterministic, byte-identical output from the declared model — `pipeline:verify` / `--check` treat any divergence as drift and fail CI. A hand-edit is overwritten on the next regeneration anyway, or flagged as drift if someone forgets to regenerate.',
+    ],
+    [
+        'wrong'  => 'Storing a SecretValue::reveal() result in a property, cache entry, or log context "just for convenience"',
+        'right'  => 'Call reveal() only at the exact call site that needs the plaintext, pass it directly into that call, let it go out of scope immediately',
+        'why'    => 'SecretValue is redacted-by-construction specifically so a plaintext never has more than one deliberate, auditable point of existence. Re-storing the revealed string defeats the entire protection — there is nothing left guarding it once it leaves reveal().',
+    ],
+    [
+        'wrong'  => 'Calling a driver operation without checking capabilities() first, assuming every driver of a port behaves identically',
+        'right'  => 'Check $driver->capabilities()->supports(SomeCapability::X) or rely on CapabilityValidator::assertSatisfies() before relying on optional behavior',
+        'why'    => 'Ops Kit drivers honestly declare partial support — a driver that does not support a capability throws UnsupportedCapabilityException rather than silently no-opping. Code that assumes uniform behavior across drivers (e.g. "every Deploy target supports canary") will work with one driver and throw with another.',
+    ],
+    [
+        'wrong'  => 'Treating a deploy:rollback / vortos:iac:apply refusal as a bug and looking for a flag to force past it',
+        'right'  => 'Read the refusal message (RollbackRefusedException, PlanStaleException, DestructiveChangeRefusedException) — it names the exact schema/plan/blast-radius problem and the remediation',
+        'why'    => 'These refusals are the fail-closed design working correctly — e.g. RollbackGuard found the target build\'s schema is not a safe subset of what\'s currently applied. Forcing past it (where a flag even exists) risks the exact corruption the guard exists to prevent.',
+    ],
 ];

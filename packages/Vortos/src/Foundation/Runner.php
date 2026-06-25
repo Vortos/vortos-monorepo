@@ -137,6 +137,8 @@ class Runner
             ? (array) $this->container->getParameter('vortos.trusted_hosts')
             : [];
 
+        $this->validateTrustedProxies($proxies);
+
         if ($proxies !== []) {
             Request::setTrustedProxies(
                 $proxies,
@@ -145,11 +147,79 @@ class Runner
                 | Request::HEADER_X_FORWARDED_PORT
                 | Request::HEADER_X_FORWARDED_PROTO,
             );
+        } elseif ($this->container->hasParameter('vortos.has_ip_rate_limits')
+            && $this->container->getParameter('vortos.has_ip_rate_limits') === true
+        ) {
+            $this->getLogger()?->warning('rate_limit.ip_scope_without_trusted_proxies', [
+                'detail' => 'IP-scoped rate limits are configured but vortos.trusted_proxies is empty. '
+                    . 'Behind a reverse proxy, all clients will share one rate-limit bucket (the proxy IP). '
+                    . 'Set trusted_proxies to your proxy IPs in config/http.php or via VORTOS_TRUSTED_PROXIES.',
+            ]);
         }
 
         if ($hosts !== []) {
             Request::setTrustedHosts($hosts);
         }
+    }
+
+    private function validateTrustedProxies(array $proxies): void
+    {
+        foreach ($proxies as $entry) {
+            if (!is_string($entry)) {
+                throw new \InvalidArgumentException(
+                    'Each trusted_proxies entry must be a string (IP or CIDR). Got: ' . get_debug_type($entry),
+                );
+            }
+
+            if ($entry === '*' || $entry === 'REMOTE_ADDR') {
+                throw new \InvalidArgumentException(
+                    sprintf('Wildcard trusted proxy "%s" trusts all connecting IPs, enabling X-Forwarded-For spoofing. '
+                        . 'List your actual proxy IPs/CIDRs instead.', $entry),
+                );
+            }
+
+            if (str_contains($entry, '/')) {
+                [$network, $prefix] = explode('/', $entry, 2);
+                $prefixLen = (int) $prefix;
+
+                $isV6 = filter_var($network, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
+                $isV4 = filter_var($network, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4);
+
+                if (!$isV4 && !$isV6) {
+                    throw new \InvalidArgumentException(
+                        sprintf('Invalid CIDR in trusted_proxies: "%s" — network address is not a valid IP.', $entry),
+                    );
+                }
+
+                $minPrefix = $isV6 ? 16 : 8;
+                if ($prefixLen < $minPrefix) {
+                    throw new \InvalidArgumentException(
+                        sprintf(
+                            'Overly broad CIDR in trusted_proxies: "%s" (prefix /%d < minimum /%d). '
+                            . 'This would trust too many IPs, enabling X-Forwarded-For spoofing.',
+                            $entry,
+                            $prefixLen,
+                            $minPrefix,
+                        ),
+                    );
+                }
+            } elseif (!filter_var($entry, FILTER_VALIDATE_IP)) {
+                throw new \InvalidArgumentException(
+                    sprintf('Invalid IP in trusted_proxies: "%s" — must be a valid IPv4/IPv6 address or CIDR.', $entry),
+                );
+            }
+        }
+    }
+
+    private function getLogger(): ?LoggerInterface
+    {
+        try {
+            if ($this->container?->has(LoggerInterface::class)) {
+                return $this->container->get(LoggerInterface::class);
+            }
+        } catch (\Throwable) {
+        }
+        return null;
     }
 
     private function getRequest(): Request

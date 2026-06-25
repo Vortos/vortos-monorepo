@@ -9,7 +9,7 @@ use Vortos\Auth\Contract\TokenStorageInterface;
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Exception\TokenExpiredException;
 use Vortos\Auth\Exception\TokenInvalidException;
-use Vortos\Auth\Exception\TokenRevokedException;
+use Vortos\Auth\Exception\TokenReusedException;
 use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Auth\Session\SessionEnforcer;
 
@@ -21,7 +21,8 @@ use Vortos\Auth\Session\SessionEnforcer;
  * Standard JWT: header.payload.signature (base64url encoded, dot-separated)
  *
  * Access token payload:
- *   iss            — issuer (app name)
+ *   iss            — issuer (app/org name)
+ *   aud            — audience (intended recipient service)
  *   sub            — user ID
  *   iat            — issued at (Unix timestamp)
  *   exp            — expires at (Unix timestamp)
@@ -32,6 +33,7 @@ use Vortos\Auth\Session\SessionEnforcer;
  *
  * Refresh token payload:
  *   iss   — issuer
+ *   aud   — audience
  *   sub   — user ID
  *   iat   — issued at
  *   exp   — expires at
@@ -46,7 +48,8 @@ use Vortos\Auth\Session\SessionEnforcer;
  *      keep validating until they expire (zero-downtime key rotation).
  *   2. Expiry check (exp claim vs current time)
  *   3. Issuer check (iss claim vs configured issuer)
- *   4. Revocation check (jti not in blacklist via TokenStorageInterface)
+ *   4. Audience check (aud claim vs configured audience — prevents cross-service token confusion)
+ *   5. Revocation check (jti not in blacklist via TokenStorageInterface)
  *
  * ## Session limiting
  *
@@ -83,6 +86,7 @@ final class JwtService
 
         $accessPayload = [
             'iss'           => $this->config->issuer,
+            'aud'           => $this->config->audience,
             'sub'           => $identity->id(),
             'iat'           => $now,
             'exp'           => $accessExpiresAt,
@@ -97,6 +101,7 @@ final class JwtService
 
         $refreshPayload = [
             'iss'  => $this->config->issuer,
+            'aud'  => $this->config->audience,
             'sub'  => $identity->id(),
             'iat'  => $now,
             'exp'  => $refreshExpiresAt,
@@ -146,6 +151,10 @@ final class JwtService
             throw new TokenInvalidException('Token issuer is invalid.');
         }
 
+        if (($payload['aud'] ?? '') !== $this->config->audience) {
+            throw new TokenInvalidException('Token audience is invalid.');
+        }
+
         return new ValidatedToken(
             identity: new UserIdentity(
                 id: $payload['sub'],
@@ -153,20 +162,25 @@ final class JwtService
                 attributes: $this->identityAttributes($payload),
             ),
             authzVersion: (int) ($payload['authz_version'] ?? 0),
+            issuedAt: (int) ($payload['iat'] ?? 0),
         );
     }
 
     /**
      * Use a refresh token to issue a new access + refresh token pair.
      *
-     * Validates the refresh token, revokes it, removes its session entry,
-     * and issues a fresh pair. The old refresh token cannot be reused.
+     * Validates the refresh token, atomically consumes it, removes its session
+     * entry, and issues a fresh pair. The old refresh token cannot be reused.
+     *
+     * If a validly-signed, non-expired refresh token has already been consumed,
+     * this is treated as credential theft: all tokens for the user are revoked
+     * and a TokenReusedException is thrown (RFC 6819 §5.2.2.3).
      *
      * @param int $authzVersion Current authorization cache version for the user.
      *
      * @throws TokenInvalidException  If refresh token is malformed
      * @throws TokenExpiredException  If refresh token has expired
-     * @throws TokenRevokedException  If refresh token was already used or revoked
+     * @throws TokenReusedException   If refresh token was already consumed or revoked (breach detection)
      */
     public function refresh(string $refreshToken, UserIdentityInterface $identity, int $authzVersion = 0): JwtToken
     {
@@ -186,14 +200,30 @@ final class JwtService
             throw new TokenInvalidException('Token issuer is invalid.');
         }
 
-        $jti = $payload['jti'] ?? null;
-
-        if ($jti === null || !$this->tokenStorage->isValid($jti)) {
-            throw new TokenRevokedException('Refresh token has been revoked.');
+        if (($payload['aud'] ?? '') !== $this->config->audience) {
+            throw new TokenInvalidException('Token audience is invalid.');
         }
 
-        $this->tokenStorage->revoke($jti);
-        $this->sessionEnforcer?->removeSession($payload['sub'], $jti);
+        $jti = $payload['jti'] ?? null;
+        $sub = $payload['sub'];
+
+        if ($jti === null) {
+            throw new TokenInvalidException('Refresh token missing jti claim.');
+        }
+
+        $consumedUserId = $this->tokenStorage->consume($jti);
+
+        if ($consumedUserId === null) {
+            // Token was validly signed and not expired, but already consumed.
+            // This is a refresh token reuse — treat as credential theft.
+            $this->tokenStorage->revokeAllForUser($sub);
+            $this->sessionEnforcer?->clearAllSessions($sub);
+            throw new TokenReusedException(
+                'Refresh token has already been used. All sessions for this user have been revoked as a security precaution.'
+            );
+        }
+
+        $this->sessionEnforcer?->removeSession($sub, $jti);
 
         return $this->issue($identity, $authzVersion);
     }
@@ -232,6 +262,10 @@ final class JwtService
 
         if (($payload['iss'] ?? '') !== $this->config->issuer) {
             throw new TokenInvalidException('Token issuer is invalid.');
+        }
+
+        if (($payload['aud'] ?? '') !== $this->config->audience) {
+            throw new TokenInvalidException('Token audience is invalid.');
         }
 
         return $payload['sub'];

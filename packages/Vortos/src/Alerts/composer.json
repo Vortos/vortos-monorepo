@@ -1,0 +1,40 @@
+{
+    "name": "vortos/vortos-alerts",
+    "description": "Vortos Alerts — agnostic notifier port, severity routing, dedupe/flap-damper, escalation + on-call, HMAC-signed acknowledgements, and time-boxed maintenance silences. In-core Slack/Telegram/webhook drivers (plain HTTP), SES via vortos-aws-ses. Alert rules are declared config validated at deploy:doctor time.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Alerts\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "psr/clock": "^1.0",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-ops-kit": "^1.0",
+        "vortos/vortos-observability": "^1.0",
+        "symfony/console": "^7.0 || ^8.0",
+        "symfony/dependency-injection": "^7.0 || ^8.0",
+        "guzzlehttp/guzzle": "^7.0"
+    },
+    "suggest": {
+        "vortos/vortos-deploy": "Optional: turns a DeployFailed/DeployRefused audit event into an AlertEvent and registers the alerts:rules doctor check. Alerts never depends on Deploy at build time — guarded by class_exists().",
+        "vortos/vortos-backup": "Optional: turns a backup.failed/backup.integrity_failed event into a Critical AlertEvent.",
+        "vortos/vortos-health": "Optional: reads HealthProbeRegistry results for HealthProbeFailing/ResourceExhaustion/CertNearExpiry rules, and UptimeMonitorRegistry status for the synthetic-uptime detector (Block 18).",
+        "vortos/vortos-aws-ses": "Optional: the 'ses' notifier driver is a thin adapter over vortos-aws-ses's ImmediateMailer.",
+        "vortos/vortos-secrets": "Recommended: off-host custody for the ack-token HMAC key and channel destination secrets.",
+        "vortos/vortos-alerts-pagerduty": "Split paging driver (order 171) — implements NotifierInterface, zero upstream change.",
+        "vortos/vortos-alerts-opsgenie": "Split paging driver (order 172) — implements NotifierInterface, zero upstream change.",
+        "doctrine/dbal": "Required for the default DBAL-backed dedupe/escalation/ack state store and notification audit ledger."
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Alerts\\DependencyInjection\\AlertsPackage",
+            "order": 170
+        }
+    }
+}

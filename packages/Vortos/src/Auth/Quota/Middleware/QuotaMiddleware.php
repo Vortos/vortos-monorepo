@@ -17,8 +17,10 @@ use Vortos\Auth\Quota\Exception\QuotaStoreUnavailableException;
 use Vortos\Auth\Quota\Exception\QuotaSubjectNotResolvedException;
 use Vortos\Auth\Quota\QuotaConsumeResult;
 use Vortos\Auth\Quota\QuotaFailureMode;
+use Vortos\Auth\Quota\QuotaPeriod;
 use Vortos\Auth\Quota\QuotaRule;
-use Vortos\Auth\Quota\Storage\RedisQuotaStore;
+use Vortos\Auth\Quota\QuotaSubjectProvenance;
+use Vortos\Auth\Quota\Contract\QuotaStoreInterface;
 use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Observability\Telemetry\FrameworkMetric;
 use Vortos\Observability\Telemetry\FrameworkMetricLabels;
@@ -45,13 +47,14 @@ final class QuotaMiddleware implements MiddlewareInterface
      */
     public function __construct(
         private CurrentUserProvider $currentUser,
-        private RedisQuotaStore $store,
+        private QuotaStoreInterface $store,
         private array $routeMap,
         private array $policies,
         private array $resolvers,
         private QuotaFailureMode $failureMode = QuotaFailureMode::FailClosed,
         private bool $headersEnabled = true,
         private bool $problemDetailsEnabled = true,
+        private bool $compensateOnServerError = true,
         private ?FrameworkTelemetry $telemetry = null,
         private ?LoggerInterface $logger = null,
         private ?TracingInterface $tracer = null,
@@ -66,10 +69,10 @@ final class QuotaMiddleware implements MiddlewareInterface
         }
 
         $identity = $this->currentUser->get();
+        $isAuthenticated = $identity->isAuthenticated();
 
-        if (!$identity->isAuthenticated()) {
-            return $next($request);
-        }
+        /** @var list<array{bucket: string, subjectId: string, quota: string, period: QuotaPeriod, cost: int}> */
+        $consumed = [];
 
         foreach ($this->routeMap[$controller] as $rule) {
             $resolver = $this->resolvers[$rule['by']] ?? null;
@@ -82,6 +85,26 @@ final class QuotaMiddleware implements MiddlewareInterface
                     'The quota subject resolver is not available.',
                     ['quota_name' => $rule['quota'], 'resolver' => $rule['by']],
                 );
+            }
+
+            if ($resolver->provenance() === QuotaSubjectProvenance::ClaimDerived) {
+                $this->logger?->error('quota.unsafe_subject_provenance', [
+                    'quota' => $rule['quota'],
+                    'resolver' => $rule['by'],
+                ]);
+
+                return $this->problemResponse(
+                    $request,
+                    Response::HTTP_INTERNAL_SERVER_ERROR,
+                    'https://docs.vortos.dev/errors/quota-unsafe-provenance',
+                    'Quota Configuration Error',
+                    'Quota subject resolver uses claim-derived provenance which is not permitted.',
+                    ['quota_name' => $rule['quota'], 'resolver' => $rule['by']],
+                );
+            }
+
+            if ($resolver->requiresAuthentication() && !$isAuthenticated) {
+                continue;
             }
 
             $bucket = $resolver->bucket();
@@ -190,12 +213,24 @@ final class QuotaMiddleware implements MiddlewareInterface
                 );
             }
 
+            $consumed[] = [
+                'bucket' => $bucket,
+                'subjectId' => $subjectId,
+                'quota' => $rule['quota'],
+                'period' => $mostRestrictive->period,
+                'cost' => $rule['cost'],
+            ];
+
             $labels = $this->quotaLabels($rule['quota'], $bucket, $mostRestrictive->period->value, $controller);
             $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::QuotaAllowedTotal, $labels);
             $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::QuotaConsumedTotal, $labels, $rule['cost']);
         }
 
         $response = $next($request);
+
+        if ($this->compensateOnServerError && $response->getStatusCode() >= 500 && $consumed !== []) {
+            $this->compensateConsumed($consumed, $controller);
+        }
 
         if ($this->headersEnabled) {
             $headers = $request->attributes->get('_quota_headers');
@@ -208,6 +243,34 @@ final class QuotaMiddleware implements MiddlewareInterface
         }
 
         return $response;
+    }
+
+    /**
+     * @param list<array{bucket: string, subjectId: string, quota: string, period: QuotaPeriod, cost: int}> $consumed
+     */
+    private function compensateConsumed(array $consumed, string $controller): void
+    {
+        foreach ($consumed as $entry) {
+            try {
+                $this->store->compensate(
+                    bucket: $entry['bucket'],
+                    subjectId: $entry['subjectId'],
+                    quota: $entry['quota'],
+                    period: $entry['period'],
+                    cost: $entry['cost'],
+                );
+
+                $labels = $this->quotaLabels($entry['quota'], $entry['bucket'], $entry['period']->value, $controller);
+                $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::QuotaConsumedTotal, $labels, -$entry['cost']);
+            } catch (\Throwable $e) {
+                $this->logger?->warning('quota.compensate_failed', [
+                    'quota' => $entry['quota'],
+                    'bucket' => $entry['bucket'],
+                    'cost' => $entry['cost'],
+                    'exception' => $e::class,
+                ]);
+            }
+        }
     }
 
     private function quotaLabels(string $quota, string $bucket, string $period, string $controller): FrameworkMetricLabels

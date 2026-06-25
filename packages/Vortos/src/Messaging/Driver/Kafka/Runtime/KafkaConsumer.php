@@ -26,6 +26,7 @@ use RdKafka\KafkaConsumer as RdKafkaConsumer;
 final class KafkaConsumer implements ConsumerInterface
 {
     private bool $running = false;
+    private bool $draining = false;
 
     public function __construct(
         private RdKafkaConsumer $rdConsumer,
@@ -38,6 +39,7 @@ final class KafkaConsumer implements ConsumerInterface
     public function consume(string $consumerName, callable $handler): void
     {
         $this->running = true;
+        $this->draining = false;
 
         $this->rdConsumer->subscribe($this->topics);
 
@@ -46,7 +48,7 @@ final class KafkaConsumer implements ConsumerInterface
 
             if ($rdMessage->err === RD_KAFKA_RESP_ERR_NO_ERROR) {
                 $this->tracer?->extractContext($rdMessage->headers ?? []);
-          
+
                 $handler(
                     KafkaMessage::fromRdKafkaMessage($rdMessage)
                         ->toReceivedMessage($consumerName)
@@ -69,11 +71,21 @@ final class KafkaConsumer implements ConsumerInterface
                 ]);
             }
         }
+
+        if ($this->draining) {
+            $this->flushSyncCommit();
+        }
     }
 
     public function stop(): void
     {
+        $this->draining = true;
         $this->running = false;
+    }
+
+    public function isDraining(): bool
+    {
+        return $this->draining;
     }
 
     public function acknowledge(ReceivedMessage $message): void
@@ -92,7 +104,7 @@ final class KafkaConsumer implements ConsumerInterface
         $this->commit();
     }
 
-    private function commit($message_or_offsets = null):void
+    private function commit($message_or_offsets = null): void
     {
         if ($this->asyncCommit) {
             $this->rdConsumer->commitAsync($message_or_offsets);
@@ -101,5 +113,18 @@ final class KafkaConsumer implements ConsumerInterface
         }
     }
 
-    
+    private function flushSyncCommit(): void
+    {
+        try {
+            $this->rdConsumer->commit();
+            $this->logger->info('Drain: final synchronous offset commit completed.');
+        } catch (\RdKafka\Exception $e) {
+            if ($e->getCode() === RD_KAFKA_RESP_ERR__NO_OFFSET) {
+                return;
+            }
+            $this->logger->warning('Drain: final offset commit failed — message may be redelivered (safe via inbox).', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
 }

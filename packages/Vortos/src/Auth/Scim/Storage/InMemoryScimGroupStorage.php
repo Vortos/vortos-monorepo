@@ -11,15 +11,17 @@ final class InMemoryScimGroupStorage implements ScimGroupStorageInterface
     /** @var array<string, ScimGroup> */
     private array $groups = [];
 
-    public function findById(string $id): ?ScimGroup
+    public function findById(string $tenantId, string $id): ?ScimGroup
     {
-        return $this->groups[$id] ?? null;
+        $group = $this->groups[$id] ?? null;
+
+        return $group !== null && $group->tenantId === $tenantId ? $group : null;
     }
 
-    public function findByExternalId(string $externalId): ?ScimGroup
+    public function findByExternalId(string $tenantId, string $externalId): ?ScimGroup
     {
         foreach ($this->groups as $group) {
-            if ($group->externalId === $externalId) {
+            if ($group->tenantId === $tenantId && $group->externalId === $externalId) {
                 return $group;
             }
         }
@@ -27,9 +29,12 @@ final class InMemoryScimGroupStorage implements ScimGroupStorageInterface
         return null;
     }
 
-    public function list(?string $filter = null, int $startIndex = 1, int $count = 100): array
+    public function list(string $tenantId, ?string $filter = null, int $startIndex = 1, int $count = 100): array
     {
-        $all = array_values($this->groups);
+        $all = array_values(array_filter(
+            $this->groups,
+            static fn(ScimGroup $g) => $g->tenantId === $tenantId,
+        ));
 
         if ($filter !== null && preg_match('/^displayName\s+eq\s+"?([^"]*)"?$/i', trim($filter), $m)) {
             $all = array_values(array_filter(
@@ -49,8 +54,11 @@ final class InMemoryScimGroupStorage implements ScimGroupStorageInterface
         $this->groups[$group->id] = $group;
     }
 
-    public function delete(string $id): void
+    public function delete(string $tenantId, string $id): void
     {
-        unset($this->groups[$id]);
+        $group = $this->groups[$id] ?? null;
+        if ($group !== null && $group->tenantId === $tenantId) {
+            unset($this->groups[$id]);
+        }
     }
 }

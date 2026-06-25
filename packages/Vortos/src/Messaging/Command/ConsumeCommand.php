@@ -36,7 +36,8 @@ final class ConsumeCommand extends Command
             ->addArgument('consumer', InputArgument::REQUIRED, 'The consumer name to run')
             ->addOption('timeout', 't', InputOption::VALUE_OPTIONAL, 'Stop after N seconds (0 = run forever)', 0)
             ->addOption('max-messages', null, InputOption::VALUE_OPTIONAL, 'Stop after processing N messages (0 = unlimited)', 0)
-            ->addOption('tail', null, InputOption::VALUE_NONE, 'Print live message activity to the terminal (dev only)');
+            ->addOption('tail', null, InputOption::VALUE_NONE, 'Print live message activity to the terminal (dev only)')
+            ->addOption('drain-deadline', null, InputOption::VALUE_OPTIONAL, 'Drain deadline in seconds (force-exit on overrun)', null);
     }
 
     public function execute(InputInterface $input, OutputInterface $output): int
@@ -45,13 +46,31 @@ final class ConsumeCommand extends Command
         $timeout      = max(0, min((int) $input->getOption('timeout'), 86400));
         $maxMessages  = max(0, min((int) $input->getOption('max-messages'), 1_000_000));
 
+        $drainDeadline = $input->getOption('drain-deadline');
+        if ($drainDeadline === null) {
+            $drainDeadline = (int) (getenv('VORTOS_DRAIN_DEADLINE') ?: 25);
+        } else {
+            $drainDeadline = max(1, min((int) $drainDeadline, 3600));
+        }
+
         if (extension_loaded('pcntl')) {
             pcntl_async_signals(true);
-            pcntl_signal(SIGTERM, fn() => $this->consumerRunner->stop());
+
+            pcntl_signal(SIGTERM, function () use ($output, $drainDeadline): void {
+                $this->consumerRunner->stop();
+                if ($drainDeadline > 0) {
+                    pcntl_alarm($drainDeadline);
+                    $output->writeln(sprintf('<comment>SIGTERM received — draining (deadline %ds)</comment>', $drainDeadline));
+                }
+            });
             pcntl_signal(SIGINT, fn() => $this->consumerRunner->stop());
 
+            pcntl_signal(SIGALRM, static function () use ($output): void {
+                $output->writeln('<error>Drain deadline exceeded — force-exiting (message will be redelivered safely via inbox)</error>');
+                exit(143);
+            });
+
             if ($timeout > 0) {
-                pcntl_signal(SIGALRM, fn() => $this->consumerRunner->stop());
                 pcntl_alarm($timeout);
                 $output->writeln("<comment>Timeout set to {$timeout}s</comment>");
             }

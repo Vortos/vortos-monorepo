@@ -17,5 +17,6 @@ final readonly class ValidatedToken
     public function __construct(
         public UserIdentityInterface $identity,
         public int $authzVersion,
+        public int $issuedAt = 0,
     ) {}
 }

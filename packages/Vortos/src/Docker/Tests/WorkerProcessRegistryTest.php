@@ -33,4 +33,33 @@ final class WorkerProcessRegistryTest extends TestCase
         $this->assertCount(1, $selected);
         $this->assertSame('b', $selected[0]->name);
     }
+
+    public function test_max_drain_deadline_returns_max(): void
+    {
+        $registry = new WorkerProcessRegistry([
+            new WorkerProcessDefinition('a', 'cmd-a', 'A.', drainDeadline: 10),
+            new WorkerProcessDefinition('b', 'cmd-b', 'B.', drainDeadline: 40, stopwaitsecs: 50),
+            new WorkerProcessDefinition('c', 'cmd-c', 'C.', drainDeadline: 25),
+        ]);
+
+        $this->assertSame(40, $registry->maxDrainDeadline());
+    }
+
+    public function test_max_drain_deadline_empty_returns_zero(): void
+    {
+        $registry = new WorkerProcessRegistry();
+
+        $this->assertSame(0, $registry->maxDrainDeadline());
+    }
+
+    public function test_is_empty(): void
+    {
+        $empty = new WorkerProcessRegistry();
+        $this->assertTrue($empty->isEmpty());
+
+        $nonEmpty = new WorkerProcessRegistry([
+            new WorkerProcessDefinition('a', 'cmd-a', 'A.'),
+        ]);
+        $this->assertFalse($nonEmpty->isEmpty());
+    }
 }

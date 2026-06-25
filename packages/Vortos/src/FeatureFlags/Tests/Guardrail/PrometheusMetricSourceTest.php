@@ -99,6 +99,71 @@ final class PrometheusMetricSourceTest extends TestCase
         return $response;
     }
 
+    public function test_exposure_rate_drop_query_filters_by_variant_when_given(): void
+    {
+        $capturedUrl = null;
+
+        $factory = $this->createMock(RequestFactoryInterface::class);
+        $factory->method('createRequest')
+            ->with('GET', $this->callback(function (string $url) use (&$capturedUrl): bool {
+                $capturedUrl = $url;
+
+                return true;
+            }))
+            ->willReturn($this->createMock(RequestInterface::class));
+
+        $client = $this->createMock(ClientInterface::class);
+        $client->method('sendRequest')->willReturn($this->response(200, json_encode([
+            'status' => 'success',
+            'data'   => ['result' => [['value' => [1718000000, '0']]]],
+        ])));
+
+        $source = new PrometheusGuardrailMetricSource($client, $factory, 'http://prom:9090');
+        $source->query(new GuardrailMetricQuery(
+            GuardrailMetricKind::ExposureRateDrop,
+            'drop-email-old',
+            'production',
+            3600,
+            variant: 'legacy',
+        ));
+
+        self::assertNotNull($capturedUrl);
+        self::assertStringContainsString('variant%3D%22legacy%22', $capturedUrl);
+        // No env label exists on vortos_flags_exposures_total — must never be emitted.
+        self::assertStringNotContainsString('env%3D', $capturedUrl);
+    }
+
+    public function test_exposure_rate_drop_query_without_variant_has_no_variant_filter(): void
+    {
+        $capturedUrl = null;
+
+        $factory = $this->createMock(RequestFactoryInterface::class);
+        $factory->method('createRequest')
+            ->with('GET', $this->callback(function (string $url) use (&$capturedUrl): bool {
+                $capturedUrl = $url;
+
+                return true;
+            }))
+            ->willReturn($this->createMock(RequestInterface::class));
+
+        $client = $this->createMock(ClientInterface::class);
+        $client->method('sendRequest')->willReturn($this->response(200, json_encode([
+            'status' => 'success',
+            'data'   => ['result' => [['value' => [1718000000, '0']]]],
+        ])));
+
+        $source = new PrometheusGuardrailMetricSource($client, $factory, 'http://prom:9090');
+        $source->query(new GuardrailMetricQuery(
+            GuardrailMetricKind::ExposureRateDrop,
+            'drop-email-old',
+            'production',
+            3600,
+        ));
+
+        self::assertNotNull($capturedUrl);
+        self::assertStringNotContainsString('variant%3D', $capturedUrl);
+    }
+
     private function query(): GuardrailMetricQuery
     {
         return new GuardrailMetricQuery(GuardrailMetricKind::ErrorRate, 'checkout', 'production', 300);

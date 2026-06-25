@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\FeatureFlags\Exposure;
 
+use Throwable;
 use Vortos\FeatureFlags\FeatureFlag;
 use Vortos\FeatureFlags\Metrics\FlagEvaluationMetrics;
 use Vortos\FeatureFlags\Storage\FlagStorageInterface;
@@ -20,12 +21,21 @@ use Vortos\FeatureFlags\Storage\FlagStorageInterface;
  *  - **Dedup:** the SDK already dedupes client-side; we defensively dedupe within a request
  *    by `(contextKey, flag, variant)` so a single POST cannot inflate counts. The context
  *    fingerprint is a dedup *key only* — it is never emitted as a label.
+ *
+ * ## Observers (Block 25, additive)
+ *
+ * After an exposure is **accepted** (the guards above already ran), every
+ * {@see ExposureObserverInterface} is notified inside a try/catch that swallows
+ * failures — an observer can never break ingestion. Default is an empty iterable,
+ * so existing behavior is unchanged when none are wired.
  */
 final class ExposureIngestService
 {
+    /** @param iterable<ExposureObserverInterface> $observers */
     public function __construct(
         private readonly FlagStorageInterface $storage,
         private readonly FlagEvaluationMetrics $metrics,
+        private readonly iterable $observers = [],
     ) {}
 
     /**
@@ -50,10 +60,22 @@ final class ExposureIngestService
             $seen[$dedupeKey] = true;
 
             $this->metrics->exposure($event->name, $event->variant);
+            $this->notifyObservers($event->name, $event->variant, $contextKey);
             $accepted++;
         }
 
         return $accepted;
+    }
+
+    private function notifyObservers(string $flag, ?string $variant, string $contextKey): void
+    {
+        foreach ($this->observers as $observer) {
+            try {
+                $observer->onExposure($flag, $variant, $contextKey);
+            } catch (Throwable) {
+                // Intentionally swallowed: an observer can never break ingestion.
+            }
+        }
     }
 
     /**

@@ -7,7 +7,7 @@ namespace Vortos\Auth\Tests;
 use PHPUnit\Framework\TestCase;
 use Vortos\Auth\Exception\TokenExpiredException;
 use Vortos\Auth\Exception\TokenInvalidException;
-use Vortos\Auth\Exception\TokenRevokedException;
+use Vortos\Auth\Exception\TokenReusedException;
 use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Auth\Jwt\JwtConfig;
@@ -28,6 +28,7 @@ final class JwtServiceTest extends TestCase
             accessTokenTtl: 900,
             refreshTokenTtl: 604800,
             issuer: 'test',
+            audience: 'test',
         );
         $this->tokenStorage = new InMemoryTokenStorage();
         $this->jwtService = new JwtService($this->config, $this->tokenStorage);
@@ -165,6 +166,73 @@ final class JwtServiceTest extends TestCase
         $this->assertArrayNotHasKey('attrs', $payload);
     }
 
+    public function test_issue_includes_aud_claim_in_access_token(): void
+    {
+        $identity = new UserIdentity('user-1', []);
+        $token = $this->jwtService->issue($identity);
+
+        $parts = explode('.', $token->accessToken);
+        $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+
+        $this->assertSame('test', $payload['aud']);
+    }
+
+    public function test_issue_includes_aud_claim_in_refresh_token(): void
+    {
+        $identity = new UserIdentity('user-1', []);
+        $token = $this->jwtService->issue($identity);
+
+        $parts = explode('.', $token->refreshToken);
+        $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+
+        $this->assertSame('test', $payload['aud']);
+    }
+
+    public function test_validate_rejects_token_with_wrong_audience(): void
+    {
+        $issuerConfig = JwtConfig::fromSecret(
+            secret: 'test-secret-for-unit-tests-only-not-for-production-xxxxxxxxxxxxx',
+            issuer: 'test',
+            audience: 'service-a',
+        );
+        $issuerService = new JwtService($issuerConfig, $this->tokenStorage);
+        $token = $issuerService->issue(new UserIdentity('user-1', []));
+
+        $validatorConfig = JwtConfig::fromSecret(
+            secret: 'test-secret-for-unit-tests-only-not-for-production-xxxxxxxxxxxxx',
+            issuer: 'test',
+            audience: 'service-b',
+        );
+        $validatorService = new JwtService($validatorConfig, $this->tokenStorage);
+
+        $this->expectException(TokenInvalidException::class);
+        $this->expectExceptionMessage('audience');
+        $validatorService->validate($token->accessToken);
+    }
+
+    public function test_refresh_rejects_token_with_wrong_audience(): void
+    {
+        $issuerConfig = JwtConfig::fromSecret(
+            secret: 'test-secret-for-unit-tests-only-not-for-production-xxxxxxxxxxxxx',
+            issuer: 'test',
+            audience: 'service-a',
+        );
+        $issuerService = new JwtService($issuerConfig, $this->tokenStorage);
+        $identity = new UserIdentity('user-1', []);
+        $token = $issuerService->issue($identity);
+
+        $validatorConfig = JwtConfig::fromSecret(
+            secret: 'test-secret-for-unit-tests-only-not-for-production-xxxxxxxxxxxxx',
+            issuer: 'test',
+            audience: 'service-b',
+        );
+        $validatorService = new JwtService($validatorConfig, $this->tokenStorage);
+
+        $this->expectException(TokenInvalidException::class);
+        $this->expectExceptionMessage('audience');
+        $validatorService->refresh($token->refreshToken, $identity);
+    }
+
     public function test_validate_throws_on_invalid_signature(): void
     {
         $identity = new UserIdentity('user-1', []);
@@ -246,16 +314,35 @@ final class JwtServiceTest extends TestCase
         $this->assertSame(5, $result->authzVersion);
     }
 
-    public function test_refresh_revokes_old_refresh_token(): void
+    public function test_refresh_reuse_throws_token_reused_exception(): void
     {
         $identity = new UserIdentity('user-1', []);
         $original = $this->jwtService->issue($identity);
 
         $this->jwtService->refresh($original->refreshToken, $identity);
 
-        // Old refresh token should now be revoked
-        $this->expectException(TokenRevokedException::class);
+        $this->expectException(TokenReusedException::class);
         $this->jwtService->refresh($original->refreshToken, $identity);
+    }
+
+    public function test_refresh_reuse_revokes_all_user_tokens(): void
+    {
+        $identity = new UserIdentity('user-1', []);
+        $token1 = $this->jwtService->issue($identity);
+        $token2 = $this->jwtService->issue($identity);
+
+        $this->jwtService->refresh($token1->refreshToken, $identity);
+
+        try {
+            $this->jwtService->refresh($token1->refreshToken, $identity);
+            $this->fail('Expected TokenReusedException');
+        } catch (TokenReusedException) {
+            // expected
+        }
+
+        // token2 should also be revoked as a breach response
+        $this->expectException(TokenReusedException::class);
+        $this->jwtService->refresh($token2->refreshToken, $identity);
     }
 
     public function test_refresh_throws_on_expired_refresh_token(): void
@@ -295,7 +382,7 @@ final class JwtServiceTest extends TestCase
 
         $this->jwtService->revokeAll('user-1');
 
-        $this->expectException(TokenRevokedException::class);
+        $this->expectException(TokenReusedException::class);
         $this->jwtService->refresh($token1->refreshToken, $identity);
     }
 

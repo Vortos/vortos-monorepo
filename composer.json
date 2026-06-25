@@ -72,8 +72,24 @@
       "Vortos\\ObjectStore\\": "packages/Vortos/src/ObjectStore/",
       "Vortos\\Paddle\\": "packages/Vortos/src/Paddle/",
       "Vortos\\Iac\\": "packages/Vortos/src/Iac/",
-      "Vortos\\Tenant\\": "packages/Vortos/src/Tenant/"
-    }
+      "Vortos\\Tenant\\": "packages/Vortos/src/Tenant/",
+      "Vortos\\OpsKit\\": "packages/Vortos/src/OpsKit/",
+      "Vortos\\Health\\": "packages/Vortos/src/Health/",
+      "Vortos\\Release\\": "packages/Vortos/src/Release/",
+      "Vortos\\Secrets\\": "packages/Vortos/src/Secrets/",
+      "Vortos\\Deploy\\": "packages/Vortos/src/Deploy/",
+      "Vortos\\Backup\\": "packages/Vortos/src/Backup/",
+      "Vortos\\Pipeline\\": "packages/Vortos/src/Pipeline/",
+      "Vortos\\Alerts\\": "packages/Vortos/src/Alerts/",
+      "Vortos\\Analytics\\": "packages/Vortos/src/Analytics/",
+      "Vortos\\AnalyticsPosthog\\": "packages/Vortos/src/AnalyticsPosthog/",
+      "Vortos\\DeployK8s\\": "packages/Vortos/src/DeployK8s/"
+    },
+    "exclude-from-classmap": [
+      "packages/Vortos/src/OpsKit/Tests/Fixtures/Lint/",
+      "packages/Vortos/src/Health/Tests/Fixtures/",
+      "packages/Vortos/src/Release/Tests/Fixtures/"
+    ]
   },
   "autoload-dev": {
     "psr-4": {}
@@ -87,6 +103,12 @@
     ],
     "post-update-cmd": [
       "php tools/link-packages.php"
-    ]
+    ],
+    "analyse": "phpstan analyse --memory-limit=2G",
+    "analyse:baseline": "phpstan analyse --generate-baseline=phpstan-baseline.neon --memory-limit=2G --allow-empty-baseline"
+  },
+  "scripts-descriptions": {
+    "analyse": "Run PHPStan static analysis (level 6, production code) — run inside the backend Docker container",
+    "analyse:baseline": "Regenerate the PHPStan baseline of pre-existing findings"
   }
 }

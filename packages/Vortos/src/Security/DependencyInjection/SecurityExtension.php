@@ -22,8 +22,10 @@ use Vortos\Security\Encryption\KeyDerivationService;
 use Vortos\Security\Event\SecurityEventDispatcher;
 use Vortos\Security\Headers\ContentSecurityPolicyBuilder;
 use Vortos\Security\Headers\Middleware\SecurityHeadersMiddleware;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Security\IpFilter\IpResolver;
 use Vortos\Security\IpFilter\Middleware\IpFilterMiddleware;
+use Vortos\Security\Doctor\TrustedProxyDoctorCheck;
 use Vortos\Security\Masking\DataMaskingProcessor;
 use Vortos\Security\Password\Breach\HaveIBeenPwnedBreachCheck;
 use Vortos\Security\Password\PasswordPolicyService;
@@ -36,6 +38,7 @@ use Vortos\Security\Secrets\EnvSecretsProvider;
 use Vortos\Security\Secrets\VaultSecretsProvider;
 use Vortos\Security\Signing\Middleware\RequestSignatureMiddleware;
 use Vortos\Security\Signing\SignatureVerifier;
+use Vortos\Security\SupplyChain\DependencyInjection\SupplyChainExtension;
 
 /**
  * Wires all vortos-security services.
@@ -99,6 +102,8 @@ final class SecurityExtension extends Extension
         $this->registerEncryption($container, $resolved['encryption'], $resolved['secrets']);
         $this->registerDataMasking($container, $resolved['data_masking']);
 
+        (new SupplyChainExtension())->load($container);
+
         $container->register('vortos.config_stub.security', ConfigStub::class)
             ->setArguments(['security', __DIR__ . '/../stubs/security.php'])
             ->addTag(ConfigExtension::STUB_TAG)
@@ -152,6 +157,8 @@ final class SecurityExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
+        $container->setAlias(IpResolverInterface::class, IpResolver::class)->setPublic(false);
+
         $container->register(IpFilterMiddleware::class, IpFilterMiddleware::class)
             ->setArguments([
                 new Reference(IpResolver::class),
@@ -164,6 +171,14 @@ final class SecurityExtension extends Extension
             ->addTag('kernel.event_subscriber')
             ->setShared(true)
             ->setPublic(true);
+
+        $container->register(TrustedProxyDoctorCheck::class, TrustedProxyDoctorCheck::class)
+            ->setArguments([
+                $resolved['trusted_proxies'],
+                '%vortos.has_ip_rate_limits%',
+            ])
+            ->setShared(true)
+            ->setPublic(false);
     }
 
     private function registerCsrfMiddleware(ContainerBuilder $container, array $resolved): void
@@ -185,6 +200,7 @@ final class SecurityExtension extends Extension
                 new Reference(SecurityEventDispatcher::class),
                 $resolved['enabled'],
                 [],  // skip controllers — filled by CsrfCompilerPass
+                new Reference(IpResolverInterface::class),
             ])
             ->addTag('kernel.event_subscriber')
             ->setShared(true)
@@ -202,6 +218,7 @@ final class SecurityExtension extends Extension
                 new Reference(SignatureVerifier::class),
                 new Reference(SecurityEventDispatcher::class),
                 [],  // routeMap — filled by RequestSignatureCompilerPass
+                new Reference(IpResolverInterface::class),
             ])
             ->addTag('kernel.event_subscriber')
             ->setShared(true)

@@ -1,0 +1,9 @@
+{
+  "title": "CISA KEV",
+  "catalogVersion": "2024.06.01",
+  "vulnerabilities": [
+    {"cveID": "CVE-2024-0001"},
+    {"cveID": "CVE-2024-0099"},
+    {"cveID": "CVE-2023-9999"}
+  ]
+}

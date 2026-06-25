@@ -14,6 +14,7 @@ final readonly class WorkerProcessDefinition
         public bool $autorestart = true,
         public int $startsecs = 3,
         public int $stopwaitsecs = 30,
+        public int $drainDeadline = 25,
         public int $numprocs = 1,
         public ?string $stdoutLogfile = null,
         public ?string $stderrLogfile = null,
@@ -26,6 +27,20 @@ final readonly class WorkerProcessDefinition
 
         if ($numprocs < 1) {
             throw new \InvalidArgumentException('Worker numprocs must be at least 1.');
+        }
+
+        if ($drainDeadline < 1) {
+            throw new \InvalidArgumentException('Worker drainDeadline must be at least 1 second.');
+        }
+
+        if ($stopwaitsecs < $drainDeadline) {
+            throw new \InvalidArgumentException(sprintf(
+                'Worker "%s": stopwaitsecs (%d) must be >= drainDeadline (%d) — '
+                . 'Supervisor must wait at least as long as the app-side drain deadline.',
+                $name,
+                $stopwaitsecs,
+                $drainDeadline,
+            ));
         }
     }
 
@@ -48,6 +63,7 @@ final readonly class WorkerProcessDefinition
             sprintf('autorestart=%s', $this->autorestart ? 'true' : 'false'),
             sprintf('startsecs=%d', $this->startsecs),
             sprintf('stopwaitsecs=%d', $this->stopwaitsecs),
+            sprintf('; drain_deadline=%ds', $this->drainDeadline),
         ];
 
         if ($this->numprocs > 1) {

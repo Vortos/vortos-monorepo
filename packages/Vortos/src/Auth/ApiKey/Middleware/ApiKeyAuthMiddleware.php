@@ -39,13 +39,18 @@ final class ApiKeyAuthMiddleware implements MiddlewareInterface
 
     public function handle(Request $request, \Closure $next): Response
     {
-        $routeKey = $this->resolveRouteKey($request->attributes->get('_controller'));
+        $rule = null;
+        foreach ($this->resolveRouteKeys($request->attributes->get('_controller')) as $key) {
+            if (isset($this->routeMap[$key])) {
+                $rule = $this->routeMap[$key];
+                break;
+            }
+        }
 
-        if ($routeKey === null || !isset($this->routeMap[$routeKey])) {
+        if ($rule === null) {
             return $next($request);
         }
 
-        $rule           = $this->routeMap[$routeKey];
         $requiredScopes = $rule['scopes'] ?? [];
 
         $authHeader = $request->headers->get('Authorization', '');
@@ -74,18 +79,21 @@ final class ApiKeyAuthMiddleware implements MiddlewareInterface
         return $next($request);
     }
 
-    private function resolveRouteKey(mixed $controller): ?string
+    /** @return list<string> Most-specific first: method-level key, then class-level fallback. */
+    private function resolveRouteKeys(mixed $controller): array
     {
         if (is_string($controller)) {
-            return $controller;
+            $parts = explode('::', $controller);
+            return count($parts) === 2 ? [$controller, $parts[0]] : [$controller];
         }
         if (is_array($controller)) {
             $class = is_object($controller[0]) ? get_class($controller[0]) : $controller[0];
-            return isset($controller[1]) ? $class . '::' . $controller[1] : $class;
+            $full  = isset($controller[1]) ? $class . '::' . $controller[1] : $class;
+            return $full !== $class ? [$full, $class] : [$full];
         }
         if (is_object($controller)) {
-            return get_class($controller);
+            return [get_class($controller)];
         }
-        return null;
+        return [];
     }
 }

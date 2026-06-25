@@ -1,0 +1,391 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Vortos\Backup\DependencyInjection;
+
+use Doctrine\DBAL\Connection;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\DependencyInjection\Reference;
+use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
+use Vortos\Backup\Catalog\BackupCatalogRepositoryInterface;
+use Vortos\Backup\Catalog\CatalogManifestWriter;
+use Vortos\Backup\Catalog\DbalBackupCatalogReadModel;
+use Vortos\Backup\Catalog\DbalBackupCatalogRepository;
+use Vortos\Backup\Console\BackupDrillCommand;
+use Vortos\Backup\Console\BackupDrRunbookCommand;
+use Vortos\Backup\Console\BackupListCommand;
+use Vortos\Backup\Console\BackupReplicateCommand;
+use Vortos\Backup\Console\BackupRestoreCommand;
+use Vortos\Backup\Console\BackupRetentionCommand;
+use Vortos\Backup\Console\BackupRunCommand;
+use Vortos\Backup\Console\BackupScheduleCommand;
+use Vortos\Backup\Console\BackupVerifyCommand;
+use Vortos\Backup\Console\BackupWalArchiveCommand;
+use Vortos\Backup\Crypto\EnvelopeStreamCipher;
+use Vortos\Backup\DependencyInjection\Compiler\CollectBackupEventSinksPass;
+use Vortos\Backup\DependencyInjection\Compiler\CollectBackupStoresPass;
+use Vortos\Backup\DependencyInjection\Compiler\CollectBackupTargetsPass;
+use Vortos\Backup\DependencyInjection\Compiler\CollectInvariantChecksPass;
+use Vortos\Backup\DependencyInjection\Compiler\CollectRestoreTargetsPass;
+use Vortos\Backup\Domain\ObjectLockPolicy;
+use Vortos\Backup\Domain\RetentionPolicy;
+use Vortos\Backup\DR\DrRunbookGenerator;
+use Vortos\Backup\DR\RecoveryObjectives;
+use Vortos\Backup\Drill\Check\ReferentialIntegrityInvariant;
+use Vortos\Backup\Drill\Check\RowCountInvariant;
+use Vortos\Backup\Drill\Check\SmokeQueryInvariant;
+use Vortos\Backup\Drill\DbalDrillReportStore;
+use Vortos\Backup\Drill\DrillEnvironmentProvisionerInterface;
+use Vortos\Backup\Drill\DrillReportStoreInterface;
+use Vortos\Backup\Drill\DrillRunner;
+use Vortos\Backup\Drill\InvariantCheck;
+use Vortos\Backup\Driver\Mongo\MongoBackupTarget;
+use Vortos\Backup\Driver\Mongo\MongoProcessFactory;
+use Vortos\Backup\Driver\ObjectStore\ObjectStoreBackupStore;
+use Vortos\Backup\Driver\Postgres\PostgresBackupTarget;
+use Vortos\Backup\Driver\Postgres\PostgresProcessFactory;
+use Vortos\Backup\Event\BackupEventSinkInterface;
+use Vortos\Backup\Event\CompositeBackupEventSink;
+use Vortos\Backup\Event\LoggingBackupEventSink;
+use Vortos\Backup\Immutability\ImmutabilityVerifier;
+use Vortos\Backup\Immutability\ObjectLockProbe;
+use Vortos\Backup\Pitr\PitrPreflight;
+use Vortos\Backup\Pitr\PostgresWalArchiver;
+use Vortos\Backup\Port\BackupStoreInterface;
+use Vortos\Backup\Port\BackupStoreRegistry;
+use Vortos\Backup\Port\BackupTargetInterface;
+use Vortos\Backup\Port\BackupTargetRegistry;
+use Vortos\Backup\Replication\SecondaryReplicator;
+use Vortos\Backup\Restore\Driver\Mongo\MongoRestoreProcessFactory;
+use Vortos\Backup\Restore\Driver\Mongo\MongoRestoreTarget;
+use Vortos\Backup\Restore\Driver\Postgres\PostgresRestoreProcessFactory;
+use Vortos\Backup\Restore\Driver\Postgres\PostgresRestoreTarget;
+use Vortos\Backup\Restore\RestoreCoordinator;
+use Vortos\Backup\Restore\RestoreTargetInterface;
+use Vortos\Backup\Restore\RestoreTargetRegistry;
+use Vortos\Backup\Schedule\BackupScheduleRegistry;
+use Vortos\Backup\Schedule\CronFragmentGenerator;
+use Vortos\Backup\Service\BackupLock;
+use Vortos\Backup\Service\BackupRunner;
+use Vortos\Backup\Service\EncryptionSeam\EnvelopeStreamTransform;
+use Vortos\Backup\Service\EncryptionSeam\IdentityStreamTransform;
+use Vortos\Backup\Service\EncryptionSeam\StreamTransformInterface;
+use Vortos\Backup\Service\IntegrityVerifier;
+use Vortos\Backup\Service\RetentionEnforcer;
+use Vortos\Backup\Service\SystemClock;
+use Vortos\ObjectStore\Contract\ImmediateObjectStoreInterface;
+use Vortos\Secrets\Key\KeyProviderInterface;
+
+final class BackupExtension extends Extension
+{
+    public function getAlias(): string
+    {
+        return 'vortos_backup';
+    }
+
+    public function load(array $configs, ContainerBuilder $container): void
+    {
+        $projectDir = $container->hasParameter('kernel.project_dir')
+            ? (string) $container->getParameter('kernel.project_dir')
+            : '%kernel.project_dir%';
+
+        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
+            ? (string) $container->getParameter('vortos.db.framework_table_prefix')
+            : 'vortos_';
+        $catalogTable = $prefix . 'backup_catalog';
+        $drillTable = $prefix . 'backup_drill_report';
+
+        $storeKey = (string) ($_ENV['VORTOS_BACKUP_STORE'] ?? 'object-store');
+        $keyPrefix = (string) ($_ENV['VORTOS_BACKUP_KEY_PREFIX'] ?? 'backups');
+        $lockDir = (string) ($_ENV['VORTOS_BACKUP_LOCK_DIR'] ?? ($projectDir . '/var/backup-locks'));
+        $mongoUri = (string) ($_ENV['VORTOS_BACKUP_MONGO_URI'] ?? '');
+        $keyProviderName = (string) ($_ENV['VORTOS_BACKUP_KEY_PROVIDER'] ?? '');
+        $drillDsn = (string) ($_ENV['VORTOS_BACKUP_DRILL_DSN'] ?? '');
+        $secondaryStoreName = (string) ($_ENV['VORTOS_BACKUP_SECONDARY_STORE'] ?? '');
+        $objectLockDays = (int) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_DAYS'] ?? 0);
+        $objectLockMode = (string) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_MODE'] ?? 'compliance');
+        $rpoSeconds = (int) ($_ENV['VORTOS_BACKUP_RPO_SECONDS'] ?? 300);
+        $rtoSeconds = (int) ($_ENV['VORTOS_BACKUP_RTO_SECONDS'] ?? 1800);
+
+        // ── Driver locators + registries ──
+        $container->register(CollectBackupTargetsPass::LOCATOR_ID)
+            ->addTag('container.service_locator')
+            ->setArgument(0, []);
+        $container->register(BackupTargetRegistry::class, BackupTargetRegistry::class)
+            ->setArgument('$drivers', new Reference(CollectBackupTargetsPass::LOCATOR_ID))
+            ->setPublic(false);
+
+        $container->register(CollectBackupStoresPass::LOCATOR_ID)
+            ->addTag('container.service_locator')
+            ->setArgument(0, []);
+        $container->register(BackupStoreRegistry::class, BackupStoreRegistry::class)
+            ->setArgument('$drivers', new Reference(CollectBackupStoresPass::LOCATOR_ID))
+            ->setPublic(false);
+
+        $container->register(CollectRestoreTargetsPass::LOCATOR_ID)
+            ->addTag('container.service_locator')
+            ->setArgument(0, []);
+        $container->register(RestoreTargetRegistry::class, RestoreTargetRegistry::class)
+            ->setArgument('$drivers', new Reference(CollectRestoreTargetsPass::LOCATOR_ID))
+            ->setPublic(false);
+
+        $container->registerForAutoconfiguration(BackupTargetInterface::class)->addTag(CollectBackupTargetsPass::TAG);
+        $container->registerForAutoconfiguration(BackupStoreInterface::class)->addTag(CollectBackupStoresPass::TAG);
+        $container->registerForAutoconfiguration(BackupEventSinkInterface::class)->addTag(CollectBackupEventSinksPass::TAG);
+        $container->registerForAutoconfiguration(RestoreTargetInterface::class)->addTag(CollectRestoreTargetsPass::TAG);
+        $container->registerForAutoconfiguration(InvariantCheck::class)->addTag(CollectInvariantChecksPass::TAG);
+
+        // ── Default backup target drivers ──
+        $container->register(PostgresProcessFactory::class, PostgresProcessFactory::class)
+            ->setArgument('$primary', new Reference(Connection::class))
+            ->setArgument('$replica', null)
+            ->setPublic(false);
+        $container->register(PostgresBackupTarget::class, PostgresBackupTarget::class)
+            ->setArgument('$processes', new Reference(PostgresProcessFactory::class))
+            ->setAutoconfigured(true)
+            ->addTag(CollectBackupTargetsPass::TAG)
+            ->setPublic(false);
+
+        $container->register(MongoProcessFactory::class, MongoProcessFactory::class)
+            ->setArgument('$uri', $mongoUri)
+            ->setPublic(false);
+        $container->register(MongoBackupTarget::class, MongoBackupTarget::class)
+            ->setArgument('$processes', new Reference(MongoProcessFactory::class))
+            ->setAutoconfigured(true)
+            ->addTag(CollectBackupTargetsPass::TAG)
+            ->setPublic(false);
+
+        $container->register(ObjectStoreBackupStore::class, ObjectStoreBackupStore::class)
+            ->setArgument('$objectStore', new Reference(ImmediateObjectStoreInterface::class))
+            ->setAutoconfigured(true)
+            ->addTag(CollectBackupStoresPass::TAG)
+            ->setPublic(false);
+
+        // ── Restore target drivers ──
+        $container->register(PostgresRestoreProcessFactory::class, PostgresRestoreProcessFactory::class)
+            ->setPublic(false);
+        $container->register(PostgresRestoreTarget::class, PostgresRestoreTarget::class)
+            ->setArgument('$processes', new Reference(PostgresRestoreProcessFactory::class))
+            ->addTag(CollectRestoreTargetsPass::TAG)
+            ->setPublic(false);
+
+        $container->register(MongoRestoreProcessFactory::class, MongoRestoreProcessFactory::class)
+            ->setPublic(false);
+        $container->register(MongoRestoreTarget::class, MongoRestoreTarget::class)
+            ->setArgument('$processes', new Reference(MongoRestoreProcessFactory::class))
+            ->addTag(CollectRestoreTargetsPass::TAG)
+            ->setPublic(false);
+
+        // ── Catalog (append-only DBAL) ──
+        $container->register(DbalBackupCatalogRepository::class, DbalBackupCatalogRepository::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $catalogTable)
+            ->setPublic(false);
+        $container->setAlias(BackupCatalogRepositoryInterface::class, DbalBackupCatalogRepository::class)->setPublic(false);
+
+        $container->register(DbalBackupCatalogReadModel::class, DbalBackupCatalogReadModel::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $catalogTable)
+            ->setPublic(false);
+        $container->setAlias(BackupCatalogReadModelInterface::class, DbalBackupCatalogReadModel::class)->setPublic(false);
+
+        // ── Event seam (Block-17-ready) ──
+        $container->register(LoggingBackupEventSink::class, LoggingBackupEventSink::class)
+            ->setArgument('$logger', new Reference(LoggerInterface::class))
+            ->addTag(CollectBackupEventSinksPass::TAG)
+            ->setPublic(false);
+        $container->register(CompositeBackupEventSink::class, CompositeBackupEventSink::class)
+            ->setArgument('$sinks', [])
+            ->setArgument('$logger', new Reference(LoggerInterface::class))
+            ->setPublic(false);
+        $container->setAlias(BackupEventSinkInterface::class, CompositeBackupEventSink::class)->setPublic(false);
+
+        // ── Core services ──
+        $container->register(SystemClock::class, SystemClock::class)->setPublic(false);
+        $container->register(EnvelopeStreamCipher::class, EnvelopeStreamCipher::class)->setPublic(false);
+        $container->register(IdentityStreamTransform::class, IdentityStreamTransform::class)->setPublic(false);
+        $container->setAlias(StreamTransformInterface::class, IdentityStreamTransform::class)->setPublic(false);
+
+        $container->register(IntegrityVerifier::class, IntegrityVerifier::class)->setPublic(false);
+        $container->register(BackupLock::class, BackupLock::class)
+            ->setArgument('$lockDir', $lockDir)
+            ->setPublic(false);
+
+        $container->register(RetentionPolicy::class, RetentionPolicy::class)->setPublic(false);
+
+        // ── Object Lock Policy (if configured) ──
+        $lockPolicy = null;
+        if ($objectLockDays > 0) {
+            $container->register(ObjectLockPolicy::class, ObjectLockPolicy::class)
+                ->setArgument('$mode', $objectLockMode)
+                ->setArgument('$retentionDays', $objectLockDays)
+                ->setPublic(false);
+            $lockPolicy = new Reference(ObjectLockPolicy::class);
+        }
+
+        $container->register(RetentionEnforcer::class, RetentionEnforcer::class)
+            ->setArgument('$readModel', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$repository', new Reference(BackupCatalogRepositoryInterface::class))
+            ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$lockPolicy', $lockPolicy)
+            ->setPublic(false);
+
+        $container->register(BackupRunner::class, BackupRunner::class)
+            ->setArgument('$targets', new Reference(BackupTargetRegistry::class))
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$catalog', new Reference(BackupCatalogRepositoryInterface::class))
+            ->setArgument('$verifier', new Reference(IntegrityVerifier::class))
+            ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
+            ->setArgument('$transform', new Reference(StreamTransformInterface::class))
+            ->setArgument('$lock', new Reference(BackupLock::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$storeKey', $storeKey)
+            ->setArgument('$keyPrefix', $keyPrefix)
+            ->setPublic(false);
+
+        // ── Restore ──
+        $container->register(RestoreCoordinator::class, RestoreCoordinator::class)
+            ->setArgument('$targets', new Reference(RestoreTargetRegistry::class))
+            ->setArgument('$cipher', new Reference(EnvelopeStreamCipher::class))
+            ->setArgument('$keyProvider', $container->has(KeyProviderInterface::class) ? new Reference(KeyProviderInterface::class) : null)
+            ->setPublic(false);
+
+        // ── Drill ──
+        $container->register(DbalDrillReportStore::class, DbalDrillReportStore::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $drillTable)
+            ->setPublic(false);
+        $container->setAlias(DrillReportStoreInterface::class, DbalDrillReportStore::class)->setPublic(false);
+
+        $container->register(RowCountInvariant::class, RowCountInvariant::class)
+            ->addTag(CollectInvariantChecksPass::TAG)
+            ->setPublic(false);
+        $container->register(ReferentialIntegrityInvariant::class, ReferentialIntegrityInvariant::class)
+            ->addTag(CollectInvariantChecksPass::TAG)
+            ->setPublic(false);
+        $container->register(SmokeQueryInvariant::class, SmokeQueryInvariant::class)
+            ->addTag(CollectInvariantChecksPass::TAG)
+            ->setPublic(false);
+
+        if ($drillDsn !== '') {
+            $container->register(\Vortos\Backup\Drill\Driver\Postgres\EphemeralDatabaseProvisioner::class)
+                ->setArgument('$drillDsn', $drillDsn)
+                ->setPublic(false);
+            $container->setAlias(DrillEnvironmentProvisionerInterface::class, \Vortos\Backup\Drill\Driver\Postgres\EphemeralDatabaseProvisioner::class);
+        }
+
+        $container->register(DrillRunner::class, DrillRunner::class)
+            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$restoreCoordinator', new Reference(RestoreCoordinator::class))
+            ->setArgument('$provisioner', new Reference(DrillEnvironmentProvisionerInterface::class))
+            ->setArgument('$reportStore', new Reference(DrillReportStoreInterface::class))
+            ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$invariantChecks', [])
+            ->setArgument('$storeKey', $storeKey)
+            ->setArgument('$keyProvider', $container->has(KeyProviderInterface::class) ? new Reference(KeyProviderInterface::class) : null)
+            ->setPublic(false);
+
+        // ── Replication (3-2-1) ──
+        $secondaryRef = ($secondaryStoreName !== '' && $container->has($secondaryStoreName))
+            ? new Reference($secondaryStoreName)
+            : null;
+        $container->register(SecondaryReplicator::class, SecondaryReplicator::class)
+            ->setArgument('$secondaryStore', $secondaryRef)
+            ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setPublic(false);
+
+        // ── Immutability ──
+        $container->register(ImmutabilityVerifier::class, ImmutabilityVerifier::class)->setPublic(false);
+        $container->register(ObjectLockProbe::class, ObjectLockProbe::class)->setPublic(false);
+
+        // ── DR ──
+        $container->register(RecoveryObjectives::class, RecoveryObjectives::class)
+            ->setArgument('$rpoSeconds', $rpoSeconds)
+            ->setArgument('$rtoSeconds', $rtoSeconds)
+            ->setPublic(false);
+
+        $container->register(DrRunbookGenerator::class, DrRunbookGenerator::class)
+            ->setArgument('$objectives', new Reference(RecoveryObjectives::class))
+            ->setArgument('$lockPolicy', $lockPolicy)
+            ->setArgument('$reportStore', new Reference(DrillReportStoreInterface::class))
+            ->setArgument('$primaryStore', $storeKey)
+            ->setArgument('$secondaryStore', $secondaryStoreName !== '' ? $secondaryStoreName : null)
+            ->setArgument('$keyProviderName', $keyProviderName !== '' ? $keyProviderName : 'none')
+            ->setPublic(false);
+
+        // ── Catalog manifest (D9 self-recovery) ──
+        $container->register(CatalogManifestWriter::class, CatalogManifestWriter::class)
+            ->setArgument('$readModel', new Reference(BackupCatalogReadModelInterface::class))
+            ->setPublic(false);
+
+        // ── PITR ──
+        $container->register(PostgresWalArchiver::class, PostgresWalArchiver::class)
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$catalog', new Reference(BackupCatalogRepositoryInterface::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$storeKey', $storeKey)
+            ->setArgument('$keyPrefix', $keyPrefix)
+            ->setPublic(false);
+        $container->register(PitrPreflight::class, PitrPreflight::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setPublic(false);
+
+        // ── Schedule ──
+        $container->register(BackupScheduleRegistry::class, BackupScheduleRegistry::class)
+            ->setArgument(0, [])
+            ->setPublic(false);
+        $container->register(CronFragmentGenerator::class, CronFragmentGenerator::class)->setPublic(false);
+
+        // ── Console ──
+        $container->register(BackupRunCommand::class, BackupRunCommand::class)
+            ->setArgument('$runner', new Reference(BackupRunner::class))
+            ->addTag('console.command')->setPublic(false);
+        $container->register(BackupListCommand::class, BackupListCommand::class)
+            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+            ->addTag('console.command')->setPublic(false);
+        $container->register(BackupRetentionCommand::class, BackupRetentionCommand::class)
+            ->setArgument('$enforcer', new Reference(RetentionEnforcer::class))
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$defaultPolicy', new Reference(RetentionPolicy::class))
+            ->setArgument('$storeKey', $storeKey)
+            ->addTag('console.command')->setPublic(false);
+        $container->register(BackupVerifyCommand::class, BackupVerifyCommand::class)
+            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$verifier', new Reference(IntegrityVerifier::class))
+            ->setArgument('$storeKey', $storeKey)
+            ->addTag('console.command')->setPublic(false);
+        $container->register(BackupWalArchiveCommand::class, BackupWalArchiveCommand::class)
+            ->setArgument('$archiver', new Reference(PostgresWalArchiver::class))
+            ->addTag('console.command')->setPublic(false);
+        $container->register(BackupScheduleCommand::class, BackupScheduleCommand::class)
+            ->setArgument('$schedules', new Reference(BackupScheduleRegistry::class))
+            ->setArgument('$generator', new Reference(CronFragmentGenerator::class))
+            ->addTag('console.command')->setPublic(false);
+        $container->register(BackupDrillCommand::class, BackupDrillCommand::class)
+            ->setArgument('$runner', new Reference(DrillRunner::class))
+            ->addTag('console.command')->setPublic(false);
+        $container->register(BackupReplicateCommand::class, BackupReplicateCommand::class)
+            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$replicator', new Reference(SecondaryReplicator::class))
+            ->setArgument('$storeKey', $storeKey)
+            ->addTag('console.command')->setPublic(false);
+        $container->register(BackupRestoreCommand::class, BackupRestoreCommand::class)
+            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$coordinator', new Reference(RestoreCoordinator::class))
+            ->setArgument('$storeKey', $storeKey)
+            ->addTag('console.command')->setPublic(false);
+        $container->register(BackupDrRunbookCommand::class, BackupDrRunbookCommand::class)
+            ->setArgument('$generator', new Reference(DrRunbookGenerator::class))
+            ->addTag('console.command')->setPublic(false);
+    }
+}

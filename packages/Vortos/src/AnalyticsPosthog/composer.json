@@ -1,0 +1,30 @@
+{
+    "name": "vortos/vortos-analytics-posthog",
+    "description": "PostHog driver for vortos/vortos-analytics — server-side /batch HTTP ingestion. Implements the agnostic AnalyticsInterface; registers via its own DependencyInjection package; passes the core conformance TCK unchanged.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\AnalyticsPosthog\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-analytics": "^1.0",
+        "vortos/vortos-foundation": "^1.0",
+        "symfony/dependency-injection": "^7.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0",
+        "vortos/vortos-alerts": "^1.0"
+    },
+    "suggest": {
+        "vortos/vortos-alerts": "Optional: reuses the Block 17 SsrfGuard for the curl transport's egress hardening. Guarded by class_exists()."
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\AnalyticsPosthog\\DependencyInjection\\AnalyticsPosthogPackage",
+            "order": 191
+        }
+    }
+}

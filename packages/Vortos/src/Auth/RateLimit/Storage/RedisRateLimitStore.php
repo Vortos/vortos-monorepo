@@ -3,11 +3,10 @@ declare(strict_types=1);
 
 namespace Vortos\Auth\RateLimit\Storage;
 
-/**
- * Redis-backed rate limit counter.
- * Ephemeral — Redis restart resets counters. Acceptable for rate limiting.
- */
-final class RedisRateLimitStore
+use Vortos\Auth\RateLimit\Contract\RateLimitStoreInterface;
+use Vortos\Auth\RateLimit\Exception\RateLimitStoreUnavailableException;
+
+final class RedisRateLimitStore implements RateLimitStoreInterface
 {
     public function __construct(private \Redis $redis) {}
 
@@ -20,16 +19,28 @@ if current == 1 then
 end
 return current
 LUA;
-        return (int) $this->redis->eval($script, [$key, (string) $windowSeconds], 1);
+        try {
+            return (int) $this->redis->eval($script, [$key, (string) $windowSeconds], 1);
+        } catch (\Throwable $e) {
+            throw new RateLimitStoreUnavailableException('Rate limit store is unavailable.', previous: $e);
+        }
     }
 
     public function getTtl(string $key): int
     {
-        return max(0, $this->redis->ttl($key));
+        try {
+            return max(0, $this->redis->ttl($key));
+        } catch (\Throwable $e) {
+            throw new RateLimitStoreUnavailableException('Rate limit store is unavailable.', previous: $e);
+        }
     }
 
     public function reset(string $key): void
     {
-        $this->redis->del($key);
+        try {
+            $this->redis->del($key);
+        } catch (\Throwable $e) {
+            throw new RateLimitStoreUnavailableException('Rate limit store is unavailable.', previous: $e);
+        }
     }
 }

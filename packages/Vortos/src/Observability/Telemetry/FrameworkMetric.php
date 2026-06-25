@@ -31,6 +31,7 @@ enum FrameworkMetric: string
     case SecurityEventsTotal = 'security_events_total';
     case RateLimitAllowedTotal = 'rate_limit_allowed_total';
     case RateLimitBlockedTotal = 'rate_limit_blocked_total';
+    case RateLimitStoreUnavailableTotal = 'rate_limit_store_unavailable_total';
     case QuotaAllowedTotal = 'quota_allowed_total';
     case QuotaBlockedTotal = 'quota_blocked_total';
     case QuotaConsumedTotal = 'quota_consumed_total';

@@ -17,6 +17,7 @@ final class ScimGroup
      */
     public function __construct(
         public readonly string $id,
+        public readonly string $tenantId,
         public readonly string $externalId,
         public readonly string $displayName,
         public readonly array $memberIds,
@@ -29,7 +30,7 @@ final class ScimGroup
     public function withMembers(array $memberIds): self
     {
         return new self(
-            id: $this->id, externalId: $this->externalId, displayName: $this->displayName,
+            id: $this->id, tenantId: $this->tenantId, externalId: $this->externalId, displayName: $this->displayName,
             memberIds: $memberIds,
             createdAt: $this->createdAt, updatedAt: (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
             platformRole: $this->platformRole,

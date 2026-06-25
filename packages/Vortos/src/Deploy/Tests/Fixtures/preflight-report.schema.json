@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DeployDoctor PreflightReport",
+  "description": "The machine-readable, versioned contract emitted by `deploy:doctor --json`. Block 14's pipeline gates the deploy stage on this shape + exit code.",
+  "type": "object",
+  "required": ["schema_version", "env", "clear", "strict", "summary", "findings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "env": { "type": "string" },
+    "clear": { "type": "boolean" },
+    "strict": { "type": "boolean" },
+    "summary": {
+      "type": "object",
+      "required": ["pass", "fail", "skip"],
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "skip": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "status", "summary", "detail", "remediation"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "category": {
+            "type": "string",
+            "enum": ["driver_set", "capability", "credential", "arch", "schema", "plan"]
+          },
+          "status": { "type": "string", "enum": ["pass", "fail", "skip"] },
+          "summary": { "type": "string" },
+          "detail": { "type": "string" },
+          "remediation": { "type": "string" }
+        }
+      }
+    }
+  }
+}

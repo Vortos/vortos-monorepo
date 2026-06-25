@@ -56,4 +56,21 @@ final class WorkerProcessRegistry
             implode(', ', array_keys($this->definitions)),
         ));
     }
+
+    public function maxDrainDeadline(): int
+    {
+        $max = 0;
+        foreach ($this->definitions as $def) {
+            if ($def->drainDeadline > $max) {
+                $max = $def->drainDeadline;
+            }
+        }
+
+        return $max;
+    }
+
+    public function isEmpty(): bool
+    {
+        return $this->definitions === [];
+    }
 }

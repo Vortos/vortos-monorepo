@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Vortos\Authorization\Audit\AuthorizationAuditContextProvider;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Authorization\Contract\AuthorizationCacheInvalidatorInterface;
 use Vortos\Authorization\Contract\AuthorizationVersionStoreInterface;
 use Vortos\Authorization\Contract\EmergencyDenyListInterface;
@@ -49,6 +50,13 @@ final class RedisAuthorizationStoresPass implements CompilerPassInterface
             if ($container->hasDefinition(AuthorizationAuditContextProvider::class)) {
                 $container->getDefinition(AuthorizationAuditContextProvider::class)
                     ->setArgument('$requestStack', new Reference(RequestStack::class));
+            }
+        }
+
+        if ($container->hasDefinition(IpResolverInterface::class) || $container->hasAlias(IpResolverInterface::class)) {
+            if ($container->hasDefinition(AuthorizationAuditContextProvider::class)) {
+                $container->getDefinition(AuthorizationAuditContextProvider::class)
+                    ->setArgument('$ipResolver', new Reference(IpResolverInterface::class));
             }
         }
 

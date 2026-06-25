@@ -69,6 +69,7 @@ final class ConsumerRunner implements ConsumerRunnerInterface
 {
     private ?ConsumerInterface $activeConsumer = null;
     private string $replaySecret = '';
+    private bool $draining = false;
 
     public function setReplaySecret(string $secret): void
     {
@@ -122,7 +123,13 @@ final class ConsumerRunner implements ConsumerRunnerInterface
     /** Stops the consumer loop. Called by signal handlers on SIGTERM/SIGINT. */
     public function stop(): void
     {
+        $this->draining = true;
         $this->activeConsumer?->stop();
+    }
+
+    public function isDraining(): bool
+    {
+        return $this->draining;
     }
 
     private function handleMessage(string $consumerName, ReceivedMessage $message, ConsumerInterface $consumer): void
@@ -395,7 +402,7 @@ final class ConsumerRunner implements ConsumerRunnerInterface
             $maxPollIntervalMs = $consumerConfig['kafka']['maxPollIntervalMs'] ?? 300000;
             $delayCap = (int) ($maxPollIntervalMs / max(1, $retryPolicy->maxAttempts));
 
-            while ($this->retryDecider->shouldRetry($retryPolicy, $attempt)) {
+            while (!$this->draining && $this->retryDecider->shouldRetry($retryPolicy, $attempt)) {
                 $delay = min($this->retryDecider->getDelayMs($retryPolicy, $attempt), $delayCap);
 
                 usleep($delay * 1000);

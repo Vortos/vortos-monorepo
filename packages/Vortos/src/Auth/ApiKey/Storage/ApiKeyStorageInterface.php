@@ -28,4 +28,12 @@ interface ApiKeyStorageInterface
      * @return list<ApiKeyRecord>
      */
     public function findByUserId(string $userId): array;
+
+    /**
+     * Update the last-used timestamp for an API key.
+     *
+     * Implementations should debounce writes (e.g. skip if last write was <60s ago)
+     * to avoid write amplification on the hot path.
+     */
+    public function touchLastUsedAt(string $hashedKey, \DateTimeImmutable $at): void;
 }

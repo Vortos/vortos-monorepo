@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Security\IpFilter;
 
-use Vortos\Http\Request;
+use Symfony\Component\HttpFoundation\Request;
+use Vortos\Http\Contract\IpResolverInterface;
 
 /**
  * Resolves the real client IP address, respecting trusted proxy chains.
@@ -15,7 +16,7 @@ use Vortos\Http\Request;
  *
  * Also checks CIDR membership for allowlist/denylist evaluation.
  */
-final class IpResolver
+final class IpResolver implements IpResolverInterface
 {
     /** @param list<string> $trustedProxies */
     public function __construct(

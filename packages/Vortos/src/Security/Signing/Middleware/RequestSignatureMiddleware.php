@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Security\Signing\Middleware;
 
 use Vortos\Http\Attribute\AsMiddleware;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Http\Contract\MiddlewareInterface;
 use Vortos\Http\JsonResponse;
 use Vortos\Http\MiddlewareOrder;
@@ -36,6 +37,7 @@ final class RequestSignatureMiddleware implements MiddlewareInterface
         private readonly SignatureVerifier        $verifier,
         private readonly SecurityEventDispatcher  $events,
         private readonly array                   $routeMap,
+        private readonly IpResolverInterface      $ipResolver = new \Vortos\Http\IpResolver\RemoteAddrIpResolver(),
     ) {}
 
     public function handle(Request $request, \Closure $next): Response
@@ -62,7 +64,7 @@ final class RequestSignatureMiddleware implements MiddlewareInterface
 
         if (!$valid) {
             $this->events->dispatch(new SignatureInvalidEvent(
-                $request->getClientIp() ?? 'unknown',
+                $this->ipResolver->resolve($request),
                 $request->getPathInfo(),
                 $rule['header'],
             ));

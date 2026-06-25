@@ -11,6 +11,7 @@ use Vortos\Auth\Attribute\RequiresAuth;
 use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Auth\Identity\UserIdentity;
+use Vortos\Auth\Contract\TokenFreshnessGuardInterface;
 use Vortos\Auth\Jwt\JwtConfig;
 use Vortos\Auth\Jwt\JwtService;
 use Vortos\Auth\Middleware\AuthMiddleware;
@@ -48,6 +49,7 @@ final class AuthMiddlewareTest extends TestCase
             accessTokenTtl: 900,
             refreshTokenTtl: 604800,
             issuer: 'test',
+            audience: 'test',
         );
         $this->tokenStorage = new InMemoryTokenStorage();
         $this->jwtService = new JwtService($config, $this->tokenStorage);
@@ -289,5 +291,87 @@ final class AuthMiddlewareTest extends TestCase
 
         // Should not 401 — passes through
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    // -------------------------------------------------------------------------
+    // TOKEN FRESHNESS GUARD
+    // -------------------------------------------------------------------------
+
+    public function test_stale_token_returns_401_with_header(): void
+    {
+        $guard = new class implements TokenFreshnessGuardInterface {
+            public function check(string $userId, int $authzVersion, int $issuedAt): ?string
+            {
+                return 'Token too old.';
+            }
+        };
+
+        $middleware = new AuthMiddleware(
+            $this->jwtService,
+            $this->arrayAdapter,
+            [StubProtectedController::class],
+            $guard,
+        );
+
+        $identity = new UserIdentity('user-1', ['ROLE_USER']);
+        $token = $this->jwtService->issue($identity);
+
+        $request = $this->makeRequest(StubProtectedController::class, [
+            'Authorization' => 'Bearer ' . $token->accessToken,
+        ]);
+
+        $response = $middleware->handle($request, $this->next());
+        $this->assertSame(401, $response->getStatusCode());
+        $this->assertSame('true', $response->headers->get('X-Token-Stale'));
+    }
+
+    public function test_fresh_token_passes_through_with_guard(): void
+    {
+        $guard = new class implements TokenFreshnessGuardInterface {
+            public function check(string $userId, int $authzVersion, int $issuedAt): ?string
+            {
+                return null;
+            }
+        };
+
+        $middleware = new AuthMiddleware(
+            $this->jwtService,
+            $this->arrayAdapter,
+            [StubProtectedController::class],
+            $guard,
+        );
+
+        $identity = new UserIdentity('user-1', ['ROLE_USER']);
+        $token = $this->jwtService->issue($identity);
+
+        $request = $this->makeRequest(StubProtectedController::class, [
+            'Authorization' => 'Bearer ' . $token->accessToken,
+        ]);
+
+        $response = $middleware->handle($request, $this->next());
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function test_guard_not_called_for_anonymous_requests(): void
+    {
+        $guard = new class implements TokenFreshnessGuardInterface {
+            public bool $called = false;
+            public function check(string $userId, int $authzVersion, int $issuedAt): ?string
+            {
+                $this->called = true;
+                return 'should not happen';
+            }
+        };
+
+        $middleware = new AuthMiddleware(
+            $this->jwtService,
+            $this->arrayAdapter,
+            [],
+            $guard,
+        );
+
+        $request = $this->makeRequest(StubPublicController::class);
+        $middleware->handle($request, $this->next());
+        $this->assertFalse($guard->called);
     }
 }

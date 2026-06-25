@@ -10,6 +10,8 @@ use Vortos\Auth\Scim\Http\ScimDiscoveryController;
 use Vortos\Auth\Scim\ScimService;
 use Vortos\Auth\Scim\Storage\InMemoryScimGroupStorage;
 use Vortos\Auth\Scim\Storage\InMemoryScimUserStorage;
+use Vortos\Http\Request;
+use Vortos\Tenant\TenantContext;
 
 final class ScimControllerTest extends TestCase
 {
@@ -18,7 +20,9 @@ final class ScimControllerTest extends TestCase
 
     protected function setUp(): void
     {
-        $service         = new ScimService(new InMemoryScimUserStorage(), new InMemoryScimGroupStorage());
+        $tenantContext = new TenantContext();
+        $tenantContext->set('tenant-ctrl');
+        $service          = new ScimService(new InMemoryScimUserStorage(), new InMemoryScimGroupStorage(), $tenantContext);
         $this->controller = new ScimController($service, 'https://api.example.com/scim/v2');
         $this->discovery  = new ScimDiscoveryController('https://api.example.com/scim/v2');
     }
@@ -111,32 +115,32 @@ final class ScimControllerTest extends TestCase
 
     public function test_create_group_returns_201(): void
     {
-        $result = $this->controller->createGroup(json_encode(['displayName' => 'Engineering']));
+        $result = $this->controller->createGroup(new Request(), json_encode(['displayName' => 'Engineering']));
         $this->assertSame(201, $result['status']);
     }
 
     public function test_create_group_missing_display_name_returns_400(): void
     {
-        $result = $this->controller->createGroup(json_encode([]));
+        $result = $this->controller->createGroup(new Request(), json_encode([]));
         $this->assertSame(400, $result['status']);
     }
 
     public function test_patch_group_add_member(): void
     {
         $user  = $this->controller->createUser(json_encode(['userName' => 'member@example.com']));
-        $group = $this->controller->createGroup(json_encode(['displayName' => 'Team']));
+        $group = $this->controller->createGroup(new Request(), json_encode(['displayName' => 'Team']));
         $uid   = $user['body']['id'];
         $gid   = $group['body']['id'];
 
         $patch  = json_encode(['Operations' => [['op' => 'add', 'path' => 'members', 'value' => [['value' => $uid]]]]]);
-        $result = $this->controller->patchGroup($gid, $patch);
+        $result = $this->controller->patchGroup(new Request(), $gid, $patch);
 
         $this->assertSame(200, $result['status']);
     }
 
     public function test_delete_group_returns_204(): void
     {
-        $created = $this->controller->createGroup(json_encode(['displayName' => 'To Delete']));
+        $created = $this->controller->createGroup(new Request(), json_encode(['displayName' => 'To Delete']));
         $result  = $this->controller->deleteGroup($created['body']['id']);
         $this->assertSame(204, $result['status']);
     }

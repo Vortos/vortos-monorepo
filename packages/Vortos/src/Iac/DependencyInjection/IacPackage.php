@@ -8,7 +8,10 @@ use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
+use Vortos\Iac\DependencyInjection\Compiler\CollectIacEnginesPass;
+use Vortos\Iac\DependencyInjection\Compiler\CollectIacPoliciesPass;
 use Vortos\Iac\DependencyInjection\Compiler\InfraConfigCompilerPass;
+use Vortos\OpsKit\Driver\DependencyInjection\CollectDriversCompilerPass;
 
 final class IacPackage implements PackageInterface
 {
@@ -22,7 +25,10 @@ final class IacPackage implements PackageInterface
         $container->addCompilerPass(
             new InfraConfigCompilerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
-            20,  // after MessagingConfigCompilerPass (100) — reads vortos.transports while env placeholders are still raw
+            20,
         );
+
+        CollectDriversCompilerPass::register($container, new CollectIacEnginesPass());
+        CollectDriversCompilerPass::register($container, new CollectIacPoliciesPass());
     }
 }

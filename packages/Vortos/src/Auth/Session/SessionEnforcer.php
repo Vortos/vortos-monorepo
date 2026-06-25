@@ -6,29 +6,19 @@ namespace Vortos\Auth\Session;
 use Vortos\Auth\Contract\TokenStorageInterface;
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Session\Contract\SessionPolicyInterface;
+use Vortos\Auth\Session\Contract\SessionStoreInterface;
 use Vortos\Auth\Session\Exception\SessionLimitExceededException;
-use Vortos\Auth\Session\Storage\RedisSessionStore;
 
-/**
- * Enforces concurrent session limits on token issuance.
- *
- * Called by JwtService::issue() before storing a new refresh token.
- * If the user is at their limit, the configured policy action decides whether
- * to kick the oldest session or reject the new login.
- *
- * If no SessionPolicyInterface is registered, session limiting is disabled.
- */
 final class SessionEnforcer
 {
     public function __construct(
-        private RedisSessionStore $store,
+        private SessionStoreInterface $store,
         private TokenStorageInterface $tokenStorage,
         private ?SessionPolicyInterface $policy,
     ) {}
 
     /**
-     * Check and enforce session limits before a new token is issued.
-     * Adds the new session if enforcement passes.
+     * Atomically enforce session limits and add the new session.
      *
      * @throws SessionLimitExceededException If the policy rejects the new session.
      */
@@ -39,40 +29,33 @@ final class SessionEnforcer
         }
 
         $max = $this->policy->getMaxSessions($identity);
+        $evictOldest = $this->policy->onLimitExceeded($identity) === SessionLimitAction::InvalidateOldest;
 
-        while ($this->store->getSessionCount($identity->id()) >= $max) {
-            if ($this->policy->onLimitExceeded($identity) === SessionLimitAction::RejectNew) {
-                throw new SessionLimitExceededException(
-                    'Maximum concurrent sessions reached. Log out of another device to continue.'
-                );
-            }
+        $result = $this->store->enforceAndAdd(
+            $identity->id(),
+            $jti,
+            $issuedAt,
+            $ttl,
+            $max,
+            $evictOldest,
+        );
 
-            // InvalidateOldest: revoke oldest refresh token and remove its session entry
-            $oldestJti = $this->store->removeOldestSession($identity->id());
-
-            if ($oldestJti === null) {
-                // Store is empty but count is still >= max (e.g. max=0).
-                // Nothing left to evict — break to avoid an infinite loop.
-                break;
-            }
-
-            $this->tokenStorage->revoke($oldestJti);
+        if ($result->rejected) {
+            throw new SessionLimitExceededException(
+                'Maximum concurrent sessions reached. Log out of another device to continue.',
+            );
         }
 
-        $this->store->addSession($identity->id(), $jti, $issuedAt, $ttl);
+        foreach ($result->evictedJtis as $evictedJti) {
+            $this->tokenStorage->revoke($evictedJti);
+        }
     }
 
-    /**
-     * Remove a single session entry — called on refresh token rotation.
-     */
     public function removeSession(string $userId, string $jti): void
     {
         $this->store->removeSession($userId, $jti);
     }
 
-    /**
-     * Remove all session entries for a user — called on logout.
-     */
     public function clearAllSessions(string $userId): void
     {
         $this->store->clearAll($userId);

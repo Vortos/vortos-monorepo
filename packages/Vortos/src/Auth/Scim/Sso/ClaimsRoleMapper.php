@@ -4,29 +4,20 @@ declare(strict_types=1);
 
 namespace Vortos\Auth\Scim\Sso;
 
-/**
- * Maps OIDC/SAML group or scope claims → platform role slugs.
- *
- * The Authorization engine already understands role slugs (e.g. 'flags.admin',
- * 'flags.viewer', 'flags.deploy'). This mapper bridges the IdP's representation
- * to those slugs so the same authz engine works regardless of identity provider.
- *
- * Configuration is a simple list of `ClaimsRoleMapping` rules evaluated in order;
- * the first matching rule wins. This keeps the mapper stateless and easily testable.
- */
+use Psr\Log\LoggerInterface;
+
 final class ClaimsRoleMapper
 {
     /** @param ClaimsRoleMapping[] $mappings */
     public function __construct(
         private readonly array $mappings,
         private readonly ?string $defaultRole = null,
+        private readonly ?LoggerInterface $logger = null,
     ) {}
 
     /**
-     * Map a list of IdP group IDs/names to platform role slugs.
-     *
      * @param string[] $groups
-     * @return string[] Deduplicated platform role slugs
+     * @return string[]
      */
     public function mapGroupsToRoles(array $groups): array
     {
@@ -34,8 +25,17 @@ final class ClaimsRoleMapper
 
         foreach ($groups as $group) {
             foreach ($this->mappings as $mapping) {
-                if ($mapping->matchesGroup($group)) {
-                    $roles[] = $mapping->platformRole;
+                try {
+                    if ($mapping->matchesGroup($group)) {
+                        $roles[] = $mapping->platformRole;
+                    }
+                } catch (RoleMappingException $e) {
+                    $this->logger?->error('role_mapping.match_failed', [
+                        'pattern' => $mapping->idpIdentifier,
+                        'group' => $group,
+                        'exception' => $e->getMessage(),
+                    ]);
+                    return [];
                 }
             }
         }
@@ -48,8 +48,6 @@ final class ClaimsRoleMapper
     }
 
     /**
-     * Map a list of OIDC scope/claim values to platform role slugs.
-     *
      * @param string[] $claims
      * @return string[]
      */
@@ -59,8 +57,17 @@ final class ClaimsRoleMapper
 
         foreach ($claims as $claim) {
             foreach ($this->mappings as $mapping) {
-                if ($mapping->matchesClaim($claim)) {
-                    $roles[] = $mapping->platformRole;
+                try {
+                    if ($mapping->matchesClaim($claim)) {
+                        $roles[] = $mapping->platformRole;
+                    }
+                } catch (RoleMappingException $e) {
+                    $this->logger?->error('role_mapping.match_failed', [
+                        'pattern' => $mapping->idpIdentifier,
+                        'claim' => $claim,
+                        'exception' => $e->getMessage(),
+                    ]);
+                    return [];
                 }
             }
         }
@@ -72,18 +79,23 @@ final class ClaimsRoleMapper
         return array_values(array_unique($roles));
     }
 
-    /**
-     * Map an IdP group display name to a single platform role (for SCIM group provisioning).
-     * Returns null if no mapping is found.
-     */
     public function mapGroupDisplayNameToRole(string $displayName): ?string
     {
         foreach ($this->mappings as $mapping) {
-            if ($mapping->matchesGroup($displayName)) {
-                return $mapping->platformRole;
+            try {
+                if ($mapping->matchesGroup($displayName)) {
+                    return $mapping->platformRole;
+                }
+            } catch (RoleMappingException $e) {
+                $this->logger?->error('role_mapping.match_failed', [
+                    'pattern' => $mapping->idpIdentifier,
+                    'display_name' => $displayName,
+                    'exception' => $e->getMessage(),
+                ]);
+                return null;
             }
         }
 
-        return $this->defaultRole;
+        return null;
     }
 }

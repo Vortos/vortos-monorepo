@@ -35,14 +35,20 @@ final class TwoFactorMiddleware implements MiddlewareInterface
 
     public function handle(Request $request, \Closure $next): Response
     {
-        if ($this->verifier === null) {
-            return $next($request);
-        }
-
         $controller = $this->extractControllerClass($request->attributes->get('_controller'));
 
         if ($controller === null || !in_array($controller, $this->protectedControllers, true)) {
             return $next($request);
+        }
+
+        if ($this->verifier === null) {
+            return new JsonResponse(
+                [
+                    'error'   => '2FA Unavailable',
+                    'message' => 'Two-factor verification service is not configured.',
+                ],
+                Response::HTTP_SERVICE_UNAVAILABLE,
+            );
         }
 
         $identity = $this->currentUser->get();

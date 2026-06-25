@@ -14,8 +14,10 @@ final class LockoutConfig
 {
     public int $maxAttempts = 5;
     public int $lockDurationSeconds = 900;
-    public LockoutTrack $trackBy = LockoutTrack::Email;
+    public LockoutTrack $trackBy = LockoutTrack::Both;
     public string $message = 'Account locked due to too many failed attempts. Try again later.';
+    public int $backoffBaseSeconds = 1;
+    public int $backoffMaxSeconds = 900;
 
     public function maxAttempts(int $attempts): static
     {
@@ -38,6 +40,18 @@ final class LockoutConfig
     public function message(string $message): static
     {
         $this->message = $message;
+        return $this;
+    }
+
+    public function backoffBaseSeconds(int $seconds): static
+    {
+        $this->backoffBaseSeconds = $seconds;
+        return $this;
+    }
+
+    public function backoffMaxSeconds(int $seconds): static
+    {
+        $this->backoffMaxSeconds = $seconds;
         return $this;
     }
 }

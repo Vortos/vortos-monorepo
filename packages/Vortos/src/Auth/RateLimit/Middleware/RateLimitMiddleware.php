@@ -11,10 +11,13 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Vortos\Auth\Identity\CurrentUserProvider;
-use Vortos\Auth\RateLimit\Attribute\RateLimit;
 use Vortos\Auth\RateLimit\Contract\RateLimitPolicyInterface;
+use Vortos\Auth\RateLimit\Exception\RateLimitStoreUnavailableException;
+use Vortos\Auth\RateLimit\RateLimitFailureConfig;
+use Vortos\Auth\RateLimit\RateLimitFailureMode;
 use Vortos\Auth\RateLimit\RateLimitScope;
-use Vortos\Auth\RateLimit\Storage\RedisRateLimitStore;
+use Vortos\Auth\RateLimit\Contract\RateLimitStoreInterface;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Observability\Telemetry\FrameworkMetric;
 use Vortos\Observability\Telemetry\FrameworkMetricLabels;
@@ -24,39 +27,21 @@ use Vortos\Observability\Telemetry\MetricLabelValue;
 use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 use Vortos\Tracing\Contract\TracingInterface;
 
-/**
- * Enforces #[RateLimit] on controllers.
- *
- * Scope-aware execution order:
- *
- *   Priority 7 — IP + Global scopes (onKernelRequestIpGlobal)
- *     Runs before AuthMiddleware (6). Does not need identity — keyed on IP
- *     or controller name only. Protects unauthenticated endpoints (e.g. login).
- *
- *   Priority 5 — User scope (onKernelRequestUser)
- *     Runs after AuthMiddleware (6). Identity is resolved and real user ID is
- *     available. Each user gets their own isolated rate limit bucket.
- *
- * Returns 429 with Retry-After header when limit exceeded.
- * Sets X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset on all responses.
- *
- * Runtime: reads pre-built compile-time map — zero reflection.
- */
 final class RateLimitMiddleware implements EventSubscriberInterface
 {
     /**
      * @param array<string, list<array{policy: string, per: RateLimitScope}>> $routeMap
-     *        Pre-built by RateLimitCompilerPass at compile time.
      * @param array<string, RateLimitPolicyInterface> $policies
-     *        Pre-built policy map by RateLimitCompilerPass.
      */
     public function __construct(
         private CurrentUserProvider $currentUser,
-        private RedisRateLimitStore $store,
+        private RateLimitStoreInterface $store,
         private array $routeMap,
         private array $policies,
+        private RateLimitFailureConfig $failureConfig = new RateLimitFailureConfig(),
         private bool $headersEnabled = true,
         private bool $problemDetailsEnabled = true,
+        private IpResolverInterface $ipResolver = new \Vortos\Http\IpResolver\RemoteAddrIpResolver(),
         private ?FrameworkTelemetry $telemetry = null,
         private ?LoggerInterface $logger = null,
         private ?TracingInterface $tracer = null,
@@ -66,27 +51,18 @@ final class RateLimitMiddleware implements EventSubscriberInterface
     {
         return [
             KernelEvents::REQUEST => [
-                ['onKernelRequestIpGlobal', 7], // IP + Global — before auth
-                ['onKernelRequestUser', 4],      // User — after auth (4, below 2FA at 5)
+                ['onKernelRequestIpGlobal', 7],
+                ['onKernelRequestUser', 4],
             ],
             KernelEvents::RESPONSE => ['onKernelResponse', 0],
         ];
     }
 
-    /**
-     * Enforces IP-scoped and Global-scoped rate limits.
-     * Runs at priority 7 — before auth — so unauthenticated requests are covered.
-     */
     public function onKernelRequestIpGlobal(RequestEvent $event): void
     {
         $this->enforce($event, RateLimitScope::Ip, RateLimitScope::Global);
     }
 
-    /**
-     * Enforces User-scoped rate limits.
-     * Runs at priority 5 — after AuthMiddleware (6) has resolved the identity.
-     * If auth rejected the request, propagation is already stopped and this won't fire.
-     */
     public function onKernelRequestUser(RequestEvent $event): void
     {
         $this->enforce($event, RateLimitScope::User);
@@ -129,16 +105,34 @@ final class RateLimitMiddleware implements EventSubscriberInterface
 
             if ($limit->isUnlimited()) continue;
 
-            $key = match ($scope) {
-                RateLimitScope::User   => "rl:user:{$identity->id()}:{$controller}:{$policyClass}",
-                RateLimitScope::Ip     => "rl:ip:{$request->getClientIp()}:{$controller}:{$policyClass}",
-                RateLimitScope::Global => "rl:global:{$controller}:{$policyClass}",
-            };
+            if ($scope === RateLimitScope::User && !$identity->isAuthenticated()) {
+                $key = "rl:user:ip:{$this->resolveClientIp($request)}:{$controller}:{$policyClass}";
+            } else {
+                $key = match ($scope) {
+                    RateLimitScope::User   => "rl:user:{$identity->id()}:{$controller}:{$policyClass}",
+                    RateLimitScope::Ip     => "rl:ip:{$this->resolveClientIp($request)}:{$controller}:{$policyClass}",
+                    RateLimitScope::Global => "rl:global:{$controller}:{$policyClass}",
+                };
+            }
 
-            $current = $this->store->increment($key, $limit->windowSeconds);
+            try {
+                $current = $this->store->increment($key, $limit->windowSeconds);
+            } catch (RateLimitStoreUnavailableException $e) {
+                $failureResponse = $this->handleStoreFailure($event, $scope, $policyClass, $controller, $e);
+                if ($failureResponse !== null) {
+                    $event->setResponse($failureResponse);
+                    return;
+                }
+                continue;
+            }
 
             if ($current > $limit->limit) {
-                $retryAfter = $this->store->getTtl($key);
+                try {
+                    $retryAfter = $this->store->getTtl($key);
+                } catch (RateLimitStoreUnavailableException) {
+                    $retryAfter = $limit->windowSeconds;
+                }
+
                 $resetAt = time() + $retryAfter;
                 $request->attributes->set('_rate_limit_headers', [
                     'limit' => $limit->limit,
@@ -178,19 +172,61 @@ final class RateLimitMiddleware implements EventSubscriberInterface
                 return;
             }
 
-            // Track the most restrictive limit for response headers
             $remaining = $limit->limit - $current;
             $existing = $request->attributes->get('_rate_limit_headers');
             if ($existing === null || $remaining < $existing['remaining']) {
+                try {
+                    $ttl = $this->store->getTtl($key);
+                } catch (RateLimitStoreUnavailableException) {
+                    $ttl = $limit->windowSeconds;
+                }
+
                 $request->attributes->set('_rate_limit_headers', [
                     'limit'     => $limit->limit,
                     'remaining' => $remaining,
-                    'reset'     => time() + $this->store->getTtl($key),
+                    'reset'     => time() + $ttl,
                 ]);
             }
 
             $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::RateLimitAllowedTotal, $this->rateLimitLabels($policyClass, $scope, $controller));
         }
+    }
+
+    private function handleStoreFailure(
+        RequestEvent $event,
+        RateLimitScope $scope,
+        string $policyClass,
+        string $controller,
+        RateLimitStoreUnavailableException $e,
+    ): ?JsonResponse {
+        $failureMode = $this->failureConfig->modeForScope($scope);
+
+        $this->logger?->error('rate_limit.store_unavailable', [
+            'scope' => $scope->value,
+            'policy' => $policyClass,
+            'controller' => $controller,
+            'failure_mode' => $failureMode->value,
+            'exception' => $e::class,
+            'message' => $e->getMessage(),
+        ]);
+
+        $labels = $this->rateLimitLabels($policyClass, $scope, $controller);
+        $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::RateLimitStoreUnavailableTotal, $labels);
+        $this->trace('vortos.rate_limit.store_available', false);
+
+        if ($failureMode === RateLimitFailureMode::FailOpen) {
+            return null;
+        }
+
+        return $this->problemResponse(
+            $event,
+            Response::HTTP_SERVICE_UNAVAILABLE,
+            'https://docs.vortos.dev/errors/rate-limit-store-unavailable',
+            'Rate Limit Unavailable',
+            'Rate limit enforcement is temporarily unavailable. Please retry later.',
+            ['scope' => $scope->value, 'policy' => $policyClass],
+            ['Retry-After' => 30],
+        );
     }
 
     private function rateLimitLabels(string $policyClass, RateLimitScope $scope, string $controller): FrameworkMetricLabels
@@ -200,6 +236,11 @@ final class RateLimitMiddleware implements EventSubscriberInterface
             MetricLabelValue::of(MetricLabel::Scope, $scope->value),
             MetricLabelValue::of(MetricLabel::Controller, str_replace('\\', '.', $controller)),
         );
+    }
+
+    private function resolveClientIp(\Symfony\Component\HttpFoundation\Request $request): string
+    {
+        return $this->ipResolver->resolve($request);
     }
 
     private function extractControllerClass(mixed $controller): ?string

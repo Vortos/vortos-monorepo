@@ -1,0 +1,22 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "components": [
+    {
+      "name": "alpine",
+      "version": "3.18.4",
+      "purl": "pkg:oci/alpine@sha256:abc",
+      "licenses": [
+        {"license": {"id": "MIT"}}
+      ]
+    },
+    {
+      "name": "openssl",
+      "version": "3.1.4",
+      "purl": "pkg:apk/alpine/openssl@3.1.4",
+      "licenses": [
+        {"license": {"name": "Apache-2.0"}}
+      ]
+    }
+  ]
+}

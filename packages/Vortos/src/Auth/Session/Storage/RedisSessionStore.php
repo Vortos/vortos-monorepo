@@ -3,21 +3,80 @@ declare(strict_types=1);
 
 namespace Vortos\Auth\Session\Storage;
 
-/**
- * Tracks active sessions per user in Redis.
- * Key: sessions:{userId} → sorted set of {jti}:{issuedAt}
- */
-final class RedisSessionStore
+use Vortos\Auth\Session\Contract\SessionStoreInterface;
+use Vortos\Auth\Session\SessionEnforcementResult;
+
+final class RedisSessionStore implements SessionStoreInterface
 {
+    private const ENFORCE_AND_ADD_LUA = <<<'LUA'
+local key = KEYS[1]
+local max = tonumber(ARGV[1])
+local jti = ARGV[2]
+local score = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+local action = tonumber(ARGV[5])
+local evicted = {}
+
+local count = redis.call('ZCARD', key)
+while count >= max do
+    if action == 0 then
+        return cjson.encode({status='rejected', evicted={}})
+    end
+    local oldest = redis.call('ZRANGE', key, 0, 0)
+    if #oldest == 0 then break end
+    redis.call('ZREM', key, oldest[1])
+    table.insert(evicted, oldest[1])
+    count = count - 1
+end
+
+redis.call('ZADD', key, score, jti)
+
+local curTtl = redis.call('TTL', key)
+if curTtl < ttl then
+    redis.call('EXPIRE', key, ttl)
+end
+
+return cjson.encode({status='ok', evicted=evicted})
+LUA;
+
     public function __construct(private \Redis $redis) {}
+
+    /**
+     * Atomically enforce the session limit and add the new session in a single Lua call.
+     *
+     * @param bool $evictOldest true = evict oldest sessions to make room; false = reject if at capacity
+     */
+    public function enforceAndAdd(
+        string $userId,
+        string $jti,
+        int $issuedAt,
+        int $ttl,
+        int $maxSessions,
+        bool $evictOldest,
+    ): SessionEnforcementResult {
+        $key = "vortos_auth:sessions:{$userId}";
+
+        /** @var string $raw */
+        $raw = $this->redis->eval(
+            self::ENFORCE_AND_ADD_LUA,
+            [$key, (string) $maxSessions, $jti, (string) $issuedAt, (string) $ttl, $evictOldest ? '1' : '0'],
+            1,
+        );
+
+        $decoded = json_decode($raw, true);
+
+        if (($decoded['status'] ?? '') === 'rejected') {
+            return SessionEnforcementResult::rejected();
+        }
+
+        return SessionEnforcementResult::ok($decoded['evicted'] ?? []);
+    }
 
     public function addSession(string $userId, string $jti, int $issuedAt, int $ttl): void
     {
         $key = "vortos_auth:sessions:{$userId}";
         $this->redis->zAdd($key, $issuedAt, $jti);
 
-        // Only extend the key TTL — never shrink it. ttl() returns -2 (no key) or -1 (no expiry)
-        // both of which are less than any positive $ttl, so they always trigger the initial set.
         $currentTtl = $this->redis->ttl($key);
         if ($currentTtl < $ttl) {
             $this->redis->expire($key, $ttl);

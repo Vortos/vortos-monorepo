@@ -13,6 +13,7 @@ use Vortos\Auth\Middleware\Compiler\TenantMiddlewareCompilerPass;
 use Vortos\Auth\Quota\Compiler\QuotaCompilerPass;
 use Vortos\Auth\RateLimit\Compiler\RateLimitCompilerPass;
 use Vortos\Auth\ApiKey\Compiler\ApiKeyCompilerPass;
+use Vortos\Auth\Scim\Compiler\ScimCompilerPass;
 use Vortos\Auth\Session\Compiler\SessionCompilerPass;
 use Vortos\Auth\TwoFactor\Compiler\TwoFactorCompilerPass;
 use Vortos\Foundation\Contract\PackageInterface;
@@ -34,6 +35,7 @@ final class AuthPackage implements PackageInterface
         $container->addCompilerPass(new TwoFactorCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new SessionCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new ApiKeyCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        $container->addCompilerPass(new ScimCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         // Priority 110: register the middleware before RegisterMiddlewarePass (100).
         $container->addCompilerPass(new TenantMiddlewareCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 110);
     }

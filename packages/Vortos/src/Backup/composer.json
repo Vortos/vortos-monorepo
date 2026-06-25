@@ -1,0 +1,36 @@
+{
+    "name": "vortos/vortos-backup",
+    "description": "Vortos Backup — enterprise-grade database backups: streamed pg_dump/pg_basebackup + WAL PITR and mongodump to an object store (R2), integrity-verified at creation, append-only catalog, GFS retention with hard safety floors, encryption-ready stream seam (Block 20), and a Block-17-ready alerting event seam. Built on the OpsKit driver pattern.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Backup\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "ext-hash": "*",
+        "psr/clock": "^1.0",
+        "psr/log": "^3.0",
+        "doctrine/dbal": "^4.0",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-ops-kit": "^1.0",
+        "vortos/vortos-object-store": "^1.0",
+        "symfony/dependency-injection": "^7.3",
+        "symfony/console": "^7.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "suggest": {
+        "ext-pgsql": "For Postgres backups (requires pg_dump/pg_basebackup binaries on the host)",
+        "ext-mongodb": "For Mongo backups (requires the mongodump binary on the host)"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Backup\\DependencyInjection\\BackupPackage",
+            "order": 180
+        }
+    }
+}

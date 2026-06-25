@@ -9,6 +9,8 @@ use Vortos\Auth\Scim\Domain\ScimUser;
 use Vortos\Auth\Scim\Sso\ClaimsRoleMapper;
 use Vortos\Auth\Scim\Storage\ScimGroupStorageInterface;
 use Vortos\Auth\Scim\Storage\ScimUserStorageInterface;
+use Vortos\Auth\Scim\Token\ScimTokenRecord;
+use Vortos\Tenant\TenantContext;
 
 /**
  * SCIM 2.0 service (RFC 7643/7644).
@@ -18,18 +20,18 @@ use Vortos\Auth\Scim\Storage\ScimUserStorageInterface;
  *
  * Idempotent: operations keyed by externalId so IdP re-delivery is safe.
  *
- * Security:
- *  - Bearer token authentication is enforced at the HTTP layer (ScimAuthMiddleware).
- *  - This service is never called without a valid, scope-checked token.
- *  - All inputs are validated before persistence; unknown fields are dropped.
- *  - Provisioning actions emit to the ledger (SOC2 audit evidence).
+ * All operations are tenant-scoped via TenantContext (fail-closed). A missing
+ * tenant throws MissingTenantContextException before any storage access.
  */
 final class ScimService
 {
     public function __construct(
         private readonly ScimUserStorageInterface $userStorage,
         private readonly ScimGroupStorageInterface $groupStorage,
+        private readonly TenantContext $tenantContext,
         private readonly ?ClaimsRoleMapper $roleMapper = null,
+        private readonly ?ScimRoleGuard $roleGuard = null,
+        private readonly ?ScimAuditLogger $auditLogger = null,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -39,16 +41,18 @@ final class ScimService
     /** @param array<string, mixed> $data RFC 7643 User payload */
     public function createUser(array $data): ScimUser
     {
+        $tenantId   = $this->tenantContext->requireTenantId();
         $externalId = (string) ($data['externalId'] ?? '');
 
         if ($externalId !== '') {
-            $existing = $this->userStorage->findByExternalId($externalId);
+            $existing = $this->userStorage->findByExternalId($tenantId, $externalId);
             if ($existing !== null) {
-                return $this->replaceUser($existing->id, $data); // Idempotent re-provision
+                return $this->replaceUser($existing->id, $data)
+                    ?? throw new \LogicException('Tenant-scoped user vanished between findByExternalId and replaceUser');
             }
         }
 
-        $user = $this->buildUser(bin2hex(random_bytes(16)), $data);
+        $user = $this->buildUser(bin2hex(random_bytes(16)), $tenantId, $data);
         $this->userStorage->save($user);
 
         return $user;
@@ -56,7 +60,7 @@ final class ScimService
 
     public function getUser(string $id): ?ScimUser
     {
-        return $this->userStorage->findById($id);
+        return $this->userStorage->findById($this->tenantContext->requireTenantId(), $id);
     }
 
     /**
@@ -64,7 +68,7 @@ final class ScimService
      */
     public function listUsers(?string $filter = null, int $startIndex = 1, int $count = 100): array
     {
-        $result = $this->userStorage->list($filter, $startIndex, $count);
+        $result = $this->userStorage->list($this->tenantContext->requireTenantId(), $filter, $startIndex, $count);
 
         return [
             'schemas'      => ['urn:ietf:params:scim:api:messages:2.0:ListResponse'],
@@ -75,10 +79,17 @@ final class ScimService
         ];
     }
 
-    /** Full replacement (PUT). */
-    public function replaceUser(string $id, array $data): ScimUser
+    /** Full replacement (PUT). Returns null if the user does not exist in the current tenant. */
+    public function replaceUser(string $id, array $data): ?ScimUser
     {
-        $user = $this->buildUser($id, $data);
+        $tenantId = $this->tenantContext->requireTenantId();
+        $existing = $this->userStorage->findById($tenantId, $id);
+
+        if ($existing === null) {
+            return null;
+        }
+
+        $user = $this->buildUser($id, $tenantId, $data, $existing);
         $this->userStorage->save($user);
 
         return $user;
@@ -87,7 +98,8 @@ final class ScimService
     /** Partial update (PATCH). Only supports op=replace and op=remove on a limited set of paths. */
     public function patchUser(string $id, array $operations): ?ScimUser
     {
-        $user = $this->userStorage->findById($id);
+        $tenantId = $this->tenantContext->requireTenantId();
+        $user     = $this->userStorage->findById($tenantId, $id);
         if ($user === null) {
             return null;
         }
@@ -101,7 +113,7 @@ final class ScimService
                 $user = match ($path) {
                     'active'      => $user->withActive((bool) $value),
                     'displayname' => new ScimUser(
-                        $user->id, $user->externalId, $user->userName, (string) $value,
+                        $user->id, $user->tenantId, $user->externalId, $user->userName, (string) $value,
                         $user->givenName, $user->familyName, $user->active, $user->emails,
                         $user->groups, $user->createdAt, (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
                         $user->meta, $user->roles,
@@ -109,7 +121,6 @@ final class ScimService
                     default => $user,
                 };
 
-                // Handle value-map patches (RFC 7644 §3.5.2)
                 if ($path === '' && is_array($value)) {
                     if (isset($value['active'])) {
                         $user = $user->withActive((bool) $value['active']);
@@ -129,11 +140,12 @@ final class ScimService
 
     public function deleteUser(string $id): bool
     {
-        if ($this->userStorage->findById($id) === null) {
+        $tenantId = $this->tenantContext->requireTenantId();
+        if ($this->userStorage->findById($tenantId, $id) === null) {
             return false;
         }
 
-        $this->userStorage->delete($id);
+        $this->userStorage->delete($tenantId, $id);
 
         return true;
     }
@@ -142,28 +154,33 @@ final class ScimService
     // Groups
     // -------------------------------------------------------------------------
 
-    /** @param array<string, mixed> $data RFC 7643 Group payload */
-    public function createGroup(array $data): ScimGroup
+    /**
+     * @param array<string, mixed> $data RFC 7643 Group payload
+     * @param ScimTokenRecord|null $token When provided, the role guard verifies the token can provision the mapped role
+     */
+    public function createGroup(array $data, ?ScimTokenRecord $token = null): ScimGroup
     {
+        $tenantId   = $this->tenantContext->requireTenantId();
         $externalId = (string) ($data['externalId'] ?? '');
 
         if ($externalId !== '') {
-            $existing = $this->groupStorage->findByExternalId($externalId);
+            $existing = $this->groupStorage->findByExternalId($tenantId, $externalId);
             if ($existing !== null) {
-                return $this->replaceGroup($existing->id, $data);
+                return $this->replaceGroup($existing->id, $data, $token)
+                    ?? throw new \LogicException('Tenant-scoped group vanished between findByExternalId and replaceGroup');
             }
         }
 
-        $group = $this->buildGroup(bin2hex(random_bytes(16)), $data);
+        $group = $this->buildGroup(bin2hex(random_bytes(16)), $tenantId, $data, $token);
         $this->groupStorage->save($group);
-        $this->syncGroupMemberships($group);
+        $this->syncGroupMemberships($group, $token);
 
         return $group;
     }
 
     public function getGroup(string $id): ?ScimGroup
     {
-        return $this->groupStorage->findById($id);
+        return $this->groupStorage->findById($this->tenantContext->requireTenantId(), $id);
     }
 
     /**
@@ -171,7 +188,7 @@ final class ScimService
      */
     public function listGroups(?string $filter = null, int $startIndex = 1, int $count = 100): array
     {
-        $result = $this->groupStorage->list($filter, $startIndex, $count);
+        $result = $this->groupStorage->list($this->tenantContext->requireTenantId(), $filter, $startIndex, $count);
 
         return [
             'schemas'      => ['urn:ietf:params:scim:api:messages:2.0:ListResponse'],
@@ -182,18 +199,26 @@ final class ScimService
         ];
     }
 
-    public function replaceGroup(string $id, array $data): ScimGroup
+    /** Full replacement (PUT). Returns null if the group does not exist in the current tenant. */
+    public function replaceGroup(string $id, array $data, ?ScimTokenRecord $token = null): ?ScimGroup
     {
-        $group = $this->buildGroup($id, $data);
+        $tenantId = $this->tenantContext->requireTenantId();
+
+        if ($this->groupStorage->findById($tenantId, $id) === null) {
+            return null;
+        }
+
+        $group = $this->buildGroup($id, $tenantId, $data, $token);
         $this->groupStorage->save($group);
-        $this->syncGroupMemberships($group);
+        $this->syncGroupMemberships($group, $token);
 
         return $group;
     }
 
-    public function patchGroup(string $id, array $operations): ?ScimGroup
+    public function patchGroup(string $id, array $operations, ?ScimTokenRecord $token = null): ?ScimGroup
     {
-        $group = $this->groupStorage->findById($id);
+        $tenantId = $this->tenantContext->requireTenantId();
+        $group    = $this->groupStorage->findById($tenantId, $id);
         if ($group === null) {
             return null;
         }
@@ -221,7 +246,7 @@ final class ScimService
 
             if ($opName === 'replace' && $path === 'displayname' && isset($op['value'])) {
                 $group = new ScimGroup(
-                    $group->id, $group->externalId, (string) $op['value'], $members,
+                    $group->id, $group->tenantId, $group->externalId, (string) $op['value'], $members,
                     $group->createdAt, (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
                     $group->platformRole,
                 );
@@ -230,18 +255,19 @@ final class ScimService
 
         $group = $group->withMembers($members);
         $this->groupStorage->save($group);
-        $this->syncGroupMemberships($group);
+        $this->syncGroupMemberships($group, $token);
 
         return $group;
     }
 
     public function deleteGroup(string $id): bool
     {
-        if ($this->groupStorage->findById($id) === null) {
+        $tenantId = $this->tenantContext->requireTenantId();
+        if ($this->groupStorage->findById($tenantId, $id) === null) {
             return false;
         }
 
-        $this->groupStorage->delete($id);
+        $this->groupStorage->delete($tenantId, $id);
 
         return true;
     }
@@ -250,7 +276,12 @@ final class ScimService
     // Internal helpers
     // -------------------------------------------------------------------------
 
-    private function buildUser(string $id, array $data): ScimUser
+    /**
+     * RFC 7643: `groups` is readOnly on User — never derived from the inbound body.
+     * On create: groups/roles start empty (populated via Group membership only).
+     * On replace: groups/roles carry forward from the existing record.
+     */
+    private function buildUser(string $id, string $tenantId, array $data, ?ScimUser $existing = null): ScimUser
     {
         $now    = (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM);
         $name   = $data['name'] ?? [];
@@ -262,11 +293,9 @@ final class ScimService
             }
         }
 
-        $groups = array_column((array) ($data['groups'] ?? []), 'value');
-        $roles  = $this->roleMapper !== null ? $this->roleMapper->mapGroupsToRoles($groups) : [];
-
         return new ScimUser(
             id:          $id,
+            tenantId:    $tenantId,
             externalId:  (string) ($data['externalId'] ?? ''),
             userName:    (string) ($data['userName'] ?? ''),
             displayName: (string) ($data['displayName'] ?? ($name['formatted'] ?? '')),
@@ -274,15 +303,15 @@ final class ScimService
             familyName:  (string) ($name['familyName'] ?? ''),
             active:      (bool) ($data['active'] ?? true),
             emails:      $emails,
-            groups:      $groups,
-            createdAt:   $now,
+            groups:      $existing?->groups ?? [],
+            createdAt:   $existing?->createdAt ?? $now,
             updatedAt:   $now,
             meta:        [],
-            roles:       $roles,
+            roles:       $existing?->roles ?? [],
         );
     }
 
-    private function buildGroup(string $id, array $data): ScimGroup
+    private function buildGroup(string $id, string $tenantId, array $data, ?ScimTokenRecord $token = null): ScimGroup
     {
         $now        = (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM);
         $memberIds  = array_column((array) ($data['members'] ?? []), 'value');
@@ -290,8 +319,13 @@ final class ScimService
             ? $this->roleMapper->mapGroupDisplayNameToRole((string) ($data['displayName'] ?? ''))
             : null;
 
+        if ($platformRole !== null && $this->roleGuard !== null && $token !== null) {
+            $this->roleGuard->assertPermittedRoles($token, [$platformRole]);
+        }
+
         return new ScimGroup(
             id:           $id,
+            tenantId:     $tenantId,
             externalId:   (string) ($data['externalId'] ?? ''),
             displayName:  (string) ($data['displayName'] ?? ''),
             memberIds:    $memberIds,
@@ -302,16 +336,29 @@ final class ScimService
     }
 
     /** Update each member user's groups list to reflect group membership. */
-    private function syncGroupMemberships(ScimGroup $group): void
+    private function syncGroupMemberships(ScimGroup $group, ?ScimTokenRecord $token = null): void
     {
+        $tenantId = $group->tenantId;
+
         foreach ($group->memberIds as $userId) {
-            $user = $this->userStorage->findById($userId);
+            $user = $this->userStorage->findById($tenantId, $userId);
             if ($user === null) {
                 continue;
             }
 
+            $hadGroup = in_array($group->id, $user->groups, true);
             $updatedGroups = array_unique(array_merge($user->groups, [$group->id]));
             $this->userStorage->save($user->withGroups($updatedGroups));
+
+            if (!$hadGroup && $group->platformRole !== null && $this->auditLogger !== null) {
+                $this->auditLogger->logRoleAssignment(
+                    tenantId: $tenantId,
+                    scimTokenId: $token?->id ?? 'system',
+                    userId: $userId,
+                    role: $group->platformRole,
+                    sourceGroupId: $group->id,
+                );
+            }
         }
     }
 }

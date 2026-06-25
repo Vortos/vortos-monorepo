@@ -19,6 +19,7 @@ final class RequestContextProcessor implements ProcessorInterface
     public function __construct(
         private readonly ?object $requestStack = null,
         private readonly ?object $currentUserProvider = null,
+        private readonly ?object $ipResolver = null, // IpResolverInterface — duck-typed to avoid hard dep
     ) {}
 
     public function __invoke(LogRecord $record): LogRecord
@@ -31,7 +32,9 @@ final class RequestContextProcessor implements ProcessorInterface
         if ($request !== null) {
             $extra['http.request.method'] = $request->getMethod();
             $extra['url.path'] = $request->getPathInfo();
-            $extra['client.address'] = (string) $request->getClientIp();
+            $extra['client.address'] = $this->ipResolver !== null && method_exists($this->ipResolver, 'resolve')
+                ? (string) $this->ipResolver->resolve($request)
+                : (string) $request->getClientIp();
             $extra['user_agent.original'] = (string) $request->headers->get('user-agent', '');
 
             $tenantId = $request->headers->get('x-tenant-id')

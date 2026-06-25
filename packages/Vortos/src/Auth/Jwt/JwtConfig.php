@@ -34,9 +34,15 @@ final readonly class JwtConfig
         public int $refreshTokenTtl = 604800,
 
         /**
-         * Token issuer — included in 'iss' claim.
+         * Token issuer — included in 'iss' claim. Must be explicitly set.
          */
         public string $issuer = 'vortos',
+
+        /**
+         * Token audience — included in 'aud' claim and validated on every token.
+         * Prevents cross-service token confusion when services share a keyring.
+         */
+        public string $audience = 'vortos',
     ) {}
 
     /**
@@ -47,7 +53,8 @@ final readonly class JwtConfig
         int $accessTokenTtl = 900,
         int $refreshTokenTtl = 604800,
         string $issuer = 'vortos',
+        string $audience = 'vortos',
     ): self {
-        return new self(Keyring::fromSecret($secret), $accessTokenTtl, $refreshTokenTtl, $issuer);
+        return new self(Keyring::fromSecret($secret), $accessTokenTtl, $refreshTokenTtl, $issuer, $audience);
     }
 }

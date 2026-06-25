@@ -76,10 +76,13 @@ final class PrometheusGuardrailMetricSource implements GuardrailMetricSourceInte
                 $name,
                 $window,
             ),
+            // vortos_flags_exposures_total carries only `flag,variant` labels (see
+            // FlagEvaluationMetrics::exposure()) — there is no `env` label to filter on,
+            // so this is intentionally global across environments, not env-scoped.
             GuardrailMetricKind::ExposureRateDrop => sprintf(
-                'rate(vortos_flags_exposures_total{flag="%s",env="%s"}[%s])',
+                'rate(vortos_flags_exposures_total{flag="%s"%s}[%s])',
                 $name,
-                $env,
+                $query->variant !== null ? sprintf(',variant="%s"', $query->variant) : '',
                 $window,
             ),
             GuardrailMetricKind::Custom => sprintf(

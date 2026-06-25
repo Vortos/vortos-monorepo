@@ -30,6 +30,16 @@ $packages = [
     'vortos-aws-ses'       => 'AwsSes',
     'vortos-object-store'  => 'ObjectStore',
     'vortos-tenant'        => 'Tenant',
+    'vortos-ops-kit'       => 'OpsKit',
+    'vortos-health'        => 'Health',
+    'vortos-release'       => 'Release',
+    'vortos-secrets'       => 'Secrets',
+    'vortos-deploy'        => 'Deploy',
+    'vortos-backup'        => 'Backup',
+    'vortos-alerts'        => 'Alerts',
+    'vortos-analytics'     => 'Analytics',
+    'vortos-analytics-posthog' => 'AnalyticsPosthog',
+    'vortos-deploy-k8s'        => 'DeployK8s',
 ];
 
 foreach ($packages as $vendorName => $srcName) {

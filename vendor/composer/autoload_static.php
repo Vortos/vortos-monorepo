@@ -60,11 +60,15 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Tenant\\' => 14,
             'Vortos\\Setup\\' => 13,
             'Vortos\\Security\\' => 16,
+            'Vortos\\Secrets\\' => 15,
+            'Vortos\\Release\\' => 15,
+            'Vortos\\Pipeline\\' => 16,
             'Vortos\\Persistence\\' => 19,
             'Vortos\\PersistenceOrm\\' => 22,
             'Vortos\\PersistenceMongo\\' => 24,
             'Vortos\\PersistenceDbal\\' => 23,
             'Vortos\\Paddle\\' => 14,
+            'Vortos\\OpsKit\\' => 14,
             'Vortos\\Observability\\' => 21,
             'Vortos\\ObjectStore\\' => 19,
             'Vortos\\Migration\\' => 17,
@@ -75,18 +79,25 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Logger\\' => 14,
             'Vortos\\Iac\\' => 11,
             'Vortos\\Http\\' => 12,
+            'Vortos\\Health\\' => 14,
             'Vortos\\Foundation\\' => 18,
             'Vortos\\FeatureFlags\\' => 20,
             'Vortos\\FeatureFlagsAdmin\\' => 25,
             'Vortos\\Domain\\' => 14,
             'Vortos\\Docker\\' => 14,
+            'Vortos\\Deploy\\' => 14,
+            'Vortos\\DeployK8s\\' => 17,
             'Vortos\\Debug\\' => 13,
             'Vortos\\Cqrs\\' => 12,
             'Vortos\\Config\\' => 14,
             'Vortos\\Cache\\' => 13,
+            'Vortos\\Backup\\' => 14,
             'Vortos\\AwsSes\\' => 14,
             'Vortos\\Authorization\\' => 21,
             'Vortos\\Auth\\' => 12,
+            'Vortos\\Analytics\\' => 17,
+            'Vortos\\AnalyticsPosthog\\' => 24,
+            'Vortos\\Alerts\\' => 14,
         ),
         'T' =>
         array (
@@ -263,6 +274,18 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Security',
         ),
+        'Vortos\\Secrets\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Secrets',
+        ),
+        'Vortos\\Release\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Release',
+        ),
+        'Vortos\\Pipeline\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Pipeline',
+        ),
         'Vortos\\Persistence\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-persistence',
@@ -282,6 +305,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Paddle\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Paddle',
+        ),
+        'Vortos\\OpsKit\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/OpsKit',
         ),
         'Vortos\\Observability\\' =>
         array (
@@ -323,6 +350,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-http',
         ),
+        'Vortos\\Health\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Health',
+        ),
         'Vortos\\Foundation\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-foundation',
@@ -343,6 +374,14 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Docker',
         ),
+        'Vortos\\Deploy\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Deploy',
+        ),
+        'Vortos\\DeployK8s\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/DeployK8s',
+        ),
         'Vortos\\Debug\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Debug',
@@ -359,6 +398,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-cache',
         ),
+        'Vortos\\Backup\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Backup',
+        ),
         'Vortos\\AwsSes\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/AwsSes',
@@ -370,6 +413,18 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Auth\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-auth',
+        ),
+        'Vortos\\Analytics\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Analytics',
+        ),
+        'Vortos\\AnalyticsPosthog\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/AnalyticsPosthog',
+        ),
+        'Vortos\\Alerts\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Alerts',
         ),
         'Twig\\' =>
         array (

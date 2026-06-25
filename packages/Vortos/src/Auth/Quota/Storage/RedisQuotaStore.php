@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Vortos\Auth\Quota\Storage;
 
+use Vortos\Auth\Quota\Contract\QuotaStoreInterface;
 use Vortos\Auth\Quota\Exception\QuotaStoreUnavailableException;
 use Vortos\Auth\Quota\QuotaConsumeResult;
 use Vortos\Auth\Quota\QuotaPeriod;
@@ -16,7 +17,7 @@ use Vortos\Auth\Quota\QuotaPeriod;
  * Uses Redis TIME as the clock source for reset windows, avoiding app-server
  * clock drift across long-running FrankenPHP workers and multi-node deployments.
  */
-final class RedisQuotaStore
+final class RedisQuotaStore implements QuotaStoreInterface
 {
     private const CONSUME_SCRIPT = <<<'LUA'
 local current = tonumber(redis.call('GET', KEYS[1]) or '0')
@@ -36,6 +37,18 @@ if next_value == cost and ttl > 0 then
 end
 
 return {1, next_value, math.max(0, limit - next_value), reset_at}
+LUA;
+
+    private const COMPENSATE_SCRIPT = <<<'LUA'
+local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+local cost = tonumber(ARGV[1])
+local new_value = math.max(0, current - cost)
+if new_value == 0 then
+    redis.call('DEL', KEYS[1])
+else
+    redis.call('SET', KEYS[1], new_value, 'KEEPTTL')
+end
+return new_value
 LUA;
 
     public function __construct(private \Redis $redis) {}
@@ -64,7 +77,7 @@ LUA;
         try {
             /** @var array{0: int|string, 1: int|string, 2: int|string, 3: int|string}|false $result */
             $result = $this->redis->eval(self::CONSUME_SCRIPT, [$key, $cost, $limit, $ttl, $resetAt], 1);
-        } catch (\RedisException $e) {
+        } catch (\Throwable $e) {
             throw new QuotaStoreUnavailableException('Quota store is unavailable.', previous: $e);
         }
 
@@ -78,6 +91,27 @@ LUA;
             (int) $result[2],
             (int) $result[3],
         );
+    }
+
+    public function compensate(
+        string $bucket,
+        string $subjectId,
+        string $quota,
+        QuotaPeriod $period,
+        int $cost = 1,
+    ): void {
+        if ($cost < 1) {
+            throw new \InvalidArgumentException('Quota compensation cost must be greater than zero.');
+        }
+
+        $now = $this->redisTimestamp();
+        $key = $this->key($bucket, $subjectId, $quota, $period, $now);
+
+        try {
+            $this->redis->eval(self::COMPENSATE_SCRIPT, [$key, $cost], 1);
+        } catch (\Throwable) {
+            // Best-effort: compensation failure is non-critical
+        }
     }
 
     public function increment(string $userId, string $quota, QuotaPeriod $period, int $cost = 1): int
@@ -121,7 +155,7 @@ LUA;
     {
         try {
             $time = $this->redis->time();
-        } catch (\RedisException $e) {
+        } catch (\Throwable $e) {
             throw new QuotaStoreUnavailableException('Quota store clock is unavailable.', previous: $e);
         }
 

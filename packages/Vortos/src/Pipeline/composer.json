@@ -1,0 +1,27 @@
+{
+    "name": "vortos/vortos-pipeline",
+    "description": "Provider-agnostic CI/CD generation — abstract Pipeline model + GitHub Actions emitter (pure codegen, SHA-pinned, least-privilege), owns split.yml",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Pipeline\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-ops-kit": "^1.0",
+        "symfony/console": "^7.0 || ^8.0",
+        "symfony/dependency-injection": "^7.0 || ^8.0"
+    },
+    "require-dev": {
+        "symfony/yaml": "^7.0 || ^8.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Pipeline\\DependencyInjection\\PipelinePackage",
+            "order": 160
+        }
+    }
+}

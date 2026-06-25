@@ -10,6 +10,7 @@ use Vortos\Http\JsonResponse;
 use Vortos\Http\MiddlewareOrder;
 use Vortos\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Vortos\Auth\Contract\TokenFreshnessGuardInterface;
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Jwt\JwtService;
@@ -41,14 +42,18 @@ final class AuthMiddleware implements MiddlewareInterface
      * @param list<string> $protectedControllers Pre-built by AuthCompilerPass.
      */
     public function __construct(
-        private JwtService   $jwtService,
-        private ArrayAdapter $arrayAdapter,
-        private array        $protectedControllers = [],
+        private JwtService                     $jwtService,
+        private ArrayAdapter                   $arrayAdapter,
+        private array                          $protectedControllers = [],
+        private ?TokenFreshnessGuardInterface  $freshnessGuard = null,
     ) {}
 
     public function handle(Request $request, \Closure $next): Response
     {
-        [$identity, $authzVersion] = $this->resolveIdentity($request);
+        $validated = $this->resolveToken($request);
+        $identity = $validated?->identity ?? new AnonymousIdentity();
+        $authzVersion = $validated?->authzVersion ?? 0;
+
         $this->arrayAdapter->set('auth:identity', $identity);
         $this->arrayAdapter->set('auth:authz_version', $authzVersion);
 
@@ -59,31 +64,42 @@ final class AuthMiddleware implements MiddlewareInterface
             );
         }
 
+        if ($validated !== null && $this->freshnessGuard !== null) {
+            $reason = $this->freshnessGuard->check(
+                $identity->id(),
+                $authzVersion,
+                $validated->issuedAt,
+            );
+            if ($reason !== null) {
+                return new JsonResponse(
+                    ['error' => 'Token Stale', 'message' => $reason],
+                    Response::HTTP_UNAUTHORIZED,
+                    ['X-Token-Stale' => 'true'],
+                );
+            }
+        }
+
         return $next($request);
     }
 
-    /**
-     * @return array{0: UserIdentityInterface, 1: int}
-     */
-    private function resolveIdentity(Request $request): array
+    private function resolveToken(Request $request): ?ValidatedToken
     {
         $authHeader = $request->headers->get('Authorization', '');
 
         if (!str_starts_with($authHeader, 'Bearer ')) {
-            return [new AnonymousIdentity(), 0];
+            return null;
         }
 
         $token = substr($authHeader, 7);
 
         if (empty($token)) {
-            return [new AnonymousIdentity(), 0];
+            return null;
         }
 
         try {
-            $validated = $this->jwtService->validate($token);
-            return [$validated->identity, $validated->authzVersion];
+            return $this->jwtService->validate($token);
         } catch (\Throwable) {
-            return [new AnonymousIdentity(), 0];
+            return null;
         }
     }
 

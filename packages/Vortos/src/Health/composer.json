@@ -1,0 +1,37 @@
+{
+    "name": "vortos/vortos-health",
+    "description": "Vortos Health — canonical probe-based health system (liveness/readiness/startup) plus the Block 18 external synthetic uptime + dead-man heartbeat + capacity/cert detectors. Built on the OpsKit driver pattern: per-probe/per-monitor capability descriptors, budget-bounded aggregation, single-flight DoS guard, legacy bridge for Foundation health checks, and a conformance TCK.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Health\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-ops-kit": "^1.0",
+        "symfony/dependency-injection": "^7.3",
+        "symfony/http-foundation": "^7.3",
+        "symfony/routing": "^7.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0",
+        "vortos/vortos-observability": "^1.0",
+        "vortos/vortos-deploy": "^1.0",
+        "doctrine/dbal": "^3.0 || ^4.0"
+    },
+    "suggest": {
+        "vortos/vortos-observability": "Optional: reuses the Block 15 dead-man heartbeat emitter from MonitorTick (never re-implemented). Health never depends on it at build time — guarded by class_exists().",
+        "vortos/vortos-deploy": "Optional: registers the detector-independence deploy:doctor check (fail-closed in prod). Health never depends on it at build time — guarded by interface_exists().",
+        "vortos/vortos-alerts": "Optional, the other direction: vortos-alerts reads HealthProbeRegistry/UptimeMonitorRegistry for capacity/cert/synthetic-uptime alert rules.",
+        "doctrine/dbal": "Required for the default DBAL-backed uptime-monitor sync idempotency store."
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Health\\DependencyInjection\\HealthPackage",
+            "order": 120
+        }
+    }
+}

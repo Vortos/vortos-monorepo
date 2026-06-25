@@ -35,6 +35,7 @@ use Vortos\Authorization\Contract\RolePermissionStoreInterface;
 use Vortos\Authorization\Contract\UserRoleStoreInterface;
 use Vortos\Authorization\Engine\PolicyEngine;
 use Vortos\Authorization\Engine\PolicyRegistry;
+use Vortos\Authorization\Identity\AuthzVersionFreshnessGuard;
 use Vortos\Authorization\Identity\RequestAuthzVersionProvider;
 use Vortos\Authorization\Middleware\AuthorizationMiddleware;
 use Vortos\Authorization\Middleware\ControllerPermissionMap;
@@ -141,6 +142,7 @@ final class AuthorizationExtension extends Extension
         $container->register(AuthorizationAuditContextProvider::class, AuthorizationAuditContextProvider::class)
             ->setArgument('$requestStack', null)
             ->setArgument('$tracer', $tracingReference)
+            ->setArgument('$ipResolver', null)
             ->setShared(true)
             ->setPublic(false);
 
@@ -288,6 +290,18 @@ final class AuthorizationExtension extends Extension
             ->setPublic(false);
         $container->setAlias(AuthorizationVersionStoreInterface::class, NullAuthorizationVersionStore::class)
             ->setPublic(false);
+
+        // Authz-version freshness guard — plugs into Auth's CompositeTokenFreshnessGuard
+        // so auth-only routes also reject stale authorization versions.
+        $container->register(AuthzVersionFreshnessGuard::class, AuthzVersionFreshnessGuard::class)
+            ->setArgument('$versionStore', new Reference(AuthorizationVersionStoreInterface::class))
+            ->setShared(true)
+            ->setPublic(false);
+
+        if ($container->hasDefinition(\Vortos\Auth\TokenFreshness\CompositeTokenFreshnessGuard::class)) {
+            $container->getDefinition(\Vortos\Auth\TokenFreshness\CompositeTokenFreshnessGuard::class)
+                ->addArgument(new Reference(AuthzVersionFreshnessGuard::class));
+        }
 
         $container->register(NullTemporalPermissionStore::class, NullTemporalPermissionStore::class)
             ->setShared(true)

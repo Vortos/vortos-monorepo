@@ -10,16 +10,10 @@ use Vortos\Auth\Contract\UserIdentityInterface;
  * Verifies if 2FA has been completed for the current identity.
  * Auto-discovered — just implement this interface.
  *
- * Example:
- *   class TotpVerifier implements TwoFactorVerifierInterface
- *   {
- *       public function isVerified(UserIdentityInterface $identity, Request $request): bool
- *       {
- *           $verifiedAt = $request->getSession()->get('2fa_verified_at_' . $identity->id());
- *           return $verifiedAt && (time() - $verifiedAt) < 300;
- *       }
- *       public function getChallengeUrl(): string { return '/auth/2fa/challenge'; }
- *   }
+ * Implementation guidance:
+ * - Bind the verification to the current session ID AND access-token jti
+ * - Use a single-use challenge nonce with short TTL (≤300s)
+ * - Never rely solely on a session timestamp — include device/session binding
  */
 interface TwoFactorVerifierInterface
 {

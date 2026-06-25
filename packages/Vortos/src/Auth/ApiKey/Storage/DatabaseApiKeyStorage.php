@@ -82,6 +82,21 @@ final class DatabaseApiKeyStorage implements ApiKeyStorageInterface
         );
     }
 
+    public function touchLastUsedAt(string $hashedKey, \DateTimeImmutable $at): void
+    {
+        $this->connection->executeStatement(
+            'UPDATE ' . $this->table
+            . ' SET last_used_at = :at'
+            . ' WHERE hashed_key = :hash AND active = TRUE'
+            . '   AND (last_used_at IS NULL OR last_used_at < :threshold)',
+            [
+                'at'        => $at->format(\DateTimeInterface::ATOM),
+                'hash'      => $hashedKey,
+                'threshold' => $at->modify('-60 seconds')->format(\DateTimeInterface::ATOM),
+            ],
+        );
+    }
+
     public function findByUserId(string $userId): array
     {
         $rows = $this->connection->fetchAllAssociative(

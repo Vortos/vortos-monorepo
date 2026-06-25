@@ -12,5 +12,6 @@ final readonly class GuardrailMetricQuery
         public string $environment,
         public int $windowSeconds,
         public ?string $customMetricName = null,
+        public ?string $variant = null,
     ) {}
 }

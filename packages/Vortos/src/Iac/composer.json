@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-iac",
-    "description": "Vortos IaC export — generates Terraform (.tf.json) from compiled framework resource declarations. Pure codegen: no cloud credentials, no network calls.",
+    "description": "Vortos IaC — Terraform/OpenTofu lifecycle (plan/apply/destroy), codegen (.tf.json), nine resource families, state backends, policy gate, audit trail.",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -11,12 +11,17 @@
     "require": {
         "php": ">=8.2",
         "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-ops-kit": "^1.0",
         "symfony/console": "^7.3",
-        "symfony/dependency-injection": "^7.3"
+        "symfony/dependency-injection": "^7.3",
+        "symfony/process": "^7.3"
     },
     "suggest": {
         "vortos/vortos-messaging": "Required for the Kafka topics exporter",
-        "vortos/vortos-object-store": "Required for the object-store bucket exporter"
+        "vortos/vortos-object-store": "Required for the object-store bucket exporter",
+        "vortos/vortos-secrets": "Provider credential injection via SecretValue (env-only fallback without it)",
+        "vortos/vortos-observability": "Hash-chained audit ledger for lifecycle events",
+        "vortos/vortos-alerts": "Drift-to-alert integration"
     },
     "extra": {
         "vortos": {

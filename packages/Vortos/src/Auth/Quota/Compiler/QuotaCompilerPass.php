@@ -11,6 +11,7 @@ use Vortos\Auth\Quota\Contract\QuotaPolicyInterface;
 use Vortos\Auth\Quota\Contract\QuotaSubjectResolverInterface;
 use Vortos\Auth\Quota\Exception\InvalidQuotaSubjectResolverException;
 use Vortos\Auth\Quota\Middleware\QuotaMiddleware;
+use Vortos\Auth\Quota\QuotaSubjectProvenance;
 use Vortos\Auth\Quota\Resolver\GlobalQuotaResolver;
 use Vortos\Auth\Quota\Resolver\UserQuotaResolver;
 
@@ -105,6 +106,14 @@ final class QuotaCompilerPass implements CompilerPassInterface
 
         if (!isset($resolverServiceIds[$resolverClass])) {
             throw new InvalidQuotaSubjectResolverException(sprintf('Quota subject resolver "%s" is not registered as a service.', $resolverClass));
+        }
+
+        $instance = new $resolverClass();
+        if ($instance->provenance() === QuotaSubjectProvenance::ClaimDerived) {
+            throw new InvalidQuotaSubjectResolverException(sprintf(
+                'Quota subject resolver "%s" declares ClaimDerived provenance. Subjects must come from server-verified sources (sub claim or server-side lookup) to prevent cross-subject poisoning.',
+                $resolverClass,
+            ));
         }
     }
 

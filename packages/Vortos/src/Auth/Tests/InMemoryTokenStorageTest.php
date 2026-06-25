@@ -21,51 +21,58 @@ final class InMemoryTokenStorageTest extends TestCase
         $this->storage->clear();
     }
 
-    public function test_store_and_is_valid(): void
+    public function test_store_and_consume_returns_user_id(): void
     {
         $this->storage->store('jti-1', 'user-1', time() + 3600);
 
-        $this->assertTrue($this->storage->isValid('jti-1'));
+        $this->assertSame('user-1', $this->storage->consume('jti-1'));
     }
 
-    public function test_is_valid_returns_false_for_unknown_jti(): void
+    public function test_consume_returns_null_for_unknown_jti(): void
     {
-        $this->assertFalse($this->storage->isValid('nonexistent-jti'));
+        $this->assertNull($this->storage->consume('nonexistent-jti'));
     }
 
-    public function test_is_valid_returns_false_for_expired_token(): void
+    public function test_consume_returns_null_for_expired_token(): void
     {
-        $this->storage->store('jti-expired', 'user-1', time() - 1); // already expired
+        $this->storage->store('jti-expired', 'user-1', time() - 1);
 
-        $this->assertFalse($this->storage->isValid('jti-expired'));
+        $this->assertNull($this->storage->consume('jti-expired'));
     }
 
-    public function test_revoke_invalidates_token(): void
+    public function test_consume_is_exactly_once(): void
     {
         $this->storage->store('jti-1', 'user-1', time() + 3600);
-        $this->assertTrue($this->storage->isValid('jti-1'));
+
+        $this->assertSame('user-1', $this->storage->consume('jti-1'));
+        $this->assertNull($this->storage->consume('jti-1'));
+    }
+
+    public function test_revoke_makes_consume_return_null(): void
+    {
+        $this->storage->store('jti-1', 'user-1', time() + 3600);
 
         $this->storage->revoke('jti-1');
 
-        $this->assertFalse($this->storage->isValid('jti-1'));
+        $this->assertNull($this->storage->consume('jti-1'));
     }
 
     public function test_revoke_all_for_user_invalidates_all_their_tokens(): void
     {
         $this->storage->store('jti-a', 'user-1', time() + 3600);
         $this->storage->store('jti-b', 'user-1', time() + 3600);
-        $this->storage->store('jti-c', 'user-2', time() + 3600); // different user
+        $this->storage->store('jti-c', 'user-2', time() + 3600);
 
         $this->storage->revokeAllForUser('user-1');
 
-        $this->assertFalse($this->storage->isValid('jti-a'));
-        $this->assertFalse($this->storage->isValid('jti-b'));
-        $this->assertTrue($this->storage->isValid('jti-c')); // unaffected
+        $this->assertNull($this->storage->consume('jti-a'));
+        $this->assertNull($this->storage->consume('jti-b'));
+        $this->assertSame('user-2', $this->storage->consume('jti-c'));
     }
 
     public function test_revoke_nonexistent_jti_does_not_throw(): void
     {
         $this->expectNotToPerformAssertions();
-        $this->storage->revoke('nonexistent-jti'); // should not throw
+        $this->storage->revoke('nonexistent-jti');
     }
 }

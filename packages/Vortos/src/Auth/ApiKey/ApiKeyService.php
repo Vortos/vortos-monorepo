@@ -25,11 +25,19 @@ use Vortos\Auth\ApiKey\Storage\ApiKeyStorageInterface;
  *
  * Scopes follow the 'resource:action' convention (e.g., 'athletes:read', 'users:write').
  * Scopes are validated against #[RequiresApiKey(scopes: [...])] at request time.
+ *
+ * ## Inactivity expiry
+ *
+ * Keys unused for longer than $maxInactivitySeconds are rejected on validate().
+ * Usage is tracked via debounced lastUsedAt writes (one write per 60s per key).
  */
 final class ApiKeyService
 {
+    private const LAST_USED_DEBOUNCE_SECONDS = 60;
+
     public function __construct(
         private readonly ApiKeyStorageInterface $storage,
+        private readonly ?int $maxInactivitySeconds = null,
     ) {}
 
     /**
@@ -68,6 +76,9 @@ final class ApiKeyService
     /**
      * Validates a raw API key and returns the record if valid and has all required scopes.
      *
+     * On success, debounces a lastUsedAt write (best-effort — failure does not
+     * reject the request).
+     *
      * @param list<string> $requiredScopes
      */
     public function validate(string $rawKey, array $requiredScopes = []): ?ApiKeyRecord
@@ -79,8 +90,24 @@ final class ApiKeyService
             return null;
         }
 
+        if ($this->maxInactivitySeconds !== null && $record->isInactive($this->maxInactivitySeconds)) {
+            return null;
+        }
+
         if (!empty($requiredScopes) && !$record->hasAllScopes($requiredScopes)) {
             return null;
+        }
+
+        $now = new \DateTimeImmutable();
+        if (
+            $record->lastUsedAt === null
+            || ($now->getTimestamp() - $record->lastUsedAt->getTimestamp()) >= self::LAST_USED_DEBOUNCE_SECONDS
+        ) {
+            try {
+                $this->storage->touchLastUsedAt($hashedKey, $now);
+            } catch (\Throwable) {
+                // Best-effort — storage failure must not reject a valid key
+            }
         }
 
         return $record;

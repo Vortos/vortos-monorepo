@@ -12,6 +12,7 @@ use Vortos\Auth\Scim\Sso\ClaimsRoleMapper;
 use Vortos\Auth\Scim\Sso\ClaimsRoleMapping;
 use Vortos\Auth\Scim\Storage\InMemoryScimGroupStorage;
 use Vortos\Auth\Scim\Storage\InMemoryScimUserStorage;
+use Vortos\Tenant\TenantContext;
 
 /**
  * Block 29 — SCIM 2.0 service tests (RFC 7643/7644).
@@ -20,13 +21,16 @@ final class ScimServiceTest extends TestCase
 {
     private InMemoryScimUserStorage $userStorage;
     private InMemoryScimGroupStorage $groupStorage;
+    private TenantContext $tenantContext;
     private ScimService $service;
 
     protected function setUp(): void
     {
-        $this->userStorage  = new InMemoryScimUserStorage();
-        $this->groupStorage = new InMemoryScimGroupStorage();
-        $this->service      = new ScimService($this->userStorage, $this->groupStorage);
+        $this->userStorage   = new InMemoryScimUserStorage();
+        $this->groupStorage  = new InMemoryScimGroupStorage();
+        $this->tenantContext = new TenantContext();
+        $this->tenantContext->set('tenant-alpha');
+        $this->service       = new ScimService($this->userStorage, $this->groupStorage, $this->tenantContext);
     }
 
     // -------------------------------------------------------------------------
@@ -40,6 +44,7 @@ final class ScimServiceTest extends TestCase
         $this->assertSame('alice@example.com', $user->userName);
         $this->assertTrue($user->active);
         $this->assertNotEmpty($user->id);
+        $this->assertSame('tenant-alpha', $user->tenantId);
     }
 
     public function test_create_user_is_idempotent_on_external_id(): void
@@ -163,6 +168,7 @@ final class ScimServiceTest extends TestCase
 
         $this->assertSame('Flags Admins', $group->displayName);
         $this->assertNotEmpty($group->id);
+        $this->assertSame('tenant-alpha', $group->tenantId);
     }
 
     public function test_create_group_idempotent_on_external_id(): void
@@ -241,6 +247,20 @@ final class ScimServiceTest extends TestCase
 
         $this->assertSame(ScimGroup::SCHEMAS, $wire['schemas']);
         $this->assertSame('Group', $wire['meta']['resourceType']);
+    }
+
+    public function test_tenant_id_not_exposed_in_scim_wire_format(): void
+    {
+        $user  = $this->service->createUser($this->userPayload('wire@example.com'));
+        $group = $this->service->createGroup(['displayName' => 'Wire Group']);
+
+        $userWire  = $user->toScimArray();
+        $groupWire = $group->toScimArray();
+
+        $this->assertArrayNotHasKey('tenantId', $userWire);
+        $this->assertArrayNotHasKey('tenant_id', $userWire);
+        $this->assertArrayNotHasKey('tenantId', $groupWire);
+        $this->assertArrayNotHasKey('tenant_id', $groupWire);
     }
 
     // -------------------------------------------------------------------------

@@ -1,0 +1,83 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.7.0",
+  "planned_values": {},
+  "resource_changes": [
+    {
+      "address": "null_resource.created",
+      "type": "null_resource",
+      "provider_name": "registry.terraform.io/hashicorp/null",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {"triggers": {"label": "created"}},
+        "after_unknown": {"id": true}
+      }
+    },
+    {
+      "address": "null_resource.updated",
+      "type": "null_resource",
+      "provider_name": "registry.terraform.io/hashicorp/null",
+      "change": {
+        "actions": ["update"],
+        "before": {"triggers": {"label": "old"}},
+        "after": {"triggers": {"label": "new"}},
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "null_resource.deleted",
+      "type": "null_resource",
+      "provider_name": "registry.terraform.io/hashicorp/null",
+      "change": {
+        "actions": ["delete"],
+        "before": {"triggers": {"label": "deleted"}},
+        "after": null,
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "null_resource.replaced",
+      "type": "null_resource",
+      "provider_name": "registry.terraform.io/hashicorp/null",
+      "change": {
+        "actions": ["delete", "create"],
+        "before": {"triggers": {"label": "old"}},
+        "after": {"triggers": {"label": "replaced"}},
+        "after_unknown": {"id": true}
+      }
+    },
+    {
+      "address": "null_resource.unchanged",
+      "type": "null_resource",
+      "provider_name": "registry.terraform.io/hashicorp/null",
+      "change": {
+        "actions": ["no-op"],
+        "before": {"triggers": {"label": "same"}},
+        "after": {"triggers": {"label": "same"}},
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "null_resource.data_read",
+      "type": "null_resource",
+      "provider_name": "registry.terraform.io/hashicorp/null",
+      "change": {
+        "actions": ["read"],
+        "before": null,
+        "after": {},
+        "after_unknown": {}
+      }
+    }
+  ],
+  "output_changes": {
+    "sensitive_output": {
+      "actions": ["create"],
+      "before": null,
+      "after_unknown": true,
+      "after_sensitive": true
+    }
+  },
+  "prior_state": {},
+  "configuration": {}
+}

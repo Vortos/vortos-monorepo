@@ -7,10 +7,8 @@ namespace Vortos\Auth\Scim\Tests;
 use PHPUnit\Framework\TestCase;
 use Vortos\Auth\Scim\Sso\ClaimsRoleMapper;
 use Vortos\Auth\Scim\Sso\ClaimsRoleMapping;
+use Vortos\Auth\Scim\Sso\RoleMappingException;
 
-/**
- * Block 29.4 — SSO claims→role mapping tests.
- */
 final class ClaimsRoleMapperTest extends TestCase
 {
     private function makeMapper(): ClaimsRoleMapper
@@ -47,7 +45,6 @@ final class ClaimsRoleMapperTest extends TestCase
     public function test_deduplicates_roles(): void
     {
         $mapper = $this->makeMapper();
-        // Both groups map to flags.admin
         $roles  = $mapper->mapGroupsToRoles(['Flags Admins', 'Flags Admins']);
 
         $this->assertSame(['flags.admin'], $roles);
@@ -98,7 +95,7 @@ final class ClaimsRoleMapperTest extends TestCase
     public function test_pattern_mapping_matches_regex(): void
     {
         $mapper = $this->makeMapper();
-        $roles  = $mapper->mapGroupsToRoles(['product-admin']); // matches '.*-admin$'
+        $roles  = $mapper->mapGroupsToRoles(['product-admin']);
 
         $this->assertContains('flags.admin', $roles);
     }
@@ -116,7 +113,7 @@ final class ClaimsRoleMapperTest extends TestCase
     public function test_case_insensitive_matching(): void
     {
         $mapper = $this->makeMapper();
-        $roles  = $mapper->mapGroupsToRoles(['flags admins']); // different case
+        $roles  = $mapper->mapGroupsToRoles(['flags admins']);
 
         $this->assertContains('flags.admin', $roles);
     }
@@ -133,16 +130,16 @@ final class ClaimsRoleMapperTest extends TestCase
         $this->assertSame('flags.admin', $role);
     }
 
-    public function test_unknown_display_name_returns_default(): void
+    public function test_unknown_display_name_returns_null_not_default(): void
     {
         $mapper = $this->makeMapper();
         $role   = $mapper->mapGroupDisplayNameToRole('unknown');
 
-        $this->assertSame('flags.viewer', $role);
+        $this->assertNull($role, 'SCIM group provisioning must not fall back to defaultRole for unmatched groups');
     }
 
     // -------------------------------------------------------------------------
-    // Pattern validation
+    // Pattern validation — #17 ReDoS protection
     // -------------------------------------------------------------------------
 
     public function test_pattern_over_length_limit_throws(): void
@@ -155,5 +152,90 @@ final class ClaimsRoleMapperTest extends TestCase
     {
         $mapping = new ClaimsRoleMapping('.*admin.*', 'flags.admin', isPattern: true);
         $this->assertTrue($mapping->matchesGroup('super-admin'));
+    }
+
+    public function test_invalid_regex_pattern_rejected_at_construction(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/invalid regex/i');
+        new ClaimsRoleMapping('[invalid', 'flags.admin', isPattern: true);
+    }
+
+    public function test_catastrophic_backtracking_pattern_rejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/catastrophic backtracking/i');
+        new ClaimsRoleMapping('(a+)+$', 'flags.admin', isPattern: true);
+    }
+
+    public function test_nested_quantifier_star_star_rejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new ClaimsRoleMapping('(.*)*', 'flags.admin', isPattern: true);
+    }
+
+    public function test_nested_quantifier_word_plus_rejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new ClaimsRoleMapping('(\w+)+', 'flags.admin', isPattern: true);
+    }
+
+    public function test_safe_pattern_with_quantifier_in_group_accepted(): void
+    {
+        $mapping = new ClaimsRoleMapping('group-[a-z]+', 'flags.viewer', isPattern: true);
+        $this->assertTrue($mapping->matchesGroup('group-admins'));
+    }
+
+    public function test_backtrack_limit_enforced_at_runtime(): void
+    {
+        $n = 25;
+        $pattern = str_repeat('a?', $n) . str_repeat('a', $n);
+        $mapping = new ClaimsRoleMapping($pattern, 'flags.admin', isPattern: true);
+
+        $this->expectException(RoleMappingException::class);
+        $mapping->matchesGroup(str_repeat('a', $n));
+    }
+
+    public function test_mapper_returns_empty_roles_on_pattern_failure(): void
+    {
+        $n = 25;
+        $pattern = str_repeat('a?', $n) . str_repeat('a', $n);
+        $mapping = new ClaimsRoleMapping($pattern, 'flags.admin', isPattern: true);
+
+        $mapper = new ClaimsRoleMapper([$mapping], defaultRole: 'flags.viewer');
+        $roles = $mapper->mapGroupsToRoles([str_repeat('a', $n)]);
+
+        $this->assertSame([], $roles, 'Pattern failure must fail closed — no roles granted');
+    }
+
+    public function test_mapper_claims_returns_empty_on_pattern_failure(): void
+    {
+        $n = 25;
+        $pattern = str_repeat('a?', $n) . str_repeat('a', $n);
+        $mapping = new ClaimsRoleMapping($pattern, 'flags.admin', isPattern: true);
+
+        $mapper = new ClaimsRoleMapper([$mapping]);
+        $roles = $mapper->mapClaimsToRoles([str_repeat('a', $n)]);
+
+        $this->assertSame([], $roles);
+    }
+
+    public function test_mapper_display_name_returns_null_on_pattern_failure(): void
+    {
+        $n = 25;
+        $pattern = str_repeat('a?', $n) . str_repeat('a', $n);
+        $mapping = new ClaimsRoleMapping($pattern, 'flags.admin', isPattern: true);
+
+        $mapper = new ClaimsRoleMapper([$mapping]);
+        $result = $mapper->mapGroupDisplayNameToRole(str_repeat('a', $n));
+
+        $this->assertNull($result);
+    }
+
+    public function test_non_pattern_mapping_unaffected_by_redos_protection(): void
+    {
+        $mapping = new ClaimsRoleMapping('(a+)+$', 'flags.admin', isPattern: false);
+        $this->assertFalse($mapping->matchesGroup('test'));
+        $this->assertTrue($mapping->matchesGroup('(a+)+$'));
     }
 }

@@ -35,6 +35,12 @@ final class TerraformDocument
     /** @var array<string, TfVariable> */
     private array $variables = [];
 
+    /** @var array<string, mixed>|null backend block: e.g. ['s3' => [...]] */
+    private ?array $backend = null;
+
+    /** @var array<string, mixed> extra terraform{} block settings (e.g. required_version) */
+    private array $terraformSettings = [];
+
     public function __construct(
         /** @var list<string> dotted attribute paths allowed to hold secret-looking literals */
         private readonly array $allowedLiteralPaths = [],
@@ -62,6 +68,20 @@ final class TerraformDocument
 
         $this->guardSecrets($attributes, '');
         $this->resources[$type][$label] = $this->normalize($attributes);
+    }
+
+    /** @param array<string, mixed> $config backend configuration attributes (no secrets!) */
+    public function backend(string $type, array $config): void
+    {
+        $this->assertIdentifier($type, 'backend type');
+        $this->guardSecrets($config, 'backend');
+        $this->backend = [$type => $this->normalize($config)];
+    }
+
+    /** @param array<string, mixed> $settings extra terraform{} block settings */
+    public function terraformBlock(array $settings): void
+    {
+        $this->terraformSettings = array_merge($this->terraformSettings, $settings);
     }
 
     /** Registers a variable; identical re-registration is a no-op, conflicting specs fail. */
@@ -98,10 +118,25 @@ final class TerraformDocument
     {
         $body = ['//' => self::GENERATED_MARKER . ' — do not edit; change your InfraConfig and re-export.'];
 
+        $terraformBlock = [];
+
         if ($this->requiredProviders !== []) {
             $providers = $this->requiredProviders;
             ksort($providers);
-            $body['terraform'] = ['required_providers' => $providers];
+            $terraformBlock['required_providers'] = $providers;
+        }
+
+        if ($this->backend !== null) {
+            $terraformBlock['backend'] = $this->backend;
+        }
+
+        foreach ($this->terraformSettings as $key => $value) {
+            $terraformBlock[$key] = $value;
+        }
+
+        if ($terraformBlock !== []) {
+            ksort($terraformBlock);
+            $body['terraform'] = $terraformBlock;
         }
 
         if ($this->resources !== []) {

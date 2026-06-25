@@ -15,6 +15,8 @@ use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\RouteCollection;
 use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\Http\Attribute\AsController;
+use Vortos\Http\Contract\IpResolverInterface;
+use Vortos\Http\IpResolver\RemoteAddrIpResolver;
 use Vortos\Http\Contract\ArgumentValueResolverInterface;
 use Vortos\Http\Contract\ExceptionHandlerInterface;
 use Vortos\Http\Contract\MiddlewareInterface;
@@ -50,6 +52,17 @@ final class HttpExtension extends Extension
         }
         if (!$container->hasParameter('vortos.trusted_hosts')) {
             $container->setParameter('vortos.trusted_hosts', []);
+        }
+        if (!$container->hasParameter('vortos.has_ip_rate_limits')) {
+            $container->setParameter('vortos.has_ip_rate_limits', false);
+        }
+
+        // Default IpResolver — returns REMOTE_ADDR. Security's IpResolver
+        // overrides this with proxy-aware resolution via setAlias().
+        if (!$container->hasDefinition(IpResolverInterface::class) && !$container->hasAlias(IpResolverInterface::class)) {
+            $container->register(RemoteAddrIpResolver::class, RemoteAddrIpResolver::class)
+                ->setShared(true)->setPublic(false);
+            $container->setAlias(IpResolverInterface::class, RemoteAddrIpResolver::class)->setPublic(false);
         }
 
         // Tracing trust parameter — TracingExtension (order 50) overrides this

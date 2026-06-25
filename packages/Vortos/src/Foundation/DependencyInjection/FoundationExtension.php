@@ -21,7 +21,6 @@ use Vortos\Foundation\DependencyInjection\Attribute\DefaultImpl;
 use Vortos\Foundation\DependencyInjection\Attribute\ServiceProvider;
 use Vortos\Foundation\Health\HealthDetailPolicy;
 use Vortos\Foundation\Health\HealthRegistry;
-use Vortos\Http\Health\HealthController;
 use Vortos\Foundation\Reset\ServicesResetter;
 
 final class FoundationExtension extends Extension
@@ -45,12 +44,6 @@ final class FoundationExtension extends Extension
         $container->register(HealthDetailPolicy::class, HealthDetailPolicy::class)
             ->setFactory([HealthDetailPolicy::class, 'fromEnvironment'])
             ->setPublic(false);
-
-        $container->register(HealthController::class, HealthController::class)
-            ->setArgument('$registry', new Reference(HealthRegistry::class))
-            ->setArgument('$detailPolicy', new Reference(HealthDetailPolicy::class))
-            ->addTag('vortos.api.controller')
-            ->setPublic(true);
 
         $container->registerAttributeForAutoconfiguration(
             AsCommand::class,

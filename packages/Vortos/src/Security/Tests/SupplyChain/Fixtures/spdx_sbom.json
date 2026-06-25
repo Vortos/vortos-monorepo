@@ -1,0 +1,21 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "packages": [
+    {
+      "name": "alpine",
+      "versionInfo": "3.18.4",
+      "licenseConcluded": "MIT",
+      "externalRefs": [
+        {
+          "referenceType": "purl",
+          "referenceLocator": "pkg:oci/alpine@sha256:abc"
+        }
+      ]
+    },
+    {
+      "name": "openssl",
+      "versionInfo": "3.1.4",
+      "licenseConcluded": "NOASSERTION"
+    }
+  ]
+}

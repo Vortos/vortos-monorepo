@@ -38,17 +38,24 @@ interface TokenStorageInterface
     public function store(string $jti, string $userId, int $expiresAt): void;
 
     /**
-     * Check if a JTI is still valid (not revoked, not expired).
+     * Atomically consume a JTI — returns the associated userId if the JTI was
+     * valid, null if already consumed, expired, or never stored.
+     *
+     * Only one concurrent caller succeeds; all subsequent callers get null.
+     * This is the primary mechanism for refresh token rotation: the caller that
+     * gets null on a validly-signed, non-expired token should treat it as
+     * credential theft and revoke all tokens for the user (RFC 6819 §5.2.2.3).
      */
-    public function isValid(string $jti): bool;
+    public function consume(string $jti): ?string;
 
     /**
-     * Revoke a specific JTI — used on token refresh (rotation) and single-device logout.
+     * Revoke a specific JTI — used on single-device logout.
      */
     public function revoke(string $jti): void;
 
     /**
-     * Revoke all refresh tokens for a user — used on logout-all-devices.
+     * Revoke all refresh tokens for a user — used on logout-all-devices
+     * and as a breach response when refresh token reuse is detected.
      *
      * Implementations should track user → JTIs mapping for this to work efficiently.
      */

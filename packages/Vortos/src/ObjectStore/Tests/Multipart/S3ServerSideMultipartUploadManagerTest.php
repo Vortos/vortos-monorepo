@@ -49,6 +49,8 @@ final class S3ServerSideMultipartUploadManagerTest extends TestCase
 
     public function test_large_stream_upload_runs_multipart_sequence_with_checksum_and_progress(): void
     {
+        $partSize = 5_242_880;
+
         $handler = new MockHandler();
         $handler->append(function (CommandInterface $cmd) {
             $this->assertSame('CreateMultipartUpload', $cmd->getName());
@@ -56,16 +58,22 @@ final class S3ServerSideMultipartUploadManagerTest extends TestCase
             $this->assertSame('application/octet-stream', $cmd['ContentType']);
             return new Result(['UploadId' => 'upload-1']);
         });
-        $handler->append(function (CommandInterface $cmd) {
+        $handler->append(function (CommandInterface $cmd) use ($partSize) {
             $this->assertSame('UploadPart', $cmd->getName());
             $this->assertSame(1, $cmd['PartNumber']);
-            $this->assertSame(5242880, strlen($cmd['Body']));
+            $body = $cmd['Body'];
+            $len = \is_string($body) ? \strlen($body) : (int) $body->getSize();
+            unset($body);
+            $this->assertSame($partSize, $len);
             return new Result(['ETag' => '"part-1"']);
         });
         $handler->append(function (CommandInterface $cmd) {
             $this->assertSame('UploadPart', $cmd->getName());
             $this->assertSame(2, $cmd['PartNumber']);
-            $this->assertSame(1, strlen($cmd['Body']));
+            $body = $cmd['Body'];
+            $len = \is_string($body) ? \strlen($body) : (int) $body->getSize();
+            unset($body);
+            $this->assertSame(1, $len);
             return new Result(['ETag' => '"part-2"']);
         });
         $handler->append(function (CommandInterface $cmd) {
@@ -77,9 +85,7 @@ final class S3ServerSideMultipartUploadManagerTest extends TestCase
             return new Result(['ETag' => '"complete-etag"']);
         });
 
-        $stream = fopen('php://temp', 'rb+');
-        fwrite($stream, str_repeat('a', 5242881));
-        rewind($stream);
+        $stream = $this->streamOfSize($partSize + 1);
         $progress = [];
 
         $manager = new S3ServerSideMultipartUploadManager(
@@ -87,7 +93,7 @@ final class S3ServerSideMultipartUploadManagerTest extends TestCase
             new NullObjectStore(),
             'media',
             thresholdBytes: 1,
-            partSizeBytes: 5242880,
+            partSizeBytes: $partSize,
             maxInlineBodyBytes: 1,
         );
 
@@ -104,7 +110,7 @@ final class S3ServerSideMultipartUploadManagerTest extends TestCase
         );
 
         $this->assertSame('complete-etag', $result->etag());
-        $this->assertSame([[1, 5242880], [2, 1]], $progress);
+        $this->assertSame([[1, $partSize], [2, 1]], $progress);
     }
 
     public function test_failed_part_is_retried_before_abort(): void
@@ -132,7 +138,7 @@ final class S3ServerSideMultipartUploadManagerTest extends TestCase
             new NullObjectStore(),
             'media',
             thresholdBytes: 1,
-            partSizeBytes: 5242880,
+            partSizeBytes: 5_242_880,
             abortOnFailure: true,
             maxAttempts: 2,
             concurrency: 1,
@@ -141,7 +147,7 @@ final class S3ServerSideMultipartUploadManagerTest extends TestCase
         );
 
         $this->expectException(ObjectStoreException::class);
-        $manager->upload('large.bin', $this->streamOfSize(5242881));
+        $manager->upload('large.bin', $this->streamOfSize(5_242_881));
     }
 
     public function test_large_inline_body_is_rejected(): void
@@ -180,8 +186,20 @@ final class S3ServerSideMultipartUploadManagerTest extends TestCase
 
     private function streamOfSize(int $bytes): mixed
     {
-        $stream = fopen('php://temp', 'rb+');
-        fwrite($stream, str_repeat('a', $bytes));
+        $stream = fopen('php://temp/maxmemory:1048576', 'rb+');
+        $chunkSize = 65536;
+        $chunk = str_repeat('a', $chunkSize);
+        $written = 0;
+
+        while ($written + $chunkSize <= $bytes) {
+            fwrite($stream, $chunk);
+            $written += $chunkSize;
+        }
+
+        if ($written < $bytes) {
+            fwrite($stream, str_repeat('a', $bytes - $written));
+        }
+
         rewind($stream);
 
         return $stream;

@@ -21,10 +21,10 @@ final class LockoutConfigTest extends TestCase
         $this->assertSame(900, $config->lockDurationSeconds);
     }
 
-    public function test_default_track_by_is_email(): void
+    public function test_default_track_by_is_both(): void
     {
         $config = new LockoutConfig();
-        $this->assertSame(LockoutTrack::Email, $config->trackBy);
+        $this->assertSame(LockoutTrack::Both, $config->trackBy);
     }
 
     public function test_fluent_max_attempts(): void
@@ -49,5 +49,29 @@ final class LockoutConfigTest extends TestCase
     {
         $config = (new LockoutConfig())->message('Custom message');
         $this->assertSame('Custom message', $config->message);
+    }
+
+    public function test_default_backoff_base_seconds(): void
+    {
+        $config = new LockoutConfig();
+        $this->assertSame(1, $config->backoffBaseSeconds);
+    }
+
+    public function test_default_backoff_max_seconds(): void
+    {
+        $config = new LockoutConfig();
+        $this->assertSame(900, $config->backoffMaxSeconds);
+    }
+
+    public function test_fluent_backoff_base_seconds(): void
+    {
+        $config = (new LockoutConfig())->backoffBaseSeconds(2);
+        $this->assertSame(2, $config->backoffBaseSeconds);
+    }
+
+    public function test_fluent_backoff_max_seconds(): void
+    {
+        $config = (new LockoutConfig())->backoffMaxSeconds(300);
+        $this->assertSame(300, $config->backoffMaxSeconds);
     }
 }

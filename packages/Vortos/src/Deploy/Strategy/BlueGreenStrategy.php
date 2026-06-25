@@ -1,0 +1,111 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Vortos\Deploy\Strategy;
+
+use Vortos\Deploy\Plan\DeployContext;
+use Vortos\Deploy\Plan\DeployPhase;
+use Vortos\Deploy\Plan\DeployStep;
+use Vortos\Deploy\Plan\PhaseKind;
+use Vortos\Deploy\Plan\StepAction;
+use Vortos\Deploy\Target\DeployCapability;
+use Vortos\OpsKit\Driver\Capability\RequiredCapabilities;
+
+final class BlueGreenStrategy implements DeployStrategyInterface
+{
+    public function key(): DeployStrategy
+    {
+        return DeployStrategy::BlueGreen;
+    }
+
+    public function requires(): RequiredCapabilities
+    {
+        return RequiredCapabilities::of([
+            DeployCapability::BlueGreen,
+            DeployCapability::HealthGate,
+        ]);
+    }
+
+    public function phases(DeployContext $context): array
+    {
+        $phases = [];
+        $stagedColor = $context->currentState->activeColor->opposite();
+        $digest = $context->desiredManifest->imageDigest;
+
+        if (!$context->desiredManifest->schemaFingerprint->isEmpty()) {
+            $phases[] = new DeployPhase(PhaseKind::ExpandMigrate, [
+                new DeployStep(
+                    StepAction::RunMigrations,
+                    'Run expand-phase migrations',
+                    ['fingerprint' => $context->desiredManifest->schemaFingerprint->hash],
+                ),
+            ]);
+        }
+
+        $phases[] = new DeployPhase(PhaseKind::RollWorkers, [
+            new DeployStep(
+                StepAction::DrainWorker,
+                'Rolling drain and restart workers',
+                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest],
+            ),
+            new DeployStep(
+                StepAction::StartWorker,
+                'Noop — workers launched during drain rollout',
+                ['image_digest' => $digest],
+            ),
+        ]);
+
+        $phases[] = new DeployPhase(PhaseKind::StageColor, [
+            new DeployStep(
+                StepAction::PullImage,
+                sprintf('Pull image @%s to staged color', $digest),
+                ['image_digest' => $digest],
+            ),
+            new DeployStep(
+                StepAction::StartContainer,
+                sprintf('Start %s container', $stagedColor->value),
+                ['color' => $stagedColor->value, 'image_digest' => $digest],
+            ),
+        ]);
+
+        $phases[] = new DeployPhase(PhaseKind::HealthGate, [
+            new DeployStep(
+                StepAction::CheckHealth,
+                sprintf('Wait for %s /health/ready', $stagedColor->value),
+                ['color' => $stagedColor->value, 'timeout_seconds' => 60],
+            ),
+        ]);
+
+        $phases[] = new DeployPhase(PhaseKind::Smoke, [
+            new DeployStep(
+                StepAction::RunSmoke,
+                'Run smoke tests against staged color',
+                ['color' => $stagedColor->value],
+            ),
+        ]);
+
+        $phases[] = new DeployPhase(PhaseKind::Cutover, [
+            new DeployStep(
+                StepAction::SwitchUpstream,
+                sprintf('Switch upstream to %s', $stagedColor->value),
+                [
+                    'from' => $context->currentState->activeColor->value,
+                    'to' => $stagedColor->value,
+                    'drain_deadline_seconds' => 30,
+                    'image_digest' => $digest,
+                ],
+            ),
+        ]);
+
+        $phases[] = new DeployPhase(PhaseKind::Promote, [
+            new DeployStep(
+                StepAction::UpdateState,
+                sprintf('Promote %s as active', $stagedColor->value),
+                ['color' => $stagedColor->value, 'image_digest' => $digest],
+            ),
+        ]);
+
+        return $phases;
+    }
+}

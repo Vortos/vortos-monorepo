@@ -4,32 +4,17 @@ declare(strict_types=1);
 
 namespace Vortos\Auth\Scim\Http;
 
+use Vortos\Auth\Scim\Exception\ScimRoleForbiddenException;
 use Vortos\Auth\Scim\ScimService;
+use Vortos\Auth\Scim\Token\ScimTokenRecord;
+use Vortos\Http\Request;
 
 /**
  * SCIM 2.0 HTTP controller (RFC 7644).
  *
- * Routes (all prefixed with /scim/v2, mounted by the framework router):
- *
- *   GET    /Users              → listUsers
- *   POST   /Users              → createUser
- *   GET    /Users/{id}         → getUser
- *   PUT    /Users/{id}         → replaceUser
- *   PATCH  /Users/{id}         → patchUser
- *   DELETE /Users/{id}         → deleteUser
- *
- *   GET    /Groups             → listGroups
- *   POST   /Groups             → createGroup
- *   GET    /Groups/{id}        → getGroup
- *   PUT    /Groups/{id}        → replaceGroup
- *   PATCH  /Groups/{id}        → patchGroup
- *   DELETE /Groups/{id}        → deleteGroup
- *
- * Security:
- *  - ScimAuthMiddleware runs first (Bearer token, hash-not-store, IP allowlist).
- *  - Every endpoint is deny-by-default: tokens must carry the required scope.
- *  - Content-Type application/scim+json is enforced on mutating requests.
- *  - Input is decoded from JSON; unexpected fields are silently dropped.
+ * Security: ScimAuthMiddleware (Bearer token, SHA-256 hash lookup, IP allowlist,
+ * scope enforcement, Content-Type check) protects all non-discovery endpoints.
+ * Tenant context is established from the SCIM token — no JWT needed.
  */
 final class ScimController
 {
@@ -37,6 +22,13 @@ final class ScimController
         private readonly ScimService $service,
         private readonly string $baseUrl = '',
     ) {}
+
+    private function tokenFrom(Request $request): ?ScimTokenRecord
+    {
+        $record = $request->attributes->get('_scim_token_record');
+
+        return $record instanceof ScimTokenRecord ? $record : null;
+    }
 
     // -------------------------------------------------------------------------
     // Users
@@ -86,6 +78,9 @@ final class ScimController
         }
 
         $user = $this->service->replaceUser($id, $data);
+        if ($user === null) {
+            return $this->error(404, 'noTarget', "User {$id} not found");
+        }
 
         return ['status' => 200, 'body' => $user->toScimArray($this->baseUrl)];
     }
@@ -123,7 +118,7 @@ final class ScimController
     // -------------------------------------------------------------------------
 
     /** @return array{status: int, body: array<string,mixed>} */
-    public function createGroup(string $body): array
+    public function createGroup(Request $request, string $body): array
     {
         $data = $this->parseBody($body);
         if ($data === null) {
@@ -134,7 +129,11 @@ final class ScimController
             return $this->error(400, 'invalidValue', 'displayName is required');
         }
 
-        $group = $this->service->createGroup($data);
+        try {
+            $group = $this->service->createGroup($data, $this->tokenFrom($request));
+        } catch (ScimRoleForbiddenException $e) {
+            return $this->error(403, 'mutability', $e->getMessage());
+        }
 
         return ['status' => 201, 'body' => $group->toScimArray($this->baseUrl)];
     }
@@ -157,20 +156,28 @@ final class ScimController
     }
 
     /** @return array{status: int, body: array<string,mixed>} */
-    public function replaceGroup(string $id, string $body): array
+    public function replaceGroup(Request $request, string $id, string $body): array
     {
         $data = $this->parseBody($body);
         if ($data === null) {
             return $this->error(400, 'invalidSyntax', 'Request body must be valid JSON');
         }
 
-        $group = $this->service->replaceGroup($id, $data);
+        try {
+            $group = $this->service->replaceGroup($id, $data, $this->tokenFrom($request));
+        } catch (ScimRoleForbiddenException $e) {
+            return $this->error(403, 'mutability', $e->getMessage());
+        }
+
+        if ($group === null) {
+            return $this->error(404, 'noTarget', "Group {$id} not found");
+        }
 
         return ['status' => 200, 'body' => $group->toScimArray($this->baseUrl)];
     }
 
     /** @return array{status: int, body: array<string,mixed>} */
-    public function patchGroup(string $id, string $body): array
+    public function patchGroup(Request $request, string $id, string $body): array
     {
         $data = $this->parseBody($body);
         if ($data === null) {
@@ -178,7 +185,12 @@ final class ScimController
         }
 
         $operations = (array) ($data['Operations'] ?? $data['operations'] ?? []);
-        $group      = $this->service->patchGroup($id, $operations);
+
+        try {
+            $group = $this->service->patchGroup($id, $operations, $this->tokenFrom($request));
+        } catch (ScimRoleForbiddenException $e) {
+            return $this->error(403, 'mutability', $e->getMessage());
+        }
 
         if ($group === null) {
             return $this->error(404, 'noTarget', "Group {$id} not found");

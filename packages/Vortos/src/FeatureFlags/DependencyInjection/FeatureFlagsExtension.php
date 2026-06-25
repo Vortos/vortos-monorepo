@@ -6,11 +6,13 @@ namespace Vortos\FeatureFlags\DependencyInjection;
 
 use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Auth\Identity\CurrentUserProvider;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Cache\Contract\AtomicCacheInterface;
 use Vortos\Cqrs\Validation\VortosValidator;
 use Vortos\FeatureFlags\Application\FlagPromotionService;
@@ -75,6 +77,7 @@ use Vortos\FeatureFlags\Command\FlagsShowCommand;
 use Vortos\FeatureFlags\Command\FlagsStalenessReportCommand;
 use Vortos\FeatureFlags\Application\FlagWriteService;
 use Vortos\FeatureFlags\Exposure\ExposureIngestService;
+use Vortos\FeatureFlags\Exposure\ExposureObserverInterface;
 use Vortos\FeatureFlags\FlagEvaluator;
 use Vortos\FeatureFlags\FlagScopeContext;
 use Vortos\FeatureFlags\Http\DefaultFlagContextResolver;
@@ -137,6 +140,9 @@ use Vortos\Tracing\Contract\TracingInterface;
 
 final class FeatureFlagsExtension extends Extension
 {
+    /** Block 25 (additive): tag for optional {@see ExposureObserverInterface} services. */
+    public const EXPOSURE_OBSERVER_TAG = 'vortos.feature_flags.exposure_observer';
+
     public function getAlias(): string
     {
         return 'vortos_feature_flags';
@@ -384,9 +390,15 @@ final class FeatureFlagsExtension extends Extension
             ->setPublic(true);
 
         // Block 8: exposure ingestion (closes the SDK exposureEndpoint loop).
+        // Block 25 (additive): optional observers, notified once per accepted exposure.
+        // Default is an empty iterable — existing behavior is unchanged when none are wired.
+        $container->registerForAutoconfiguration(ExposureObserverInterface::class)
+            ->addTag(self::EXPOSURE_OBSERVER_TAG);
+
         $container->register(ExposureIngestService::class, ExposureIngestService::class)
             ->setArgument('$storage', new Reference(FlagStorageInterface::class))
             ->setArgument('$metrics', new Reference(FlagEvaluationMetrics::class))
+            ->setArgument('$observers', new TaggedIteratorArgument(self::EXPOSURE_OBSERVER_TAG))
             ->setPublic(false);
 
         $container->register(ExposureController::class, ExposureController::class)
@@ -511,6 +523,7 @@ final class FeatureFlagsExtension extends Extension
             ->setArgument('$sdkKeyService', new Reference(SdkKeyService::class))
             ->setArgument('$projectContext', new Reference(ProjectContext::class))
             ->setArgument('$scopeContext', new Reference(FlagScopeContext::class))
+            ->setArgument('$ipResolver', new Reference(IpResolverInterface::class))
             ->addTag('vortos.middleware')
             ->setPublic(false);
 

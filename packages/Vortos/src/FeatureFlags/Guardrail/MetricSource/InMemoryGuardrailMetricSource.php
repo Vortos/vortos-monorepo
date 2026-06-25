@@ -9,17 +9,17 @@ use Vortos\FeatureFlags\Guardrail\GuardrailMetricQuery;
 
 final class InMemoryGuardrailMetricSource implements GuardrailMetricSourceInterface
 {
-    /** @var array<string, float> keyed by "{metricKind}:{flagName}:{env}" */
+    /** @var array<string, float> keyed by "{metricKind}:{flagName}:{env}:{variant}" */
     private array $values = [];
 
-    public function set(GuardrailMetricKind $kind, string $flagName, string $env, float $value): void
+    public function set(GuardrailMetricKind $kind, string $flagName, string $env, float $value, ?string $variant = null): void
     {
-        $this->values[$kind->value . ':' . $flagName . ':' . $env] = $value;
+        $this->values[$kind->value . ':' . $flagName . ':' . $env . ':' . ($variant ?? '')] = $value;
     }
 
     public function query(GuardrailMetricQuery $query): ?float
     {
-        $key = $query->metricKind->value . ':' . $query->flagName . ':' . $query->environment;
+        $key = $query->metricKind->value . ':' . $query->flagName . ':' . $query->environment . ':' . ($query->variant ?? '');
 
         return $this->values[$key] ?? null;
     }

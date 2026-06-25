@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-observability",
-    "description": "Publishable observability templates for Prometheus, Grafana, Alertmanager, Datadog, and New Relic",
+    "description": "Telemetry destination seam (OTel collector + off-host sinks, disk-buffered) and publishable observability templates",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -11,7 +11,14 @@
     "require": {
         "php": ">=8.2",
         "vortos/vortos-foundation": "^1.0",
-        "symfony/console": "^7.0 || ^8.0"
+        "vortos/vortos-ops-kit": "^1.0",
+        "symfony/console": "^7.0 || ^8.0",
+        "symfony/dependency-injection": "^7.0 || ^8.0"
+    },
+    "suggest": {
+        "vortos/vortos-deploy": "Optional: links deploy/rollback domain events into the tamper-evident audit ledger and deploy markers (Block 16). Observability never depends on Deploy at build time — the integration is guarded by class_exists().",
+        "doctrine/dbal": "Required for the default DBAL-backed deploy audit ledger read model.",
+        "vortos/vortos-persistence-mongo": "Optional: store the deploy audit ledger read model in MongoDB instead of the default relational (DBAL) table."
     },
     "extra": {
         "vortos": {

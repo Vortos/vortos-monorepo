@@ -35,9 +35,16 @@ final class TwoFactorMiddlewareTest extends TestCase
         return fn(Request $r) => new Response('ok', 200);
     }
 
-    public function test_allows_when_no_verifier(): void
+    public function test_returns_503_when_no_verifier_and_route_is_protected(): void
     {
         $middleware = new TwoFactorMiddleware($this->makeProvider(), null, ['App\TestCtrl']);
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+        $this->assertSame(503, $response->getStatusCode());
+    }
+
+    public function test_passes_through_when_no_verifier_and_route_is_not_protected(): void
+    {
+        $middleware = new TwoFactorMiddleware($this->makeProvider(), null, ['App\OtherCtrl']);
         $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
         $this->assertSame(200, $response->getStatusCode());
     }

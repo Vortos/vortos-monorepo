@@ -65,4 +65,77 @@ final class AuditEntryTest extends TestCase
         $entry = AuditEntry::create('user-1', 'login');
         $this->assertNull($entry->toArray()['resource']);
     }
+
+    public function test_create_has_no_integrity_fields_by_default(): void
+    {
+        $entry = AuditEntry::create('user-1', 'login');
+        $this->assertNull($entry->sequence);
+        $this->assertNull($entry->prevHash);
+        $this->assertNull($entry->contentHash);
+        $this->assertNull($entry->signature);
+        $this->assertFalse($entry->isChained());
+    }
+
+    public function test_with_integrity_returns_chained_entry(): void
+    {
+        $entry = AuditEntry::create('user-1', 'login');
+        $chained = $entry->withIntegrity(0, 'prev-hash', 'content-hash', 'sig');
+
+        $this->assertSame(0, $chained->sequence);
+        $this->assertSame('prev-hash', $chained->prevHash);
+        $this->assertSame('content-hash', $chained->contentHash);
+        $this->assertSame('sig', $chained->signature);
+        $this->assertTrue($chained->isChained());
+        $this->assertSame($entry->id, $chained->id);
+        $this->assertSame($entry->userId, $chained->userId);
+    }
+
+    public function test_chained_entry_includes_integrity_in_to_array(): void
+    {
+        $entry = AuditEntry::create('user-1', 'login')
+            ->withIntegrity(5, 'prev', 'content', 'sig');
+        $arr = $entry->toArray();
+
+        $this->assertSame(5, $arr['sequence']);
+        $this->assertSame('prev', $arr['prev_hash']);
+        $this->assertSame('content', $arr['content_hash']);
+        $this->assertSame('sig', $arr['signature']);
+    }
+
+    public function test_unchained_entry_omits_integrity_from_to_array(): void
+    {
+        $entry = AuditEntry::create('user-1', 'login');
+        $arr = $entry->toArray();
+
+        $this->assertArrayNotHasKey('sequence', $arr);
+        $this->assertArrayNotHasKey('prev_hash', $arr);
+        $this->assertArrayNotHasKey('content_hash', $arr);
+        $this->assertArrayNotHasKey('signature', $arr);
+    }
+
+    public function test_from_array_round_trips(): void
+    {
+        $entry = AuditEntry::create('user-1', 'login', 'res-1', '10.0.0.1', 'Agent', ['key' => 'val'])
+            ->withIntegrity(3, 'prev-h', 'content-h', 'sig-h');
+
+        $restored = AuditEntry::fromArray($entry->toArray());
+
+        $this->assertSame($entry->id, $restored->id);
+        $this->assertSame($entry->userId, $restored->userId);
+        $this->assertSame($entry->action, $restored->action);
+        $this->assertSame($entry->resourceId, $restored->resourceId);
+        $this->assertSame($entry->sequence, $restored->sequence);
+        $this->assertSame($entry->prevHash, $restored->prevHash);
+        $this->assertSame($entry->contentHash, $restored->contentHash);
+        $this->assertSame($entry->signature, $restored->signature);
+    }
+
+    public function test_from_array_without_integrity(): void
+    {
+        $entry = AuditEntry::create('user-1', 'login');
+        $restored = AuditEntry::fromArray($entry->toArray());
+
+        $this->assertNull($restored->sequence);
+        $this->assertFalse($restored->isChained());
+    }
 }

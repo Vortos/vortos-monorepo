@@ -1,0 +1,31 @@
+{
+    "name": "vortos/vortos-release",
+    "description": "Vortos Release — immutable build manifests, schema fingerprinting, rollback invariant math, semver/changelog, and coordinated multi-repo tagging. Write-once persistence enforced at the storage layer; provenance-ready for cosign/SLSA attestation.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Release\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-ops-kit": "^1.0",
+        "vortos/vortos-migration": "^1.0",
+        "vortos/vortos-persistence-dbal": "^1.0",
+        "doctrine/dbal": "^4.4",
+        "symfony/dependency-injection": "^7.3",
+        "symfony/console": "^7.3",
+        "symfony/process": "^7.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Release\\DependencyInjection\\ReleasePackage",
+            "order": 130
+        }
+    }
+}

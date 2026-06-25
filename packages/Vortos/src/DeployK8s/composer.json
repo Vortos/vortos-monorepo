@@ -1,0 +1,27 @@
+{
+    "name": "vortos/vortos-deploy-k8s",
+    "description": "Kubernetes deploy target driver for vortos/vortos-deploy — implements DeployTargetInterface, WorkerControllerInterface, and EdgeRouterInterface behind the unchanged TCK. Registers via autoconfiguration; passes all conformance tests with zero changes to core.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\DeployK8s\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-deploy": "^1.0",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-ops-kit": "^1.0",
+        "symfony/dependency-injection": "^7.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\DeployK8s\\DependencyInjection\\DeployK8sPackage",
+            "order": 151
+        }
+    }
+}

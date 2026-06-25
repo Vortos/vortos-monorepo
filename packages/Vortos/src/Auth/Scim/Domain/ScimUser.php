@@ -22,6 +22,7 @@ final class ScimUser
      */
     public function __construct(
         public readonly string $id,
+        public readonly string $tenantId,
         public readonly string $externalId,
         public readonly string $userName,
         public readonly string $displayName,
@@ -40,7 +41,7 @@ final class ScimUser
     public function withActive(bool $active): self
     {
         return new self(
-            id: $this->id, externalId: $this->externalId, userName: $this->userName,
+            id: $this->id, tenantId: $this->tenantId, externalId: $this->externalId, userName: $this->userName,
             displayName: $this->displayName, givenName: $this->givenName, familyName: $this->familyName,
             active: $active, emails: $this->emails, groups: $this->groups,
             createdAt: $this->createdAt, updatedAt: (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
@@ -51,7 +52,7 @@ final class ScimUser
     public function withGroups(array $groups): self
     {
         return new self(
-            id: $this->id, externalId: $this->externalId, userName: $this->userName,
+            id: $this->id, tenantId: $this->tenantId, externalId: $this->externalId, userName: $this->userName,
             displayName: $this->displayName, givenName: $this->givenName, familyName: $this->familyName,
             active: $this->active, emails: $this->emails, groups: $groups,
             createdAt: $this->createdAt, updatedAt: (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),

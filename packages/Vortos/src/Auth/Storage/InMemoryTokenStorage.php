@@ -9,7 +9,7 @@ use Vortos\Auth\Contract\TokenStorageInterface;
 /**
  * In-memory token storage for testing.
  *
- * Stores tokens in a plain PHP array. TTL is enforced lazily on isValid().
+ * Stores tokens in a plain PHP array. TTL is enforced lazily on consume().
  * Reset between tests with clear().
  */
 final class InMemoryTokenStorage implements TokenStorageInterface
@@ -22,18 +22,20 @@ final class InMemoryTokenStorage implements TokenStorageInterface
         $this->tokens[$jti] = ['userId' => $userId, 'expiresAt' => $expiresAt];
     }
 
-    public function isValid(string $jti): bool
+    public function consume(string $jti): ?string
     {
         if (!isset($this->tokens[$jti])) {
-            return false;
+            return null;
         }
 
         if ($this->tokens[$jti]['expiresAt'] < time()) {
             unset($this->tokens[$jti]);
-            return false;
+            return null;
         }
 
-        return true;
+        $userId = $this->tokens[$jti]['userId'];
+        unset($this->tokens[$jti]);
+        return $userId;
     }
 
     public function revoke(string $jti): void

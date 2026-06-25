@@ -9,7 +9,9 @@ use Vortos\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Auth\RateLimit\Contract\RateLimitPolicyInterface;
-use Vortos\Auth\RateLimit\Storage\RedisRateLimitStore;
+use Vortos\Auth\RateLimit\Contract\RateLimitStoreInterface;
+use Vortos\Auth\RateLimit\Exception\RateLimitStoreUnavailableException;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Observability\Telemetry\FrameworkMetric;
 use Vortos\Observability\Telemetry\FrameworkMetricLabels;
@@ -19,12 +21,6 @@ use Vortos\Observability\Telemetry\MetricLabelValue;
 use Vortos\Observability\Telemetry\TelemetryRequestAttributes;
 use Vortos\Tracing\Contract\TracingInterface;
 
-/**
- * Shared rate limit enforcement logic used by IpGlobalRateLimitMiddleware and UserRateLimitMiddleware.
- *
- * Returns a 429 Response when a limit is exceeded, or null when the request is allowed.
- * Also writes X-RateLimit-* headers data onto request attributes for the after-phase to apply.
- */
 final class RateLimitService
 {
     /**
@@ -33,21 +29,17 @@ final class RateLimitService
      */
     public function __construct(
         private CurrentUserProvider $currentUser,
-        private RedisRateLimitStore $store,
+        private RateLimitStoreInterface $store,
         private array $routeMap,
         private array $policies,
+        private RateLimitFailureConfig $failureConfig = new RateLimitFailureConfig(),
         private bool $problemDetailsEnabled = true,
+        private IpResolverInterface $ipResolver = new \Vortos\Http\IpResolver\RemoteAddrIpResolver(),
         private ?FrameworkTelemetry $telemetry = null,
         private ?LoggerInterface $logger = null,
         private ?TracingInterface $tracer = null,
     ) {}
 
-    /**
-     * Enforces rate limits for the given scopes.
-     *
-     * Returns a 429 Response if a limit is exceeded, or null if the request is allowed.
-     * On allow, writes `_rate_limit_headers` onto request attributes.
-     */
     public function enforce(Request $request, RateLimitScope ...$scopes): ?Response
     {
         $controller = $this->extractControllerClass($request->attributes->get('_controller'));
@@ -78,14 +70,23 @@ final class RateLimitService
 
             $key = match ($scope) {
                 RateLimitScope::User   => "rl:user:{$identity->id()}:{$controller}:{$policyClass}",
-                RateLimitScope::Ip     => "rl:ip:{$request->getClientIp()}:{$controller}:{$policyClass}",
+                RateLimitScope::Ip     => "rl:ip:{$this->resolveClientIp($request)}:{$controller}:{$policyClass}",
                 RateLimitScope::Global => "rl:global:{$controller}:{$policyClass}",
             };
 
-            $current = $this->store->increment($key, $limit->windowSeconds);
+            try {
+                $current = $this->store->increment($key, $limit->windowSeconds);
+            } catch (RateLimitStoreUnavailableException $e) {
+                return $this->handleStoreFailure($request, $scope, $policyClass, $controller, $e);
+            }
 
             if ($current > $limit->limit) {
-                $retryAfter = $this->store->getTtl($key);
+                try {
+                    $retryAfter = $this->store->getTtl($key);
+                } catch (RateLimitStoreUnavailableException) {
+                    $retryAfter = $limit->windowSeconds;
+                }
+
                 $resetAt = time() + $retryAfter;
                 $request->attributes->set('_rate_limit_headers', [
                     'limit' => $limit->limit,
@@ -127,10 +128,16 @@ final class RateLimitService
             $remaining = $limit->limit - $current;
             $existing = $request->attributes->get('_rate_limit_headers');
             if ($existing === null || $remaining < $existing['remaining']) {
+                try {
+                    $ttl = $this->store->getTtl($key);
+                } catch (RateLimitStoreUnavailableException) {
+                    $ttl = $limit->windowSeconds;
+                }
+
                 $request->attributes->set('_rate_limit_headers', [
                     'limit'     => $limit->limit,
                     'remaining' => $remaining,
-                    'reset'     => time() + $this->store->getTtl($key),
+                    'reset'     => time() + $ttl,
                 ]);
             }
 
@@ -152,6 +159,43 @@ final class RateLimitService
         $response->headers->set('X-RateLimit-Reset', (string) $rl['reset']);
     }
 
+    private function handleStoreFailure(
+        Request $request,
+        RateLimitScope $scope,
+        string $policyClass,
+        string $controller,
+        RateLimitStoreUnavailableException $e,
+    ): ?Response {
+        $failureMode = $this->failureConfig->modeForScope($scope);
+
+        $this->logger?->error('rate_limit.store_unavailable', [
+            'scope' => $scope->value,
+            'policy' => $policyClass,
+            'controller' => $controller,
+            'failure_mode' => $failureMode->value,
+            'exception' => $e::class,
+            'message' => $e->getMessage(),
+        ]);
+
+        $labels = $this->rateLimitLabels($policyClass, $scope, $controller);
+        $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::RateLimitStoreUnavailableTotal, $labels);
+        $this->trace('vortos.rate_limit.store_available', false);
+
+        if ($failureMode === RateLimitFailureMode::FailOpen) {
+            return null;
+        }
+
+        return $this->problemResponse(
+            $request,
+            Response::HTTP_SERVICE_UNAVAILABLE,
+            'https://docs.vortos.dev/errors/rate-limit-store-unavailable',
+            'Rate Limit Unavailable',
+            'Rate limit enforcement is temporarily unavailable. Please retry later.',
+            ['scope' => $scope->value, 'policy' => $policyClass],
+            ['Retry-After' => 30],
+        );
+    }
+
     private function rateLimitLabels(string $policyClass, RateLimitScope $scope, string $controller): FrameworkMetricLabels
     {
         return FrameworkMetricLabels::of(
@@ -159,6 +203,11 @@ final class RateLimitService
             MetricLabelValue::of(MetricLabel::Scope, $scope->value),
             MetricLabelValue::of(MetricLabel::Controller, str_replace('\\', '.', $controller)),
         );
+    }
+
+    private function resolveClientIp(Request $request): string
+    {
+        return $this->ipResolver->resolve($request);
     }
 
     private function extractControllerClass(mixed $controller): ?string

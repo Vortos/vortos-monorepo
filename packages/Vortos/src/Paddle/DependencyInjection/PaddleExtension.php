@@ -10,8 +10,10 @@ use Paddle\SDK\Environment as PaddleEnvironment;
 use Paddle\SDK\Options as PaddleOptions;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Paddle\Api\ApiIdempotencyStore;
 use Vortos\Paddle\Api\PaddleApiClient;
 use Vortos\Paddle\Api\PaddleApiClientInterface;
@@ -283,6 +285,7 @@ final class PaddleExtension extends Extension
                 '$inboxWriter' => new Reference(PaddleInboxWriterInterface::class),
                 '$logger'      => new Reference(LoggerInterface::class),
                 '$webhookPath' => $config['webhook_path'],
+                '$ipResolver'  => new Reference(IpResolverInterface::class),
             ])
             ->addTag('vortos.api.controller')
             ->setShared(true)

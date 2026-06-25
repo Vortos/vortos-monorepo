@@ -1,0 +1,29 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{DriverNamespace}};
+
+use Vortos\OpsKit\Attribute\AsDriver;
+use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
+use {{Port}};
+
+/**
+ * The "{{Key}}" driver for the {{Concern}} concern.
+ *
+ * Registered under key "{{Key}}" via #[AsDriver] and tagged by interface in the
+ * concern's DI extension. Declare what it ACTUALLY supports in capabilities() — the
+ * conformance TCK holds this driver honestly to that declaration; never silently
+ * no-op an unsupported operation, throw UnsupportedCapabilityException instead.
+ */
+#[AsDriver(key: '{{Key}}')]
+final class {{ClassName}} implements {{PortShort}}
+{
+    public function capabilities(): CapabilityDescriptor
+    {
+        // TODO: declare the capabilities this driver genuinely supports.
+        return CapabilityDescriptor::create([]);
+    }
+
+    // TODO: implement the remaining {{PortShort}} methods for the {{Concern}} port.
+}

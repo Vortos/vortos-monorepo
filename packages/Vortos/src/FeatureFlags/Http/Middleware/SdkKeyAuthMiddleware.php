@@ -9,6 +9,7 @@ use Vortos\FeatureFlags\FlagScopeContext;
 use Vortos\FeatureFlags\ProjectContext;
 use Vortos\FeatureFlags\SdkKey\SdkKeyService;
 use Vortos\Http\Attribute\AsMiddleware;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Http\Contract\MiddlewareInterface;
 use Vortos\Http\JsonResponse;
 use Vortos\Http\MiddlewareOrder;
@@ -27,6 +28,7 @@ final class SdkKeyAuthMiddleware implements MiddlewareInterface
         private readonly SdkKeyService $sdkKeyService,
         private readonly ProjectContext $projectContext,
         private readonly FlagScopeContext $scopeContext,
+        private readonly IpResolverInterface $ipResolver = new \Vortos\Http\IpResolver\RemoteAddrIpResolver(),
     ) {}
 
     public function handle(Request $request, \Closure $next): Response
@@ -44,7 +46,7 @@ final class SdkKeyAuthMiddleware implements MiddlewareInterface
         $rawKey     = substr((string) $header, 7);
         $projectId  = $request->headers->get('X-Vortos-Project', ProjectContext::DEFAULT_PROJECT);
         $environment = $request->headers->get('X-Vortos-Environment', FlagScopeContext::ENV_PRODUCTION);
-        $remoteIp   = $request->getClientIp();
+        $remoteIp   = $this->ipResolver->resolve($request);
 
         $sdkKey = $this->sdkKeyService->validate($rawKey, $projectId, $environment, $remoteIp);
 

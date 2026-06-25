@@ -30,7 +30,6 @@ final class RedisLockoutStoreTest extends TestCase
 
     public function test_increment_sets_ttl_on_first_attempt(): void
     {
-        // TTL is set atomically inside the Lua script — verify eval is called with the TTL as ARGV[1]
         $this->redis->expects($this->once())->method('eval')
             ->with($this->anything(), ['lockout:attempts:email:user@example.com', '900'], 1)
             ->willReturn(1);
@@ -44,16 +43,20 @@ final class RedisLockoutStoreTest extends TestCase
         $this->store->lock('email', 'user@example.com', 900);
     }
 
-    public function test_is_locked_returns_true_when_key_exists(): void
+    public function test_is_locked_returns_locked_when_key_exists(): void
     {
         $this->redis->method('exists')->willReturn(1);
-        $this->assertTrue($this->store->isLocked('email', 'user@example.com'));
+        $result = $this->store->isLocked('email', 'user@example.com');
+        $this->assertTrue($result->locked);
+        $this->assertFalse($result->unavailable);
     }
 
-    public function test_is_locked_returns_false_when_key_missing(): void
+    public function test_is_locked_returns_not_locked_when_key_missing(): void
     {
         $this->redis->method('exists')->willReturn(0);
-        $this->assertFalse($this->store->isLocked('email', 'user@example.com'));
+        $result = $this->store->isLocked('email', 'user@example.com');
+        $this->assertFalse($result->locked);
+        $this->assertFalse($result->unavailable);
     }
 
     public function test_get_remaining_ttl(): void

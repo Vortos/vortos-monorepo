@@ -1,0 +1,32 @@
+{
+  "SchemaVersion": 2,
+  "Results": [
+    {
+      "Target": "test/image (alpine 3.18.4)",
+      "Class": "os-pkgs",
+      "Type": "alpine",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-0001",
+          "PkgName": "libcrypto3",
+          "InstalledVersion": "3.1.4-r1",
+          "FixedVersion": "3.1.4-r2",
+          "Severity": "CRITICAL"
+        },
+        {
+          "VulnerabilityID": "CVE-2024-0002",
+          "PkgName": "libssl3",
+          "InstalledVersion": "3.1.4-r1",
+          "Severity": "HIGH"
+        },
+        {
+          "VulnerabilityID": "CVE-2024-0003",
+          "PkgName": "zlib",
+          "InstalledVersion": "1.2.13-r0",
+          "FixedVersion": "1.2.13-r1",
+          "Severity": "MEDIUM"
+        }
+      ]
+    }
+  ]
+}

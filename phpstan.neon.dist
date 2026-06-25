@@ -1,0 +1,60 @@
+parameters:
+    level: 6
+    # Single worker: the backend container's resource limits crash PHPStan's parallel pool.
+    parallel:
+        maximumNumberOfProcesses: 1
+    paths:
+        - packages/Vortos/src
+    # Tests are not gated (they carry intentional bad-input fixtures and mocks);
+    # the lint fixtures under OpsKit deliberately use non-PSR-4 App\ namespaces.
+    excludePaths:
+        analyse:
+            - '*/Tests/*'
+            - '*/Tests'
+
+services:
+    # The agnosticism guarantee (roadmap §13 #1) as a first-class PHPStan rule,
+    # SHARING ProviderNameMatcher with the PHPUnit AgnosticismLintTestCase so the two
+    # never drift. Scoped by includePathFragments to the *agnostic concern cores*:
+    # agnosticism is a per-concern property, so this must never run over a legitimate
+    # provider-integration package (e.g. Vortos\Paddle). Add each new deploy/ops core's
+    # path fragment as it lands (e.g. '/Health/', '/Deploy/', '/Secrets/').
+    -
+        class: Vortos\OpsKit\PHPStan\AgnosticismRule
+        arguments:
+            exemptNamespaceSegments:
+                - Driver
+                - DependencyInjection
+            includePathFragments:
+                - '/OpsKit/'
+                - '/Health/'
+                - '/Release/'
+                - '/src/Secrets/'
+                - '/Deploy/'
+                - '/Backup/'
+                - '/Migration/'
+                # Observability: only the new agnostic telemetry seam — NOT the
+                # template publisher (Service/Command/Config), which is intentionally
+                # vendor-aware (it ships vendor dashboards).
+                - '/Observability/Sink/'
+                - '/Observability/Buffer/'
+                - '/Observability/Collector/'
+                - '/Observability/Heartbeat/'
+                # Block 16: audit ledger, deploy markers, SLO — also agnostic;
+                # 'Driver' is already a globally exempt namespace segment.
+                - '/Observability/Audit/'
+                - '/Observability/Marker/'
+                - '/Observability/Slo/'
+                - '/Pipeline/'
+                # Block 17: alerts core (routing/dedupe/escalation/rules/notifier port) —
+                # 'Driver/' is already a globally exempt namespace segment.
+                - '/Alerts/'
+                # Block 25: analytics core — no provider driver ships in-core at all
+                # (the posthog driver is a separate package, AnalyticsPosthog, which is
+                # deliberately NOT included here — same reasoning as Paddle).
+                - '/Analytics/'
+        tags:
+            - phpstan.rules.rule
+
+includes:
+    - phpstan-baseline.neon

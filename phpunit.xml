@@ -4,10 +4,17 @@
          bootstrap="vendor/autoload.php"
          colors="true">
 
+    <php>
+        <ini name="memory_limit" value="256M"/>
+    </php>
+
     <testsuites>
         <testsuite name="Auth">
             <directory>packages/Vortos/src/Auth/Tests</directory>
             <directory>packages/Vortos/src/Auth/Scim/Tests</directory>
+        </testsuite>
+        <testsuite name="Alerts">
+            <directory>packages/Vortos/src/Alerts/Tests</directory>
         </testsuite>
         <testsuite name="Tenant">
             <directory>packages/Vortos/src/Tenant/Tests</directory>
@@ -69,6 +76,24 @@
         <testsuite name="Observability">
             <directory>packages/Vortos/src/Observability/Tests</directory>
         </testsuite>
+        <testsuite name="Health">
+            <directory>packages/Vortos/src/Health/Tests</directory>
+        </testsuite>
+        <testsuite name="OpsKit">
+            <directory>packages/Vortos/src/OpsKit/Tests</directory>
+        </testsuite>
+        <testsuite name="Release">
+            <directory>packages/Vortos/src/Release/Tests</directory>
+        </testsuite>
+        <testsuite name="Secrets">
+            <directory>packages/Vortos/src/Secrets/Tests</directory>
+        </testsuite>
+        <testsuite name="Backup">
+            <directory>packages/Vortos/src/Backup/Tests</directory>
+        </testsuite>
+        <testsuite name="Deploy">
+            <directory>packages/Vortos/src/Deploy/Tests</directory>
+        </testsuite>
         <testsuite name="Paddle">
             <directory>packages/Vortos/src/Paddle/Tests</directory>
         </testsuite>
@@ -92,6 +117,18 @@
         </testsuite>
         <testsuite name="Tracing">
             <directory>packages/Vortos/src/Tracing/Tests</directory>
+        </testsuite>
+        <testsuite name="Pipeline">
+            <directory>packages/Vortos/src/Pipeline/Tests</directory>
+        </testsuite>
+        <testsuite name="Analytics">
+            <directory>packages/Vortos/src/Analytics/Tests</directory>
+        </testsuite>
+        <testsuite name="AnalyticsPosthog">
+            <directory>packages/Vortos/src/AnalyticsPosthog/Tests</directory>
+        </testsuite>
+        <testsuite name="DeployK8s">
+            <directory>packages/Vortos/src/DeployK8s/Tests</directory>
         </testsuite>
     </testsuites>
 

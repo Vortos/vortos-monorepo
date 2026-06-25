@@ -7,6 +7,7 @@ namespace Vortos\Migration\DependencyInjection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
+use Vortos\OpsKit\Driver\DependencyInjection\CollectDriversCompilerPass;
 
 final class MigrationPackage implements PackageInterface
 {
@@ -15,5 +16,8 @@ final class MigrationPackage implements PackageInterface
         return new MigrationExtension();
     }
 
-    public function build(ContainerBuilder $container): void {}
+    public function build(ContainerBuilder $container): void
+    {
+        CollectDriversCompilerPass::register($container, new CollectMigrationAnalyzersPass());
+    }
 }

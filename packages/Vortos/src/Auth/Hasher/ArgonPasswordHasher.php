@@ -31,6 +31,8 @@ use Vortos\Auth\Contract\PasswordHasherInterface;
  */
 final class ArgonPasswordHasher implements PasswordHasherInterface
 {
+    private const MAX_PASSWORD_BYTES = 4096;
+
     public function __construct(
         private int $memoryCost = 65536,    // 64 MB
         private int $timeCost = 4,          // 4 iterations
@@ -39,6 +41,8 @@ final class ArgonPasswordHasher implements PasswordHasherInterface
 
     public function hash(string $plaintext): string
     {
+        self::guardLength($plaintext);
+
         return password_hash($plaintext, PASSWORD_ARGON2ID, [
             'memory_cost' => $this->memoryCost,
             'time_cost'   => $this->timeCost,
@@ -48,7 +52,18 @@ final class ArgonPasswordHasher implements PasswordHasherInterface
 
     public function verify(string $plaintext, string $hash): bool
     {
+        self::guardLength($plaintext);
+
         return password_verify($plaintext, $hash);
+    }
+
+    private static function guardLength(string $plaintext): void
+    {
+        if (\strlen($plaintext) > self::MAX_PASSWORD_BYTES) {
+            throw new \InvalidArgumentException(
+                \sprintf('Password exceeds maximum length of %d bytes.', self::MAX_PASSWORD_BYTES),
+            );
+        }
     }
 
     public function needsRehash(string $hash): bool

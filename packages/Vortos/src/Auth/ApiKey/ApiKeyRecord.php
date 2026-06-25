@@ -38,4 +38,13 @@ final readonly class ApiKeyRecord
         }
         return true;
     }
+
+    public function isInactive(int $maxInactivitySeconds): bool
+    {
+        if ($this->lastUsedAt === null) {
+            return (new \DateTimeImmutable())->getTimestamp() - $this->createdAt->getTimestamp() > $maxInactivitySeconds;
+        }
+
+        return (new \DateTimeImmutable())->getTimestamp() - $this->lastUsedAt->getTimestamp() > $maxInactivitySeconds;
+    }
 }

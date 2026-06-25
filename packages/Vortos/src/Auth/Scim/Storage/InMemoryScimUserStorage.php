@@ -12,15 +12,17 @@ final class InMemoryScimUserStorage implements ScimUserStorageInterface
     /** @var array<string, ScimUser> */
     private array $users = [];
 
-    public function findById(string $id): ?ScimUser
+    public function findById(string $tenantId, string $id): ?ScimUser
     {
-        return $this->users[$id] ?? null;
+        $user = $this->users[$id] ?? null;
+
+        return $user !== null && $user->tenantId === $tenantId ? $user : null;
     }
 
-    public function findByExternalId(string $externalId): ?ScimUser
+    public function findByExternalId(string $tenantId, string $externalId): ?ScimUser
     {
         foreach ($this->users as $user) {
-            if ($user->externalId === $externalId) {
+            if ($user->tenantId === $tenantId && $user->externalId === $externalId) {
                 return $user;
             }
         }
@@ -28,10 +30,10 @@ final class InMemoryScimUserStorage implements ScimUserStorageInterface
         return null;
     }
 
-    public function findByUserName(string $userName): ?ScimUser
+    public function findByUserName(string $tenantId, string $userName): ?ScimUser
     {
         foreach ($this->users as $user) {
-            if (strtolower($user->userName) === strtolower($userName)) {
+            if ($user->tenantId === $tenantId && strtolower($user->userName) === strtolower($userName)) {
                 return $user;
             }
         }
@@ -39,9 +41,12 @@ final class InMemoryScimUserStorage implements ScimUserStorageInterface
         return null;
     }
 
-    public function list(?string $filter = null, int $startIndex = 1, int $count = 100): array
+    public function list(string $tenantId, ?string $filter = null, int $startIndex = 1, int $count = 100): array
     {
-        $all = array_values($this->users);
+        $all = array_values(array_filter(
+            $this->users,
+            static fn(ScimUser $u) => $u->tenantId === $tenantId,
+        ));
 
         if ($filter !== null) {
             $all = $this->applyFilter($all, $filter);
@@ -59,15 +64,17 @@ final class InMemoryScimUserStorage implements ScimUserStorageInterface
         $this->users[$user->id] = $user;
     }
 
-    public function delete(string $id): void
+    public function delete(string $tenantId, string $id): void
     {
-        unset($this->users[$id]);
+        $user = $this->users[$id] ?? null;
+        if ($user !== null && $user->tenantId === $tenantId) {
+            unset($this->users[$id]);
+        }
     }
 
     /** @param ScimUser[] $users */
     private function applyFilter(array $users, string $filter): array
     {
-        // Simplified SCIM filter: "userName eq "foo"" or "active eq false"
         if (preg_match('/^(\w+)\s+eq\s+"?([^"]*)"?$/', trim($filter), $m)) {
             $attr  = strtolower($m[1]);
             $value = $m[2];

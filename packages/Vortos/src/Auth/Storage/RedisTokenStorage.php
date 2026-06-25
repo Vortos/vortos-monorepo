@@ -14,6 +14,12 @@ use Vortos\Auth\Contract\TokenStorageInterface;
  *   {prefix}auth:token:{jti}          — value: userId, TTL: token expiry
  *   {prefix}auth:user_tokens:{userId} — Redis SET of active JTIs for this user
  *
+ * ## Atomicity
+ *
+ * All mutation operations use Lua scripts for atomicity. In particular,
+ * consume() is a single GET+DEL+SREM ensuring exactly-once semantics
+ * for refresh token rotation — concurrent callers cannot both succeed.
+ *
  * ## TTL management
  *
  * Token keys expire automatically when the refresh token TTL passes.
@@ -32,6 +38,46 @@ final class RedisTokenStorage implements TokenStorageInterface
     private const TOKEN_PREFIX = 'vortos_auth:token:';
     private const USER_TOKENS_PREFIX = 'vortos_auth:user_tokens:';
 
+    private const LUA_CONSUME = <<<'LUA'
+local key = KEYS[1]
+local jti = ARGV[1]
+local userPrefix = ARGV[2]
+local userId = redis.call('GET', key)
+if not userId then
+    return false
+end
+redis.call('DEL', key)
+redis.call('SREM', userPrefix .. userId, jti)
+return userId
+LUA;
+
+    private const LUA_REVOKE = <<<'LUA'
+local key = KEYS[1]
+local jti = ARGV[1]
+local userPrefix = ARGV[2]
+local userId = redis.call('GET', key)
+redis.call('DEL', key)
+if userId then
+    redis.call('SREM', userPrefix .. userId, jti)
+end
+return 1
+LUA;
+
+    private const LUA_REVOKE_ALL = <<<'LUA'
+local userKey = KEYS[1]
+local tokenPrefix = ARGV[1]
+local jtis = redis.call('SMEMBERS', userKey)
+if #jtis > 0 then
+    local keys = {}
+    for i, jti in ipairs(jtis) do
+        keys[i] = tokenPrefix .. jti
+    end
+    redis.call('DEL', unpack(keys))
+end
+redis.call('DEL', userKey)
+return #jtis
+LUA;
+
     public function __construct(private \Redis $redis) {}
 
     public function store(string $jti, string $userId, int $expiresAt): void
@@ -44,12 +90,9 @@ final class RedisTokenStorage implements TokenStorageInterface
 
         $this->redis->setex(self::TOKEN_PREFIX . $jti, $ttl, $userId);
 
-        // Track JTI under user for revokeAllForUser()
         $userKey = self::USER_TOKENS_PREFIX . $userId;
         $this->redis->sAdd($userKey, $jti);
 
-        // Extend user-set TTL to cover this token plus a buffer — never shrink an existing TTL.
-        // Using a fixed 86400*8 broke when refreshTokenTtl was configured longer than 8 days.
         $requiredTtl = $ttl + 3600;
         $existingTtl = $this->redis->ttl($userKey);
         if ($existingTtl < $requiredTtl) {
@@ -57,31 +100,32 @@ final class RedisTokenStorage implements TokenStorageInterface
         }
     }
 
-    public function isValid(string $jti): bool
+    public function consume(string $jti): ?string
     {
-        return (bool) $this->redis->exists(self::TOKEN_PREFIX . $jti);
+        $result = $this->redis->eval(
+            self::LUA_CONSUME,
+            [self::TOKEN_PREFIX . $jti, $jti, self::USER_TOKENS_PREFIX],
+            1,
+        );
+
+        return $result !== false ? (string) $result : null;
     }
 
     public function revoke(string $jti): void
     {
-        $userId = $this->redis->get(self::TOKEN_PREFIX . $jti);
-        $this->redis->del(self::TOKEN_PREFIX . $jti);
-
-        if ($userId !== false) {
-            $this->redis->sRem(self::USER_TOKENS_PREFIX . $userId, $jti);
-        }
+        $this->redis->eval(
+            self::LUA_REVOKE,
+            [self::TOKEN_PREFIX . $jti, $jti, self::USER_TOKENS_PREFIX],
+            1,
+        );
     }
 
     public function revokeAllForUser(string $userId): void
     {
-        $userKey = self::USER_TOKENS_PREFIX . $userId;
-        $jtis = $this->redis->sMembers($userKey);
-
-        if (!empty($jtis)) {
-            $keys = array_map(fn(string $jti) => self::TOKEN_PREFIX . $jti, $jtis);
-            $this->redis->del(...$keys);
-        }
-
-        $this->redis->del($userKey);
+        $this->redis->eval(
+            self::LUA_REVOKE_ALL,
+            [self::USER_TOKENS_PREFIX . $userId, self::TOKEN_PREFIX],
+            1,
+        );
     }
 }

@@ -68,7 +68,7 @@ final class JwtRotationTest extends TestCase
     private function serviceWith(Keyring $keyring): JwtService
     {
         return new JwtService(
-            new JwtConfig($keyring, issuer: 'test'),
+            new JwtConfig($keyring, issuer: 'test', audience: 'test'),
             new InMemoryTokenStorage(),
         );
     }

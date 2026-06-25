@@ -20,19 +20,22 @@ final class MongoFlagStateViewRepository implements FlagStateViewRepositoryInter
 
     public function upsert(FlagStateView $view): void
     {
-        $this->store->upsert($view->flagName, $view->toDocument());
+        // Keyed by the compound (environment, flag_name) id — the same flag may exist
+        // once per environment (Block 10). Keying by flag name alone would let one
+        // environment's projection clobber another's.
+        $this->store->upsert($view->compoundKey(), $view->toDocument());
     }
 
-    public function findByName(string $flagName): ?FlagStateView
+    public function findByName(string $flagName, string $environment = 'production'): ?FlagStateView
     {
-        $doc = $this->store->findById($flagName);
+        $doc = $this->store->findById($environment . ':' . $flagName);
 
         return $doc !== null ? FlagStateView::fromDocument($doc) : null;
     }
 
-    public function all(int $limit = 500): array
+    public function all(string $environment = 'production', int $limit = 500): array
     {
-        $docs = $this->store->findByCriteria([], ['_id' => 1], $limit);
+        $docs = $this->store->findByCriteria(['environment' => $environment], ['_id' => 1], $limit);
 
         return array_map(static fn(array $doc) => FlagStateView::fromDocument($doc), $docs);
     }

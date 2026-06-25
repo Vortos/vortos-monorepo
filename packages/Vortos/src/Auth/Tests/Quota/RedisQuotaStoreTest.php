@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Vortos\Auth\Tests\Quota;
 
 use PHPUnit\Framework\TestCase;
+use Vortos\Auth\Quota\Exception\QuotaStoreUnavailableException;
 use Vortos\Auth\Quota\QuotaPeriod;
 use Vortos\Auth\Quota\Storage\RedisQuotaStore;
 
@@ -122,5 +123,43 @@ final class RedisQuotaStoreTest extends TestCase
         $this->assertSame(100, $result->current);
         $this->assertSame(0, $result->remaining);
         $this->assertSame($resetAt, $result->resetAt);
+    }
+
+    public function test_consume_wraps_non_redis_exception_throwable(): void
+    {
+        $this->redis->method('eval')->willThrowException(new \RuntimeException('cluster failover'));
+
+        $this->expectException(QuotaStoreUnavailableException::class);
+        $this->store->consume(
+            bucket: 'user',
+            subjectId: 'user-1',
+            quota: 'exports',
+            period: QuotaPeriod::Daily,
+            limit: 100,
+        );
+    }
+
+    public function test_compensate_swallows_non_redis_exception_throwable(): void
+    {
+        $this->redis->method('eval')->willThrowException(new \RuntimeException('cluster failover'));
+
+        $this->store->compensate(
+            bucket: 'user',
+            subjectId: 'user-1',
+            quota: 'exports',
+            period: QuotaPeriod::Daily,
+        );
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_redis_timestamp_wraps_non_redis_exception_throwable(): void
+    {
+        $redis = $this->createMock(\Redis::class);
+        $redis->method('time')->willThrowException(new \Error('connection lost'));
+        $store = new RedisQuotaStore($redis);
+
+        $this->expectException(QuotaStoreUnavailableException::class);
+        $store->get('user-1', 'exports', QuotaPeriod::Daily);
     }
 }

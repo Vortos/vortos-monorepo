@@ -68,8 +68,13 @@ return static function (VortosAuthConfig $config): void {
         ->refreshTokenTtl(604800)
 
         // Claim embedded in the JWT 'iss' field.
-        // Use your app name — useful when multiple services share a key.
+        // Use your organization or app name.
         ->issuer($_ENV['APP_NAME'] ?? 'vortos')
+
+        // JWT audience — identifies the intended recipient service.
+        // Prevents cross-service token confusion when services share a keyring.
+        // Each service MUST set a unique audience.
+        ->audience($_ENV['APP_AUDIENCE'] ?? 'vortos')
 
         // Token storage backend.
         //
@@ -86,20 +91,66 @@ return static function (VortosAuthConfig $config): void {
         ->quotaHeaders(true)
         ->rateLimitHeaders(true)
         ->problemDetails(true)
+
+        // Audit chain HMAC key — enables tamper-evident hash-chained audit entries.
+        // When set, every audit entry is SHA-256 chained + HMAC-signed, so any
+        // silent rewrite of a past row changes every hash after it.
+        // Generate: bin2hex(random_bytes(32))
+        // Leave empty to disable chain integrity (audit entries are still recorded).
+        ->auditHmacKey($_ENV['AUDIT_HMAC_KEY'] ?? '')
+
+        // API key inactivity expiry — reject keys unused for longer than this.
+        // Null disables. Recommended: 7776000 (90 days) for enterprise compliance.
+        // Keys track lastUsedAt with debounced writes (one per 60s per key).
+        ->apiKeyMaxInactivitySeconds(7_776_000)
     ;
 
     // Account lockout after repeated failed logins.
     // Remove this block to disable lockout entirely.
     // Requires Redis (RedisTokenStorage or vortos/vortos-cache).
     //
+    // This package only provides the lockout primitive — there is no generic
+    // "login route" middleware can hook into (credential verification is your
+    // app's business logic). Inject LockoutManager into your own login
+    // controller and call it around the credential check:
+    //   $check = $lockoutManager->check($email, $clientIp);
+    //   if ($check->locked) { /* 423 or your own locked-out response */ }
+    //   if ($check->shouldDelay()) { usleep($check->backoffSeconds * 1_000_000); }
+    //   if (!$passwordValid) { $lockoutManager->recordFailedAttempt($email, $clientIp); return /* 401 */; }
+    //   $lockoutManager->clearLockout($email, $clientIp);
+    // LockoutManager fails CLOSED by default (LockoutFailureMode::FailClosed) —
+    // a Redis outage throws LockoutUnavailableException; catch it in your login
+    // controller and return 503 + Retry-After rather than letting it propagate
+    // as an unhandled 500.
+    //
     // $config->lockout()
     //     // Lock the account after this many consecutive failures.
     //     ->maxAttempts(5)
     //     // How long the account stays locked, in seconds. 900 = 15 min.
     //     ->lockDurationSeconds(900)
-    //     // Track failures by email, IP address, or both.
-    //     ->trackBy(LockoutTrack::Email)
+    //     // Track failures by email, IP, or both (default: Both — an IP-only
+    //     // attacker still gets throttled before an email-only lock fires).
+    //     ->trackBy(LockoutTrack::Both)
     //     // Message shown to the user while locked out.
     //     ->message('Account locked due to too many failed attempts. Try again later.')
     // ;
+
+    // Password rehashing on cost-parameter upgrade.
+    // Like lockout, this is a primitive your login controller calls — the
+    // framework never sees your User entity or the submitted plaintext
+    // password. Implement RehashableUserInterface on your User entity and
+    // RehashableUserPersisterInterface to save it, register the persister,
+    // then call this after a successful password verify in your login flow:
+    //   $passwordRehashListener->onSuccessfulVerify($user, $plaintextPassword);
+    // It only re-hashes (and persists) when the hasher's cost parameters have
+    // changed since the stored hash was created — a no-op otherwise.
+
+    // Tamper-evidence verification for the hash-chained audit log (see
+    // ->auditHmacKey() above). The chain is written automatically once that
+    // key is set, but nothing reads it back to check for tampering unless you
+    // implement AuditChainReaderInterface on top of your AuditStoreInterface
+    // backend (read entries ordered by sequence). Once implemented, run:
+    //   php bin/console vortos:auth:verify-audit-chain
+    // Wire it into a periodic job (cron/scheduler) — it exits non-zero and
+    // prints the first broken sequence on tamper detection.
 };

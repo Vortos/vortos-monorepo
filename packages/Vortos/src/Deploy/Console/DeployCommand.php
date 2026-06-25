@@ -1,0 +1,144 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Vortos\Deploy\Console;
+
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\Question;
+use Vortos\Deploy\Audit\ActorIdentitySource;
+use Vortos\Deploy\Preflight\PreflightStatus;
+use Vortos\Deploy\Runner\DeployOutcome;
+use Vortos\Deploy\Runner\DeployOutcomeStatus;
+use Vortos\Deploy\Runner\DeployRequest;
+use Vortos\Deploy\Runner\DeployExecutionMode;
+use Vortos\Deploy\Runner\DeployRunner;
+
+/**
+ * 'deploy' — runs the whole assembled loop behind the fail-closed doctor.
+ *
+ * Doctor runs first; a red gate refuses the deploy (non-zero, nothing mutated).
+ * '--dry-run' rehearses (plan + preview, zero mutation). For an irreversible prod
+ * deploy without '--yes', the operator must type the env name (fat-finger guard); CI
+ * passes '--yes'.
+ */
+#[AsCommand(name: 'deploy', description: 'Deploy an environment through the fail-closed preflight loop')]
+final class DeployCommand extends Command
+{
+    public function __construct(
+        private readonly DeployRunner $runner,
+    ) {
+        parent::__construct();
+    }
+
+    protected function configure(): void
+    {
+        $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'production');
+        $this->addOption('dry-run', null, InputOption::VALUE_NONE, 'Rehearse: doctor + plan + preview, ZERO mutation');
+        $this->addOption('yes', null, InputOption::VALUE_NONE, 'Skip interactive confirmation (CI / non-interactive)');
+        $this->addOption('resume', null, InputOption::VALUE_NONE, 'Resume an interrupted run');
+        $this->addOption('json', null, InputOption::VALUE_NONE, 'Machine-readable outcome');
+        $this->addOption('image-digest', null, InputOption::VALUE_REQUIRED, 'Pin the deployed image to this sha256 digest (promote-by-digest)');
+        $this->addOption('actor', null, InputOption::VALUE_REQUIRED, 'Actor id recorded in the deploy audit trail');
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        $env = (string) $input->getOption('env');
+        $dryRun = (bool) $input->getOption('dry-run');
+        $yes = (bool) $input->getOption('yes');
+        $resume = (bool) $input->getOption('resume');
+        $json = (bool) $input->getOption('json');
+        $imageDigest = $input->getOption('image-digest');
+
+        $mode = $dryRun ? DeployExecutionMode::DryRun : DeployExecutionMode::Live;
+
+        if ($mode === DeployExecutionMode::Live && $this->isProd($env) && !$yes) {
+            if (!$this->confirmProd($env, $input, $output)) {
+                $output->writeln('<comment>Aborted: confirmation token did not match.</comment>');
+
+                return Command::FAILURE;
+            }
+        }
+
+        $actorOption = $input->getOption('actor');
+        $actorId = \is_string($actorOption) && $actorOption !== ''
+            ? $actorOption
+            : (string) (getenv('VORTOS_DEPLOY_ACTOR') ?: get_current_user());
+
+        $request = new DeployRequest(
+            $env,
+            $mode,
+            assumeYes: $yes,
+            resume: $resume,
+            imageDigest: \is_string($imageDigest) ? $imageDigest : null,
+            actorId: $actorId,
+            actorIdentitySource: ActorIdentitySource::Local,
+        );
+
+        try {
+            $outcome = $this->runner->run($request);
+        } catch (\Throwable $e) {
+            if ($json) {
+                $output->writeln(json_encode(['env' => $env, 'status' => 'error', 'error' => $e->getMessage()], \JSON_THROW_ON_ERROR));
+            } else {
+                $output->writeln(sprintf('<error>Deploy failed: %s</error>', $e->getMessage()));
+            }
+
+            return Command::FAILURE;
+        }
+
+        if ($json) {
+            $output->writeln($outcome->toJson());
+
+            return $outcome->exitCode();
+        }
+
+        $this->renderHuman($outcome, $output);
+
+        return $outcome->exitCode();
+    }
+
+    private function confirmProd(string $env, InputInterface $input, OutputInterface $output): bool
+    {
+        $helper = new \Symfony\Component\Console\Helper\QuestionHelper();
+
+        $question = new Question(sprintf(
+            "<comment>You are about to deploy to PRODUCTION (%s).</comment>\nType the environment name to confirm: ",
+            $env,
+        ));
+
+        $answer = $helper->ask($input, $output, $question);
+
+        return $answer === $env;
+    }
+
+    private function isProd(string $env): bool
+    {
+        return in_array(strtolower($env), ['production', 'prod'], true);
+    }
+
+    private function renderHuman(DeployOutcome $outcome, OutputInterface $output): void
+    {
+        if ($outcome->preview !== null) {
+            $output->writeln($outcome->preview);
+        }
+
+        $output->writeln(match ($outcome->status) {
+            DeployOutcomeStatus::Refused => sprintf('<error>REFUSED — doctor not clear for %s (%d failing checks). Nothing was deployed.</error>', $outcome->env, $outcome->report?->countByStatus(PreflightStatus::Fail) ?? 0),
+            DeployOutcomeStatus::DryRun => sprintf('<info>DRY RUN — plan rehearsed for %s. Nothing was mutated.</info>', $outcome->env),
+            DeployOutcomeStatus::Deployed => sprintf('<info>DEPLOYED — %s is live.</info>', $outcome->env),
+            DeployOutcomeStatus::RolledBack => sprintf('<error>ROLLED BACK — %s: %s</error>', $outcome->env, $outcome->rollbackReason ?? ''),
+        });
+
+        if ($outcome->report !== null && !$outcome->report->isClear()) {
+            foreach ($outcome->report->failures() as $failure) {
+                $output->writeln(sprintf('  <error>[FAIL]</error> %s — %s', $failure->id, $failure->summary));
+            }
+        }
+    }
+}

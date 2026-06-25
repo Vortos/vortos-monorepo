@@ -41,6 +41,7 @@ use Vortos\Logger\HashChain\InMemoryHashChainState;
 use Vortos\Logger\Processor\CorrelationIdProcessor;
 use Vortos\Logger\Processor\HashChainProcessor;
 use Vortos\Logger\Processor\RedactionProcessor;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Logger\Processor\RequestContextProcessor;
 use Vortos\Logger\Processor\StructuredLogProcessor;
 use Vortos\Tracing\Contract\TracingInterface;
@@ -129,6 +130,7 @@ final class LoggerExtension extends Extension
                 ->setArguments([
                     new Reference(RequestStack::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                     new Reference(CurrentUserProvider::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                    new Reference(IpResolverInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 ])
                 ->setShared(true)
                 ->setPublic(false);

@@ -1,0 +1,100 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Vortos\Deploy\Definition;
+
+use Vortos\Deploy\Strategy\DeployStrategy;
+use Vortos\Release\Manifest\Arch;
+
+final readonly class DeploymentDefinition
+{
+    /**
+     * @param list<string> $notifiers
+     */
+    public function __construct(
+        public string $host,
+        public string $registry,
+        public string $ci,
+        public string $secrets,
+        public string $monitoring,
+        public array $notifiers,
+        public string $credential,
+        public DeployStrategy $strategy,
+        public Arch $arch,
+        public bool $autoRollback,
+        public string $definitionHash,
+        public int $workerDrainDeadlineSeconds = 25,
+        public string $edgeRouter = 'caddy',
+        public string $canaryAnalyzer = 'null',
+    ) {}
+
+    public static function create(): DeploymentDefinitionBuilder
+    {
+        return new DeploymentDefinitionBuilder();
+    }
+
+    /**
+     * @param list<string>                                        $notifiers
+     * @param array<string, \Closure(DeploymentDefinitionBuilder): DeploymentDefinitionBuilder> $envOverrides
+     */
+    public static function build(
+        string $host = 'ssh-compose',
+        string $registry = 'dockerhub',
+        string $ci = 'github',
+        string $secrets = 'env',
+        string $monitoring = 'grafana',
+        array $notifiers = [],
+        string $credential = 'ssh-key',
+        DeployStrategy $strategy = DeployStrategy::BlueGreen,
+        Arch $arch = Arch::Arm64,
+        bool $autoRollback = true,
+        int $workerDrainDeadlineSeconds = 25,
+        array $envOverrides = [],
+        string $edgeRouter = 'caddy',
+        string $canaryAnalyzer = 'null',
+    ): self {
+        $builder = self::create()
+            ->host($host)
+            ->registry($registry)
+            ->ci($ci)
+            ->secrets($secrets)
+            ->monitoring($monitoring)
+            ->notifiers($notifiers)
+            ->credential($credential)
+            ->strategy($strategy->value)
+            ->arch($arch->value)
+            ->autoRollback($autoRollback)
+            ->workerDrainDeadlineSeconds($workerDrainDeadlineSeconds)
+            ->edgeRouter($edgeRouter)
+            ->canaryAnalyzer($canaryAnalyzer);
+
+        foreach ($envOverrides as $env => $override) {
+            $builder = $builder->forEnvironment($env, $override);
+        }
+
+        return $builder->build();
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        $data = [
+            'arch' => $this->arch->value,
+            'auto_rollback' => $this->autoRollback,
+            'ci' => $this->ci,
+            'credential' => $this->credential,
+            'host' => $this->host,
+            'monitoring' => $this->monitoring,
+            'notifiers' => $this->notifiers,
+            'registry' => $this->registry,
+            'secrets' => $this->secrets,
+            'strategy' => $this->strategy->value,
+            'worker_drain_deadline_seconds' => $this->workerDrainDeadlineSeconds,
+        ];
+
+        ksort($data);
+
+        return $data;
+    }
+}

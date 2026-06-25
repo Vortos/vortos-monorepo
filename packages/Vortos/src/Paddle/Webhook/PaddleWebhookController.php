@@ -8,6 +8,7 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Uid\UuidV7;
 use Vortos\Http\Attribute\AsController;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Http\JsonResponse;
 use Vortos\Http\Request;
 use Vortos\Http\Response;
@@ -38,12 +39,13 @@ final class PaddleWebhookController
         private readonly PaddleInboxWriterInterface $inboxWriter,
         private readonly LoggerInterface            $logger,
         private readonly string                     $webhookPath,
+        private readonly IpResolverInterface        $ipResolver = new \Vortos\Http\IpResolver\RemoteAddrIpResolver(),
     ) {}
 
     #[Route('/webhooks/paddle', name: 'vortos_paddle.webhook', methods: ['POST'])]
     public function __invoke(Request $request): JsonResponse
     {
-        $remoteAddr      = $request->getClientIp() ?? '';
+        $remoteAddr      = $this->ipResolver->resolve($request);
         $rawBody         = $request->getContent();
         $signatureHeader = $request->headers->get('Paddle-Signature', '');
 

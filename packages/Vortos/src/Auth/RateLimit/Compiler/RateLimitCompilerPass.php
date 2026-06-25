@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Auth\RateLimit\Attribute\RateLimit;
 use Vortos\Auth\RateLimit\Contract\RateLimitPolicyInterface;
 use Vortos\Auth\RateLimit\Middleware\RateLimitMiddleware;
+use Vortos\Auth\RateLimit\RateLimitScope;
 
 /**
  * Scans all controllers for #[RateLimit] at compile time.
@@ -82,6 +83,17 @@ final class RateLimitCompilerPass implements CompilerPassInterface
         $container->getDefinition(RateLimitMiddleware::class)
             ->setArgument('$routeMap', $routeMap)
             ->setArgument('$policies', $policyRefs);
+
+        $hasIpRateLimits = false;
+        foreach ($routeMap as $rules) {
+            foreach ($rules as $rule) {
+                if ($rule['per'] === RateLimitScope::Ip) {
+                    $hasIpRateLimits = true;
+                    break 2;
+                }
+            }
+        }
+        $container->setParameter('vortos.has_ip_rate_limits', $hasIpRateLimits);
     }
 
     /**

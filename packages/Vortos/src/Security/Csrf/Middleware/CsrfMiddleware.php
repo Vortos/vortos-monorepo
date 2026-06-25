@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Security\Csrf\Middleware;
 
 use Vortos\Http\Attribute\AsMiddleware;
+use Vortos\Http\Contract\IpResolverInterface;
 use Vortos\Http\Contract\MiddlewareInterface;
 use Vortos\Http\JsonResponse;
 use Vortos\Http\MiddlewareOrder;
@@ -38,6 +39,7 @@ final class CsrfMiddleware implements MiddlewareInterface
         private readonly SecurityEventDispatcher  $events,
         private readonly bool                    $enabled,
         private readonly array                   $skipControllers,
+        private readonly IpResolverInterface      $ipResolver = new \Vortos\Http\IpResolver\RemoteAddrIpResolver(),
     ) {}
 
     public function handle(Request $request, \Closure $next): Response
@@ -48,7 +50,7 @@ final class CsrfMiddleware implements MiddlewareInterface
             if ($controller === null || !$this->isSkipped($controller)) {
                 if (!$this->csrf->validate($request)) {
                     $this->events->dispatch(new CsrfViolationEvent(
-                        $request->getClientIp() ?? 'unknown',
+                        $this->ipResolver->resolve($request),
                         $request->getPathInfo(),
                         $request->getMethod(),
                     ));

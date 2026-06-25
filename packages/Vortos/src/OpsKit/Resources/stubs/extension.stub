@@ -1,0 +1,26 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{DriverNamespace}}\DependencyInjection;
+
+use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Extension\Extension;
+use {{DriverNamespace}}\{{ClassName}};
+
+final class {{Pascal}}Extension extends Extension
+{
+    public function getAlias(): string
+    {
+        return '{{Alias}}';
+    }
+
+    public function load(array $configs, ContainerBuilder $container): void
+    {
+        // Tagged by the concern tag so the concern's CollectDriversCompilerPass
+        // discovers it; the driver key comes from #[AsDriver] on the class.
+        $container->register({{ClassName}}::class, {{ClassName}}::class)
+            ->addTag('{{Tag}}')
+            ->setPublic(false);
+    }
+}

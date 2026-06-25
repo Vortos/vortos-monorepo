@@ -1,0 +1,29 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{DriverNamespace}}\Tests;
+
+use {{DriverNamespace}}\{{ClassName}};
+use Vortos\OpsKit\Driver\DriverInterface;
+use {{TckBase}};
+
+/**
+ * Conformance test for the "{{Key}}" {{Concern}} driver.
+ *
+ * Extends the concern's TCK so this driver is held to the port's universal contract
+ * — including the negative cases (unsupported operations must throw, malformed input
+ * must be rejected). Fill in any port-specific assertions the TCK base requires.
+ */
+final class {{ClassName}}ConformanceTest extends {{TckBaseShort}}
+{
+    protected function createDriver(): DriverInterface
+    {
+        return new {{ClassName}}();
+    }
+
+    protected function expectedKey(): string
+    {
+        return '{{Key}}';
+    }
+}

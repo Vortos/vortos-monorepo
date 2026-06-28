@@ -19,6 +19,8 @@ return [
         'CachePackage must be registered before MessagingPackage and CqrsPackage — both depend on CacheInterface being in the container before their extensions load.',
         'HttpPackage must be registered first overall — all other packages add event subscribers to its EventDispatcher instance.',
         'Always call cleanUp() after every request in worker mode (FrankenPHP) — ServicesResetter::reset() clears per-request state: identity, unit of work, correlation IDs, open connections.',
+        'Use #[OverrideImpl] to replace a framework binding, never #[DefaultImpl] — DefaultImplCompilerPass skips any interface that already has a registered alias or definition. Framework extensions load before it runs, so #[DefaultImpl] always loses to a framework default. #[OverrideImpl] runs after and always wins.',
+        'Use #[AsDecorator] to add behaviour around an existing service without replacing it — the outer alias is rewired at compile time (priority -5, after both DefaultImpl and OverrideImpl), the original implementation stays alive and is injected as $inner. Multiple decorators on the same target chain by priority: higher priority = outer wrapper.',
     ],
 
     'naming' => [

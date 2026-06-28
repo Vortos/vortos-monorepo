@@ -89,6 +89,21 @@ return [
         'why'    => 'Domain logic in controllers cannot be tested without an HTTP stack, cannot be reused from CLI commands, and violates layer separation.',
     ],
     [
+        'wrong'  => 'Using #[DefaultImpl] on a class that is meant to replace a framework-provided binding, then being confused when the framework\'s original binding is still used',
+        'right'  => 'Use #[OverrideImpl] instead — it unconditionally replaces any existing alias or definition, including those registered by framework extensions',
+        'why'    => 'Framework extensions register their bindings during load(), before DefaultImplCompilerPass runs. DefaultImplCompilerPass intentionally skips an interface that already has an alias or definition — it is designed to yield to explicit registrations. OverrideImplCompilerPass runs after and always wins, regardless of what was registered before.',
+    ],
+    [
+        'wrong'  => '#[AsDecorator] with no constructor parameter typed to the decorated target, or with a parameter typed to a different interface',
+        'right'  => 'Add a constructor parameter whose declared type matches $decorates exactly — the name does not matter, only the type. DecoratorCompilerPass finds the param by scanning ReflectionParameter types, not by name.',
+        'why'    => 'DecoratorCompilerPass performs an exact type-name match between the $decorates string and each constructor parameter\'s ReflectionNamedType::getName(). If no match is found the pass throws a compile-time error listing the missing parameter. A param named $inner typed to a parent interface or a union type will not match.',
+    ],
+    [
+        'wrong'  => 'Using #[AsDecorator] when the intent is to replace the original service entirely',
+        'right'  => 'Use #[OverrideImpl] to replace; use #[AsDecorator] only when the original implementation must stay alive and be called via $inner',
+        'why'    => '#[AsDecorator] keeps the original service in the container under a .vortos_inner_N alias and injects it into the decorator. The original class is still instantiated and its constructor dependencies are resolved. If you want a clean replacement with no instance of the old class, #[OverrideImpl] is correct.',
+    ],
+    [
         'wrong'  => 'Assuming a deployment/ops package (vortos-deploy, vortos-secrets, vortos-backup, vortos-alerts, vortos-pipeline, vortos-release, vortos-iac, vortos-analytics, vortos-health, vortos-ops-kit) is available because the framework version was bumped',
         'right'  => 'Call list_project_modules (reads composer.lock) or get_module_docs first — composer update only updates packages already required; it never adds new ones. Most of these are opt-in split packages.',
         'why'    => 'These classes/commands/DI services simply do not exist in vendor/ unless explicitly composer-required, regardless of how new the framework is. Writing code against them when they are not installed produces a class-not-found error, not a graceful fallback.',

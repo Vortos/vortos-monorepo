@@ -95,7 +95,9 @@ use Vortos\FeatureFlags\Http\Management\SdkKeyManagementController;
 use Vortos\FeatureFlags\Http\Middleware\SdkKeyAuthMiddleware;
 use Vortos\FeatureFlags\Http\RateLimit\FlagRateLimitService;
 use Vortos\FeatureFlags\Metrics\FlagEvaluationMetrics;
+use Vortos\FeatureFlags\Metrics\FlagMetricDefinitions;
 use Vortos\FeatureFlags\Metrics\InstrumentedFlagRegistry;
+use Vortos\Metrics\Definition\MetricDefinitionProviderInterface;
 use Vortos\FeatureFlags\Projection\FlagReadModelProjector;
 use Vortos\FeatureFlags\Projection\FlagReadModelProjectorInterface;
 use Vortos\FeatureFlags\ProjectContext;
@@ -353,6 +355,13 @@ final class FeatureFlagsExtension extends Extension
         // helper no-ops (genuine zero cost on the hot path).
         $container->register(FlagEvaluationMetrics::class, FlagEvaluationMetrics::class)
             ->setArgument('$metrics', new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setPublic(false);
+
+        // Declare the 4 flag metric names in the MetricDefinitionRegistry so any non-NoOp
+        // backend accepts them without MetricNotDefinedException. Collected at compile time
+        // by MetricDefinitionsCompilerPass via the vortos.metric_definitions tag.
+        $container->register(FlagMetricDefinitions::class, FlagMetricDefinitions::class)
+            ->addTag(MetricDefinitionProviderInterface::TAG)
             ->setPublic(false);
 
         // Transparent metrics decorator over the registry; the SDK endpoint + middleware

@@ -22,6 +22,10 @@ WORKDIR /var/www/html
 RUN mkdir -p /var/www/html/var/log /var/www/html/var/cache \
     && chmod -R 777 /var/www/html/var
 
+COPY docker/php/entrypoint.sh /usr/local/bin/vortos-entrypoint
+RUN chmod +x /usr/local/bin/vortos-entrypoint
+ENTRYPOINT ["/usr/local/bin/vortos-entrypoint"]
+
 RUN groupadd --gid 1000 app \
     && useradd --uid 1000 --gid app --shell /bin/bash --no-create-home app
 
@@ -30,6 +34,7 @@ RUN groupadd --gid 1000 app \
 # ============================================================
 FROM base AS backend
 
+CMD ["php-fpm"]
 USER app:app
 
 # ============================================================

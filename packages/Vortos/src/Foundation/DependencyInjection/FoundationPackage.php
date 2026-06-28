@@ -9,10 +9,12 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\Foundation\DependencyInjection\Compiler\ConsoleCommandPass;
+use Vortos\Foundation\DependencyInjection\Compiler\DecoratorCompilerPass;
 use Vortos\Foundation\DependencyInjection\Compiler\DefaultImplCompilerPass;
-use Vortos\Foundation\DependencyInjection\Compiler\DomainServiceCompilerPass;
 use Vortos\Foundation\DependencyInjection\Compiler\DoctorCheckPass;
+use Vortos\Foundation\DependencyInjection\Compiler\DomainServiceCompilerPass;
 use Vortos\Foundation\DependencyInjection\Compiler\HealthCheckPass;
+use Vortos\Foundation\DependencyInjection\Compiler\OverrideImplCompilerPass;
 use Vortos\Foundation\DependencyInjection\Compiler\ResettableServicesPass;
 use Vortos\Foundation\DependencyInjection\Compiler\ServiceProviderCompilerPass;
 
@@ -32,5 +34,7 @@ final class FoundationPackage implements PackageInterface
         $container->addCompilerPass(new DomainServiceCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 20);
         $container->addCompilerPass(new ServiceProviderCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 15);
         $container->addCompilerPass(new DefaultImplCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 5);
+        $container->addCompilerPass(new OverrideImplCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 0);
+        $container->addCompilerPass(new DecoratorCompilerPass(),    PassConfig::TYPE_BEFORE_OPTIMIZATION, -5);
     }
 }

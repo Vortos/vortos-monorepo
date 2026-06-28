@@ -13,6 +13,7 @@ use Vortos\Metrics\AutoInstrumentation\CqrsMetricsCompilerPass;
 use Vortos\Metrics\AutoInstrumentation\MessagingMetricsCompilerPass;
 use Vortos\Metrics\AutoInstrumentation\OperationalMessagingMetricsCompilerPass;
 use Vortos\Metrics\AutoInstrumentation\PersistenceMetricsCompilerPass;
+use Vortos\Metrics\DependencyInjection\MetricDefinitionsCompilerPass;
 
 /**
  * Metrics package — order 55.
@@ -76,6 +77,15 @@ final class MetricsPackage implements PackageInterface
 
         $container->addCompilerPass(
             new OperationalMessagingMetricsCompilerPass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            -10,
+        );
+
+        // Collect all tagged MetricDefinitionProviderInterface services and merge their
+        // definitions into MetricDefinitionRegistry. Runs after all extensions load so
+        // module-level providers (e.g. FlagMetricDefinitions) are already registered.
+        $container->addCompilerPass(
+            new MetricDefinitionsCompilerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
             -10,
         );

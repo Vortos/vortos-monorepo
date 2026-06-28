@@ -26,6 +26,8 @@ use Vortos\Foundation\DependencyInjection\Attribute\DefaultImpl;
  */
 final class DefaultImplCompilerPass implements CompilerPassInterface
 {
+    use ResolveInterfaceTrait;
+
     public function process(ContainerBuilder $container): void
     {
         $projectDir  = $container->hasParameter('kernel.project_dir')
@@ -54,7 +56,7 @@ final class DefaultImplCompilerPass implements CompilerPassInterface
             /** @var DefaultImpl $attribute */
             $attribute = $attrs[0]->newInstance();
 
-            $interface = $this->resolveInterface($attribute, $reflClass, $appNamespaces);
+            $interface = $this->resolveInterface($attribute->interface, $reflClass, $appNamespaces);
 
             if ($container->hasAlias($interface) || $container->hasDefinition($interface)) {
                 // Explicit registration wins — do not override.
@@ -70,96 +72,5 @@ final class DefaultImplCompilerPass implements CompilerPassInterface
         }
 
         $container->setParameter('vortos.default_impl.bindings', $bindings);
-    }
-
-    /** @return string[] App namespace prefixes (e.g. ['App\\', 'Vortos\\']) */
-    private function resolveAppNamespaces(?string $projectDir): array
-    {
-        if ($projectDir === null) {
-            return [];
-        }
-
-        $composerJson = $projectDir . '/composer.json';
-
-        if (!file_exists($composerJson)) {
-            return [];
-        }
-
-        $decoded = json_decode(file_get_contents($composerJson), true);
-
-        $prefixes = [];
-
-        foreach ($decoded['autoload']['psr-4'] ?? [] as $ns => $_) {
-            $prefixes[] = rtrim($ns, '\\') . '\\';
-        }
-
-        foreach ($decoded['autoload-dev']['psr-4'] ?? [] as $ns => $_) {
-            $prefixes[] = rtrim($ns, '\\') . '\\';
-        }
-
-        return array_unique($prefixes);
-    }
-
-    /**
-     * @return class-string
-     * @throws \LogicException on ambiguous or invalid configuration
-     */
-    private function resolveInterface(DefaultImpl $attribute, ReflectionClass $reflClass, array $appNamespaces): string
-    {
-        if ($attribute->interface !== null) {
-            if (!$reflClass->implementsInterface($attribute->interface)) {
-                throw new \LogicException(sprintf(
-                    '#[DefaultImpl(%s)] on class "%s" but the class does not implement that interface.',
-                    $attribute->interface,
-                    $reflClass->getName(),
-                ));
-            }
-
-            return $attribute->interface;
-        }
-
-        // No explicit interface — infer from implemented interfaces.
-        $appInterfaces = array_filter(
-            $reflClass->getInterfaceNames(),
-            fn(string $iface) => $this->isAppInterface($iface, $appNamespaces),
-        );
-
-        $appInterfaces = array_values($appInterfaces);
-
-        if (count($appInterfaces) === 1) {
-            return $appInterfaces[0];
-        }
-
-        if (count($appInterfaces) === 0) {
-            throw new \LogicException(sprintf(
-                '#[DefaultImpl] on "%s" but the class implements no application interfaces. '
-                . 'Either add an interface or specify it explicitly: #[DefaultImpl(MyInterface::class)].',
-                $reflClass->getName(),
-            ));
-        }
-
-        throw new \LogicException(sprintf(
-            '#[DefaultImpl] on "%s" is ambiguous — the class implements multiple application interfaces: %s. '
-            . 'Specify which one to alias: #[DefaultImpl(MyInterface::class)].',
-            $reflClass->getName(),
-            implode(', ', $appInterfaces),
-        ));
-    }
-
-    private function isAppInterface(string $interface, array $appNamespaces): bool
-    {
-        if (empty($appNamespaces)) {
-            // No composer.json found — treat every non-PHP-stdlib interface as an app interface.
-            return !str_starts_with($interface, 'Traversable')
-                && !in_array($interface, ['Iterator', 'Countable', 'Stringable', 'Serializable', 'ArrayAccess'], true);
-        }
-
-        foreach ($appNamespaces as $prefix) {
-            if (str_starts_with($interface, $prefix)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

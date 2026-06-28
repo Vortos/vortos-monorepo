@@ -17,7 +17,9 @@ use Vortos\Foundation\Command\DebugBindingsCommand;
 use Vortos\Foundation\Command\DoctorCommand;
 use Vortos\Foundation\Command\HealthCommand;
 use Vortos\Foundation\Doctor\DoctorRegistry;
+use Vortos\Foundation\DependencyInjection\Attribute\AsDecorator;
 use Vortos\Foundation\DependencyInjection\Attribute\DefaultImpl;
+use Vortos\Foundation\DependencyInjection\Attribute\OverrideImpl;
 use Vortos\Foundation\DependencyInjection\Attribute\ServiceProvider;
 use Vortos\Foundation\Health\HealthDetailPolicy;
 use Vortos\Foundation\Health\HealthRegistry;
@@ -56,6 +58,20 @@ final class FoundationExtension extends Extension
             DefaultImpl::class,
             static function (ChildDefinition $definition, DefaultImpl $attribute): void {
                 $definition->addTag('vortos.default_impl');
+            },
+        );
+
+        $container->registerAttributeForAutoconfiguration(
+            OverrideImpl::class,
+            static function (ChildDefinition $definition, OverrideImpl $attribute): void {
+                $definition->addTag('vortos.override_impl');
+            },
+        );
+
+        $container->registerAttributeForAutoconfiguration(
+            AsDecorator::class,
+            static function (ChildDefinition $definition, AsDecorator $attribute): void {
+                $definition->addTag('vortos.decorator');
             },
         );
 

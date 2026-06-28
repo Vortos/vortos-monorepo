@@ -45,10 +45,16 @@ WORKDIR /var/www/html
 RUN mkdir -p /var/www/html/var/log /var/www/html/var/cache \
     && chmod -R 777 /var/www/html/var
 
+COPY docker/php/entrypoint.sh /usr/local/bin/vortos-entrypoint
+RUN chmod +x /usr/local/bin/vortos-entrypoint
+ENTRYPOINT ["/usr/local/bin/vortos-entrypoint"]
+
 # ============================================================
 # Stage 3a — Backend: HTTP server target
 # ============================================================
 FROM base AS backend
+
+CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile", "--adapter", "caddyfile"]
 
 EXPOSE 80 443
 

@@ -352,7 +352,7 @@ return [
 
     'foundation' => [
         'package'     => 'vortos/vortos-foundation',
-        'description' => 'Health checks, pre-flight diagnostics, boot error rendering, and worker mode service resetter. If vortos-health is installed, that package\'s tri-state probe aggregator serves /health/* instead, and BridgeLegacyHealthChecksPass auto-wraps every HealthCheckInterface below as a probe — zero migration needed.',
+        'description' => 'Health checks, pre-flight diagnostics, boot error rendering, worker mode service resetter, and compile-time interface binding via #[DefaultImpl] and #[OverrideImpl]. If vortos-health is installed, that package\'s tri-state probe aggregator serves /health/* instead, and BridgeLegacyHealthChecksPass auto-wraps every HealthCheckInterface below as a probe — zero migration needed.',
         'provides'    => [
             'HealthRegistry'         => 'Register HealthCheckInterface implementations. Exposed via /health/ready and /health/live (or bridged into vortos-health if that package is installed — see the health module).',
             'ServicesResetter'       => 'Calls reset() on all ResettableInterface services after each request in worker mode.',
@@ -360,11 +360,14 @@ return [
             '#[AsDoctor]'            => 'Attribute to register a DoctorCheckInterface as a pre-flight diagnostic check.',
             'DoctorCheckInterface'   => 'run(): DoctorResult — implement to add a custom doctor check.',
             'BootErrorRenderer'      => 'Formats boot exceptions in CLI with human-readable hints for common failures.',
+            '#[DefaultImpl]'         => 'Compile-time attribute that creates an interface → class alias if no alias or definition already exists. Framework extensions register their bindings first, so explicit services.php registrations always take precedence over #[DefaultImpl]. Infers the target interface when the class implements exactly one app-namespace interface; specify explicitly with #[DefaultImpl(MyInterface::class)] when the class implements multiple. Errors are thrown immediately. Sets the vortos.default_impl.bindings container parameter.',
+            '#[OverrideImpl]'        => 'Compile-time attribute that unconditionally replaces any existing alias or definition — including bindings registered by framework extensions. Use when app code needs to win over a framework default without adding an explicit alias to services.php. Runs after DefaultImplCompilerPass (priority 0 vs 5). Duplicate overrides (two classes claiming the same interface) and resolution errors are COLLECTED and thrown as a single exception so all misconfigurations surface at once. Sets the vortos.override_impl.bindings container parameter.',
         ],
         'config'   => null,
         'commands' => [
             'vortos:health'  => 'Check all registered HealthCheckInterface services. Flags: --json (machine-readable output)',
             'vortos:doctor'  => 'Run all registered pre-flight diagnostic checks. Flags: --fail-on-warning (exit 1 on warnings)',
+            'debug:bindings' => 'List all interface → class bindings registered by #[DefaultImpl]. Add -v to include file paths. #[OverrideImpl] bindings are visible via debug:container.',
         ],
     ],
 

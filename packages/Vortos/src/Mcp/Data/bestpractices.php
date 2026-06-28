@@ -67,5 +67,6 @@ return [
         'deploy:rollback and vortos:iac plans can legitimately REFUSE (RollbackRefusedException, PlanStaleException, DestructiveChangeRefusedException, PolicyViolationException) — that is the fail-closed design working as intended, not a bug to route around. Read the refusal reason; it names the exact fix.',
         'Choose FailClosed vs FailOpen deliberately per use case, not by copying a default: FailClosed for anything security-relevant (login lockout), FailOpen for general throughput limiting where availability matters more than strict enforcement during a backing-store outage.',
         'Reach for vortos:auth:revoke-all-tokens (global min-iat) only for genuine incident response (leaked key, suspected mass compromise) — it logs out every session for every user. Use per-user token-storage revocation for routine logout/password-change.',
+        'The published Dockerfiles run `cache:warmup` in entrypoint.sh before the server starts — any Symfony container compilation error (bad DI config, broken compiler pass, misconfigured #[OverrideImpl] or #[AsDecorator]) is printed directly in `docker compose up` output and exits with code 1. No `docker logs` dig needed for boot-time DI errors. Runtime errors (DB down, request-time exceptions) still appear in logs.',
     ],
 ];

@@ -323,6 +323,21 @@ final class MetricsExtension extends Extension
             ->setArguments(['metrics', __DIR__ . '/../stubs/metrics.php'])
             ->addTag(ConfigExtension::STUB_TAG)
             ->setPublic(false);
+
+        // Built-in metric definition providers — collected at compile time by MetricDefinitionsCompilerPass.
+        // External modules (e.g. vortos-feature-flags) register their own providers with the same tag.
+        foreach ([
+            CacheMetricDefinitions::class,
+            CqrsMetricDefinitions::class,
+            HttpMetricDefinitions::class,
+            MessagingMetricDefinitions::class,
+            PersistenceMetricDefinitions::class,
+            SecurityMetricDefinitions::class,
+        ] as $providerClass) {
+            $container->register($providerClass, $providerClass)
+                ->addTag(MetricDefinitionProviderInterface::TAG)
+                ->setPublic(false);
+        }
     }
 
     /**
@@ -346,30 +361,21 @@ final class MetricsExtension extends Extension
     }
 
     /**
+     * Converts user-configured metric definitions (from config/metrics.php) to the array
+     * format expected by {@see MetricDefinitionRegistryFactory::create}.
+     *
+     * Built-in framework definitions are contributed by tagged {@see MetricDefinitionProviderInterface}
+     * services registered in {@see registerAutoInstrumentation} and merged at compile time by
+     * {@see MetricDefinitionsCompilerPass}. Module-level definitions (e.g. feature-flags) follow
+     * the same tag pattern and are merged by the same pass.
+     *
      * @return list<array{type: string, name: string, help: string, label_names: list<string>, buckets: list<float|int>}>
      */
     private function buildMetricDefinitions(array $resolved): array
     {
-        $providers = [
-            new CacheMetricDefinitions(),
-            new CqrsMetricDefinitions(),
-            new HttpMetricDefinitions(),
-            new MessagingMetricDefinitions(),
-            new PersistenceMetricDefinitions(),
-            new SecurityMetricDefinitions(),
-        ];
-
-        $definitions = [];
-        foreach ($providers as $provider) {
-            /** @var MetricDefinitionProviderInterface $provider */
-            array_push($definitions, ...$provider->definitions());
-        }
-
-        array_push($definitions, ...$resolved['metric_definitions']);
-
         return array_map(
             static fn (MetricDefinition $definition): array => $definition->toArray(),
-            $definitions,
+            $resolved['metric_definitions'],
         );
     }
 }

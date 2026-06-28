@@ -9,10 +9,22 @@ use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\FeatureFlags\FlagContext;
 
 /**
- * Resolves flag context from the authenticated user identity.
+ * Resolves flag evaluation context from the server-side authenticated session.
  *
- * Provides userId and roles to the flag evaluator automatically.
- * For extra attributes (plan, region, etc.) override this:
+ * ## Scope: server-side flag evaluation only
+ *
+ * This resolver is called exclusively by {@see FlagsController} (the server SDK delivery
+ * endpoint). It is NOT called by:
+ *   - {@see FlagBootstrapController} — CDN-cacheable snapshot, always context-free
+ *   - {@see FlagStreamController}    — SSE push stream, always context-free
+ *
+ * Rebinding this resolver has no effect on bootstrap or SSE responses. If a browser SPA
+ * needs per-user flag payloads at page load, it must call the server SDK endpoint
+ * (FlagsController) directly — not the bootstrap snapshot.
+ *
+ * ## Adding custom attributes
+ *
+ * Implement {@see FlagContextResolverInterface} and rebind the alias:
  *
  *   final class AppFlagContextResolver implements FlagContextResolverInterface
  *   {
@@ -36,6 +48,13 @@ use Vortos\FeatureFlags\FlagContext;
  *
  * Then rebind in config/services.php:
  *   $services->alias(FlagContextResolverInterface::class, AppFlagContextResolver::class);
+ *
+ * ## SDK key authentication
+ *
+ * {@see SdkKeyAuthMiddleware} runs before this resolver. It authenticates the SDK client
+ * and sets the active project + environment scope from the key — it does NOT set user
+ * identity. User identity is still resolved here from the authenticated session. Both
+ * concerns are independent.
  */
 final class DefaultFlagContextResolver implements FlagContextResolverInterface
 {

@@ -19,7 +19,7 @@ use Vortos\Scheduler\Engine\DueScan;
 use Vortos\Scheduler\Engine\FireDispatchResult;
 use Vortos\Scheduler\Engine\FireDispatcherPort;
 use Vortos\Scheduler\Engine\MisfireResolver;
-use Vortos\Scheduler\Engine\ScheduledFire;
+use Vortos\Scheduler\Fire\ScheduledFire;
 use Vortos\Scheduler\Engine\SchedulerDaemon;
 use Vortos\Scheduler\Fire\CommandSpec;
 use Vortos\Scheduler\Lease\Driver\InMemoryLeaseStore;
@@ -244,7 +244,7 @@ final class SchedulerBenchmark
         $inner = new class implements FireDispatcherPort {
             public function dispatch(ScheduledFire $fire, Schedule $schedule): FireDispatchResult
             {
-                throw new \Vortos\Scheduler\Engine\Exception\FireDispatchException('x');
+                throw new \Vortos\Scheduler\Engine\Exception\FireDispatchException($fire, 'x');
             }
         };
         $cb = new DispatchCircuitBreaker($inner, $this->clock, 5, 30);

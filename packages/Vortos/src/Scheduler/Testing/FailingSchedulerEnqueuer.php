@@ -6,7 +6,7 @@ namespace Vortos\Scheduler\Testing;
 
 use Vortos\Scheduler\Engine\SchedulerEnqueuerPort;
 use Vortos\Scheduler\Schedule\Schedule;
-use Vortos\Scheduler\Engine\ScheduledFire;
+use Vortos\Scheduler\Fire\ScheduledFire;
 
 /**
  * Test stub that always throws on enqueue — used to drive circuit-breaker tests

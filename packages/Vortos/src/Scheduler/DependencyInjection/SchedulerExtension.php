@@ -61,6 +61,7 @@ use Vortos\Scheduler\Registry\PruneSchedulerRunsSchedule;
 use Vortos\Scheduler\Registry\ScheduleResolver;
 use Vortos\Scheduler\Registry\StaticScheduleDefinition;
 use Vortos\Scheduler\Registry\StaticScheduleRegistry;
+use Vortos\Scheduler\Retention\FireQueuePruner;
 use Vortos\Scheduler\Retention\RunRetentionSweeper;
 use Vortos\Scheduler\Security\Approval\Dbal\DbalFourEyesApprovalStore;
 use Vortos\Scheduler\Security\FourEyesGate;
@@ -550,6 +551,26 @@ final class SchedulerExtension extends Extension
             return; // DBAL/engine not available
         }
 
+        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
+            ? (string) $container->getParameter('vortos.db.framework_table_prefix')
+            : 'vortos_';
+
+        // Terminal fire-queue rows accumulate forever otherwise (S12 marks them
+        // dispatched/failed instead of deleting). Pruned as a side-step of the
+        // daily run sweep — a no-op when fire_queue_retention_days is 0.
+        if ($config['fire_queue_retention_days'] > 0) {
+            $container->register(FireQueuePruner::class, FireQueuePruner::class)
+                ->setArgument('$connection', new Reference(Connection::class))
+                ->setArgument('$clock', new Reference(ClockPort::class))
+                ->setArgument('$retentionDays', $config['fire_queue_retention_days'])
+                ->setArgument('$table', $prefix . 'scheduler_fire_queue')
+                ->setArgument('$batchSize', $config['prune_batch_size'])
+                ->setArgument('$maxDurationSec', $config['prune_max_duration_sec'])
+                ->setArgument('$logger', new Reference(LoggerInterface::class))
+                ->setArgument('$metrics', new Reference(SchedulerMetricsPort::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                ->setPublic(false);
+        }
+
         $container->register(RunRetentionSweeper::class, RunRetentionSweeper::class)
             ->setArgument('$runStore', new Reference(ScheduleRunStoreInterface::class))
             ->setArgument('$overrideStore', new Reference(RunRetentionOverrideStoreInterface::class))
@@ -558,6 +579,7 @@ final class SchedulerExtension extends Extension
             ->setArgument('$globalRetentionDays', $config['run_retention_days'])
             ->setArgument('$audit', new Reference(SchedulerAuditProjector::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setArgument('$metrics', new Reference(SchedulerMetricsPort::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$fireQueuePruner', new Reference(FireQueuePruner::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
 
         if ($config['run_retention_days'] <= 0) {

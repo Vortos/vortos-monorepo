@@ -81,6 +81,11 @@ final class SchedulerMetricDefinitions implements MetricDefinitionProviderInterf
                 'Total fire-ledger rows deleted by pruneOldRuns(), auto or manual.',
                 ['tenant_id'],
             ),
+            MetricDefinition::counter(
+                'vortos_scheduler_fire_queue_pruned_total',
+                'Total terminal (dispatched/failed) fire-queue rows deleted by FireQueuePruner.',
+                [],
+            ),
             MetricDefinition::histogram(
                 'vortos_scheduler_prune_duration_seconds',
                 'Wall-clock duration of one full prune sweep, labelled by trigger (auto|manual).',

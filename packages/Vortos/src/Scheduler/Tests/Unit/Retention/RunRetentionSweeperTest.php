@@ -117,6 +117,36 @@ final class RunRetentionSweeperTest extends TestCase
         self::assertSame(35, $result->deletedCount);
     }
 
+    public function test_fire_queue_pruner_is_invoked_by_the_sweep(): void
+    {
+        $connection = \Doctrine\DBAL\DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $connection->executeStatement(
+            'CREATE TABLE fq (id TEXT PRIMARY KEY, status TEXT NOT NULL, dispatched_at DATETIME NULL)',
+        );
+        // One terminal row well past any cutoff — the sweep must reach the pruner and delete it.
+        $connection->insert('fq', ['id' => 'old', 'status' => 'dispatched', 'dispatched_at' => '2026-01-01 00:00:00']);
+
+        $pruner  = new \Vortos\Scheduler\Retention\FireQueuePruner(
+            connection:    $connection,
+            clock:         $this->clock,
+            retentionDays: 7,
+            table:         'fq',
+        );
+        $sweeper = $this->makeSweeper(globalRetentionDays: 30, fireQueuePruner: $pruner);
+
+        $sweeper->sweep('auto');
+
+        self::assertSame(0, (int) $connection->fetchOne('SELECT COUNT(*) FROM fq'));
+    }
+
+    public function test_absent_fire_queue_pruner_is_a_no_op(): void
+    {
+        // Default (null) pruner — sweep must not error.
+        $result = $this->makeSweeper(globalRetentionDays: 30)->sweep('auto');
+
+        self::assertSame(0, $result->deletedCount);
+    }
+
     public function test_metrics_recorded_per_scope(): void
     {
         $this->overrideStore->save(new RunRetentionOverride('tenant-a', 90, 'a', new DateTimeImmutable()));
@@ -132,8 +162,11 @@ final class RunRetentionSweeperTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    private function makeSweeper(int $globalRetentionDays, ?\Vortos\Scheduler\Observability\SchedulerMetrics $metrics = null): RunRetentionSweeper
-    {
+    private function makeSweeper(
+        int $globalRetentionDays,
+        ?\Vortos\Scheduler\Observability\SchedulerMetrics $metrics = null,
+        ?\Vortos\Scheduler\Retention\FireQueuePruner $fireQueuePruner = null,
+    ): RunRetentionSweeper {
         return new RunRetentionSweeper(
             runStore:            $this->runStore,
             overrideStore:       $this->overrideStore,
@@ -142,6 +175,7 @@ final class RunRetentionSweeperTest extends TestCase
             globalRetentionDays: $globalRetentionDays,
             audit:                null,
             metrics:              $metrics,
+            fireQueuePruner:      $fireQueuePruner,
         );
     }
 }

@@ -283,6 +283,7 @@ final class SchedulerDoctorTest extends TestCase
             self::TABLE_PREFIX . 'scheduler_schedules',
             self::TABLE_PREFIX . 'scheduler_runs',
             self::TABLE_PREFIX . 'scheduler_audit_log',
+            self::TABLE_PREFIX . 'scheduler_audit_checkpoints',
             self::TABLE_PREFIX . 'scheduler_static_overrides',
             self::TABLE_PREFIX . 'scheduler_fire_queue',
             self::TABLE_PREFIX . 'scheduler_run_retention_overrides',

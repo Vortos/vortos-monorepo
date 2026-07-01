@@ -50,6 +50,7 @@ final class VortosSchedulerConfig
     private int $tenantMaxConcurrentFires;
     private string $redisDsn;
     private int $runRetentionDays;
+    private int $fireQueueRetentionDays;
     private int $consumeStallThresholdSec;
     private int $consumeBatchSize;
     private int $consumePollIntervalSec;
@@ -75,6 +76,7 @@ final class VortosSchedulerConfig
         $this->tenantMaxConcurrentFires         = \max(0, (int) ($_ENV['SCHEDULER_TENANT_MAX_CONCURRENT_FIRES'] ?? 0));
         $this->redisDsn                        = (string) ($_ENV['VORTOS_CACHE_DSN'] ?? 'redis://redis:6379');
         $this->runRetentionDays                = \max(0, (int) ($_ENV['SCHEDULER_RUN_RETENTION_DAYS'] ?? 30));
+        $this->fireQueueRetentionDays          = \max(0, (int) ($_ENV['SCHEDULER_FIRE_QUEUE_RETENTION_DAYS'] ?? 7));
         $this->consumeStallThresholdSec        = \max(1, (int) ($_ENV['SCHEDULER_CONSUME_STALL_THRESHOLD_SEC'] ?? 120));
         $this->consumeBatchSize                = \max(1, (int) ($_ENV['SCHEDULER_CONSUME_BATCH_SIZE'] ?? 50));
         $this->consumePollIntervalSec           = \max(1, (int) ($_ENV['SCHEDULER_CONSUME_POLL_INTERVAL_SEC'] ?? 2));
@@ -210,6 +212,13 @@ final class VortosSchedulerConfig
         return $this;
     }
 
+    /** Retention (days) for terminal fire-queue rows. 0 disables fire-queue pruning. */
+    public function fireQueueRetentionDays(int $days): static
+    {
+        $this->fireQueueRetentionDays = \max(0, $days);
+        return $this;
+    }
+
     /** SchedulerDoctor C11: how old the oldest pending fire-queue row may be before it's a Fail. */
     public function consumeStallThresholdSec(int $seconds): static
     {
@@ -265,6 +274,7 @@ final class VortosSchedulerConfig
             'tenant_max_concurrent_fires'           => $this->tenantMaxConcurrentFires,
             'redis_dsn'                            => $this->redisDsn,
             'run_retention_days'                   => $this->runRetentionDays,
+            'fire_queue_retention_days'             => $this->fireQueueRetentionDays,
             'consume_stall_threshold_sec'           => $this->consumeStallThresholdSec,
             'consume_batch_size'                    => $this->consumeBatchSize,
             'consume_poll_interval_sec'             => $this->consumePollIntervalSec,

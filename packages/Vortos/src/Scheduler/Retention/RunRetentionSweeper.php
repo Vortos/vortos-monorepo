@@ -34,6 +34,7 @@ final class RunRetentionSweeper
         private readonly int                                 $globalRetentionDays,
         private readonly ?SchedulerAuditProjector             $audit = null,
         private readonly ?SchedulerMetricsPort                $metrics = null,
+        private readonly ?FireQueuePruner                     $fireQueuePruner = null,
     ) {}
 
     public function sweep(string $trigger, string $actorId = 'system'): RunRetentionSweepResult
@@ -82,6 +83,11 @@ final class RunRetentionSweeper
 
         $this->metrics?->recordRunsPruned($globalResult->deletedCount, null);
         $this->audit?->onRunsPruned($actorId, null, $globalResult->deletedCount, $globalCutoff, $globalResult->truncated);
+
+        // Also drain terminal fire-queue rows. Kept separate from the run tally
+        // above (the result is about run history); the pruner is a no-op when
+        // fire-queue retention is disabled or unwired.
+        $this->fireQueuePruner?->prune();
 
         return new RunRetentionSweepResult($totalDeleted, $truncated);
     }

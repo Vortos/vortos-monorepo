@@ -40,6 +40,9 @@ interface SchedulerMetricsPort
     /** Rows deleted by one pruneOldRuns() call (auto or manual). */
     public function recordRunsPruned(int $count, ?string $tenantId): void;
 
+    /** Terminal fire-queue rows deleted by FireQueuePruner (global — no tenant dimension). */
+    public function recordFireQueuePruned(int $count): void;
+
     /** Wall-clock duration of one full prune sweep (all tenants/chunks summed). */
     public function recordPruneDuration(float $seconds, string $trigger): void;
 }

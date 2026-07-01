@@ -272,6 +272,7 @@ final class SchedulerDoctor implements SchedulerDoctorPort
             $this->tablePrefix . 'scheduler_schedules',
             $this->tablePrefix . 'scheduler_runs',
             $this->tablePrefix . 'scheduler_audit_log',
+            $this->tablePrefix . 'scheduler_audit_checkpoints',
             $this->tablePrefix . 'scheduler_static_overrides',
             $this->tablePrefix . 'scheduler_fire_queue',
             $this->tablePrefix . 'scheduler_run_retention_overrides',

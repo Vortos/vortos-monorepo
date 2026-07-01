@@ -198,6 +198,21 @@ final class SchedulerMetrics implements SchedulerMetricsPort
         }
     }
 
+    public function recordFireQueuePruned(int $count): void
+    {
+        if ($this->metrics === null || $count === 0) {
+            return;
+        }
+
+        try {
+            $this->metrics->counter(
+                'vortos_scheduler_fire_queue_pruned_total',
+                [],
+            )->increment((float) $count);
+        } catch (\Throwable) {
+        }
+    }
+
     public function recordPruneDuration(float $seconds, string $trigger): void
     {
         if ($this->metrics === null) {

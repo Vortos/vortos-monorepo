@@ -204,6 +204,10 @@ final class SpyMetricsPort implements SchedulerMetricsPort
     {
     }
 
+    public function recordFireQueuePruned(int $count): void
+    {
+    }
+
     public function recordPruneDuration(float $seconds, string $trigger): void
     {
     }

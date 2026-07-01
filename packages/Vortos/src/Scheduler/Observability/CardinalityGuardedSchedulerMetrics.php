@@ -94,6 +94,11 @@ final class CardinalityGuardedSchedulerMetrics implements SchedulerMetricsPort
         $this->inner->recordRunsPruned($count, $tenantId);
     }
 
+    public function recordFireQueuePruned(int $count): void
+    {
+        $this->inner->recordFireQueuePruned($count);
+    }
+
     public function recordPruneDuration(float $seconds, string $trigger): void
     {
         $this->inner->recordPruneDuration($seconds, $trigger);

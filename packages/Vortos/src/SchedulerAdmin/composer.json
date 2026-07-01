@@ -1,0 +1,33 @@
+{
+    "name": "vortos/vortos-scheduler-admin",
+    "description": "Scheduler admin console — HTMX + Twig, CSRF + CSP + RBAC + step-up 2FA. Mounts into host vortos-http pipeline. No own login.",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.3",
+        "vortos/vortos-scheduler": "^1.0",
+        "vortos/vortos-http": "^1.0",
+        "vortos/vortos-auth": "^1.0",
+        "vortos/vortos-authorization": "^1.0",
+        "twig/twig": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Vortos\\SchedulerAdmin\\": ""
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Vortos\\SchedulerAdmin\\Tests\\": "Tests/"
+        }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\SchedulerAdmin\\DependencyInjection\\SchedulerAdminPackage",
+            "order": 186
+        }
+    }
+}

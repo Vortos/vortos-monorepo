@@ -1,0 +1,25 @@
+{% extends 'layout/base.html.twig' %}
+{% block title %}Observability{% endblock %}
+{% block content %}
+<h1>Scheduler Observability</h1>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Name</th><th>Status</th><th>Source</th><th>Last Dispatch</th><th>Tenant</th></tr>
+    </thead>
+    <tbody>
+    {% for schedule in schedules %}
+        {% set last = last_dispatches[schedule.id.toString] ?? null %}
+        <tr>
+            <td><a href="{{ prefix }}/{{ schedule.id }}">{{ schedule.name }}</a></td>
+            <td><span class="badge badge-{{ schedule.status.value }}">{{ schedule.status.value }}</span></td>
+            <td>{{ schedule.source.value }}</td>
+            <td>{% if last %}{{ last|date('Y-m-d H:i:s') }}{% else %}<em>never</em>{% endif %}</td>
+            <td>{{ schedule.tenantId ?? 'system' }}</td>
+        </tr>
+    {% else %}
+        <tr><td colspan="5">No schedules found.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

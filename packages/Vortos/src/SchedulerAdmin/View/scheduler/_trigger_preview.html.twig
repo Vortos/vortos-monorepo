@@ -1,0 +1,14 @@
+{% if error %}
+    <div class="cron-preview error">Invalid cron: {{ error }}</div>
+{% elseif fire_times %}
+    <div class="cron-preview">
+        <strong>Next {{ fire_times|length }} fire times ({{ timezone }}):</strong>
+        <ul>
+        {% for t in fire_times %}
+            <li>{{ t|date('Y-m-d H:i:s') }}</li>
+        {% endfor %}
+        </ul>
+    </div>
+{% elseif cron %}
+    <div class="cron-preview">Enter a cron expression above.</div>
+{% endif %}

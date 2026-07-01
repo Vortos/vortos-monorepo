@@ -1,0 +1,23 @@
+{% extends 'layout/base.html.twig' %}
+{% block title %}Audit Log{% endblock %}
+{% block content %}
+<h1>Scheduler Audit Log</h1>
+
+<form method="GET" action="{{ prefix }}/audit">
+    <input type="date" name="from" value="{{ from }}">
+    <input type="date" name="to" value="{{ to }}">
+    <select name="limit">
+        {% for l in [50, 100, 200, 500] %}
+            <option value="{{ l }}" {% if l == limit %}selected{% endif %}>{{ l }}</option>
+        {% endfor %}
+    </select>
+    {% if tenant_id %}<input type="hidden" name="tenant" value="{{ tenant_id }}">{% endif %}
+    <button type="submit">Filter</button>
+</form>
+
+<div id="audit-table"
+     hx-get="{{ prefix }}/audit{% if tenant_id %}?tenant={{ tenant_id|url_encode }}{% endif %}"
+     hx-trigger="none" hx-swap="outerHTML">
+    {% include 'audit/_entry_table.html.twig' %}
+</div>
+{% endblock %}

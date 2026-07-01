@@ -1,0 +1,74 @@
+{% extends 'layout/base.html.twig' %}
+{% block title %}{{ schedule.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ schedule.name }}</h1>
+    <div class="actions">
+        {% if can_edit %}
+            <a href="{{ prefix }}/{{ schedule.id }}/edit" class="btn">Edit</a>
+        {% endif %}
+        {% if can_pause and schedule.status.value == 'active' %}
+            <form method="POST" action="{{ prefix }}/{{ schedule.id }}/pause"
+                  hx-post="{{ prefix }}/{{ schedule.id }}/pause" hx-target="#status-badge" hx-swap="outerHTML">
+                <button type="submit" class="btn">Pause</button>
+            </form>
+        {% elseif can_pause and schedule.status.value == 'paused' %}
+            <form method="POST" action="{{ prefix }}/{{ schedule.id }}/resume"
+                  hx-post="{{ prefix }}/{{ schedule.id }}/resume" hx-target="#status-badge" hx-swap="outerHTML">
+                <button type="submit" class="btn">Resume</button>
+            </form>
+        {% endif %}
+        {% if can_run_now %}
+            <form method="POST" action="{{ prefix }}/{{ schedule.id }}/run-now"
+                  hx-post="{{ prefix }}/{{ schedule.id }}/run-now" hx-target="#run-result" hx-swap="innerHTML">
+                <input type="text" name="reason" placeholder="Reason (optional)">
+                <button type="submit" class="btn btn-warning">Run Now</button>
+            </form>
+        {% endif %}
+        {% if can_delete %}
+            <a href="{{ prefix }}/{{ schedule.id }}/delete" class="btn btn-danger">Delete</a>
+        {% endif %}
+    </div>
+</div>
+
+<section class="detail-grid">
+    <dl>
+        <dt>ID</dt><dd><code>{{ schedule.id }}</code></dd>
+        <dt>Trigger</dt><dd><code>{{ schedule.trigger.describe() }}</code></dd>
+        <dt>Command</dt><dd><code>{{ schedule.command.class }}</code></dd>
+        <dt>Timezone</dt><dd>{{ schedule.timezone.getName() }}</dd>
+        <dt>Status</dt><dd id="status-badge">{% include 'scheduler/_status_badge.html.twig' %}</dd>
+        <dt>Source</dt><dd>{{ schedule.source.value }}</dd>
+        <dt>Sensitive</dt><dd>{{ schedule.sensitive ? 'Yes' : 'No' }}</dd>
+        <dt>Tenant</dt><dd>{{ schedule.tenantId ?? 'system' }}</dd>
+    </dl>
+</section>
+
+<div id="run-result"></div>
+
+<section>
+    <h2>Approval Requests</h2>
+    <div hx-get="{{ prefix }}/{{ schedule.id }}/approvals" hx-trigger="load" hx-swap="innerHTML"></div>
+</section>
+
+<section>
+    <h2>Audit Log</h2>
+    <table class="data-table">
+        <thead>
+            <tr><th>Time</th><th>Event</th><th>Actor</th><th>Data</th></tr>
+        </thead>
+        <tbody>
+        {% for entry in audit %}
+            <tr>
+                <td>{{ entry.occurredAt }}</td>
+                <td>{{ entry.eventType }}</td>
+                <td>{{ entry.actorId }}</td>
+                <td><code>{{ entry.data|json_encode }}</code></td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4">No audit entries.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

@@ -61,6 +61,8 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Setup\\' => 13,
             'Vortos\\Security\\' => 16,
             'Vortos\\Secrets\\' => 15,
+            'Vortos\\SchedulerAdmin\\' => 22,
+            'Vortos\\Scheduler\\' => 17,
             'Vortos\\Release\\' => 15,
             'Vortos\\Pipeline\\' => 16,
             'Vortos\\Persistence\\' => 19,
@@ -238,6 +240,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         ),
         'C' =>
         array (
+            'Cron\\' => 5,
             'Composer\\Semver\\' => 16,
             'Clue\\StreamFilter\\' => 18,
         ),
@@ -277,6 +280,14 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Secrets\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Secrets',
+        ),
+        'Vortos\\SchedulerAdmin\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/SchedulerAdmin',
+        ),
+        'Vortos\\Scheduler\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Scheduler',
         ),
         'Vortos\\Release\\' =>
         array (
@@ -818,6 +829,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'DeepCopy\\' =>
         array (
             0 => __DIR__ . '/..' . '/myclabs/deep-copy/src/DeepCopy',
+        ),
+        'Cron\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/dragonmantank/cron-expression/src/Cron',
         ),
         'Composer\\Semver\\' =>
         array (
@@ -2134,7 +2149,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'ValueError' => __DIR__ . '/..' . '/symfony/polyfill-php80/Resources/stubs/ValueError.php',
         'staabm\\SideEffectsDetector\\SideEffect' => __DIR__ . '/..' . '/staabm/side-effects-detector/lib/SideEffect.php',
         'staabm\\SideEffectsDetector\\SideEffectsDetector' => __DIR__ . '/..' . '/staabm/side-effects-detector/lib/SideEffectsDetector.php',
-        '©' => __DIR__ . '/..' . '/symfony/cache/Traits/ValueWrapper.php',
+        'ï¿½' => __DIR__ . '/..' . '/symfony/cache/Traits/ValueWrapper.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

@@ -1,0 +1,28 @@
+<table class="data-table" id="schedule-table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Trigger</th>
+            <th>Status</th>
+            <th>Source</th>
+            <th>Tenant</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for schedule in schedules %}
+        <tr>
+            <td><a href="{{ prefix }}/{{ schedule.id }}">{{ schedule.name }}</a></td>
+            <td><code>{{ schedule.trigger.describe() }}</code></td>
+            <td><span class="badge badge-{{ schedule.status.value }}">{{ schedule.status.value }}</span></td>
+            <td>{{ schedule.source.value }}</td>
+            <td>{{ schedule.tenantId ?? 'system' }}</td>
+            <td>
+                <a href="{{ prefix }}/{{ schedule.id }}">View</a>
+            </td>
+        </tr>
+    {% else %}
+        <tr><td colspan="6">No schedules found.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>

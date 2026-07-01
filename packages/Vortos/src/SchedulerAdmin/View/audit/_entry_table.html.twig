@@ -1,0 +1,19 @@
+<table class="data-table" id="audit-table">
+    <thead>
+        <tr><th>Time</th><th>Event</th><th>Actor</th><th>Schedule</th><th>Tenant</th><th>Data</th></tr>
+    </thead>
+    <tbody>
+    {% for entry in entries %}
+        <tr>
+            <td>{{ entry.occurredAt }}</td>
+            <td><code>{{ entry.eventType }}</code></td>
+            <td>{{ entry.actorId }}</td>
+            <td>{% if entry.scheduleId %}<a href="{{ prefix }}/{{ entry.scheduleId }}">{{ entry.scheduleId }}</a>{% else %}—{% endif %}</td>
+            <td>{{ entry.tenantId ?? 'system' }}</td>
+            <td><code>{{ entry.data|json_encode }}</code></td>
+        </tr>
+    {% else %}
+        <tr><td colspan="6">No audit entries found.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>

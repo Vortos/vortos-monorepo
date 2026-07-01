@@ -1,0 +1,35 @@
+{% if requests %}
+<table class="data-table">
+    <thead>
+        <tr><th>ID</th><th>Schedule</th><th>Action</th><th>Requested By</th><th>Expires</th><th>Reason</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+    {% for req in requests %}
+        <tr id="approval-{{ req.id }}">
+            <td><code>{{ req.id }}</code></td>
+            <td><a href="{{ prefix }}/{{ req.scheduleId }}">{{ req.scheduleId }}</a></td>
+            <td>{{ req.action.value }}</td>
+            <td>{{ req.requestedBy }}</td>
+            <td>{{ req.expiresAt|date('Y-m-d H:i') }}</td>
+            <td>{{ req.reason ?? '—' }}</td>
+            <td>
+                <form method="POST" action="{{ prefix }}/approvals/{{ req.id }}/approve"
+                      hx-post="{{ prefix }}/approvals/{{ req.id }}/approve"
+                      hx-target="#approval-{{ req.id }}" hx-swap="outerHTML">
+                    <input type="text" name="reason" placeholder="Approval reason (min 10 chars)" required minlength="10">
+                    <button type="submit" class="btn btn-success">Approve</button>
+                </form>
+                <form method="POST" action="{{ prefix }}/approvals/{{ req.id }}/reject"
+                      hx-post="{{ prefix }}/approvals/{{ req.id }}/reject"
+                      hx-target="#approval-{{ req.id }}" hx-swap="outerHTML">
+                    <input type="text" name="reason" placeholder="Rejection reason (min 10 chars)" required minlength="10">
+                    <button type="submit" class="btn btn-danger">Reject</button>
+                </form>
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No pending approval requests.</p>
+{% endif %}

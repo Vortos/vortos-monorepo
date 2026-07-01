@@ -42,7 +42,8 @@
     "guzzlehttp/guzzle": "^7.0",
     "aws/aws-sdk-php": "^3.382",
     "paddlehq/paddle-php-sdk": "^1.0",
-    "twig/twig": "^3.0"
+    "twig/twig": "^3.0",
+    "dragonmantank/cron-expression": "^3.3"
   },
   "require-dev": {
     "vortos/vortos-make": "@dev",
@@ -83,7 +84,10 @@
       "Vortos\\Alerts\\": "packages/Vortos/src/Alerts/",
       "Vortos\\Analytics\\": "packages/Vortos/src/Analytics/",
       "Vortos\\AnalyticsPosthog\\": "packages/Vortos/src/AnalyticsPosthog/",
-      "Vortos\\DeployK8s\\": "packages/Vortos/src/DeployK8s/"
+      "Vortos\\DeployK8s\\": "packages/Vortos/src/DeployK8s/",
+      "Vortos\\Scheduler\\": "packages/Vortos/src/Scheduler/",
+      "Vortos\\SchedulerAdmin\\": "packages/Vortos/src/SchedulerAdmin/",
+      "Cron\\": "vendor/dragonmantank/cron-expression/src/Cron/"
     },
     "exclude-from-classmap": [
       "packages/Vortos/src/OpsKit/Tests/Fixtures/Lint/",

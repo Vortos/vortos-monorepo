@@ -16,4 +16,5 @@ enum AlertSource: string
     case Queue = 'queue';
     case Synthetic = 'synthetic';
     case SupplyChain = 'supply-chain';
+    case Scheduler   = 'scheduler';
 }

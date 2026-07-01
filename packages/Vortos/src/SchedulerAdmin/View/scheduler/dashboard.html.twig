@@ -1,0 +1,36 @@
+{% extends 'layout/base.html.twig' %}
+{% block title %}Schedules{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Schedules</h1>
+    <a href="{{ prefix }}/create" class="btn btn-primary">+ New Schedule</a>
+</div>
+
+<form method="GET" action="{{ prefix }}">
+    <input type="search" name="q" value="{{ search }}" placeholder="Search by name…">
+    <select name="status">
+        <option value="">All statuses</option>
+        <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option>
+        <option value="paused" {% if status_filter == 'paused' %}selected{% endif %}>Paused</option>
+        <option value="disabled" {% if status_filter == 'disabled' %}selected{% endif %}>Disabled</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+<div id="schedule-table"
+     hx-get="{{ prefix }}?q={{ search|url_encode }}&status={{ status_filter|url_encode }}"
+     hx-trigger="none"
+     hx-swap="outerHTML">
+    {% include 'scheduler/_schedule_table.html.twig' %}
+</div>
+
+<div class="pagination">
+    {% if page > 1 %}
+        <a href="{{ prefix }}?page={{ page - 1 }}&q={{ search|url_encode }}&status={{ status_filter|url_encode }}">← Prev</a>
+    {% endif %}
+    <span>{{ page }} / {{ total_pages }} ({{ total }} total)</span>
+    {% if page < total_pages %}
+        <a href="{{ prefix }}?page={{ page + 1 }}&q={{ search|url_encode }}&status={{ status_filter|url_encode }}">Next →</a>
+    {% endif %}
+</div>
+{% endblock %}

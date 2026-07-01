@@ -1,0 +1,11 @@
+{% extends 'layout/base.html.twig' %}
+{% block title %}Pending Approvals{% endblock %}
+{% block content %}
+<h1>Pending Approvals</h1>
+
+<div id="request-list"
+     hx-get="{{ prefix }}/approvals{% if tenant_id %}?tenant={{ tenant_id|url_encode }}{% endif %}"
+     hx-trigger="every 30s" hx-swap="innerHTML">
+    {% include 'approvals/_request_list.html.twig' %}
+</div>
+{% endblock %}

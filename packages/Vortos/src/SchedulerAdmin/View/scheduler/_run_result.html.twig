@@ -1,0 +1,13 @@
+<div class="run-result {% if result.name == 'Dispatched' %}success{% else %}warning{% endif %}">
+    {% if result.name == 'Dispatched' %}
+        <strong>Dispatched.</strong> Schedule queued for immediate execution.
+    {% elseif result.name == 'AlreadyDispatched' %}
+        <strong>Already dispatched.</strong> Idempotent no-op.
+    {% elseif result.name == 'SkippedOverlap' %}
+        <strong>Skipped.</strong> Prior run is still in-flight (overlap policy).
+    {% elseif result.name == 'Deferred' %}
+        <strong>Deferred.</strong> Jitter window not yet elapsed.
+    {% else %}
+        <strong>Unknown result:</strong> {{ result.name }}
+    {% endif %}
+</div>

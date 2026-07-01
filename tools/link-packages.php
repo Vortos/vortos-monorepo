@@ -40,6 +40,8 @@ $packages = [
     'vortos-analytics'     => 'Analytics',
     'vortos-analytics-posthog' => 'AnalyticsPosthog',
     'vortos-deploy-k8s'        => 'DeployK8s',
+    'vortos-scheduler'         => 'Scheduler',
+    'vortos-scheduler-admin'   => 'SchedulerAdmin',
 ];
 
 foreach ($packages as $vendorName => $srcName) {

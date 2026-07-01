@@ -1,0 +1,20 @@
+{% if approvals %}
+<table class="data-table">
+    <thead>
+        <tr><th>Action</th><th>Status</th><th>Requested By</th><th>Requested At</th><th>Resolved By</th></tr>
+    </thead>
+    <tbody>
+    {% for req in approvals %}
+        <tr>
+            <td>{{ req.action.value }}</td>
+            <td><span class="badge badge-{{ req.status.value }}">{{ req.status.value }}</span></td>
+            <td>{{ req.requestedBy }}</td>
+            <td>{{ req.requestedAt|date('Y-m-d H:i') }}</td>
+            <td>{{ req.resolvedBy ?? '—' }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No approval requests for this schedule.</p>
+{% endif %}

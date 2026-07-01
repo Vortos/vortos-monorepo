@@ -130,6 +130,28 @@
         <testsuite name="DeployK8s">
             <directory>packages/Vortos/src/DeployK8s/Tests</directory>
         </testsuite>
+        <testsuite name="Scheduler">
+            <directory>packages/Vortos/src/Scheduler/Tests</directory>
+        </testsuite>
+        <testsuite name="SchedulerFuzz">
+            <directory>packages/Vortos/src/Scheduler/Tests/Fuzz</directory>
+        </testsuite>
+        <testsuite name="SchedulerSoak">
+            <directory>packages/Vortos/src/Scheduler/Tests/Soak</directory>
+        </testsuite>
+        <testsuite name="SchedulerChaos">
+            <directory>packages/Vortos/src/Scheduler/Tests/Chaos</directory>
+        </testsuite>
+        <testsuite name="SchedulerAdmin">
+            <directory>packages/Vortos/src/SchedulerAdmin/Tests</directory>
+        </testsuite>
     </testsuites>
+
+    <groups>
+        <exclude>
+            <group>soak</group>
+            <group>chaos</group>
+        </exclude>
+    </groups>
 
 </phpunit>

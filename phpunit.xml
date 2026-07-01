@@ -6,6 +6,17 @@
 
     <php>
         <ini name="memory_limit" value="256M"/>
+        <!--
+            Auto-prune registers a framework-owned static schedule
+            (PruneSchedulerRunsSchedule) whenever SchedulerExtension is loaded with
+            DBAL available and retention non-zero (production default: 30 days).
+            Defaulting it to 0 (disabled) here keeps every existing test that builds
+            a full Scheduler container and asserts an exact static-schedule count
+            unaffected. Tests that specifically exercise auto-prune override this
+            via $_ENV directly (see Tests/Integration/RetentionScheduleRegistrationTest.php)
+            or bypass SchedulerExtension and construct services directly.
+        -->
+        <env name="SCHEDULER_RUN_RETENTION_DAYS" value="0"/>
     </php>
 
     <testsuites>

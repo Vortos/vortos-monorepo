@@ -132,6 +132,9 @@
         </testsuite>
         <testsuite name="Scheduler">
             <directory>packages/Vortos/src/Scheduler/Tests</directory>
+            <exclude>packages/Vortos/src/Scheduler/Tests/Fuzz</exclude>
+            <exclude>packages/Vortos/src/Scheduler/Tests/Soak</exclude>
+            <exclude>packages/Vortos/src/Scheduler/Tests/Chaos</exclude>
         </testsuite>
         <testsuite name="SchedulerFuzz">
             <directory>packages/Vortos/src/Scheduler/Tests/Fuzz</directory>

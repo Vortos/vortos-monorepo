@@ -205,6 +205,11 @@ final class StaticScheduleIntegrationTest extends TestCase
     {
         $container = new ContainerBuilder();
 
+        // SchedulerExtension::load() hard-requires these (same convention as
+        // CacheExtension, AuthExtension, ... — see CacheExtensionEnvDefaultsTest).
+        $container->setParameter('kernel.project_dir', sys_get_temp_dir() . '/missing_vortos_scheduler_config');
+        $container->setParameter('kernel.env', 'test');
+
         // ScheduleService (the package facade) is public and its dispatch chain now
         // survives compilation — that chain constructor-injects Connection, so a
         // definition must exist even though these tests never instantiate it.

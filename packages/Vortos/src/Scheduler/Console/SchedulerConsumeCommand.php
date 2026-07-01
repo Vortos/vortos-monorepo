@@ -32,6 +32,8 @@ final class SchedulerConsumeCommand extends Command
 
     public function __construct(
         private readonly FireQueueConsumer $consumer,
+        private readonly int $defaultBatchSize = 50,
+        private readonly int $defaultPollIntervalSec = 2,
     ) {
         parent::__construct();
     }
@@ -40,8 +42,8 @@ final class SchedulerConsumeCommand extends Command
     {
         $this
             ->addOption('loop', null, InputOption::VALUE_NONE, 'Run continuously until SIGTERM/SIGINT (production mode)')
-            ->addOption('batch-size', null, InputOption::VALUE_REQUIRED, 'Rows claimed per batch', (string) $this->defaultBatchSize())
-            ->addOption('poll-interval', null, InputOption::VALUE_REQUIRED, 'Seconds to sleep after an empty batch in --loop mode', (string) $this->defaultPollInterval());
+            ->addOption('batch-size', null, InputOption::VALUE_REQUIRED, 'Rows claimed per batch', (string) $this->defaultBatchSize)
+            ->addOption('poll-interval', null, InputOption::VALUE_REQUIRED, 'Seconds to sleep after an empty batch in --loop mode', (string) $this->defaultPollIntervalSec);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -99,13 +101,4 @@ final class SchedulerConsumeCommand extends Command
         }
     }
 
-    private function defaultBatchSize(): int
-    {
-        return max(1, (int) ($_ENV['SCHEDULER_CONSUME_BATCH_SIZE'] ?? 50));
-    }
-
-    private function defaultPollInterval(): int
-    {
-        return max(1, (int) ($_ENV['SCHEDULER_CONSUME_POLL_INTERVAL_SEC'] ?? 2));
-    }
 }

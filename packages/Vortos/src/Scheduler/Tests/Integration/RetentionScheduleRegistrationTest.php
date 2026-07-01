@@ -75,6 +75,12 @@ final class RetentionScheduleRegistrationTest extends TestCase
     private function buildContainer(): ContainerBuilder
     {
         $container = new ContainerBuilder();
+
+        // SchedulerExtension::load() hard-requires these (same convention as
+        // CacheExtension, AuthExtension, ... — see CacheExtensionEnvDefaultsTest).
+        $container->setParameter('kernel.project_dir', sys_get_temp_dir() . '/missing_vortos_scheduler_config');
+        $container->setParameter('kernel.env', 'test');
+
         $container->register(Connection::class, Connection::class)->setPublic(false);
         $container->register(LoggerInterface::class, NullLogger::class)->setPublic(false);
 

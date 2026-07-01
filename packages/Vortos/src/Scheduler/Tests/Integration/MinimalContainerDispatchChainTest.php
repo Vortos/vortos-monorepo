@@ -105,6 +105,11 @@ final class MinimalContainerDispatchChainTest extends TestCase
     {
         $container = new ContainerBuilder();
 
+        // SchedulerExtension::load() hard-requires these (same convention as
+        // CacheExtension, AuthExtension, ... — see CacheExtensionEnvDefaultsTest).
+        $container->setParameter('kernel.project_dir', sys_get_temp_dir() . '/missing_vortos_scheduler_config');
+        $container->setParameter('kernel.env', 'test');
+
         $container->register(Connection::class, Connection::class)
             ->setPublic(true)
             ->setSynthetic(true);

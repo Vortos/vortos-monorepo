@@ -39,7 +39,9 @@ final class DbalFourEyesApprovalStoreTest extends TestCase
 
     protected function tearDown(): void
     {
-        $this->cleanTestRows();
+        if (isset($this->connection)) {
+            $this->cleanTestRows();
+        }
     }
 
     // ── save + findById ───────────────────────────────────────────────────────

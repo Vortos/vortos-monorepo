@@ -164,6 +164,10 @@ jobs:
             split_repository: 'vortos-release'
           - local_path: 'packages/Vortos/src/Secrets'
             split_repository: 'vortos-secrets'
+          - local_path: 'packages/Vortos/src/Scheduler'
+            split_repository: 'vortos-scheduler'
+          - local_path: 'packages/Vortos/src/SchedulerAdmin'
+            split_repository: 'vortos-scheduler-admin'
 
     steps:
       - uses: actions/checkout@v4

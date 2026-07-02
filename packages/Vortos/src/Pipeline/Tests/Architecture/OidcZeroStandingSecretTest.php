@@ -27,7 +27,7 @@ final class OidcZeroStandingSecretTest extends TestCase
 
     public function test_no_static_credential_in_build_workflow_with_oidc(): void
     {
-        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true);
+        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true, nativeRunnerLabel: 'ubuntu-24.04-arm');
         $builder = new PipelineBuilder(new StageGate(), self::makeLoginProviderRegistry());
         $pipeline = $builder->build($def);
 
@@ -69,7 +69,7 @@ final class OidcZeroStandingSecretTest extends TestCase
 
     public function test_build_and_deploy_use_only_github_token_or_oidc(): void
     {
-        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true);
+        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true, nativeRunnerLabel: 'ubuntu-24.04-arm');
         $builder = new PipelineBuilder(new StageGate(), self::makeLoginProviderRegistry());
         $pipeline = $builder->build($def);
 

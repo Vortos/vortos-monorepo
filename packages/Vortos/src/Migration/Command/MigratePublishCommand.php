@@ -38,6 +38,13 @@ use Vortos\Migration\Service\ModuleStubScanner;
  *   packages/Vortos/src/{Module}/Resources/migrations/NNN_description.sql
  *
  * Running vortos:migrate:publish (or checking vortos:migrate:status) picks it up automatically.
+ *
+ * ## Targeting a single package
+ *
+ * By default every module is scanned. Pass --module to restrict publishing to one or more modules:
+ *   vortos:migrate:publish --module=Scheduler --module=Release
+ * Module names are matched case-insensitively; an unknown name is a hard error that lists the
+ * available modules. Publishing stays idempotent, so this only changes *which* stubs are considered.
  */
 #[AsCommand(
     name: 'vortos:migrate:publish',
@@ -65,12 +72,29 @@ final class MigratePublishCommand extends Command
             InputOption::VALUE_NONE,
             'Show what would be published without writing files',
         );
+
+        $this->addOption(
+            'module',
+            'm',
+            InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
+            'Only publish stubs from the given module(s) (e.g. --module=Scheduler); repeatable. Matched case-insensitively.',
+        );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $dryRun  = (bool) $input->getOption('dry-run');
         $stubs   = $this->migrationSources();
+
+        /** @var list<string> $moduleFilter */
+        $moduleFilter = (array) $input->getOption('module');
+        if ($moduleFilter !== []) {
+            $filtered = $this->filterByModule($stubs, $moduleFilter, $output);
+            if ($filtered === null) {
+                return Command::FAILURE;
+            }
+            $stubs = $filtered;
+        }
         $manifest = $this->loadManifest();
         $manifestChanged = $this->loadManifestVersion() < 2;
 
@@ -204,6 +228,57 @@ final class MigratePublishCommand extends Command
         }
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Narrow the discovered stubs to the requested module(s). Returns the filtered list, or null if
+     * any requested module matches no discovered stub — a typo'd or non-existent module name is a
+     * hard error (rather than a silent no-op), so the caller learns immediately.
+     *
+     * @param list<array{module: string, filename: string, path: string, relative: string, provider?: ModuleSchemaProviderInterface, objects?: array{tables: string[], indexes: string[]}}> $stubs
+     * @param list<string> $requested
+     * @return list<array{module: string, filename: string, path: string, relative: string, provider?: ModuleSchemaProviderInterface, objects?: array{tables: string[], indexes: string[]}}>|null
+     */
+    private function filterByModule(array $stubs, array $requested, OutputInterface $output): ?array
+    {
+        $available = [];
+        foreach ($stubs as $stub) {
+            $available[strtolower($stub['module'])] = $stub['module'];
+        }
+
+        $wanted = [];
+        $unknown = [];
+        foreach ($requested as $name) {
+            $key = strtolower(trim($name));
+            if ($key === '') {
+                continue;
+            }
+
+            if (isset($available[$key])) {
+                $wanted[$key] = true;
+            } else {
+                $unknown[] = $name;
+            }
+        }
+
+        if ($unknown !== []) {
+            ksort($available);
+            $output->writeln(sprintf(
+                '<error>Unknown module(s): %s.</error>',
+                implode(', ', $unknown),
+            ));
+            $output->writeln(sprintf(
+                '<comment>Available modules with migration stubs: %s</comment>',
+                $available === [] ? '(none)' : implode(', ', array_values($available)),
+            ));
+
+            return null;
+        }
+
+        return array_values(array_filter(
+            $stubs,
+            static fn (array $stub): bool => isset($wanted[strtolower($stub['module'])]),
+        ));
     }
 
     /**

@@ -20,7 +20,7 @@ final class PipelineDefinitionBuildFieldsTest extends TestCase
         $this->assertSame(Arch::Arm64, $def->targetArch);
         $this->assertNull($def->imageRepository);
         $this->assertSame(BuildMode::Native, $def->buildMode);
-        $this->assertSame('ubuntu-24.04-arm64', $def->nativeRunnerLabel);
+        $this->assertNull($def->nativeRunnerLabel);
         $this->assertFalse($def->oidc);
         $this->assertNull($def->baseImageDigest);
         $this->assertTrue($def->emitSbom);
@@ -30,10 +30,34 @@ final class PipelineDefinitionBuildFieldsTest extends TestCase
 
     public function test_oidc_auto_true_when_image_repository_set(): void
     {
-        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app');
+        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm');
 
         $this->assertTrue($def->oidc);
         $this->assertTrue($def->hasBuildStage());
+    }
+
+    public function test_native_build_stage_requires_runner_label(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('native_runner_label');
+
+        new PipelineDefinition(imageRepository: 'ghcr.io/org/app');
+    }
+
+    public function test_non_native_build_stage_does_not_require_runner_label(): void
+    {
+        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', buildMode: BuildMode::BuildxQemu);
+
+        $this->assertNull($def->nativeRunnerLabel);
+        $this->assertTrue($def->hasBuildStage());
+    }
+
+    public function test_runner_label_without_build_stage_is_allowed(): void
+    {
+        $def = new PipelineDefinition(nativeRunnerLabel: 'ubuntu-24.04-arm');
+
+        $this->assertSame('ubuntu-24.04-arm', $def->nativeRunnerLabel);
+        $this->assertFalse($def->hasBuildStage());
     }
 
     public function test_oidc_auto_false_when_image_repository_null(): void
@@ -45,7 +69,7 @@ final class PipelineDefinitionBuildFieldsTest extends TestCase
 
     public function test_oidc_explicit_override(): void
     {
-        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: false);
+        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: false, nativeRunnerLabel: 'ubuntu-24.04-arm');
         $this->assertFalse($def->oidc);
 
         $def2 = new PipelineDefinition(imageRepository: null, oidc: true);
@@ -70,7 +94,7 @@ final class PipelineDefinitionBuildFieldsTest extends TestCase
         ];
 
         foreach ($repos as $repo) {
-            $def = new PipelineDefinition(imageRepository: $repo);
+            $def = new PipelineDefinition(imageRepository: $repo, nativeRunnerLabel: 'ubuntu-24.04-arm');
             $this->assertSame($repo, $def->imageRepository);
         }
     }
@@ -106,13 +130,31 @@ final class PipelineDefinitionBuildFieldsTest extends TestCase
         $this->assertTrue($array['oidc']);
         $this->assertTrue($array['emit_sbom']);
         $this->assertSame('Dockerfile', $array['dockerfile_path']);
-        $this->assertSame('ubuntu-24.04-arm64', $array['native_runner_label']);
+        // Non-native build ⇒ no runner label configured ⇒ key omitted.
+        $this->assertArrayNotHasKey('native_runner_label', $array);
+    }
+
+    public function test_to_array_includes_native_runner_label_when_set(): void
+    {
+        $def = new PipelineDefinition(
+            imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+        );
+
+        $this->assertSame('ubuntu-24.04-arm', $def->toArray()['native_runner_label']);
+    }
+
+    public function test_to_array_native_runner_label_omitted_when_null(): void
+    {
+        $def = new PipelineDefinition();
+
+        $this->assertArrayNotHasKey('native_runner_label', $def->toArray());
     }
 
     public function test_to_array_ksort_stable(): void
     {
-        $def1 = new PipelineDefinition(imageRepository: 'ghcr.io/org/app');
-        $def2 = new PipelineDefinition(imageRepository: 'ghcr.io/org/app');
+        $def1 = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm');
+        $def2 = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm');
 
         $this->assertSame($def1->toArray(), $def2->toArray());
 
@@ -166,7 +208,7 @@ final class PipelineDefinitionBuildFieldsTest extends TestCase
     public function test_builder_clone_per_setter(): void
     {
         $b1 = new PipelineDefinitionBuilder();
-        $b2 = $b1->imageRepository('ghcr.io/org/app');
+        $b2 = $b1->imageRepository('ghcr.io/org/app')->nativeRunnerLabel('ubuntu-24.04-arm');
 
         $def1 = $b1->build();
         $def2 = $b2->build();

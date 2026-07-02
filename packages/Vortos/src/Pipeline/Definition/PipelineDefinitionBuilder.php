@@ -26,7 +26,7 @@ final class PipelineDefinitionBuilder
     private Arch $targetArch = Arch::Arm64;
     private ?string $imageRepository = null;
     private BuildMode $buildMode = BuildMode::Native;
-    private string $nativeRunnerLabel = 'ubuntu-24.04-arm64';
+    private ?string $nativeRunnerLabel = null;
     private ?bool $oidc = null;
     private ?string $baseImageDigest = null;
     private bool $emitSbom = true;

@@ -250,7 +250,13 @@ final class PipelineBuilder
         $steps[] = $semverTagStep;
 
         $runner = $definition->buildMode === BuildMode::Native
-            ? new RunnerSpec(label: $definition->nativeRunnerLabel, archHint: $archValue)
+            // Guaranteed non-null by PipelineDefinition's constructor invariant (native build stage
+            // ⇒ explicit runner label); the throw only guards against an unexpected refactor.
+            ? new RunnerSpec(
+                label: $definition->nativeRunnerLabel
+                    ?? throw new \LogicException('Native build stage reached without a runner label.'),
+                archHint: $archValue,
+            )
             : new RunnerSpec(label: 'ubuntu-latest');
 
         $basePermissions = new Permissions([

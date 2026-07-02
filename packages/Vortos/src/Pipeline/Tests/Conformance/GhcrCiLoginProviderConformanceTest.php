@@ -25,6 +25,7 @@ final class GhcrCiLoginProviderConformanceTest extends CiRegistryLoginProviderCo
     {
         return new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             registryProvider: 'ghcr',
         );
     }

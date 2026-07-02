@@ -25,6 +25,7 @@ final class GcpArtifactRegistryCiLoginProviderConformanceTest extends CiRegistry
     {
         return new PipelineDefinition(
             imageRepository: 'europe-west4-docker.pkg.dev/proj/repo/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             registryProvider: 'gcp-artifact-registry',
         );
     }

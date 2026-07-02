@@ -55,7 +55,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
 
     public function test_build_stage_emitted_with_image_repository(): void
     {
-        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
         $build = $this->findStage($pipeline, StageKind::Build);
 
         $this->assertNotNull($build);
@@ -65,7 +65,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
 
     public function test_build_stage_has_image_output(): void
     {
-        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
         $build = $this->findStage($pipeline, StageKind::Build);
 
         $this->assertNotNull($build);
@@ -75,7 +75,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
 
     public function test_build_stage_needs_test_analyse_agnosticism(): void
     {
-        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
         $build = $this->findStage($pipeline, StageKind::Build);
 
         $this->assertNotNull($build);
@@ -86,7 +86,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
 
     public function test_deploy_needs_build_when_image_repository_set(): void
     {
-        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
         $deploy = $this->findStage($pipeline, StageKind::Deploy);
 
         $this->assertNotNull($deploy);
@@ -95,7 +95,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
 
     public function test_deploy_passes_image_digest_when_build_present(): void
     {
-        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
         $deploy = $this->findStage($pipeline, StageKind::Deploy);
 
         $this->assertNotNull($deploy);
@@ -145,6 +145,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             buildMode: BuildMode::Native,
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
@@ -192,6 +193,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             oidc: true,
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
@@ -206,6 +208,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             oidc: false,
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
@@ -220,6 +223,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
         $digest = 'sha256:' . str_repeat('a', 64);
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             baseImageDigest: $digest,
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
@@ -241,6 +245,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
 
@@ -260,6 +265,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
         $digest = 'sha256:' . str_repeat('a', 64);
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             baseImageDigest: $digest,
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
@@ -276,6 +282,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
 
@@ -296,6 +303,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
 
@@ -315,6 +323,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             emitSbom: true,
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
@@ -334,6 +343,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             emitSbom: false,
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
@@ -350,6 +360,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
 
@@ -370,6 +381,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
 
@@ -393,7 +405,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
 
     public function test_build_ordered_before_deploy(): void
     {
-        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $pipeline = $this->buildPipeline(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
 
         $ids = array_map(fn ($s) => $s->id, $pipeline->stages);
         $buildIdx = array_search('build', $ids, true);
@@ -408,6 +420,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             targetArch: Arch::Amd64,
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
@@ -428,6 +441,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             environments: ['staging', 'production'],
         ));
         $deploy = $this->findStage($pipeline, StageKind::Deploy);

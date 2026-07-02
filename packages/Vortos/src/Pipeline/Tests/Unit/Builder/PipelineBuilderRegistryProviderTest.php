@@ -44,6 +44,7 @@ final class PipelineBuilderRegistryProviderTest extends TestCase
     {
         $stage = $this->buildStage(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             registryProvider: 'ghcr',
         ));
 
@@ -56,6 +57,7 @@ final class PipelineBuilderRegistryProviderTest extends TestCase
     {
         $stage = $this->buildStage(new PipelineDefinition(
             imageRepository: 'docker.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             registryProvider: 'docker-hub',
         ));
 
@@ -68,6 +70,7 @@ final class PipelineBuilderRegistryProviderTest extends TestCase
     {
         $stage = $this->buildStage(new PipelineDefinition(
             imageRepository: 'europe-west4-docker.pkg.dev/proj/repo/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             registryProvider: 'gcp-artifact-registry',
         ));
 
@@ -80,6 +83,7 @@ final class PipelineBuilderRegistryProviderTest extends TestCase
     {
         $stage = $this->buildStage(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             registryProvider: 'ghcr',
         ));
 
@@ -91,6 +95,7 @@ final class PipelineBuilderRegistryProviderTest extends TestCase
     {
         $stage = $this->buildStage(new PipelineDefinition(
             imageRepository: 'docker.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             registryProvider: 'docker-hub',
         ));
 
@@ -102,6 +107,7 @@ final class PipelineBuilderRegistryProviderTest extends TestCase
     {
         $stage = $this->buildStage(new PipelineDefinition(
             imageRepository: 'europe-west4-docker.pkg.dev/proj/repo/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             registryProvider: 'gcp-artifact-registry',
         ));
 
@@ -114,6 +120,7 @@ final class PipelineBuilderRegistryProviderTest extends TestCase
         foreach (['ghcr', 'docker-hub', 'gcp-artifact-registry'] as $provider) {
             $stage = $this->buildStage(new PipelineDefinition(
                 imageRepository: 'ghcr.io/org/app',
+                nativeRunnerLabel: 'ubuntu-24.04-arm',
                 registryProvider: $provider === 'ghcr' ? 'ghcr' : $provider,
             ));
 
@@ -125,7 +132,7 @@ final class PipelineBuilderRegistryProviderTest extends TestCase
     public function test_missing_login_providers_throws_logic_exception(): void
     {
         $builder = new PipelineBuilder(new StageGate());
-        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app');
+        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm');
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessageMatches('/CiRegistryLoginProviderRegistry/');

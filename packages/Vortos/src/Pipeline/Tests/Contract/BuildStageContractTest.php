@@ -68,7 +68,7 @@ final class BuildStageContractTest extends TestCase
 
     public function test_all_uses_references_are_sha_pinned_with_build(): void
     {
-        $yaml = $this->emitYaml(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $yaml = $this->emitYaml(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
 
         preg_match_all('/uses:\s*(.+)/', $yaml, $matches);
         foreach ($matches[1] as $uses) {
@@ -83,7 +83,7 @@ final class BuildStageContractTest extends TestCase
 
     public function test_build_job_permissions_least_privilege(): void
     {
-        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true));
+        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true, nativeRunnerLabel: 'ubuntu-24.04-arm'));
 
         $this->assertArrayHasKey('build', $array['jobs']);
         $buildPerms = $array['jobs']['build']['permissions'];
@@ -96,7 +96,7 @@ final class BuildStageContractTest extends TestCase
 
     public function test_deploy_job_references_build_output(): void
     {
-        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
 
         $this->assertArrayHasKey('deploy', $array['jobs']);
         $this->assertContains('build', $array['jobs']['deploy']['needs']);
@@ -114,7 +114,7 @@ final class BuildStageContractTest extends TestCase
 
     public function test_deploy_never_uses_mutable_tag_for_image(): void
     {
-        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
 
         $deploySteps = $array['jobs']['deploy']['steps'];
         foreach ($deploySteps as $step) {
@@ -128,7 +128,7 @@ final class BuildStageContractTest extends TestCase
 
     public function test_arch_check_step_in_build_job(): void
     {
-        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
 
         $buildSteps = $array['jobs']['build']['steps'];
         $hasArchCheck = false;
@@ -144,7 +144,7 @@ final class BuildStageContractTest extends TestCase
 
     public function test_build_job_has_outputs(): void
     {
-        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
 
         $this->assertArrayHasKey('outputs', $array['jobs']['build']);
         $this->assertArrayHasKey('image', $array['jobs']['build']['outputs']);
@@ -152,7 +152,7 @@ final class BuildStageContractTest extends TestCase
 
     public function test_no_standing_secret_with_oidc_on(): void
     {
-        $yaml = $this->emitYaml(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true));
+        $yaml = $this->emitYaml(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true, nativeRunnerLabel: 'ubuntu-24.04-arm'));
 
         $this->assertStringNotContainsString('secrets.DOCKER_PASSWORD', $yaml);
         $this->assertStringNotContainsString('secrets.REGISTRY_PAT', $yaml);
@@ -172,7 +172,7 @@ final class BuildStageContractTest extends TestCase
 
     public function test_sbom_provenance_hooks_present(): void
     {
-        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', emitSbom: true));
+        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', emitSbom: true, nativeRunnerLabel: 'ubuntu-24.04-arm'));
 
         $buildSteps = $array['jobs']['build']['steps'];
         $hasSbom = false;
@@ -191,7 +191,7 @@ final class BuildStageContractTest extends TestCase
 
     public function test_semver_tag_step_on_tag_push_only(): void
     {
-        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $array = $this->emitArray(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
 
         $buildSteps = $array['jobs']['build']['steps'];
         $hasTagStep = false;
@@ -228,6 +228,7 @@ final class BuildStageContractTest extends TestCase
     {
         $array = $this->emitArray(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             buildMode: BuildMode::Native,
         ));
 

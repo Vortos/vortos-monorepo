@@ -38,6 +38,7 @@ final class PipelineDefinitionFactory
             imageRepository: $imageRepository,
             targetArch: $this->arch($this->str($file['target_arch'] ?? null) ?? $this->envStr('PIPELINE_TARGET_ARCH')),
             buildMode: $this->buildMode($this->str($file['build_mode'] ?? null) ?? $this->envStr('PIPELINE_BUILD_MODE')),
+            nativeRunnerLabel: $this->str($file['native_runner_label'] ?? null) ?? $this->envStr('PIPELINE_NATIVE_RUNNER_LABEL'),
             baseImageDigest: $this->str($file['base_image_digest'] ?? null) ?? $this->envStr('PIPELINE_BASE_IMAGE_DIGEST'),
             emitSbom: $this->bool($file['emit_sbom'] ?? null) ?? ($this->envBool('PIPELINE_EMIT_SBOM', true)),
             dockerfilePath: $this->str($file['dockerfile_path'] ?? null) ?? $this->envStr('PIPELINE_DOCKERFILE_PATH') ?? 'Dockerfile',

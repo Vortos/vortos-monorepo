@@ -74,6 +74,49 @@ final class MigratePublishCommandTest extends TestCase
         $this->assertCount(2, $published);
     }
 
+    public function test_module_option_publishes_only_targeted_module(): void
+    {
+        $this->makeSqlStub('Messaging', '001_outbox.sql', 'CREATE TABLE outbox (id INT)');
+        $this->makeSqlStub('Notification', '001_pushes.sql', 'CREATE TABLE pushes (id INT)');
+
+        $tester = $this->runCommand(['--module' => ['Messaging']]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+
+        $published = glob($this->migrationsDir . '/Version*.php') ?: [];
+        $this->assertCount(1, $published, 'Only the targeted module should be published.');
+        $this->assertStringContainsString('CREATE TABLE outbox', (string) file_get_contents($published[0]));
+    }
+
+    public function test_module_option_is_case_insensitive_and_repeatable(): void
+    {
+        $this->makeSqlStub('Messaging', '001_outbox.sql', 'CREATE TABLE outbox (id INT)');
+        $this->makeSqlStub('Notification', '001_pushes.sql', 'CREATE TABLE pushes (id INT)');
+        $this->makeSqlStub('Scheduler', '001_fires.sql', 'CREATE TABLE fires (id INT)');
+
+        $tester = $this->runCommand(['--module' => ['messaging', 'SCHEDULER']]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+
+        $published = glob($this->migrationsDir . '/Version*.php') ?: [];
+        $this->assertCount(2, $published);
+    }
+
+    public function test_unknown_module_is_a_hard_error_and_writes_nothing(): void
+    {
+        $this->makeSqlStub('Messaging', '001_outbox.sql', 'CREATE TABLE outbox (id INT)');
+
+        $tester = $this->runCommand(['--module' => ['Nope']]);
+
+        $this->assertSame(1, $tester->getStatusCode());
+        $output = $tester->getDisplay();
+        $this->assertStringContainsString('Unknown module(s): Nope', $output);
+        $this->assertStringContainsString('Messaging', $output);
+
+        $published = glob($this->migrationsDir . '/Version*.php') ?: [];
+        $this->assertCount(0, $published, 'A typo must not publish anything.');
+    }
+
     public function test_skips_already_published_stubs(): void
     {
         $this->makeSqlStub('Messaging', '001_outbox.sql', 'CREATE TABLE outbox (id INT)');

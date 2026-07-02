@@ -14,6 +14,7 @@ final class RegistryLoginContextTest extends TestCase
     {
         $ctx = new RegistryLoginContext(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
         ));
 
         $this->assertSame('ghcr.io', $ctx->registryHost());
@@ -23,6 +24,7 @@ final class RegistryLoginContextTest extends TestCase
     {
         $ctx = new RegistryLoginContext(new PipelineDefinition(
             imageRepository: 'docker.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
         ));
 
         $this->assertSame('docker.io', $ctx->registryHost());
@@ -32,6 +34,7 @@ final class RegistryLoginContextTest extends TestCase
     {
         $ctx = new RegistryLoginContext(new PipelineDefinition(
             imageRepository: 'europe-west4-docker.pkg.dev/proj/repo/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
         ));
 
         $this->assertSame('europe-west4-docker.pkg.dev', $ctx->registryHost());
@@ -46,7 +49,7 @@ final class RegistryLoginContextTest extends TestCase
 
     public function test_definition_is_accessible(): void
     {
-        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app');
+        $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm');
         $ctx = new RegistryLoginContext($def);
 
         $this->assertSame($def, $ctx->definition);

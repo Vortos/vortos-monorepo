@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
+use Vortos\Scheduler\DependencyInjection\Compiler\ConsumerRegistrationPass;
 use Vortos\Scheduler\DependencyInjection\Compiler\LeaseDriverPass;
 use Vortos\Scheduler\DependencyInjection\Compiler\SchedulableCommandPass;
 use Vortos\Scheduler\DependencyInjection\Compiler\StaticSchedulePass;

@@ -26,7 +26,7 @@ final class GitHubActionsEmitterCapabilityTest extends TestCase
 
     public function test_oidc_capability_true_when_oidc_enabled(): void
     {
-        $emitter = $this->emitter(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true));
+        $emitter = $this->emitter(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', oidc: true, nativeRunnerLabel: 'ubuntu-24.04-arm'));
         $caps = $emitter->capabilities();
 
         $this->assertTrue($caps->supports(EmitterCapability::Oidc->value));
@@ -42,7 +42,7 @@ final class GitHubActionsEmitterCapabilityTest extends TestCase
 
     public function test_build_native_arch_true_when_image_repo_set(): void
     {
-        $emitter = $this->emitter(new PipelineDefinition(imageRepository: 'ghcr.io/org/app'));
+        $emitter = $this->emitter(new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm'));
         $caps = $emitter->capabilities();
 
         $this->assertTrue($caps->supports(EmitterCapability::BuildNativeArch->value));

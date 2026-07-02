@@ -35,7 +35,7 @@ final readonly class PipelineDefinition
         public Arch $targetArch = Arch::Arm64,
         public ?string $imageRepository = null,
         public BuildMode $buildMode = BuildMode::Native,
-        public string $nativeRunnerLabel = 'ubuntu-24.04-arm64',
+        public ?string $nativeRunnerLabel = null,
         ?bool $oidc = null,
         public ?string $baseImageDigest = null,
         public bool $emitSbom = true,
@@ -89,6 +89,18 @@ final readonly class PipelineDefinition
             ));
         }
 
+        // A native (single-arch, non-emulated) build job runs on a self-provided runner, so its
+        // `runs-on` label cannot be guessed by the framework — GitHub's own label is arch- and
+        // version-specific (e.g. "ubuntu-24.04-arm"), and a wrong guess silently produces a
+        // workflow that no runner ever picks up. Require the app to declare it explicitly.
+        if ($imageRepository !== null && $buildMode === BuildMode::Native && ($nativeRunnerLabel ?? '') === '') {
+            throw new \InvalidArgumentException(
+                'A native build stage requires an explicit runner label. Set "native_runner_label" '
+                . 'in config/pipeline.php or the PIPELINE_NATIVE_RUNNER_LABEL env var '
+                . '(GitHub-hosted ARM64: "ubuntu-24.04-arm").',
+            );
+        }
+
         $this->oidc = $oidc ?? ($imageRepository !== null);
     }
 
@@ -110,7 +122,6 @@ final readonly class PipelineDefinition
             'emit_sign' => $this->emitSign,
             'emitter' => $this->emitter,
             'environments' => $this->environments,
-            'native_runner_label' => $this->nativeRunnerLabel,
             'oidc' => $this->oidc,
             'php_extensions' => $this->phpExtensions,
             'php_version' => $this->phpVersion,
@@ -121,6 +132,10 @@ final readonly class PipelineDefinition
 
         if ($this->imageRepository !== null) {
             $data['image_repository'] = $this->imageRepository;
+        }
+
+        if ($this->nativeRunnerLabel !== null) {
+            $data['native_runner_label'] = $this->nativeRunnerLabel;
         }
 
         if ($this->nodeVersion !== null) {

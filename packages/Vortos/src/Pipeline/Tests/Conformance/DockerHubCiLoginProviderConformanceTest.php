@@ -25,6 +25,7 @@ final class DockerHubCiLoginProviderConformanceTest extends CiRegistryLoginProvi
     {
         return new PipelineDefinition(
             imageRepository: 'docker.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
             registryProvider: 'docker-hub',
         );
     }

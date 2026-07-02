@@ -41,5 +41,14 @@ final class SchedulerPackage implements PackageInterface
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
             -30,
         );
+        // ConsumerRegistrationPass wires the CQRS-CommandBus-dependent services (fire-queue
+        // consumer + auto-prune handler) at build time, where the cross-package CommandBus alias
+        // is finally visible. Priority 60 beats Cqrs CommandHandlerPass (50) and Foundation
+        // ConsoleCommandPass (0), whose collectors must see the services this pass registers.
+        $container->addCompilerPass(
+            new ConsumerRegistrationPass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            60,
+        );
     }
 }

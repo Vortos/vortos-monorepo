@@ -6,58 +6,142 @@ namespace Vortos\Pipeline\Definition;
 
 use Vortos\Pipeline\Model\BuildMode;
 use Vortos\Pipeline\Model\ServiceContainer;
+use Vortos\Pipeline\Model\SplitPackage;
 use Vortos\Release\Manifest\Arch;
 
 /**
  * Builds the single, canonical {@see PipelineDefinition} the generate/verify commands and the
  * emitter all consume — from environment variables plus an optional `config/pipeline.php` file.
  *
- * This is the configuration surface the framework was missing (upstream P1-1..P1-4): scalar
- * settings come from env; structured settings that env cannot express (test service containers,
- * extra test steps, environment/extension lists) come from `config/pipeline.php`, which returns
- * an associative array of overrides. The config file wins over env where both are present.
+ * `config/pipeline.php` may return either:
+ *   - a {@see PipelineDefinition} — used verbatim (fully resolved; no env overlay);
+ *   - a {@see PipelineDefinitionBuilder} — `build()`ed verbatim (no env overlay); or
+ *   - an associative array of overrides — env fills the gaps, file wins where both are present.
+ *
+ * The array path routes every value through {@see PipelineDefinitionBuilder} so defaults live in
+ * exactly one place (the builder) rather than being duplicated here.
  */
 final class PipelineDefinitionFactory
 {
     public function __invoke(string $projectDir): PipelineDefinition
     {
-        $file = $this->loadConfigFile($projectDir);
+        $config = $this->loadConfig($projectDir);
 
-        $imageRepository = $this->str($file['image_repository'] ?? null)
-            ?? $this->envStr('PIPELINE_IMAGE_REPOSITORY');
+        // A typed config return is authoritative — the app opted into the fluent/explicit path,
+        // so env does not overlay it.
+        if ($config instanceof PipelineDefinition) {
+            return $config;
+        }
 
-        return new PipelineDefinition(
-            emitter: $this->str($file['emitter'] ?? null) ?? $this->envStr('PIPELINE_EMITTER') ?? 'github',
-            phpVersion: $this->str($file['php_version'] ?? null) ?? $this->envStr('PIPELINE_PHP_VERSION') ?? '8.5',
-            nodeVersion: $this->str($file['node_version'] ?? null) ?? $this->envStr('PIPELINE_NODE_VERSION'),
-            phpExtensions: $this->strList($file['php_extensions'] ?? null) ?? $this->envList('PIPELINE_PHP_EXTENSIONS') ?? ['redis'],
-            environments: $this->strList($file['environments'] ?? null) ?? $this->envList('PIPELINE_ENVIRONMENTS') ?? ['production'],
-            benchmark: $this->bool($file['benchmark'] ?? null) ?? $this->envBool('PIPELINE_BENCHMARK'),
-            uiBuild: $this->bool($file['ui_build'] ?? null) ?? $this->envBool('PIPELINE_UI_BUILD'),
-            uiBuildPath: $this->str($file['ui_build_path'] ?? null) ?? $this->envStr('PIPELINE_UI_BUILD_PATH'),
-            imageRepository: $imageRepository,
-            targetArch: $this->arch($this->str($file['target_arch'] ?? null) ?? $this->envStr('PIPELINE_TARGET_ARCH')),
-            buildMode: $this->buildMode($this->str($file['build_mode'] ?? null) ?? $this->envStr('PIPELINE_BUILD_MODE')),
-            nativeRunnerLabel: $this->str($file['native_runner_label'] ?? null) ?? $this->envStr('PIPELINE_NATIVE_RUNNER_LABEL'),
-            baseImageDigest: $this->str($file['base_image_digest'] ?? null) ?? $this->envStr('PIPELINE_BASE_IMAGE_DIGEST'),
-            emitSbom: $this->bool($file['emit_sbom'] ?? null) ?? ($this->envBool('PIPELINE_EMIT_SBOM', true)),
-            dockerfilePath: $this->str($file['dockerfile_path'] ?? null) ?? $this->envStr('PIPELINE_DOCKERFILE_PATH') ?? 'Dockerfile',
-            emitScanGate: $this->bool($file['emit_scan_gate'] ?? null) ?? $this->envBool('PIPELINE_EMIT_SCAN_GATE'),
-            emitSign: $this->bool($file['emit_sign'] ?? null) ?? $this->envBool('PIPELINE_EMIT_SIGN'),
-            registryProvider: $this->str($file['registry_provider'] ?? null) ?? $this->envStr('PIPELINE_REGISTRY_PROVIDER') ?? 'ghcr',
-            workflowFilename: $this->str($file['workflow_filename'] ?? null) ?? $this->envStr('PIPELINE_WORKFLOW_FILENAME') ?? 'ci.yml',
-            workflowName: $this->str($file['workflow_name'] ?? null) ?? $this->envStr('PIPELINE_WORKFLOW_NAME'),
-            testCommand: $this->str($file['test_command'] ?? null) ?? $this->envStr('PIPELINE_TEST_COMMAND') ?? './vendor/bin/phpunit --testdox',
-            analyseCommand: $this->str($file['analyse_command'] ?? null) ?? $this->envStr('PIPELINE_ANALYSE_COMMAND') ?? './vendor/bin/phpstan analyse',
-            testServiceContainers: $this->serviceContainers($file['test_service_containers'] ?? []),
-            testSteps: $this->testSteps($file['test_steps'] ?? []),
-        );
+        if ($config instanceof PipelineDefinitionBuilder) {
+            return $config->build();
+        }
+
+        return $this->fromArray($config);
     }
 
     /**
-     * @return array<string, mixed>
+     * @param array<string, mixed> $file
      */
-    private function loadConfigFile(string $projectDir): array
+    private function fromArray(array $file): PipelineDefinition
+    {
+        $b = PipelineDefinitionBuilder::create();
+
+        if (($v = $this->strOrEnv($file, 'emitter', 'PIPELINE_EMITTER')) !== null) {
+            $b = $b->emitter($v);
+        }
+        if (($v = $this->strOrEnv($file, 'php_version', 'PIPELINE_PHP_VERSION')) !== null) {
+            $b = $b->phpVersion($v);
+        }
+        if (($v = $this->strOrEnv($file, 'node_version', 'PIPELINE_NODE_VERSION')) !== null) {
+            $b = $b->nodeVersion($v);
+        }
+        if (($v = $this->listOrEnv($file, 'php_extensions', 'PIPELINE_PHP_EXTENSIONS')) !== null) {
+            $b = $b->phpExtensions($v);
+        }
+        if (($v = $this->listOrEnv($file, 'environments', 'PIPELINE_ENVIRONMENTS')) !== null) {
+            $b = $b->environments($v);
+        }
+        if (($v = $this->boolOrEnv($file, 'benchmark', 'PIPELINE_BENCHMARK')) !== null) {
+            $b = $b->benchmark($v);
+        }
+
+        $uiBuild     = $this->boolOrEnv($file, 'ui_build', 'PIPELINE_UI_BUILD');
+        $uiBuildPath = $this->strOrEnv($file, 'ui_build_path', 'PIPELINE_UI_BUILD_PATH');
+        if ($uiBuild !== null || $uiBuildPath !== null) {
+            $b = $b->uiBuild($uiBuild ?? false, $uiBuildPath);
+        }
+
+        $split = $this->splitPackages($file['split_packages'] ?? null);
+        if ($split !== []) {
+            $b = $b->splitPackages($split);
+        }
+
+        if (($v = $this->intOrEnv($file, 'default_timeout_minutes', 'PIPELINE_DEFAULT_TIMEOUT_MINUTES')) !== null) {
+            $b = $b->defaultTimeoutMinutes($v);
+        }
+        if (($v = $this->strOrEnv($file, 'target_arch', 'PIPELINE_TARGET_ARCH')) !== null) {
+            $b = $b->targetArch($this->arch($v));
+        }
+        if (($v = $this->strOrEnv($file, 'image_repository', 'PIPELINE_IMAGE_REPOSITORY')) !== null) {
+            $b = $b->imageRepository($v);
+        }
+        if (($v = $this->strOrEnv($file, 'build_mode', 'PIPELINE_BUILD_MODE')) !== null) {
+            $b = $b->buildMode($this->buildMode($v));
+        }
+        if (($v = $this->strOrEnv($file, 'native_runner_label', 'PIPELINE_NATIVE_RUNNER_LABEL')) !== null) {
+            $b = $b->nativeRunnerLabel($v);
+        }
+        if (($v = $this->boolOrEnv($file, 'oidc', 'PIPELINE_OIDC')) !== null) {
+            $b = $b->oidc($v);
+        }
+        if (($v = $this->strOrEnv($file, 'base_image_digest', 'PIPELINE_BASE_IMAGE_DIGEST')) !== null) {
+            $b = $b->baseImageDigest($v);
+        }
+        if (($v = $this->boolOrEnv($file, 'emit_sbom', 'PIPELINE_EMIT_SBOM')) !== null) {
+            $b = $b->emitSbom($v);
+        }
+        if (($v = $this->strOrEnv($file, 'dockerfile_path', 'PIPELINE_DOCKERFILE_PATH')) !== null) {
+            $b = $b->dockerfilePath($v);
+        }
+        if (($v = $this->boolOrEnv($file, 'emit_scan_gate', 'PIPELINE_EMIT_SCAN_GATE')) !== null) {
+            $b = $b->emitScanGate($v);
+        }
+        if (($v = $this->boolOrEnv($file, 'emit_sign', 'PIPELINE_EMIT_SIGN')) !== null) {
+            $b = $b->emitSign($v);
+        }
+        if (($v = $this->strOrEnv($file, 'registry_provider', 'PIPELINE_REGISTRY_PROVIDER')) !== null) {
+            $b = $b->registryProvider($v);
+        }
+        if (($v = $this->strOrEnv($file, 'workflow_filename', 'PIPELINE_WORKFLOW_FILENAME')) !== null) {
+            $b = $b->workflowFilename($v);
+        }
+        if (($v = $this->strOrEnv($file, 'workflow_name', 'PIPELINE_WORKFLOW_NAME')) !== null) {
+            $b = $b->workflowName($v);
+        }
+        if (($v = $this->strOrEnv($file, 'test_command', 'PIPELINE_TEST_COMMAND')) !== null) {
+            $b = $b->testCommand($v);
+        }
+        if (($v = $this->strOrEnv($file, 'analyse_command', 'PIPELINE_ANALYSE_COMMAND')) !== null) {
+            $b = $b->analyseCommand($v);
+        }
+
+        $containers = $this->serviceContainers($file['test_service_containers'] ?? []);
+        if ($containers !== []) {
+            $b = $b->testServiceContainers($containers);
+        }
+        $steps = $this->testSteps($file['test_steps'] ?? []);
+        if ($steps !== []) {
+            $b = $b->testSteps($steps);
+        }
+
+        return $b->build();
+    }
+
+    /**
+     * @return array<string, mixed>|PipelineDefinition|PipelineDefinitionBuilder
+     */
+    private function loadConfig(string $projectDir): array|PipelineDefinition|PipelineDefinitionBuilder
     {
         $path = rtrim($projectDir, '/') . '/config/pipeline.php';
         if ($projectDir === '' || !is_file($path)) {
@@ -67,7 +151,43 @@ final class PipelineDefinitionFactory
         /** @var mixed $data */
         $data = require $path;
 
-        return is_array($data) ? $data : [];
+        if ($data instanceof PipelineDefinition || $data instanceof PipelineDefinitionBuilder) {
+            return $data;
+        }
+
+        if (is_array($data)) {
+            /** @var array<string, mixed> $data */
+            return $data;
+        }
+
+        return [];
+    }
+
+    /**
+     * @param mixed $raw
+     * @return list<SplitPackage>
+     */
+    private function splitPackages($raw): array
+    {
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($raw as $entry) {
+            if ($entry instanceof SplitPackage) {
+                $out[] = $entry;
+            } elseif (
+                is_array($entry)
+                && isset($entry['local_path'], $entry['split_repository'])
+                && is_string($entry['local_path'])
+                && is_string($entry['split_repository'])
+            ) {
+                $out[] = new SplitPackage($entry['local_path'], $entry['split_repository']);
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -113,6 +233,57 @@ final class PipelineDefinitionFactory
         return $out;
     }
 
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function strOrEnv(array $file, string $fileKey, string $envKey): ?string
+    {
+        return $this->str($file[$fileKey] ?? null) ?? $this->envStr($envKey);
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     * @return list<string>|null
+     */
+    private function listOrEnv(array $file, string $fileKey, string $envKey): ?array
+    {
+        return $this->strList($file[$fileKey] ?? null) ?? $this->envList($envKey);
+    }
+
+    /**
+     * File value wins; otherwise env presence decides. Returns null only when neither is set,
+     * so the builder's own default applies.
+     *
+     * @param array<string, mixed> $file
+     */
+    private function boolOrEnv(array $file, string $fileKey, string $envKey): ?bool
+    {
+        $fileVal = $this->bool($file[$fileKey] ?? null);
+        if ($fileVal !== null) {
+            return $fileVal;
+        }
+
+        return $this->envBoolOrNull($envKey);
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function intOrEnv(array $file, string $fileKey, string $envKey): ?int
+    {
+        $fileVal = $file[$fileKey] ?? null;
+        if (is_int($fileVal)) {
+            return $fileVal;
+        }
+
+        $envVal = $this->envStr($envKey);
+        if ($envVal !== null && ctype_digit($envVal)) {
+            return (int) $envVal;
+        }
+
+        return null;
+    }
+
     /** @param mixed $v */
     private function str($v): ?string
     {
@@ -148,11 +319,11 @@ final class PipelineDefinitionFactory
         return is_string($v) && $v !== '' ? $v : null;
     }
 
-    private function envBool(string $key, bool $default = false): bool
+    private function envBoolOrNull(string $key): ?bool
     {
         $v = $_ENV[$key] ?? null;
         if (!is_string($v) || $v === '') {
-            return $default;
+            return null;
         }
 
         return in_array(strtolower($v), ['1', 'true', 'yes', 'on'], true);

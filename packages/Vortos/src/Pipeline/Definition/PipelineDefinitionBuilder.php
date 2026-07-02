@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Pipeline\Definition;
 
 use Vortos\Pipeline\Model\BuildMode;
+use Vortos\Pipeline\Model\ServiceContainer;
 use Vortos\Pipeline\Model\SplitPackage;
 use Vortos\Release\Manifest\Arch;
 
@@ -31,6 +32,22 @@ final class PipelineDefinitionBuilder
     private ?string $baseImageDigest = null;
     private bool $emitSbom = true;
     private string $dockerfilePath = 'Dockerfile';
+    private bool $emitScanGate = false;
+    private bool $emitSign = false;
+    private string $registryProvider = 'ghcr';
+    private string $workflowFilename = 'ci.yml';
+    private ?string $workflowName = null;
+    private string $testCommand = './vendor/bin/phpunit --testdox';
+    private string $analyseCommand = './vendor/bin/phpstan analyse';
+    /** @var list<ServiceContainer> */
+    private array $testServiceContainers = [];
+    /** @var list<array{name: string, run: string}> */
+    private array $testSteps = [];
+
+    public static function create(): self
+    {
+        return new self();
+    }
 
     public function emitter(string $emitter): self
     {
@@ -172,6 +189,80 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    public function emitScanGate(bool $enabled): self
+    {
+        $clone = clone $this;
+        $clone->emitScanGate = $enabled;
+
+        return $clone;
+    }
+
+    public function emitSign(bool $enabled): self
+    {
+        $clone = clone $this;
+        $clone->emitSign = $enabled;
+
+        return $clone;
+    }
+
+    public function registryProvider(string $provider): self
+    {
+        $clone = clone $this;
+        $clone->registryProvider = $provider;
+
+        return $clone;
+    }
+
+    public function workflowFilename(string $filename): self
+    {
+        $clone = clone $this;
+        $clone->workflowFilename = $filename;
+
+        return $clone;
+    }
+
+    public function workflowName(?string $name): self
+    {
+        $clone = clone $this;
+        $clone->workflowName = $name;
+
+        return $clone;
+    }
+
+    public function testCommand(string $command): self
+    {
+        $clone = clone $this;
+        $clone->testCommand = $command;
+
+        return $clone;
+    }
+
+    public function analyseCommand(string $command): self
+    {
+        $clone = clone $this;
+        $clone->analyseCommand = $command;
+
+        return $clone;
+    }
+
+    /** @param list<ServiceContainer> $containers */
+    public function testServiceContainers(array $containers): self
+    {
+        $clone = clone $this;
+        $clone->testServiceContainers = $containers;
+
+        return $clone;
+    }
+
+    /** @param list<array{name: string, run: string}> $steps */
+    public function testSteps(array $steps): self
+    {
+        $clone = clone $this;
+        $clone->testSteps = $steps;
+
+        return $clone;
+    }
+
     public function build(): PipelineDefinition
     {
         return new PipelineDefinition(
@@ -193,6 +284,15 @@ final class PipelineDefinitionBuilder
             baseImageDigest: $this->baseImageDigest,
             emitSbom: $this->emitSbom,
             dockerfilePath: $this->dockerfilePath,
+            emitScanGate: $this->emitScanGate,
+            emitSign: $this->emitSign,
+            registryProvider: $this->registryProvider,
+            workflowFilename: $this->workflowFilename,
+            workflowName: $this->workflowName,
+            testCommand: $this->testCommand,
+            analyseCommand: $this->analyseCommand,
+            testServiceContainers: $this->testServiceContainers,
+            testSteps: $this->testSteps,
         );
     }
 }

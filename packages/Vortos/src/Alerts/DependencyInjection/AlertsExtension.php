@@ -168,9 +168,15 @@ final class AlertsExtension extends Extension
 
     private function registerRules(ContainerBuilder $container): void
     {
+        // Alert rules are declared in config/alerts.php and assembled by the factory — no
+        // service-definition override required (upstream P2-2).
+        $container->register(\Vortos\Alerts\Rule\AlertRuleSetFactory::class, \Vortos\Alerts\Rule\AlertRuleSetFactory::class)
+            ->setPublic(false);
+
         $container->register(AlertRuleSet::class, AlertRuleSet::class)
-            ->setArgument('$rules', [])
-            ->setPublic(true); // app config overrides this definition with its declared rules
+            ->setFactory([new Reference(\Vortos\Alerts\Rule\AlertRuleSetFactory::class), '__invoke'])
+            ->setArguments(['%kernel.project_dir%'])
+            ->setPublic(true);
 
         $container->register(AlertRuleValidator::class, AlertRuleValidator::class)->setPublic(false);
         $container->register(AlertRuleEvaluator::class, AlertRuleEvaluator::class)->setPublic(false);
@@ -301,11 +307,9 @@ final class AlertsExtension extends Extension
 
     private function registerSlo(ContainerBuilder $container): void
     {
-        if (!$container->has(SloRegistry::class)) {
-            $container->register(SloRegistry::class, SloRegistry::class)
-                ->setArgument('$slos', [])
-                ->setPublic(true); // app config overrides with declared SLOs
-        }
+        // The SloRegistry fallback (when vortos-observability is absent) is registered by
+        // SloRegistryDefaultPass — a cross-package "register default if absent" decision that
+        // must run in a compiler pass, not here in load().
 
         $container->register(NullSloBurnRateProvider::class, NullSloBurnRateProvider::class)->setPublic(false);
         $container->setAlias(SloBurnRateProviderInterface::class, NullSloBurnRateProvider::class)->setPublic(false);
@@ -425,9 +429,8 @@ final class AlertsExtension extends Extension
             ->setPublic(false);
         $container->setAlias(AlertAuditViewRepositoryInterface::class, DbalAlertAuditViewRepository::class)->setPublic(false);
 
-        if (!$container->hasDefinition(AuditHashChain::class)) {
-            $container->register(AuditHashChain::class, AuditHashChain::class)->setPublic(false);
-        }
+        // The AuditHashChain fallback (when vortos-observability is absent) is registered by
+        // AlertsExternalDefaultsPass — a cross-package "register default if absent" decision.
 
         $hmacKey = (string) ($_ENV['ALERTS_AUDIT_HMAC_KEY'] ?? '');
         if ($hmacKey !== '') {

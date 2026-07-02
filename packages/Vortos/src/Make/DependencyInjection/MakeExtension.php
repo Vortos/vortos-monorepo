@@ -47,13 +47,8 @@ final class MakeExtension extends Extension
     {
         $projectDir = $container->getParameter('kernel.project_dir');
 
-        if (!$container->has(ModulePathResolver::class)) {
-            $container->register(ModulePathResolver::class, ModulePathResolver::class)
-                ->setArgument('$projectDir', $projectDir)
-                ->setShared(true)
-                ->setPublic(false);
-        }
-
+        // ModulePathResolver is registered by vortos-foundation (its owning package); reference
+        // it directly rather than re-registering a fallback here.
         $container->register(StubScanner::class, StubScanner::class)
             ->setArguments([new Reference(ModulePathResolver::class), $projectDir])
             ->setPublic(false);

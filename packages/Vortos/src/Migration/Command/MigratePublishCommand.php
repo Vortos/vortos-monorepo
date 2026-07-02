@@ -85,6 +85,7 @@ final class MigratePublishCommand extends Command
         $migrationsDir  = $this->projectDir . '/migrations';
         $published      = 0;
         $skipped        = 0;
+        $failed         = 0;
         $baseTimestamp  = (int) (new \DateTimeImmutable())->format('YmdHis');
         $hasUnpublished = $this->hasUnpublishedStubs($stubs, $manifest);
 
@@ -121,18 +122,32 @@ final class MigratePublishCommand extends Command
 
             $description = $this->generator->descriptionFromFilename($stub['filename']);
 
-            $content = isset($stub['provider'])
-                ? $this->generator->generateFromSchemaProvider(
-                    $className,
-                    self::MIGRATION_NAMESPACE,
-                    $stub['provider'],
-                )
-                : $this->generator->generateFromSql(
-                    $className,
-                    self::MIGRATION_NAMESPACE,
-                    $description,
-                    (string) file_get_contents($stub['path']),
-                );
+            // Generate defensively: a single malformed stub or alter-provider must never abort
+            // the whole run and starve unrelated packages (e.g. release manifests that
+            // deploy:doctor depends on). Failures are reported and the run continues.
+            try {
+                $content = isset($stub['provider'])
+                    ? $this->generator->generateFromSchemaProvider(
+                        $className,
+                        self::MIGRATION_NAMESPACE,
+                        $stub['provider'],
+                    )
+                    : $this->generator->generateFromSql(
+                        $className,
+                        self::MIGRATION_NAMESPACE,
+                        $description,
+                        (string) file_get_contents($stub['path']),
+                    );
+            } catch (\Throwable $e) {
+                $output->writeln(sprintf(
+                    '  <error>✗ Failed:</error> %s/%s — %s',
+                    $stub['module'],
+                    $stub['filename'],
+                    $e->getMessage(),
+                ));
+                $failed++;
+                continue;
+            }
 
             if (!$dryRun) {
                 if (!is_dir($migrationsDir)) {
@@ -169,13 +184,23 @@ final class MigratePublishCommand extends Command
 
         $output->writeln('');
 
-        if ($published === 0 && $skipped > 0) {
+        if ($published === 0 && $skipped > 0 && $failed === 0) {
             $output->writeln('<info>All module stubs are already published.</info>');
         } elseif ($published > 0) {
             $output->writeln(sprintf(
                 '<info>✔ Published %d migration(s).</info> Run <info>vortos:migrate</info> to apply.',
                 $published,
             ));
+        }
+
+        if ($failed > 0) {
+            $output->writeln(sprintf(
+                '<error>✗ %d stub(s) could not be published (see above). Other stubs were still '
+                . 'published; fix the failing stub(s) and re-run.</error>',
+                $failed,
+            ));
+
+            return Command::FAILURE;
         }
 
         return Command::SUCCESS;
@@ -223,7 +248,7 @@ final class MigratePublishCommand extends Command
                 'path' => $schemaProvider['path'],
                 'relative' => $relative,
                 'provider' => $provider,
-                'objects' => $provider->ownership()->toArray(),
+                'objects' => $this->safeOwnership($provider),
             ];
         }
 
@@ -238,6 +263,22 @@ final class MigratePublishCommand extends Command
         usort($sources, static fn(array $a, array $b) => strcmp($a['filename'], $b['filename']));
 
         return $sources;
+    }
+
+    /**
+     * Compute a provider's ownership defensively. An alter-style provider that touches a
+     * pre-existing table can throw when introspected against a fresh Schema; that must not abort
+     * the whole scan (and therefore every other package's publish). Degrade to empty ownership.
+     *
+     * @return array{tables: list<string>, indexes: list<string>}
+     */
+    private function safeOwnership(ModuleSchemaProviderInterface $provider): array
+    {
+        try {
+            return $provider->ownership()->toArray();
+        } catch (\Throwable) {
+            return ['tables' => [], 'indexes' => []];
+        }
     }
 
     /**

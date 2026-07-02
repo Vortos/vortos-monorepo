@@ -32,7 +32,10 @@ return static function (VortosTracingConfig $config): void {
         // OTLP HTTP/protobuf exporter settings. The exporter uses a batch span
         // processor so request paths do not synchronously export every span.
         ->otlp(
-            endpoint: $_ENV['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] ?? 'http://otel-collector:4318/v1/traces',
+            // Default to the loopback collector sidecar (network_mode: service:backend or a
+            // per-container agent). Use a service DNS name only if the collector runs as a
+            // separate service on a shared network — set OTEL_EXPORTER_OTLP_TRACES_ENDPOINT then.
+            endpoint: $_ENV['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] ?? 'http://127.0.0.1:4318/v1/traces',
             headers: [],
             timeoutMs: 2000,
         )

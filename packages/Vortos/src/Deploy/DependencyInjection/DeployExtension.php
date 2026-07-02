@@ -26,6 +26,7 @@ use Vortos\Deploy\Canary\StatisticalGuard;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectCanaryAnalyzersPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectDeployAuditSinksPass;
 use Vortos\Deploy\Definition\DeploymentDefinitionBuilder;
+use Vortos\Deploy\Definition\DeploymentDefinitionBuilderFactory;
 use Vortos\Deploy\Definition\LayeredDefinitionResolver;
 use Vortos\Deploy\Preflight\Check\CanaryAnalyzerReadyCheck;
 use Vortos\Deploy\Preflight\Check\CapabilityDescriptorCheck;
@@ -75,6 +76,7 @@ use Vortos\Deploy\Registry\Auth\RegistryAuthStrategyRegistry;
 use Vortos\Deploy\Registry\ContainerRegistryInterface;
 use Vortos\Deploy\Driver\GitHubOidc\GitHubActionsOidcTokenSource;
 use Vortos\Deploy\Driver\ReleaseKey\ReleaseKeyManifestSigner;
+use Vortos\Deploy\Driver\Oci\OciArtifactManifestSource;
 use Vortos\Deploy\Driver\ReleaseKey\ReleaseKeyManifestVerifier;
 use Vortos\Deploy\Driver\SshCa\HttpSshCertificateAuthority;
 use Vortos\Deploy\Driver\SshCa\OidcRegistryTokenExchange;
@@ -156,6 +158,18 @@ final class DeployExtension extends Extension
 
     public function load(array $configs, ContainerBuilder $container): void
     {
+        // Endpoint parameters consumed by the OIDC/SSH-CA/registry-exchange drivers below.
+        // Declared here (empty = "not configured") so the %…% placeholders always resolve;
+        // an unset parameter would otherwise fail container compilation.
+        $container->setParameter(
+            'vortos.deploy.ssh_ca_endpoint',
+            (string) ($_ENV['VORTOS_DEPLOY_SSH_CA_ENDPOINT'] ?? ''),
+        );
+        $container->setParameter(
+            'vortos.deploy.registry_exchange_endpoint',
+            (string) ($_ENV['VORTOS_DEPLOY_REGISTRY_EXCHANGE_ENDPOINT'] ?? ''),
+        );
+
         // ── Block 22: Canary analyzer registry + StatisticalGuard + CanaryGate ──
 
         $container->register(CollectCanaryAnalyzersPass::LOCATOR_ID)
@@ -407,26 +421,11 @@ final class DeployExtension extends Extension
         $container->setAlias(ContainerRegistryInterface::class, GhcrRegistry::class)
             ->setPublic(false);
 
-        // ── Block 8: Rollback guard ──
-
-        if ($container->has(AppliedMigrationSetReaderInterface::class) && $container->has(ManifestReadModelInterface::class)) {
-            $container->register(RollbackGuard::class, RollbackGuard::class)
-                ->setArgument('$appliedReader', new Reference(AppliedMigrationSetReaderInterface::class))
-                ->setArgument('$manifestReadModel', new Reference(ManifestReadModelInterface::class))
-                ->setPublic(false);
-        }
-
-        // ── Block 8: Preflight state builder ──
-
-        if ($container->has(AppliedMigrationSetReaderInterface::class) && $container->has(MigrationPhaseReaderInterface::class)) {
-            $container->register(DeployPreflightStateBuilder::class, DeployPreflightStateBuilder::class)
-                ->setArgument('$appliedReader', new Reference(AppliedMigrationSetReaderInterface::class))
-                ->setArgument('$phaseReader', new Reference(MigrationPhaseReaderInterface::class))
-                ->setArgument('$contractReadiness', new Reference(ManualReadiness::class))
-                ->setArgument('$soakLedger', new Reference(ContractSoakLedgerInterface::class))
-                ->setArgument('$releaseStore', new Reference(CurrentReleaseStoreInterface::class))
-                ->setPublic(false);
-        }
+        // ── Block 8: Rollback guard + preflight state builder ──
+        // These have hard cross-package dependencies (vortos-release read model,
+        // vortos-migration readers) and are wired in DeployWiringPass, where has() reliably
+        // reflects the merged container. Registering them here (in load()) would race the
+        // extension load order and silently skip them. See DeployWiringPass.
 
         // ── Block 9: Edge-router port locator + registry ──
 
@@ -610,19 +609,41 @@ final class DeployExtension extends Extension
             ->setArgument('$composeFactory', new Reference(ComposeProjectFactory::class))
             ->setPublic(false);
 
-        $container->register(PullAgentReconciler::class, PullAgentReconciler::class)
-            ->setArgument('$source', new Reference(ManifestSourceInterface::class))
-            ->setArgument('$verifier', new Reference(ManifestVerifierInterface::class))
-            ->setArgument('$freshnessGuard', new Reference(ManifestFreshnessGuard::class))
-            ->setArgument('$freshnessStore', new Reference(ManifestFreshnessStoreInterface::class))
-            ->setArgument('$applier', new Reference(DesiredStateApplier::class))
-            ->setArgument('$rateLimiter', new Reference(ReconcileRateLimiter::class))
-            ->setPublic(false);
+        // Pull-based delivery is opt-in. The reconciler needs a ManifestSource + verifier,
+        // which are driver-specific (OCI artifact source + release-key verifier) and require
+        // configuration. Registering the reconciler unconditionally left those ports unbound
+        // and broke container compilation for every push / ssh-compose install. Gate the whole
+        // pull stack on the delivery mode; bind the OCI/release-key drivers only in pull mode.
+        $deliveryMode = strtolower((string) ($_ENV['VORTOS_DEPLOY_DELIVERY_MODE'] ?? 'push'));
 
-        // ── Block 11: Pull-agent reconcile command ──
+        if ($deliveryMode === 'pull') {
+            $container->register(OciArtifactManifestSource::class, OciArtifactManifestSource::class)
+                ->setArgument('$registryUrl', (string) ($_ENV['VORTOS_DEPLOY_PULL_REGISTRY_URL'] ?? ''))
+                ->setArgument('$repository', (string) ($_ENV['VORTOS_DEPLOY_PULL_REPOSITORY'] ?? ''))
+                ->setPublic(false);
+            $container->setAlias(ManifestSourceInterface::class, OciArtifactManifestSource::class)
+                ->setPublic(false);
+
+            $container->register(ReleaseKeyManifestVerifier::class, ReleaseKeyManifestVerifier::class)
+                ->setArgument('$publicKey', (string) ($_ENV['VORTOS_DEPLOY_PULL_RELEASE_PUBLIC_KEY'] ?? ''))
+                ->setPublic(false);
+            $container->setAlias(ManifestVerifierInterface::class, ReleaseKeyManifestVerifier::class)
+                ->setPublic(false);
+
+            $container->register(PullAgentReconciler::class, PullAgentReconciler::class)
+                ->setArgument('$source', new Reference(ManifestSourceInterface::class))
+                ->setArgument('$verifier', new Reference(ManifestVerifierInterface::class))
+                ->setArgument('$freshnessGuard', new Reference(ManifestFreshnessGuard::class))
+                ->setArgument('$freshnessStore', new Reference(ManifestFreshnessStoreInterface::class))
+                ->setArgument('$applier', new Reference(DesiredStateApplier::class))
+                ->setArgument('$rateLimiter', new Reference(ReconcileRateLimiter::class))
+                ->setPublic(false);
+        }
+
+        // ── Block 11: Pull-agent reconcile command (always visible; fail-loud in push mode) ──
 
         $container->register(PullAgentReconcileCommand::class, PullAgentReconcileCommand::class)
-            ->setArgument('$reconciler', new Reference(PullAgentReconciler::class))
+            ->setArgument('$reconciler', new Reference(PullAgentReconciler::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag('console.command')
             ->setPublic(false);
 
@@ -640,16 +661,20 @@ final class DeployExtension extends Extension
             ->setArgument('$canaryGate', new Reference(CanaryGate::class))
             ->setPublic(false);
 
-        if ($container->has(WorkerProcessRegistry::class)) {
-            $stepExecutorDef->setArgument('$workerRegistry', new Reference(WorkerProcessRegistry::class));
-        }
-
-        if ($container->has(MigrationLockSafetyEnforcer::class)) {
-            $stepExecutorDef->setArgument('$lockEnforcer', new Reference(MigrationLockSafetyEnforcer::class));
-        }
-        if ($container->has(MigrationPhaseReaderInterface::class)) {
-            $stepExecutorDef->setArgument('$phaseReader', new Reference(MigrationPhaseReaderInterface::class));
-        }
+        // Optional collaborators — injected if present, null otherwise (constructor defaults
+        // to null). NULL_ON_INVALID_REFERENCE resolves absence at compile end with no has().
+        $stepExecutorDef->setArgument(
+            '$workerRegistry',
+            new Reference(WorkerProcessRegistry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        );
+        $stepExecutorDef->setArgument(
+            '$lockEnforcer',
+            new Reference(MigrationLockSafetyEnforcer::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        );
+        $stepExecutorDef->setArgument(
+            '$phaseReader',
+            new Reference(MigrationPhaseReaderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        );
 
         $sshTargetDef = $container->register(SshComposeTarget::class, SshComposeTarget::class)
             ->setArgument('$planner', new Reference(DeployPlanner::class))
@@ -660,14 +685,23 @@ final class DeployExtension extends Extension
             ->addTag(CollectDeployTargetsPass::TAG)
             ->setPublic(false);
 
-        if ($container->has(RollbackGuard::class)) {
-            $sshTargetDef->setArgument('$rollbackGuard', new Reference(RollbackGuard::class));
-        }
+        // RollbackGuard is wired in DeployWiringPass when its cross-package deps exist; inject
+        // it optionally so SshComposeTarget degrades gracefully when it is absent.
+        $sshTargetDef->setArgument(
+            '$rollbackGuard',
+            new Reference(RollbackGuard::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        );
 
-        // ── Block 12: Definition resolver (default builder; the app overrides it
-        //    with its config/deploy.php-derived builder) ──
+        // ── Block 12: Definition resolver. The base builder is produced by the factory, which
+        //    applies the application's config/deploy.php when present (no service override
+        //    needed). ──
+
+        $container->register(DeploymentDefinitionBuilderFactory::class, DeploymentDefinitionBuilderFactory::class)
+            ->setPublic(false);
 
         $container->register(DeploymentDefinitionBuilder::class, DeploymentDefinitionBuilder::class)
+            ->setFactory([new Reference(DeploymentDefinitionBuilderFactory::class), '__invoke'])
+            ->setArguments(['%kernel.project_dir%'])
             ->setPublic(false);
 
         $container->register(LayeredDefinitionResolver::class, LayeredDefinitionResolver::class)
@@ -709,9 +743,10 @@ final class DeployExtension extends Extension
             ->addTag(self::PREFLIGHT_CHECK_TAG)
             ->setPublic(false);
 
-        if ($container->has(ManifestReadModelInterface::class)) {
-            $schemaCheckDef->setArgument('$manifestReadModel', new Reference(ManifestReadModelInterface::class));
-        }
+        $schemaCheckDef->setArgument(
+            '$manifestReadModel',
+            new Reference(ManifestReadModelInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        );
 
         // ── Block 21: Migration drift as deploy precondition ──
 
@@ -728,58 +763,29 @@ final class DeployExtension extends Extension
             ->setArgument('$checks', new TaggedIteratorArgument(self::PREFLIGHT_CHECK_TAG))
             ->setPublic(false);
 
-        // ── Block 12: Preflight context factory + runners + commands. These need the
-        //    state builder + manifest read model, which only exist when the migration
-        //    + release stack is wired — guard exactly as the existing extension does. ──
+        // ── Block 12: Deploy console commands (always registered; fail-loud at runtime) ──
+        // PreflightContextFactory + the deploy/rollback runners have hard cross-package deps
+        // (release read model + migration readers) and are registered in DeployWiringPass only
+        // when those deps exist. The commands, however, register UNCONDITIONALLY here with
+        // their factory/runner injected as NULL_ON_INVALID_REFERENCE, so they always appear in
+        // the console command list. When the stack is absent the injected dependency is null and the
+        // command prints actionable remediation and returns FAILURE — never "command not found".
 
-        $hasContextDeps = $container->has(DeployPreflightStateBuilder::class)
-            && $container->has(ManifestReadModelInterface::class);
+        $container->register(DoctorCommand::class, DoctorCommand::class)
+            ->setArgument('$contextFactory', new Reference(PreflightContextFactory::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$doctor', new Reference(DeployDoctor::class))
+            ->addTag('console.command')
+            ->setPublic(false);
 
-        if ($hasContextDeps) {
-            $container->register(PreflightContextFactory::class, PreflightContextFactory::class)
-                ->setArgument('$resolver', new Reference(LayeredDefinitionResolver::class))
-                ->setArgument('$manifestReadModel', new Reference(ManifestReadModelInterface::class))
-                ->setArgument('$stateBuilder', new Reference(DeployPreflightStateBuilder::class))
-                ->setArgument('$targets', new Reference(DeployTargetRegistry::class))
-                ->setPublic(false);
+        $container->register(RollbackCommand::class, RollbackCommand::class)
+            ->setArgument('$runner', new Reference(RollbackRunner::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('console.command')
+            ->setPublic(false);
 
-            $container->register(DoctorCommand::class, DoctorCommand::class)
-                ->setArgument('$contextFactory', new Reference(PreflightContextFactory::class))
-                ->setArgument('$doctor', new Reference(DeployDoctor::class))
-                ->addTag('console.command')
-                ->setPublic(false);
-        }
-
-        if ($hasContextDeps && $container->has(RollbackGuard::class)) {
-            $container->register(RollbackRunner::class, RollbackRunner::class)
-                ->setArgument('$resolver', new Reference(LayeredDefinitionResolver::class))
-                ->setArgument('$manifestReadModel', new Reference(ManifestReadModelInterface::class))
-                ->setArgument('$rollbackGuard', new Reference(RollbackGuard::class))
-                ->setArgument('$targets', new Reference(DeployTargetRegistry::class))
-                ->setArgument('$stateBuilder', new Reference(DeployPreflightStateBuilder::class))
-                ->setArgument('$planRenderer', new Reference(PlanRenderer::class))
-                ->setArgument('$auditRecorder', new Reference(DeployAuditRecorder::class))
-                ->setPublic(false);
-
-            $container->register(RollbackCommand::class, RollbackCommand::class)
-                ->setArgument('$runner', new Reference(RollbackRunner::class))
-                ->addTag('console.command')
-                ->setPublic(false);
-
-            $container->register(DeployRunner::class, DeployRunner::class)
-                ->setArgument('$contextFactory', new Reference(PreflightContextFactory::class))
-                ->setArgument('$targets', new Reference(DeployTargetRegistry::class))
-                ->setArgument('$planRenderer', new Reference(PlanRenderer::class))
-                ->setArgument('$doctor', new Reference(DeployDoctor::class))
-                ->setArgument('$rollbackRunner', new Reference(RollbackRunner::class))
-                ->setArgument('$auditRecorder', new Reference(DeployAuditRecorder::class))
-                ->setPublic(false);
-
-            $container->register(DeployCommand::class, DeployCommand::class)
-                ->setArgument('$runner', new Reference(DeployRunner::class))
-                ->addTag('console.command')
-                ->setPublic(false);
-        }
+        $container->register(DeployCommand::class, DeployCommand::class)
+            ->setArgument('$runner', new Reference(DeployRunner::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('console.command')
+            ->setPublic(false);
     }
 
     private function registerFlagGateReadiness(ContainerBuilder $container): void

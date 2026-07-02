@@ -34,6 +34,14 @@ final class FoundationExtension extends Extension
 
     public function load(array $configs, ContainerBuilder $container): void
     {
+        // ModulePathResolver lives in the Foundation namespace, so Foundation owns its
+        // registration. Consumers (Make, Migration, …) reference it directly instead of each
+        // racing to register a fallback in their own load() (order-dependent, now forbidden).
+        $container->register(\Vortos\Foundation\Module\ModulePathResolver::class, \Vortos\Foundation\Module\ModulePathResolver::class)
+            ->setArgument('$projectDir', '%kernel.project_dir%')
+            ->setShared(true)
+            ->setPublic(false);
+
         $container->register(ServicesResetter::class, ServicesResetter::class)
             ->setArgument('$services', new Definition(ServiceLocator::class, [[]]))
             ->setArgument('$serviceIds', [])

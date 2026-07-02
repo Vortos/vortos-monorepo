@@ -8,6 +8,7 @@ use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
 use Vortos\Backup\Catalog\BackupCatalogRepositoryInterface;
@@ -251,7 +252,7 @@ final class BackupExtension extends Extension
         $container->register(RestoreCoordinator::class, RestoreCoordinator::class)
             ->setArgument('$targets', new Reference(RestoreTargetRegistry::class))
             ->setArgument('$cipher', new Reference(EnvelopeStreamCipher::class))
-            ->setArgument('$keyProvider', $container->has(KeyProviderInterface::class) ? new Reference(KeyProviderInterface::class) : null)
+            ->setArgument('$keyProvider', new Reference(KeyProviderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
 
         // ── Drill ──
@@ -271,25 +272,30 @@ final class BackupExtension extends Extension
             ->addTag(CollectInvariantChecksPass::TAG)
             ->setPublic(false);
 
+        // Restore drills need an ephemeral-database provisioner, which only binds when a drill
+        // DSN is configured. Registering DrillRunner unconditionally left its $provisioner port
+        // unbound and broke every console/worker boot on a stock backup install. Register the
+        // whole drill stack only when the DSN is present; the command below stays visible and
+        // fails loudly when it is not.
         if ($drillDsn !== '') {
             $container->register(\Vortos\Backup\Drill\Driver\Postgres\EphemeralDatabaseProvisioner::class)
                 ->setArgument('$drillDsn', $drillDsn)
                 ->setPublic(false);
             $container->setAlias(DrillEnvironmentProvisionerInterface::class, \Vortos\Backup\Drill\Driver\Postgres\EphemeralDatabaseProvisioner::class);
-        }
 
-        $container->register(DrillRunner::class, DrillRunner::class)
-            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
-            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
-            ->setArgument('$restoreCoordinator', new Reference(RestoreCoordinator::class))
-            ->setArgument('$provisioner', new Reference(DrillEnvironmentProvisionerInterface::class))
-            ->setArgument('$reportStore', new Reference(DrillReportStoreInterface::class))
-            ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
-            ->setArgument('$clock', new Reference(SystemClock::class))
-            ->setArgument('$invariantChecks', [])
-            ->setArgument('$storeKey', $storeKey)
-            ->setArgument('$keyProvider', $container->has(KeyProviderInterface::class) ? new Reference(KeyProviderInterface::class) : null)
-            ->setPublic(false);
+            $container->register(DrillRunner::class, DrillRunner::class)
+                ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+                ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+                ->setArgument('$restoreCoordinator', new Reference(RestoreCoordinator::class))
+                ->setArgument('$provisioner', new Reference(DrillEnvironmentProvisionerInterface::class))
+                ->setArgument('$reportStore', new Reference(DrillReportStoreInterface::class))
+                ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
+                ->setArgument('$clock', new Reference(SystemClock::class))
+                ->setArgument('$invariantChecks', [])
+                ->setArgument('$storeKey', $storeKey)
+                ->setArgument('$keyProvider', new Reference(KeyProviderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                ->setPublic(false);
+        }
 
         // ── Replication (3-2-1) ──
         $secondaryRef = ($secondaryStoreName !== '' && $container->has($secondaryStoreName))
@@ -370,7 +376,7 @@ final class BackupExtension extends Extension
             ->setArgument('$generator', new Reference(CronFragmentGenerator::class))
             ->addTag('console.command')->setPublic(false);
         $container->register(BackupDrillCommand::class, BackupDrillCommand::class)
-            ->setArgument('$runner', new Reference(DrillRunner::class))
+            ->setArgument('$runner', new Reference(DrillRunner::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag('console.command')->setPublic(false);
         $container->register(BackupReplicateCommand::class, BackupReplicateCommand::class)
             ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
@@ -386,6 +392,14 @@ final class BackupExtension extends Extension
             ->addTag('console.command')->setPublic(false);
         $container->register(BackupDrRunbookCommand::class, BackupDrRunbookCommand::class)
             ->setArgument('$generator', new Reference(DrRunbookGenerator::class))
+            ->addTag('console.command')->setPublic(false);
+
+        // Containerized PITR (WAL-shipping) recipe generator (P3-1).
+        $container->register(\Vortos\Backup\Pitr\ContainerizedPitrRecipe::class, \Vortos\Backup\Pitr\ContainerizedPitrRecipe::class)
+            ->setPublic(false);
+        $container->register(\Vortos\Backup\Console\BackupPitrRecipeCommand::class, \Vortos\Backup\Console\BackupPitrRecipeCommand::class)
+            ->setArgument('$recipe', new Reference(\Vortos\Backup\Pitr\ContainerizedPitrRecipe::class))
+            ->setArgument('$projectDir', $projectDir)
             ->addTag('console.command')->setPublic(false);
     }
 }

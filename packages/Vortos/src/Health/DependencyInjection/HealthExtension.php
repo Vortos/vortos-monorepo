@@ -7,6 +7,7 @@ namespace Vortos\Health\DependencyInjection;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Foundation\Health\HealthDetailPolicy;
 use Vortos\Health\Aggregator\HealthAggregator;
@@ -232,22 +233,19 @@ final class HealthExtension extends Extension
             ->setArguments([$uptimeDriverKey])
             ->setPublic(false);
 
-        $heartbeatEmitterRef = null;
-        if (class_exists(\Vortos\Observability\Heartbeat\HeartbeatEmitterInterface::class)
-            && $container->has(\Vortos\Observability\Heartbeat\HeartbeatEmitterInterface::class)
-        ) {
-            $heartbeatEmitterRef = new Reference(\Vortos\Observability\Heartbeat\HeartbeatEmitterInterface::class);
-        }
-
-        $tick = $container->register(MonitorTick::class, MonitorTick::class)
+        // Optional cross-package collaborator: use the observability heartbeat emitter if it is
+        // present, null otherwise. NULL_ON_INVALID_REFERENCE resolves absence at compile end
+        // without an order-dependent has() in load(). ::class produces the string literal even
+        // when vortos-observability is not installed, so this is safe either way.
+        $container->register(MonitorTick::class, MonitorTick::class)
             ->setArgument('$monitor', new Reference('vortos.health.uptime.selected_monitor'))
             ->setArgument('$heartbeatPolicy', new Reference(HeartbeatPolicy::class))
             ->setArgument('$heartbeatMonitorKey', (string) ($_ENV['HEALTH_MONITOR_HEARTBEAT_KEY'] ?? 'health-monitor-tick'))
+            ->setArgument('$heartbeatEmitter', new Reference(
+                \Vortos\Observability\Heartbeat\HeartbeatEmitterInterface::class,
+                ContainerInterface::NULL_ON_INVALID_REFERENCE,
+            ))
             ->setPublic(false);
-
-        if ($heartbeatEmitterRef !== null) {
-            $tick->setArgument('$heartbeatEmitter', $heartbeatEmitterRef);
-        }
     }
 
     private function registerCommands(ContainerBuilder $container): void

@@ -24,11 +24,21 @@ use Vortos\Observability\Sink\TelemetrySignal;
  */
 final class CollectorConfigBuilder
 {
-    private const RECEIVER_HOST = '127.0.0.1';
+    public const DEFAULT_RECEIVER_HOST = '127.0.0.1';
     private const STORAGE_EXTENSION = 'file_storage/vortos';
 
-    public function build(MetricsSinkInterface $sink, CollectorBufferPolicy $policy): CollectorConfig
-    {
+    /**
+     * @param string $receiverHost interface the OTLP receiver binds to. Defaults to loopback
+     *                             (single-container / sidecar sharing the app's netns). Set to a
+     *                             private-network address (e.g. 0.0.0.0 behind an isolated Docker
+     *                             network) when a separate worker container must emit to a shared
+     *                             collector — see the multi-container topology recipe (P3-2).
+     */
+    public function build(
+        MetricsSinkInterface $sink,
+        CollectorBufferPolicy $policy,
+        string $receiverHost = self::DEFAULT_RECEIVER_HOST,
+    ): CollectorConfig {
         $exporter = $sink->exporterConfig();
         $exporterKey = $exporter->type . '/' . $sink->name();
 
@@ -42,8 +52,8 @@ final class CollectorConfigBuilder
             'receivers' => [
                 'otlp' => [
                     'protocols' => [
-                        'grpc' => ['endpoint' => self::RECEIVER_HOST . ':4317'],
-                        'http' => ['endpoint' => self::RECEIVER_HOST . ':4318'],
+                        'grpc' => ['endpoint' => $receiverHost . ':4317'],
+                        'http' => ['endpoint' => $receiverHost . ':4318'],
                     ],
                 ],
             ],

@@ -30,7 +30,7 @@ use Vortos\Deploy\Runner\DeployRunner;
 final class DeployCommand extends Command
 {
     public function __construct(
-        private readonly DeployRunner $runner,
+        private readonly ?DeployRunner $runner,
     ) {
         parent::__construct();
     }
@@ -48,6 +48,14 @@ final class DeployCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        if ($this->runner === null) {
+            $output->writeln('<error>deploy requires the migration + release stack. Install '
+                . 'vortos/vortos-migration and vortos/vortos-release and wire their read models, '
+                . 'then re-run.</error>');
+
+            return Command::FAILURE;
+        }
+
         $env = (string) $input->getOption('env');
         $dryRun = (bool) $input->getOption('dry-run');
         $yes = (bool) $input->getOption('yes');

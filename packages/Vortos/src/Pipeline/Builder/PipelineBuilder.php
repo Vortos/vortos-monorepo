@@ -90,23 +90,33 @@ final class PipelineBuilder
 
     private function testStage(PipelineDefinition $definition): Stage
     {
+        $steps = [
+            new ActionStep('Checkout', KnownActionFactory::checkout()),
+            new ActionStep('Setup PHP', KnownActionFactory::setupPhp(), [
+                'php-version' => $definition->phpVersion,
+                'extensions' => implode(', ', $definition->phpExtensions),
+                'coverage' => 'none',
+            ]),
+            new CommandStep('Install dependencies', 'composer install --no-interaction --prefer-dist --ignore-platform-reqs'),
+        ];
+
+        // App-declared steps (migrations, contract checks, seed, …) run after deps install and
+        // before the test command — this is what lets the generated workflow replace a real ci.yml.
+        foreach ($definition->testSteps as $step) {
+            $steps[] = new CommandStep($step['name'], $step['run']);
+        }
+
+        $steps[] = new CommandStep('Run tests', $definition->testCommand);
+
         return new Stage(
             id: 'tests',
             displayName: 'Tests',
             kind: StageKind::Test,
-            steps: [
-                new ActionStep('Checkout', KnownActionFactory::checkout()),
-                new ActionStep('Setup PHP', KnownActionFactory::setupPhp(), [
-                    'php-version' => $definition->phpVersion,
-                    'extensions' => implode(', ', $definition->phpExtensions),
-                    'coverage' => 'none',
-                ]),
-                new CommandStep('Install dependencies', 'composer install --no-interaction --prefer-dist --ignore-platform-reqs'),
-                new CommandStep('Run tests', './vendor/bin/phpunit --testdox'),
-            ],
+            steps: $steps,
             runner: new RunnerSpec(),
             permissions: Permissions::readOnly(),
             timeoutMinutes: $definition->defaultTimeoutMinutes,
+            services: $definition->testServiceContainers,
         );
     }
 
@@ -124,7 +134,7 @@ final class PipelineBuilder
                     'coverage' => 'none',
                 ]),
                 new CommandStep('Install dependencies', 'composer install --no-interaction --prefer-dist --ignore-platform-reqs'),
-                new CommandStep('Run PHPStan', './vendor/bin/phpstan analyse'),
+                new CommandStep('Run PHPStan', $definition->analyseCommand),
             ],
             needs: ['tests'],
             runner: new RunnerSpec(),

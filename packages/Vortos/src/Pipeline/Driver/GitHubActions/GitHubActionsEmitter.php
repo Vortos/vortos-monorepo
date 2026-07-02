@@ -50,7 +50,7 @@ final class GitHubActionsEmitter implements PipelineEmitterInterface
 
         if ($ciStages !== []) {
             $ciPipeline = new Pipeline(
-                name: $pipeline->name,
+                name: $this->definition->workflowName ?? $pipeline->name,
                 triggers: $pipeline->triggers,
                 stages: $ciStages,
                 permissions: $pipeline->permissions,
@@ -62,7 +62,7 @@ final class GitHubActionsEmitter implements PipelineEmitterInterface
             $yaml = $this->yamlWriter->dump($workflowArray);
 
             $artifacts[] = new EmittedArtifact(
-                relativePath: '.github/workflows/ci.yml',
+                relativePath: '.github/workflows/' . $this->definition->workflowFilename,
                 contents: $yaml,
                 description: 'CI/CD pipeline — test, analyse, deploy',
             );

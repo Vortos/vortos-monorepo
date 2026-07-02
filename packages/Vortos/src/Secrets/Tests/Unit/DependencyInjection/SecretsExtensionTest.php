@@ -115,9 +115,16 @@ final class SecretsExtensionTest extends TestCase
 
     public function test_required_secrets_defaults_to_empty_list(): void
     {
+        // RequiredSecrets is now built by RequiredSecretsFactory from config/secrets.php; with no
+        // such file the reference list is empty (upstream P2-3 declaration surface).
         $container = $this->compiledContainer();
 
-        self::assertSame([], $container->getDefinition(RequiredSecrets::class)->getArgument('$references'));
+        $definition = $container->getDefinition(RequiredSecrets::class);
+        self::assertNotNull($definition->getFactory(), 'RequiredSecrets must be built via its factory');
+
+        $factory = new \Vortos\Secrets\Preflight\RequiredSecretsFactory();
+        $required = $factory(sys_get_temp_dir() . '/vortos-secrets-ext-test-missing-config');
+        self::assertSame([], $required->references);
     }
 
     public function test_console_commands_are_registered_and_tagged(): void

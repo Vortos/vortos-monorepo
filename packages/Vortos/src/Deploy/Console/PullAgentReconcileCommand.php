@@ -19,7 +19,7 @@ use Vortos\Deploy\PullAgent\PullAgentReconciler;
 final class PullAgentReconcileCommand extends Command
 {
     public function __construct(
-        private readonly PullAgentReconciler $reconciler,
+        private readonly ?PullAgentReconciler $reconciler,
     ) {
         parent::__construct();
     }
@@ -32,6 +32,16 @@ final class PullAgentReconcileCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+
+        if ($this->reconciler === null) {
+            $io->error('Pull-based delivery is not enabled. Set VORTOS_DEPLOY_DELIVERY_MODE=pull '
+                . 'and configure the OCI manifest source (VORTOS_DEPLOY_PULL_REGISTRY_URL, '
+                . 'VORTOS_DEPLOY_PULL_REPOSITORY) and release verifier key '
+                . '(VORTOS_DEPLOY_PULL_RELEASE_PUBLIC_KEY), then re-run.');
+
+            return Command::FAILURE;
+        }
+
         $env = (string) $input->getArgument('env');
 
         try {

@@ -26,6 +26,6 @@ final class DeployPackageTest extends TestCase
         $package->build($container);
         $passesAfter = count($container->getCompilerPassConfig()->getBeforeOptimizationPasses());
 
-        self::assertSame($passesBefore + 11, $passesAfter, 'Should register 11 compiler passes (7 driver + strategy + auth-strategy + audit-sink + canary-analyzer, Blocks 16+22+multi-registry).');
+        self::assertSame($passesBefore + 13, $passesAfter, 'Should register 13 compiler passes (7 driver + strategy + auth-strategy + audit-sink + canary-analyzer + deploy-wiring + http-client-defaults, Blocks 16+22+multi-registry).');
     }
 }

@@ -137,6 +137,7 @@ final class PipelineVerifyCommandTest extends TestCase
             $builder,
             [],
             $this->tmpDir,
+            $definition,
         );
 
         $app = new Application();

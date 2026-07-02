@@ -27,7 +27,7 @@ use Vortos\Deploy\Preflight\PreflightStatus;
 final class DoctorCommand extends Command
 {
     public function __construct(
-        private readonly PreflightContextFactory $contextFactory,
+        private readonly ?PreflightContextFactory $contextFactory,
         private readonly DeployDoctor $doctor,
     ) {
         parent::__construct();
@@ -45,6 +45,24 @@ final class DoctorCommand extends Command
         $env = (string) $input->getOption('env');
         $json = (bool) $input->getOption('json');
         $strict = (bool) $input->getOption('strict');
+
+        if ($this->contextFactory === null) {
+            $message = 'deploy:doctor requires the migration + release stack. Install '
+                . 'vortos/vortos-migration and vortos/vortos-release and wire their read models '
+                . '(applied-migration-set + manifest read model), then re-run.';
+            if ($json) {
+                $output->writeln(json_encode([
+                    'schema_version' => PreflightReport::SCHEMA_VERSION,
+                    'env' => $env,
+                    'clear' => false,
+                    'error' => $message,
+                ], \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES));
+            } else {
+                $output->writeln(sprintf('<error>%s</error>', $message));
+            }
+
+            return Command::FAILURE;
+        }
 
         try {
             $context = $this->contextFactory->build($env);

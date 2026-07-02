@@ -13,6 +13,7 @@ use Vortos\Pipeline\Builder\StageGate;
 use Vortos\Pipeline\Console\PipelineGenerateCommand;
 use Vortos\Pipeline\Console\PipelineVerifyCommand;
 use Vortos\Pipeline\Definition\PipelineDefinition;
+use Vortos\Pipeline\Definition\PipelineDefinitionFactory;
 use Vortos\Pipeline\DependencyInjection\Compiler\CollectCiRegistryLoginProvidersPass;
 use Vortos\Pipeline\DependencyInjection\Compiler\CollectPipelineEmittersPass;
 use Vortos\Pipeline\Driver\GitHubActions\GitHubActionsEmitter;
@@ -85,7 +86,15 @@ final class PipelineExtension extends Extension
 
     private function registerDefaultDriver(ContainerBuilder $container): void
     {
+        // Single source of truth: PipelineDefinition is built by the factory from env +
+        // config/pipeline.php, so generate/verify/emit all read the SAME configured model
+        // (upstream P1-1/P1-2). The app configures it via config or env — no service override.
+        $container->register(PipelineDefinitionFactory::class, PipelineDefinitionFactory::class)
+            ->setPublic(false);
+
         $container->register(PipelineDefinition::class, PipelineDefinition::class)
+            ->setFactory([new Reference(PipelineDefinitionFactory::class), '__invoke'])
+            ->setArguments(['%kernel.project_dir%'])
             ->setPublic(false);
 
         $container->register(WorkflowYamlWriter::class, WorkflowYamlWriter::class)
@@ -127,6 +136,7 @@ final class PipelineExtension extends Extension
             ->setArgument('$gate', new Reference(StageGate::class))
             ->setArgument('$splitPackages', [])
             ->setArgument('$projectDir', (string) $projectDir)
+            ->setArgument('$definition', new Reference(PipelineDefinition::class))
             ->setPublic(true)
             ->addTag('console.command');
 
@@ -135,6 +145,7 @@ final class PipelineExtension extends Extension
             ->setArgument('$builder', new Reference(PipelineBuilder::class))
             ->setArgument('$splitPackages', [])
             ->setArgument('$projectDir', (string) $projectDir)
+            ->setArgument('$definition', new Reference(PipelineDefinition::class))
             ->setPublic(true)
             ->addTag('console.command');
     }

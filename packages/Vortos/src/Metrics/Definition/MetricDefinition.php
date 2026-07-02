@@ -143,8 +143,14 @@ final readonly class MetricDefinition
             }
 
             $bucket = (float) $bucket;
-            if ($bucket <= 0.0 || is_infinite($bucket) || is_nan($bucket)) {
-                throw new \InvalidArgumentException('Histogram buckets must be finite positive numbers.');
+
+            // Prometheus histogram bucket bounds are `le` (less-than-or-equal) upper bounds
+            // and may be any finite real number, including 0 and negatives — e.g. a dispatch
+            // lag histogram legitimately wants a `le=0` bucket for the healthy ~0ms case.
+            // Only NaN / ±Inf are invalid here (the implicit +Inf bucket is appended by the
+            // exposition layer, never declared).
+            if (is_nan($bucket) || is_infinite($bucket)) {
+                throw new \InvalidArgumentException('Histogram buckets must be finite numbers.');
             }
 
             if ($previous !== null && $bucket <= $previous) {

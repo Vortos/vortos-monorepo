@@ -123,9 +123,42 @@ final class GitHubWorkflowMapper
             $job['strategy'] = $this->mapStrategy($stage->matrix);
         }
 
+        if ($stage->services !== []) {
+            $job['services'] = $this->mapServices($stage->services);
+        }
+
         $job['steps'] = $this->mapSteps($stage->steps);
 
         return $job;
+    }
+
+    /**
+     * @param list<\Vortos\Pipeline\Model\ServiceContainer> $services
+     * @return array<string, array<string, mixed>>
+     */
+    private function mapServices(array $services): array
+    {
+        $mapped = [];
+
+        foreach ($services as $service) {
+            $spec = ['image' => $service->image];
+
+            if ($service->env !== []) {
+                $spec['env'] = $service->env;
+            }
+
+            if ($service->ports !== []) {
+                $spec['ports'] = $service->ports;
+            }
+
+            if ($service->options !== []) {
+                $spec['options'] = implode(' ', $service->options);
+            }
+
+            $mapped[$service->name] = $spec;
+        }
+
+        return $mapped;
     }
 
     /** @return array<string, mixed> */

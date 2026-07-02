@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Pipeline\Definition;
 
 use Vortos\Pipeline\Model\BuildMode;
+use Vortos\Pipeline\Model\ServiceContainer;
 use Vortos\Pipeline\Model\SplitPackage;
 use Vortos\Release\Manifest\Arch;
 
@@ -13,9 +14,12 @@ final readonly class PipelineDefinition
     public bool $oidc;
 
     /**
-     * @param list<string>       $phpExtensions
-     * @param list<string>       $environments
-     * @param list<SplitPackage> $splitPackageOverrides
+     * @param list<string>           $phpExtensions
+     * @param list<string>           $environments
+     * @param list<SplitPackage>     $splitPackageOverrides
+     * @param list<ServiceContainer> $testServiceContainers CI sidecars for the test job (db/redis/kafka)
+     * @param list<array{name: string, run: string}> $testSteps extra shell steps injected into the test job
+     *                                                          (migrations, contract checks, …), after deps install
      */
     public function __construct(
         public string $emitter = 'github',
@@ -39,6 +43,14 @@ final readonly class PipelineDefinition
         public bool $emitScanGate = false,
         public bool $emitSign = false,
         public string $registryProvider = 'ghcr',
+        // ── Workflow file targeting (upstream P1-4) ──
+        public string $workflowFilename = 'ci.yml',
+        public ?string $workflowName = null,
+        // ── Test / static-analysis stage configuration (upstream P1-3) ──
+        public string $testCommand = './vendor/bin/phpunit --testdox',
+        public string $analyseCommand = './vendor/bin/phpstan analyse',
+        public array $testServiceContainers = [],
+        public array $testSteps = [],
     ) {
         if ($emitter === '') {
             throw new \InvalidArgumentException('Pipeline emitter must be non-empty.');
@@ -46,6 +58,17 @@ final readonly class PipelineDefinition
 
         if ($registryProvider === '') {
             throw new \InvalidArgumentException('Registry provider must be non-empty.');
+        }
+
+        if ($workflowFilename === '' || !str_ends_with($workflowFilename, '.yml') || str_contains($workflowFilename, '/')) {
+            throw new \InvalidArgumentException(sprintf(
+                'Workflow filename must be a bare *.yml name (no path), got "%s".',
+                $workflowFilename,
+            ));
+        }
+
+        if ($testCommand === '' || $analyseCommand === '') {
+            throw new \InvalidArgumentException('Test and analyse commands must be non-empty.');
         }
 
         if ($defaultTimeoutMinutes < 1) {

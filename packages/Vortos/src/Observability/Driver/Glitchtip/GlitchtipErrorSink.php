@@ -24,7 +24,7 @@ use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
  * backend's name appears is this Driver/ namespace.
  */
 #[AsDriver('glitchtip')]
-final class GlitchtipErrorSink implements ErrorSinkInterface
+class GlitchtipErrorSink implements ErrorSinkInterface
 {
     public function __construct(
         private readonly BoundedSpool $spool,

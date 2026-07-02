@@ -17,6 +17,8 @@ use Vortos\Deploy\DependencyInjection\Compiler\CollectDeployTargetsPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectCanaryAnalyzersPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectEdgeRoutersPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectWorkerControllersPass;
+use Vortos\Deploy\DependencyInjection\Compiler\DeployWiringPass;
+use Vortos\Deploy\DependencyInjection\Compiler\HttpClientDefaultsPass;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\OpsKit\Driver\DependencyInjection\CollectDriversCompilerPass;
 
@@ -49,6 +51,22 @@ final class DeployPackage implements PackageInterface
             new CollectDeployAuditSinksPass(),
             \Symfony\Component\DependencyInjection\Compiler\PassConfig::TYPE_BEFORE_OPTIMIZATION,
             -32,
+        );
+
+        // Cross-package deploy wiring (release read model + migration readers). Must run in a
+        // pass — not load() — so has() reflects the fully-merged container and is order-free.
+        $container->addCompilerPass(
+            new DeployWiringPass(),
+            \Symfony\Component\DependencyInjection\Compiler\PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            -64,
+        );
+
+        // Bind default PSR-18/PSR-17 HTTP services only if the app hasn't. Low priority so
+        // every extension's and the app's own bindings are already present when it runs.
+        $container->addCompilerPass(
+            new HttpClientDefaultsPass(),
+            \Symfony\Component\DependencyInjection\Compiler\PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            -256,
         );
     }
 }

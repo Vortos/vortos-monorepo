@@ -93,6 +93,12 @@ final class SecretsExtension extends Extension
             ->addTag(CollectSecretsProvidersPass::TAG)
             ->setPublic(false);
 
+        // Default provider binding so cross-package consumers (e.g. vortos-deploy's
+        // SshKeyCredentialProvider) can inject SecretsProviderInterface without the app
+        // wiring a driver. env-backed envelope custody is the zero-config default.
+        $container->setAlias(SecretsProviderInterface::class, EnvSecretsProvider::class)
+            ->setPublic(false);
+
         // ── Services ──
 
         $container->register(SecretInjectionPlanner::class, SecretInjectionPlanner::class)
@@ -105,11 +111,14 @@ final class SecretsExtension extends Extension
             ->setArgument('$provider', new Reference(EnvSecretsProvider::class))
             ->setPublic(false);
 
-        // The app overrides this (no secrets are required by default) to declare
-        // which secrets its own environments need, via a compiler pass or a
-        // service decoration in its own extension.
+        // Required secrets are declared in config/secrets.php and assembled by the factory —
+        // no service-definition override required (upstream P2-3).
+        $container->register(\Vortos\Secrets\Preflight\RequiredSecretsFactory::class, \Vortos\Secrets\Preflight\RequiredSecretsFactory::class)
+            ->setPublic(false);
+
         $container->register(RequiredSecrets::class, RequiredSecrets::class)
-            ->setArgument('$references', [])
+            ->setFactory([new Reference(\Vortos\Secrets\Preflight\RequiredSecretsFactory::class), '__invoke'])
+            ->setArguments([$projectDir])
             ->setPublic(false);
 
         // ── Console commands ──

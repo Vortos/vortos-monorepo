@@ -15,7 +15,7 @@ use Vortos\Backup\Drill\DrillRunner;
 #[AsCommand(name: 'backup:drill', description: 'Run a restore drill (provision → restore → invariants → teardown).')]
 final class BackupDrillCommand extends Command
 {
-    public function __construct(private readonly DrillRunner $runner)
+    public function __construct(private readonly ?DrillRunner $runner)
     {
         parent::__construct();
     }
@@ -30,6 +30,13 @@ final class BackupDrillCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        if ($this->runner === null) {
+            $output->writeln('<error>Restore drills are not configured. Set VORTOS_BACKUP_DRILL_DSN '
+                . 'to an ephemeral-database endpoint to enable backup:drill, then re-run.</error>');
+
+            return self::FAILURE;
+        }
+
         $engine = DatabaseEngine::fromString((string) $input->getOption('engine'));
         $env = (string) $input->getOption('env');
         $shallow = (bool) $input->getOption('shallow');

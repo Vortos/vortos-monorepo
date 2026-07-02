@@ -133,6 +133,7 @@ final class PipelineGenerateCommandTest extends TestCase
             $gate,
             [],
             $this->tmpDir,
+            $definition,
         );
 
         $app = new Application();

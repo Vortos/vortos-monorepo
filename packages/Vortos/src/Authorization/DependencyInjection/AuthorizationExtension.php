@@ -298,10 +298,9 @@ final class AuthorizationExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        if ($container->hasDefinition(\Vortos\Auth\TokenFreshness\CompositeTokenFreshnessGuard::class)) {
-            $container->getDefinition(\Vortos\Auth\TokenFreshness\CompositeTokenFreshnessGuard::class)
-                ->addArgument(new Reference(AuthzVersionFreshnessGuard::class));
-        }
+        // Plugging AuthzVersionFreshnessGuard into vortos-auth's CompositeTokenFreshnessGuard
+        // mutates a FOREIGN package's service, so it happens in AuthzTokenFreshnessWiringPass
+        // (a compiler pass) where has() is reliable — not here in load().
 
         $container->register(NullTemporalPermissionStore::class, NullTemporalPermissionStore::class)
             ->setShared(true)

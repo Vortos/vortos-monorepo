@@ -42,6 +42,7 @@ use Vortos\Migration\Safety\Rule\SafetyRuleSet;
 use Vortos\Migration\Safety\SchemaDriftAuditor;
 use Vortos\Migration\Safety\SchemaDriftAuditorInterface;
 use Vortos\Migration\Service\DependencyFactoryProvider;
+use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 use Vortos\Foundation\Module\ModulePathResolver;
 use Vortos\Migration\Service\MigrationDriftDetector;
 use Vortos\Migration\Service\MigrationDriftDetectorInterface;
@@ -123,13 +124,13 @@ final class MigrationExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        if (!$container->has(ModulePathResolver::class)) {
-            $container->register(ModulePathResolver::class, ModulePathResolver::class)
-                ->setArgument('$projectDir', $projectDir)
-                ->setShared(true)
-                ->setPublic(false);
-        }
+        // Publish the interface so cross-package consumers (e.g. vortos-release's
+        // DoctrineAppliedMigrationSetReader) can inject it by contract, not concrete.
+        $container->setAlias(DependencyFactoryProviderInterface::class, DependencyFactoryProvider::class)
+            ->setPublic(false);
 
+        // ModulePathResolver is registered by vortos-foundation (its owning package); reference
+        // it directly rather than re-registering a fallback here.
         $container->register(ModuleStubScanner::class, ModuleStubScanner::class)
             ->setArgument('$resolver', new Reference(ModulePathResolver::class))
             ->setArgument('$projectDir', $projectDir)

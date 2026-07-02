@@ -11,6 +11,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Pipeline\Builder\PipelineBuilder;
 use Vortos\Pipeline\Builder\StageGate;
+use Vortos\Pipeline\Definition\PipelineDefinition;
 use Vortos\Pipeline\Emitter\PipelineEmitterRegistry;
 use Vortos\Pipeline\Model\SplitPackage;
 
@@ -26,6 +27,7 @@ final class PipelineGenerateCommand extends Command
         private readonly StageGate $gate,
         private readonly array $splitPackages,
         private readonly string $projectDir,
+        private readonly PipelineDefinition $definition,
     ) {
         parent::__construct();
     }
@@ -48,7 +50,7 @@ final class PipelineGenerateCommand extends Command
         $emitter = $this->registry->emitter($emitterKey);
 
         $pipeline = $this->builder->build(
-            new \Vortos\Pipeline\Definition\PipelineDefinition(),
+            $this->definition,
             $this->splitPackages,
         );
 

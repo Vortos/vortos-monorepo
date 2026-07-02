@@ -38,9 +38,10 @@ final class CollectorConfigPublisher
         CollectorBufferPolicy $policy,
         bool $force = false,
         bool $dryRun = false,
+        string $receiverHost = CollectorConfigBuilder::DEFAULT_RECEIVER_HOST,
     ): CollectorPublishResult {
         $sink = $this->registry->sink($sinkKey);
-        $config = $this->builder->build($sink, $policy);
+        $config = $this->builder->build($sink, $policy, $receiverHost);
 
         $artifacts = [
             self::CONFIG_FILE => $config->toYaml($this->yaml),

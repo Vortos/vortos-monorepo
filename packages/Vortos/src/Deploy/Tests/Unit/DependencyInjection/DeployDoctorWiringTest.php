@@ -12,6 +12,7 @@ use Vortos\Deploy\Console\DeployCommand;
 use Vortos\Deploy\Console\DoctorCommand;
 use Vortos\Deploy\Console\RollbackCommand;
 use Vortos\Deploy\Definition\LayeredDefinitionResolver;
+use Vortos\Deploy\DependencyInjection\Compiler\DeployWiringPass;
 use Vortos\Deploy\DependencyInjection\DeployExtension;
 use Vortos\Deploy\Plan\DeployPreflightStateBuilder;
 use Vortos\Deploy\Preflight\Check\CapabilityDescriptorCheck;
@@ -24,6 +25,8 @@ use Vortos\Deploy\Preflight\PreflightContextFactory;
 use Vortos\Deploy\Rollback\RollbackGuard;
 use Vortos\Deploy\Runner\DeployRunner;
 use Vortos\Deploy\Runner\RollbackRunner;
+use Vortos\Migration\Schema\MigrationPhaseReaderInterface;
+use Vortos\Release\Migration\AppliedMigrationSetReaderInterface;
 use Vortos\Release\ReadModel\ManifestReadModelInterface;
 
 final class DeployDoctorWiringTest extends TestCase
@@ -47,36 +50,39 @@ final class DeployDoctorWiringTest extends TestCase
         self::assertInstanceOf(TaggedIteratorArgument::class, $arg);
     }
 
-    public function test_runners_and_commands_absent_without_context_deps(): void
+    public function test_commands_always_register_but_runner_services_are_absent_without_context_deps(): void
     {
         $container = $this->loaded();
 
+        // Commands always register (visible in `bin/console list`) and fail loudly at runtime.
+        foreach ([DoctorCommand::class, DeployCommand::class, RollbackCommand::class] as $command) {
+            self::assertTrue($container->hasDefinition($command), $command . ' must always register');
+            self::assertArrayHasKey('console.command', $container->getDefinition($command)->getTags());
+        }
+
+        // The runner services have hard cross-package deps and are wired by DeployWiringPass,
+        // not load(). Without those deps they must not exist.
         self::assertFalse($container->hasDefinition(PreflightContextFactory::class));
         self::assertFalse($container->hasDefinition(DeployRunner::class));
         self::assertFalse($container->hasDefinition(RollbackRunner::class));
-        self::assertFalse($container->hasDefinition(DoctorCommand::class));
-        self::assertFalse($container->hasDefinition(DeployCommand::class));
-        self::assertFalse($container->hasDefinition(RollbackCommand::class));
     }
 
-    public function test_runners_and_commands_present_with_context_deps(): void
+    public function test_wiring_pass_registers_runner_services_when_context_deps_present(): void
     {
         $container = new ContainerBuilder();
-        // Pre-register the migration/release stack the runners depend on.
-        $container->setDefinition(DeployPreflightStateBuilder::class, new Definition(\stdClass::class));
+        // Pre-register the migration/release stack the wiring pass gates on.
+        $container->setDefinition(AppliedMigrationSetReaderInterface::class, new Definition(\stdClass::class));
         $container->setDefinition(ManifestReadModelInterface::class, new Definition(\stdClass::class));
-        $container->setDefinition(RollbackGuard::class, new Definition(\stdClass::class));
+        $container->setDefinition(MigrationPhaseReaderInterface::class, new Definition(\stdClass::class));
 
         (new DeployExtension())->load([], $container);
+        (new DeployWiringPass())->process($container);
 
+        self::assertTrue($container->hasDefinition(RollbackGuard::class));
+        self::assertTrue($container->hasDefinition(DeployPreflightStateBuilder::class));
         self::assertTrue($container->hasDefinition(PreflightContextFactory::class));
         self::assertTrue($container->hasDefinition(DeployRunner::class));
         self::assertTrue($container->hasDefinition(RollbackRunner::class));
-
-        foreach ([DoctorCommand::class, DeployCommand::class, RollbackCommand::class] as $command) {
-            self::assertTrue($container->hasDefinition($command), $command . ' must be registered');
-            self::assertArrayHasKey('console.command', $container->getDefinition($command)->getTags());
-        }
     }
 
     private function loaded(): ContainerBuilder

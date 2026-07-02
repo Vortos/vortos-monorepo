@@ -10,6 +10,7 @@ final readonly class Stage
      * @param list<CommandStep|ActionStep> $steps
      * @param list<string>                 $needs
      * @param array<string, string>        $outputs
+     * @param list<ServiceContainer>       $services CI sidecars (db/redis/kafka) for this job
      */
     public function __construct(
         public string $id,
@@ -24,6 +25,7 @@ final readonly class Stage
         public ?int $timeoutMinutes = null,
         public ?Matrix $matrix = null,
         public array $outputs = [],
+        public array $services = [],
     ) {
         if ($id === '') {
             throw new \InvalidArgumentException('Stage ID must be non-empty.');

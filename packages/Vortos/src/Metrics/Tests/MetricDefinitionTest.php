@@ -39,6 +39,34 @@ final class MetricDefinitionTest extends TestCase
         MetricDefinition::histogram('duration_ms', 'Duration.', [], [10, 5]);
     }
 
+    public function test_histogram_allows_zero_lower_bucket(): void
+    {
+        // Prometheus `le=0` is a legal bucket (samples <= 0). The scheduler dispatch-lag
+        // histogram relies on this for its healthy ~0ms bucket.
+        $definition = MetricDefinition::histogram('lag_ms', 'Lag.', [], [0, 100, 250]);
+
+        $this->assertSame([0, 100, 250], $definition->buckets);
+    }
+
+    public function test_histogram_allows_negative_bucket_bounds(): void
+    {
+        $definition = MetricDefinition::histogram('delta', 'Delta.', [], [-5, 0, 5]);
+
+        $this->assertSame([-5, 0, 5], $definition->buckets);
+    }
+
+    public function test_histogram_rejects_nan_bucket(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        MetricDefinition::histogram('duration_ms', 'Duration.', [], [1, NAN, 5]);
+    }
+
+    public function test_histogram_rejects_infinite_bucket(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        MetricDefinition::histogram('duration_ms', 'Duration.', [], [1, INF]);
+    }
+
     public function test_round_trips_through_array(): void
     {
         $definition = MetricDefinition::histogram('duration_ms', 'Duration.', ['route'], [5, 10, 50]);

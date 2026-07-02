@@ -23,11 +23,19 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
-        $catalog = $schema->getTable($this->t('backup_catalog'));
-        $catalog->addColumn('encryption_provider',  'string',  ['length' => 32,  'notnull' => false]);
-        $catalog->addColumn('encryption_recipient', 'string',  ['length' => 64,  'notnull' => false]);
-        $catalog->addColumn('encryption_aead_id',   'smallint', ['notnull' => false]);
-        $catalog->addColumn('secondary_store_key',  'string',  ['length' => 512, 'notnull' => false]);
+        // Guard the ALTER on the pre-existing catalog table: at publish time define() runs
+        // against a fresh Schema (the base table is not present), so an unguarded getTable()
+        // throws and aborts the whole publish run. hasTable() is the framework-wide pattern for
+        // alter-style providers (see FeatureFlags add_projects/add_lifecycle/…).
+        if ($schema->hasTable($this->t('backup_catalog'))) {
+            $catalog = $schema->getTable($this->t('backup_catalog'));
+            if (!$catalog->hasColumn('encryption_provider')) {
+                $catalog->addColumn('encryption_provider',  'string',  ['length' => 32,  'notnull' => false]);
+                $catalog->addColumn('encryption_recipient', 'string',  ['length' => 64,  'notnull' => false]);
+                $catalog->addColumn('encryption_aead_id',   'smallint', ['notnull' => false]);
+                $catalog->addColumn('secondary_store_key',  'string',  ['length' => 512, 'notnull' => false]);
+            }
+        }
 
         $drill = $schema->createTable($this->t('backup_drill_report'));
         $drill->addColumn('id',          'string',             ['length' => 96,  'notnull' => true]);

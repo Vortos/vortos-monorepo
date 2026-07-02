@@ -6,6 +6,7 @@ namespace Vortos\Authorization\DependencyInjection;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
+use Vortos\Authorization\DependencyInjection\Compiler\AuthzTokenFreshnessWiringPass;
 use Vortos\Authorization\DependencyInjection\Compiler\PermissionRegistryPass;
 use Vortos\Authorization\DependencyInjection\Compiler\RedisAuthorizationStoresPass;
 use Vortos\Authorization\DependencyInjection\Compiler\PolicyRegistryPass;
@@ -31,5 +32,7 @@ final class AuthorizationPackage implements PackageInterface
         // \Redis / RequestStack (Cache/Auth/Http extensions) are never visible during
         // AuthorizationExtension::load due to per-extension merge isolation.
         $container->addCompilerPass(new RedisAuthorizationStoresPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 30);
+        // Cross-package: wire into vortos-auth's composite guard only when auth is present.
+        $container->addCompilerPass(new AuthzTokenFreshnessWiringPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 20);
     }
 }

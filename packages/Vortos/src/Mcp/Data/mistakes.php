@@ -128,4 +128,24 @@ return [
         'right'  => 'Read the refusal message (RollbackRefusedException, PlanStaleException, DestructiveChangeRefusedException) — it names the exact schema/plan/blast-radius problem and the remediation',
         'why'    => 'These refusals are the fail-closed design working correctly — e.g. RollbackGuard found the target build\'s schema is not a safe subset of what\'s currently applied. Forcing past it (where a flag even exists) risks the exact corruption the guard exists to prevent.',
     ],
+    [
+        'wrong'  => 'Adding an app-side compiler pass to register deploy commands, bind a PSR-18 client, alias SecretsProviderInterface, or set %vortos.deploy.*% params — compensating for the framework in your app',
+        'right'  => 'None of that glue is needed anymore. deploy/deploy:doctor/deploy:rollback register themselves; a Guzzle PSR-18/17 default is bound if you have not; SecretsProviderInterface defaults to EnvSecretsProvider; the deploy endpoint params are set by the extension. Just `composer update` the framework.',
+        'why'    => 'These were the P0 boot/wiring defects (cross-package has()-in-load(), unbound ports, missing params/aliases) — all fixed in the framework. App-side passes duplicating that work are now dead weight; delete them.',
+    ],
+    [
+        'wrong'  => 'Declaring alert rules / required secrets / pipeline settings by redefining the vendor service (AlertRuleSet, RequiredSecrets, PipelineDefinition)',
+        'right'  => 'Use the config file surface: config/alerts.php (list<AlertRule>), config/secrets.php (list<SecretReference>), config/deploy.php (Closure(DeploymentDefinitionBuilder)), config/pipeline.php (array of overrides). Each is loaded by a factory.',
+        'why'    => 'The config/*.php surfaces are the supported, override-free way to configure these packages, consistent with cache/tracing/logging. Overriding the service definition is fragile and unnecessary.',
+    ],
+    [
+        'wrong'  => 'Writing an alter migration as a schema provider that calls $schema->getTable(\'existing_table\') unconditionally',
+        'right'  => 'Guard with if ($schema->hasTable($this->t(\'existing_table\'))) { ... } — vortos:migrate:publish runs define() against a FRESH empty schema, so an unguarded getTable() throws (SchemaException) and, before the fix, aborted the whole publish run.',
+        'why'    => 'Schema providers are re-introspected on an empty schema at publish time. Publish is now resilient (one bad stub no longer aborts the run) and SchemaProvidersArePublishSafeTest enforces the guard, but authoring an alter provider without hasTable() still produces an unpublishable migration.',
+    ],
+    [
+        'wrong'  => 'Using `vortos backup:wal-archive %p` as Postgres archive_command when Postgres runs in its own (PHP-less) container',
+        'right'  => 'Run `vortos:backup:pitr:recipe` — it emits a pure `cp` archive_command (to a shared volume) plus a wal-shipper worker in the app image that ships segments off-host. The DB image needs no PHP.',
+        'why'    => 'archive_command executes inside the Postgres container; a stock postgres:alpine image has no Vortos CLI. The recipe decouples "archive to volume" (DB) from "ship off-host" (app worker).',
+    ],
 ];

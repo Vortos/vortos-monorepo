@@ -173,8 +173,25 @@ final class ObservabilityExtension extends Extension
             ->addTag(CollectErrorSinksPass::TAG)
             ->setPublic(false);
 
+        // Sentry driver — same ingest protocol as GlitchTip; select via OBSERVABILITY_ERROR_SINK=sentry.
+        $container->register(\Vortos\Observability\Driver\Sentry\SentryErrorSink::class, \Vortos\Observability\Driver\Sentry\SentryErrorSink::class)
+            ->setArgument('$spool', new Reference('vortos.observability.error_spool'))
+            ->setArgument('$transport', new Reference(ErrorTransportInterface::class))
+            ->addTag(CollectErrorSinksPass::TAG)
+            ->setPublic(false);
+
         $container->register(NullErrorSink::class, NullErrorSink::class)
             ->addTag(CollectErrorSinksPass::TAG)
+            ->setPublic(false);
+
+        // The configured error sink, selectable with OBSERVABILITY_ERROR_SINK (null|glitchtip|
+        // sentry), resolved from the collected drivers — mirrors OBSERVABILITY_METRICS_SINK.
+        // Consumers inject this to report to "whatever the operator configured".
+        $container->register('vortos.observability.selected_error_sink', ErrorSinkInterface::class)
+            ->setFactory([new Reference(ErrorSinkRegistry::class), 'sink'])
+            ->setArguments([(string) ($_ENV['OBSERVABILITY_ERROR_SINK'] ?? 'null')])
+            ->setPublic(false);
+        $container->setAlias(ErrorSinkInterface::class, 'vortos.observability.selected_error_sink')
             ->setPublic(false);
     }
 

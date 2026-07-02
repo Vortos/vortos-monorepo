@@ -26,7 +26,7 @@ use Vortos\Deploy\Runner\RollbackRunner;
 final class RollbackCommand extends Command
 {
     public function __construct(
-        private readonly RollbackRunner $runner,
+        private readonly ?RollbackRunner $runner,
     ) {
         parent::__construct();
     }
@@ -42,6 +42,14 @@ final class RollbackCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        if ($this->runner === null) {
+            $output->writeln('<error>deploy:rollback requires the migration + release stack. '
+                . 'Install vortos/vortos-migration and vortos/vortos-release and wire their read '
+                . 'models, then re-run.</error>');
+
+            return Command::FAILURE;
+        }
+
         $env = (string) $input->getOption('env');
         $to = $input->getOption('to');
         $to = is_string($to) ? $to : null;

@@ -43,4 +43,25 @@ final class FakeSshTransport implements SshTransportInterface
     {
         $this->copies[] = ['local' => $localPath, 'remote' => $remotePath, 'mode' => $mode];
     }
+
+    /** @var list<array{local: int, remote: int}> */
+    public array $forwards = [];
+
+    /** @var list<array{local: int, remote: int}> */
+    public array $closedForwards = [];
+
+    public int $nextLocalForwardPort = 12019;
+
+    public function openLocalForward(int $remotePort): int
+    {
+        $local = $this->nextLocalForwardPort++;
+        $this->forwards[] = ['local' => $local, 'remote' => $remotePort];
+
+        return $local;
+    }
+
+    public function closeLocalForward(int $localPort, int $remotePort): void
+    {
+        $this->closedForwards[] = ['local' => $localPort, 'remote' => $remotePort];
+    }
 }

@@ -33,6 +33,7 @@ final class SupplyChainManifestDecorator
         return new BuildManifest(
             buildId: $manifest->buildId,
             gitSha: $manifest->gitSha,
+            imageRepository: $manifest->imageRepository,
             imageDigest: $manifest->imageDigest,
             targetArch: $manifest->targetArch,
             environment: $manifest->environment,

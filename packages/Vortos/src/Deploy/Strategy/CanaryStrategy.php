@@ -35,6 +35,7 @@ final class CanaryStrategy implements DeployStrategyInterface
     {
         $stagedColor = $context->currentState->activeColor->opposite();
         $digest = $context->desiredManifest->imageDigest;
+        $repository = $context->desiredManifest->imageRepository;
         $phases = [];
 
         if (!$context->desiredManifest->schemaFingerprint->isEmpty()) {
@@ -51,12 +52,12 @@ final class CanaryStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::DrainWorker,
                 'Rolling drain and restart workers',
-                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest],
+                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest, 'image_repository' => $repository],
             ),
             new DeployStep(
                 StepAction::StartWorker,
                 'Noop — workers launched during drain rollout',
-                ['image_digest' => $digest],
+                ['image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 
@@ -64,12 +65,12 @@ final class CanaryStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::PullImage,
                 sprintf('Pull image @%s to staged color', $digest),
-                ['image_digest' => $digest],
+                ['image_digest' => $digest, 'image_repository' => $repository],
             ),
             new DeployStep(
                 StepAction::StartContainer,
                 sprintf('Start %s container for canary', $stagedColor->value),
-                ['color' => $stagedColor->value, 'image_digest' => $digest],
+                ['color' => $stagedColor->value, 'image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 
@@ -100,7 +101,7 @@ final class CanaryStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::UpdateState,
                 sprintf('Promote %s as active (canary complete)', $stagedColor->value),
-                ['color' => $stagedColor->value, 'image_digest' => $digest],
+                ['color' => $stagedColor->value, 'image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 

@@ -73,6 +73,38 @@ final class StepExecutorTest extends TestCase
         return $run;
     }
 
+    public function test_pull_image_runs_on_target_over_ssh_in_push_mode(): void
+    {
+        $transport = new \Vortos\Deploy\Tests\Fixtures\FakeSshTransport();
+        $executor = new StepExecutor(
+            stateStore: $this->stateStore,
+            registry: $this->registry,
+            readinessGate: $this->gate,
+            smokeRunner: $this->smokeRunner,
+            composeFactory: new ComposeProjectFactory(),
+            localRunner: $this->runner,
+            sshTransport: $transport,
+        );
+
+        $digest = 'sha256:' . str_repeat('ab', 32);
+        $repo = 'ghcr.io/acme/app';
+        $plan = new DeployPlan(
+            phases: [
+                new DeployPhase(PhaseKind::StageColor, [
+                    new DeployStep(StepAction::PullImage, 'Pull', ['image_digest' => $digest, 'image_repository' => $repo]),
+                ]),
+            ],
+            definitionHash: 'sha256:def',
+        );
+        $run = $this->makeRun($plan->planHash->toString());
+
+        $executor->execute($plan, $run, new ImageReference($repo, digest: $digest));
+
+        // The pull happened on the VPS (docker pull repo@digest over SSH), not on the runner.
+        $this->assertCount(1, $transport->commands);
+        $this->assertSame(['docker', 'pull', $repo . '@' . $digest], $transport->commands[0]->argv);
+    }
+
     public function test_walks_full_blue_green_plan(): void
     {
         $digest = 'sha256:' . str_repeat('ab', 32);

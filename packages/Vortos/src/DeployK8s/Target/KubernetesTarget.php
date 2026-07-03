@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Vortos\DeployK8s\Target;
 
 use Vortos\Deploy\Definition\EnvironmentName;
+use Vortos\Deploy\Exception\ImageNotAvailableException;
 use Vortos\Deploy\Plan\DeployContext;
 use Vortos\Deploy\Plan\DeployPlan;
 use Vortos\Deploy\Plan\DeployPlanner;
+use Vortos\Deploy\Plan\DesiredImage;
 use Vortos\Deploy\Registry\ContainerRegistryInterface;
 use Vortos\Deploy\Registry\ImageReference;
 use Vortos\Deploy\Rollback\RollbackGuard;
@@ -44,27 +46,39 @@ final class KubernetesTarget implements DeployTargetInterface
         return $this->planner->plan($context);
     }
 
-    public function push(ImageReference $image): ImageReference
+    public function assertImageAvailable(ImageReference $image): void
     {
-        return $this->registry->push($image);
+        if (!$image->isDigestPinned()) {
+            throw ImageNotAvailableException::notFound($image->toString(), 'reference is not digest-pinned');
+        }
+
+        try {
+            $liveDigest = $this->registry->digestFor($image);
+        } catch (\Throwable $e) {
+            throw ImageNotAvailableException::notFound($image->toString(), $e->getMessage());
+        }
+
+        if ($liveDigest !== $image->digest) {
+            throw ImageNotAvailableException::digestMismatch($image->toString(), (string) $image->digest, $liveDigest);
+        }
     }
 
     public function migrate(DeployPlan $plan): void
     {
     }
 
-    public function release(DeployPlan $plan): TargetStatus
+    public function release(DeployPlan $plan, EnvironmentName $env): TargetStatus
     {
-        return $this->executePlan($plan);
+        return $this->executePlan($plan, $env);
     }
 
-    public function rollback(DeployPlan $plan, ?BuildManifest $targetManifest = null): TargetStatus
+    public function rollback(DeployPlan $plan, EnvironmentName $env, ?BuildManifest $targetManifest = null): TargetStatus
     {
         if ($this->rollbackGuard !== null && $targetManifest !== null) {
-            $this->rollbackGuard->assertLegal($targetManifest, new EnvironmentName('production'));
+            $this->rollbackGuard->assertLegal($targetManifest, $env);
         }
 
-        return $this->executePlan($plan);
+        return $this->executePlan($plan, $env);
     }
 
     public function status(EnvironmentName $env): TargetStatus
@@ -94,12 +108,12 @@ final class KubernetesTarget implements DeployTargetInterface
         );
     }
 
-    private function executePlan(DeployPlan $plan): TargetStatus
+    private function executePlan(DeployPlan $plan, EnvironmentName $env): TargetStatus
     {
-        $env = 'production';
+        $envValue = $env->value;
         $planHash = $plan->planHash->toString();
 
-        $existingRun = $this->stateStore->find($env, $planHash);
+        $existingRun = $this->stateStore->find($envValue, $planHash);
         if ($existingRun !== null && $existingRun->status === DeployStatus::Completed) {
             return new TargetStatus(
                 color: ActiveColor::from((string) ($this->extractPromotedColor($existingRun) ?? ActiveColor::None->value)),
@@ -111,10 +125,11 @@ final class KubernetesTarget implements DeployTargetInterface
 
         $run = $existingRun ?? new DeployRun(
             runId: $this->generateRunId(),
-            env: $env,
+            env: $envValue,
             planHash: $planHash,
             definitionHash: $plan->definitionHash,
-            desiredDigest: $this->extractDesiredDigest($plan),
+            desiredDigest: DesiredImage::digestFromPlan($plan),
+            desiredRepository: DesiredImage::repositoryFromPlan($plan),
             status: DeployStatus::Pending,
         );
 
@@ -122,7 +137,26 @@ final class KubernetesTarget implements DeployTargetInterface
             $this->stateStore->begin($run);
         }
 
-        $image = $this->buildImageReference($run->desiredDigest);
+        $image = DesiredImage::fromPlan($plan);
+        if ($image === null) {
+            // A plan with steps but no digest-pinned image is a defect — fail closed.
+            // A truly empty plan is a legitimate no-op: mark complete and return.
+            if (!$plan->isEmpty()) {
+                throw ImageNotAvailableException::notFound(
+                    $run->desiredRepository !== '' ? $run->desiredRepository : '(none)',
+                    'plan carries no digest-pinned image_repository/image_digest — refusing to release',
+                );
+            }
+
+            $this->stateStore->complete($run->runId);
+
+            return new TargetStatus(
+                color: ActiveColor::from((string) ($this->extractPromotedColor($run) ?? ActiveColor::None->value)),
+                imageDigest: $run->desiredDigest,
+                healthStatus: 'ok',
+                checkedAt: new \DateTimeImmutable(),
+            );
+        }
 
         try {
             $this->executor->execute($plan, $run, $image);
@@ -140,19 +174,6 @@ final class KubernetesTarget implements DeployTargetInterface
         );
     }
 
-    private function extractDesiredDigest(DeployPlan $plan): string
-    {
-        foreach ($plan->phases as $phase) {
-            foreach ($phase->steps as $step) {
-                if (isset($step->params['image_digest']) && \is_string($step->params['image_digest'])) {
-                    return $step->params['image_digest'];
-                }
-            }
-        }
-
-        return '';
-    }
-
     private function extractPromotedColor(DeployRun $run): ?string
     {
         foreach ($run->outcomes() as $outcome) {
@@ -164,15 +185,6 @@ final class KubernetesTarget implements DeployTargetInterface
         }
 
         return null;
-    }
-
-    private function buildImageReference(string $digest): ImageReference
-    {
-        if ($digest === '' || !str_starts_with($digest, 'sha256:')) {
-            return new ImageReference('app', digest: null);
-        }
-
-        return new ImageReference('app', digest: $digest);
     }
 
     private function generateRunId(): string

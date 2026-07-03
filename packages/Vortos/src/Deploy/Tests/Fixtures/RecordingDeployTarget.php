@@ -12,6 +12,7 @@ use Vortos\Deploy\Target\ActiveColor;
 use Vortos\Deploy\Target\DeployCapability;
 use Vortos\Deploy\Target\DeployTargetInterface;
 use Vortos\Deploy\Target\TargetStatus;
+use Vortos\Release\Manifest\BuildManifest;
 use Vortos\OpsKit\Attribute\AsDriver;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
 
@@ -24,7 +25,7 @@ use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
 final class RecordingDeployTarget implements DeployTargetInterface
 {
     public int $planCalls = 0;
-    public int $pushCalls = 0;
+    public int $assertImageAvailableCalls = 0;
     public int $releaseCalls = 0;
     public int $rollbackCalls = 0;
 
@@ -49,16 +50,14 @@ final class RecordingDeployTarget implements DeployTargetInterface
         return new DeployPlan($phases, $context->definition->definitionHash);
     }
 
-    public function push(ImageReference $image): ImageReference
+    public function assertImageAvailable(ImageReference $image): void
     {
-        $this->pushCalls++;
-
-        return $image->isDigestPinned() ? $image : $image->withDigest('sha256:' . str_repeat('a', 64));
+        $this->assertImageAvailableCalls++;
     }
 
     public function migrate(DeployPlan $plan): void {}
 
-    public function release(DeployPlan $plan): TargetStatus
+    public function release(DeployPlan $plan, EnvironmentName $env): TargetStatus
     {
         $this->releaseCalls++;
         if ($this->failRelease) {
@@ -68,7 +67,7 @@ final class RecordingDeployTarget implements DeployTargetInterface
         return new TargetStatus(ActiveColor::Green, 'sha256:' . str_repeat('a', 64), 'healthy', new \DateTimeImmutable());
     }
 
-    public function rollback(DeployPlan $plan): TargetStatus
+    public function rollback(DeployPlan $plan, EnvironmentName $env, ?BuildManifest $targetManifest = null): TargetStatus
     {
         $this->rollbackCalls++;
 

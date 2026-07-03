@@ -22,6 +22,7 @@ final class ChangelogProvenanceContractTest extends TestCase
         $manifest = new BuildManifest(
             buildId: 'build-42',
             gitSha: str_repeat('a', 40),
+            imageRepository: 'ghcr.io/acme/app',
             imageDigest: 'sha256:' . str_repeat('a', 64),
             targetArch: Arch::Arm64,
             environment: 'production',

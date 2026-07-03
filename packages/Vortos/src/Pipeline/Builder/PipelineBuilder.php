@@ -301,6 +301,89 @@ final class PipelineBuilder
     {
         $hasBuild = $definition->hasBuildStage();
 
+        return $hasBuild
+            ? $this->deployInImageStage($definition)
+            : $this->deployOnRunnerStage($definition);
+    }
+
+    /**
+     * Deploy-in-image: run record-manifest + doctor + deploy INSIDE the built image via
+     * `docker run <repo>@<digest>`, so the app's config and RS256 keys are present by
+     * construction — no PHP/composer/keys on the runner. The only CI secret is the age KEK
+     * (VORTOS_AGE_IDENTITY); the committed, age-encrypted secrets file is mounted in.
+     */
+    private function deployInImageStage(PipelineDefinition $definition): Stage
+    {
+        $repo = $definition->imageRepository;
+        \assert($repo !== null);
+
+        $arch = $definition->targetArch->value;
+        $imageRef = $repo . '@${{ needs.build.outputs.image }}';
+
+        // Posture-aware secrets. OIDC path (default): zero standing secrets — the deploy
+        // credential federates from the runner's OIDC id-token, so the generated workflow
+        // references no static secret (enforced by OidcZeroStandingSecretTest). ssh-key path
+        // (oidc:false): the encrypted secrets store is opened with the age KEK, the single
+        // CI secret, and the committed ciphertext file is mounted in read-only.
+        $useAgeKek = !$definition->oidc;
+        $stepEnv = $useAgeKek ? ['VORTOS_AGE_IDENTITY' => '${{ secrets.VORTOS_AGE_IDENTITY }}'] : [];
+
+        $dockerRun = 'docker run --rm '
+            . '-e VORTOS_DEPLOY_HOST -e VORTOS_DEPLOY_USER -e VORTOS_DEPLOY_PORT '
+            . ($useAgeKek ? '-e VORTOS_AGE_IDENTITY -v "$PWD/vortos-secrets.age:/app/vortos-secrets.age:ro" ' : '')
+            . $imageRef . ' php bin/console ';
+
+        $loginProvider = $this->requireLoginProvider($definition->registryProvider);
+
+        $steps = [
+            new ActionStep('Checkout', KnownActionFactory::checkout()),
+            $loginProvider->loginStep(new RegistryLoginContext($definition)),
+            new CommandStep(
+                'Record build manifest',
+                $dockerRun . sprintf(
+                    'vortos:release:record-manifest --env=${{ matrix.environment }} --repository=%s --digest=${{ needs.build.outputs.image }} --git-sha=${{ github.sha }} --arch=%s --builder-id=github-actions',
+                    $repo,
+                    $arch,
+                ),
+                env: $stepEnv,
+            ),
+            new CommandStep(
+                'Run deploy doctor',
+                $dockerRun . 'deploy:doctor --env=${{ matrix.environment }} --json',
+                env: $stepEnv,
+            ),
+            new CommandStep(
+                'Deploy',
+                $dockerRun . sprintf(
+                    'deploy --env=${{ matrix.environment }} --yes --json --image-repository=%s --image-digest=${{ needs.build.outputs.image }}',
+                    $repo,
+                ),
+                env: $stepEnv,
+            ),
+        ];
+
+        return new Stage(
+            id: 'deploy',
+            displayName: 'Deploy',
+            kind: StageKind::Deploy,
+            steps: $steps,
+            needs: ['tests', 'analyse', 'agnosticism', 'build'],
+            runner: new RunnerSpec(),
+            permissions: $this->deployPermissions($definition),
+            environment: '${{ matrix.environment }}',
+            timeoutMinutes: $definition->defaultTimeoutMinutes,
+            matrix: $this->environmentMatrix($definition),
+            condition: "github.ref == 'refs/heads/main' && github.event_name == 'push'",
+        );
+    }
+
+    /**
+     * Degenerate path when no image is built (no imageRepository): run on the runner.
+     * Without a build there is no image to deploy-in-image, so this exists only so a
+     * pipeline without a build stage still emits a coherent (if minimal) deploy job.
+     */
+    private function deployOnRunnerStage(PipelineDefinition $definition): Stage
+    {
         $steps = [
             new ActionStep('Checkout', KnownActionFactory::checkout()),
             new ActionStep('Setup PHP', KnownActionFactory::setupPhp(), [
@@ -312,39 +395,58 @@ final class PipelineBuilder
             new CommandStep(
                 'Run deploy doctor',
                 'php bin/console deploy:doctor --env=${{ matrix.environment }} --json',
+                env: ['VORTOS_AGE_IDENTITY' => '${{ secrets.VORTOS_AGE_IDENTITY }}'],
+            ),
+            new CommandStep(
+                'Deploy',
+                'php bin/console deploy --env=${{ matrix.environment }} --yes --json',
+                env: ['VORTOS_AGE_IDENTITY' => '${{ secrets.VORTOS_AGE_IDENTITY }}'],
             ),
         ];
-
-        $deployCmd = 'php bin/console deploy --env=${{ matrix.environment }} --yes --json';
-        if ($hasBuild) {
-            $deployCmd .= ' --image-digest=${{ needs.build.outputs.image }}';
-        }
-
-        $steps[] = new CommandStep('Deploy', $deployCmd);
-
-        $needs = ['tests', 'analyse', 'agnosticism'];
-        if ($hasBuild) {
-            $needs[] = 'build';
-        }
 
         return new Stage(
             id: 'deploy',
             displayName: 'Deploy',
             kind: StageKind::Deploy,
             steps: $steps,
-            needs: $needs,
+            needs: ['tests', 'analyse', 'agnosticism'],
             runner: new RunnerSpec(),
-            permissions: Permissions::readOnly(),
+            permissions: $this->deployPermissions($definition),
             environment: '${{ matrix.environment }}',
             timeoutMinutes: $definition->defaultTimeoutMinutes,
-            matrix: new Matrix(
-                axisName: 'environment',
-                values: array_map(
-                    static fn (string $env): array => ['environment' => $env],
-                    $definition->environments,
-                ),
-            ),
+            matrix: $this->environmentMatrix($definition),
             condition: "github.ref == 'refs/heads/main' && github.event_name == 'push'",
+        );
+    }
+
+    /**
+     * Deploy job permissions: read contents, and — only when the deploy credential
+     * federates via OIDC (e.g. ssh-ca-oidc) — request an id-token so the runner can mint
+     * a short-lived credential. Without this, OIDC deploy is impossible from the workflow.
+     */
+    private function deployPermissions(PipelineDefinition $definition): Permissions
+    {
+        $permissions = new Permissions([
+            new Permission(PermissionScope::Contents, PermissionAccess::Read),
+        ]);
+
+        if ($definition->oidc) {
+            $permissions = $permissions->with(
+                new Permission(PermissionScope::IdToken, PermissionAccess::Write),
+            );
+        }
+
+        return $permissions;
+    }
+
+    private function environmentMatrix(PipelineDefinition $definition): Matrix
+    {
+        return new Matrix(
+            axisName: 'environment',
+            values: array_map(
+                static fn (string $env): array => ['environment' => $env],
+                $definition->environments,
+            ),
         );
     }
 

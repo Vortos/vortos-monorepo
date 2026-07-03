@@ -32,6 +32,7 @@ final class BlueGreenStrategy implements DeployStrategyInterface
         $phases = [];
         $stagedColor = $context->currentState->activeColor->opposite();
         $digest = $context->desiredManifest->imageDigest;
+        $repository = $context->desiredManifest->imageRepository;
 
         if (!$context->desiredManifest->schemaFingerprint->isEmpty()) {
             $phases[] = new DeployPhase(PhaseKind::ExpandMigrate, [
@@ -47,12 +48,12 @@ final class BlueGreenStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::DrainWorker,
                 'Rolling drain and restart workers',
-                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest],
+                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest, 'image_repository' => $repository],
             ),
             new DeployStep(
                 StepAction::StartWorker,
                 'Noop — workers launched during drain rollout',
-                ['image_digest' => $digest],
+                ['image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 
@@ -60,12 +61,12 @@ final class BlueGreenStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::PullImage,
                 sprintf('Pull image @%s to staged color', $digest),
-                ['image_digest' => $digest],
+                ['image_digest' => $digest, 'image_repository' => $repository],
             ),
             new DeployStep(
                 StepAction::StartContainer,
                 sprintf('Start %s container', $stagedColor->value),
-                ['color' => $stagedColor->value, 'image_digest' => $digest],
+                ['color' => $stagedColor->value, 'image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 
@@ -93,7 +94,7 @@ final class BlueGreenStrategy implements DeployStrategyInterface
                     'from' => $context->currentState->activeColor->value,
                     'to' => $stagedColor->value,
                     'drain_deadline_seconds' => 30,
-                    'image_digest' => $digest,
+                    'image_digest' => $digest, 'image_repository' => $repository,
                 ],
             ),
         ]);
@@ -102,7 +103,7 @@ final class BlueGreenStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::UpdateState,
                 sprintf('Promote %s as active', $stagedColor->value),
-                ['color' => $stagedColor->value, 'image_digest' => $digest],
+                ['color' => $stagedColor->value, 'image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 

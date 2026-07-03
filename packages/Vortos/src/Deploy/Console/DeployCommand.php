@@ -43,6 +43,7 @@ final class DeployCommand extends Command
         $this->addOption('resume', null, InputOption::VALUE_NONE, 'Resume an interrupted run');
         $this->addOption('json', null, InputOption::VALUE_NONE, 'Machine-readable outcome');
         $this->addOption('image-digest', null, InputOption::VALUE_REQUIRED, 'Pin the deployed image to this sha256 digest (promote-by-digest)');
+        $this->addOption('image-repository', null, InputOption::VALUE_REQUIRED, 'Fully-qualified image repository to deploy (overrides the recorded manifest, e.g. ghcr.io/acme/app)');
         $this->addOption('actor', null, InputOption::VALUE_REQUIRED, 'Actor id recorded in the deploy audit trail');
     }
 
@@ -62,6 +63,7 @@ final class DeployCommand extends Command
         $resume = (bool) $input->getOption('resume');
         $json = (bool) $input->getOption('json');
         $imageDigest = $input->getOption('image-digest');
+        $imageRepository = $input->getOption('image-repository');
 
         $mode = $dryRun ? DeployExecutionMode::DryRun : DeployExecutionMode::Live;
 
@@ -84,6 +86,7 @@ final class DeployCommand extends Command
             assumeYes: $yes,
             resume: $resume,
             imageDigest: \is_string($imageDigest) ? $imageDigest : null,
+            imageRepository: \is_string($imageRepository) ? $imageRepository : null,
             actorId: $actorId,
             actorIdentitySource: ActorIdentitySource::Local,
         );

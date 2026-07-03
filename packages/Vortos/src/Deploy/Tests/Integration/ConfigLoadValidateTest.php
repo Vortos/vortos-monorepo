@@ -48,6 +48,7 @@ final class ConfigLoadValidateTest extends TestCase
             desiredManifest: new BuildManifest(
                 buildId: 'integration-build-1',
                 gitSha: 'abc1234',
+                imageRepository: 'ghcr.io/acme/app',
                 imageDigest: 'sha256:' . str_repeat('a', 64),
                 targetArch: Arch::Arm64,
                 environment: 'prod',

@@ -149,6 +149,19 @@ final class StepExecutor
     private function handlePullImage(DeployStep $step, ImageReference $image): string
     {
         $this->assertDigestPinned($image);
+
+        // In the push model the image must be pulled ON THE VPS, not on the runner. Pulling
+        // locally here would put the image on the wrong host (and, historically, under a
+        // bogus repository). Over SSH we docker-pull the fully-qualified repo@digest on the
+        // target; without a transport (local/dev) we fall back to the local registry.
+        if ($this->sshTransport !== null) {
+            $this->sshTransport
+                ->run(new RemoteCommand(['docker', 'pull', $image->toString()]))
+                ->throwOnFailure('remote docker pull');
+
+            return sprintf('pulled %s on target', $image->toString());
+        }
+
         $this->registry->pull($image);
 
         return sprintf('pulled %s', $image->toString());

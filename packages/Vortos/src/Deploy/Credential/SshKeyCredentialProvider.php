@@ -17,6 +17,7 @@ final class SshKeyCredentialProvider extends AbstractCredentialProvider
     public function __construct(
         private readonly SecretsProviderInterface $secrets,
         private readonly string $secretKeyName = 'deploy_ssh_private_key',
+        private readonly string $knownHostsSecretName = 'deploy_known_hosts',
     ) {}
 
     public function capabilities(): CapabilityDescriptor
@@ -37,16 +38,27 @@ final class SshKeyCredentialProvider extends AbstractCredentialProvider
     {
         parent::assertIssuable($env);
 
-        foreach ($this->secrets->list() as $key) {
-            if ($key->value() === $this->secretKeyName) {
-                return;
-            }
+        // Fail-closed at doctor time on BOTH backing secrets: the private key AND the
+        // known_hosts entries. Strict host-key verification is mandatory (no trust-on-
+        // first-use), so a missing known_hosts must surface as an actionable preflight
+        // failure, not a mid-deploy abort. Checked by name only via list() — never revealed.
+        if (!$this->hasSecret($this->secretKeyName)) {
+            throw CredentialNotIssuableException::forProvider(
+                'ssh-key',
+                sprintf('backing secret "%s" is not present in the secrets store', $this->secretKeyName),
+            );
         }
 
-        throw CredentialNotIssuableException::forProvider(
-            'ssh-key',
-            sprintf('backing secret "%s" is not present in the secrets store', $this->secretKeyName),
-        );
+        if (!$this->hasSecret($this->knownHostsSecretName)) {
+            throw CredentialNotIssuableException::forProvider(
+                'ssh-key',
+                sprintf(
+                    'known_hosts secret "%s" is not present; strict host-key verification is mandatory and has no '
+                    . 'trust-on-first-use fallback',
+                    $this->knownHostsSecretName,
+                ),
+            );
+        }
     }
 
     public function issue(EnvironmentName $env): IssuedCredential
@@ -61,17 +73,41 @@ final class SshKeyCredentialProvider extends AbstractCredentialProvider
         );
     }
 
+    /**
+     * The credential provider NEVER writes secret material to disk (enforced by
+     * {@see \Vortos\Deploy\Tests\Architecture\CredentialNoStandingSecretTest}). It returns
+     * the raw key + optional known_hosts material inside the lease; materializing them into
+     * an ssh-usable form (an ssh-agent identity, or short-lived files under the Execution
+     * layer) is the transport layer's responsibility, scoped to and wiped with the lease.
+     */
     protected function materialize(IssuedCredential $credential, EnvironmentName $env): CredentialLease
     {
+        $knownHosts = null;
+        $secrets = [$credential->material];
+
+        if ($this->hasSecret($this->knownHostsSecretName)) {
+            $knownHosts = $this->secrets->get(SecretKey::fromString($this->knownHostsSecretName));
+            $secrets[] = $knownHosts;
+        }
+
         $use = new CredentialUse(
             credential: $credential,
             identityPath: null,
             registryToken: null,
+            knownHostsMaterial: $knownHosts,
         );
 
-        return new CredentialLease(
-            use: $use,
-            secrets: [$credential->material],
-        );
+        return new CredentialLease(use: $use, secrets: $secrets);
+    }
+
+    private function hasSecret(string $name): bool
+    {
+        foreach ($this->secrets->list() as $key) {
+            if ($key->value() === $name) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

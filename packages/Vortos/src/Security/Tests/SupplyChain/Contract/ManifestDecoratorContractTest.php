@@ -74,6 +74,7 @@ final class ManifestDecoratorContractTest extends TestCase
         return new BuildManifest(
             buildId: 'build-1',
             gitSha: 'abcdef1',
+            imageRepository: 'ghcr.io/acme/app',
             imageDigest: self::DIGEST,
             targetArch: Arch::Arm64,
             environment: 'production',
@@ -87,6 +88,7 @@ final class ManifestDecoratorContractTest extends TestCase
         return new BuildManifest(
             buildId: 'build-1',
             gitSha: 'abcdef1',
+            imageRepository: 'ghcr.io/acme/app',
             imageDigest: self::DIGEST,
             targetArch: Arch::Arm64,
             environment: 'production',

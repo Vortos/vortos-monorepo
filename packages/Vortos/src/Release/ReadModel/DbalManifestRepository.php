@@ -23,6 +23,7 @@ final class DbalManifestRepository implements ManifestRepositoryInterface
             $this->connection->insert($this->manifestTable, [
                 'build_id' => $manifest->buildId,
                 'git_sha' => $manifest->gitSha,
+                'image_repository' => $manifest->imageRepository,
                 'image_digest' => $manifest->imageDigest,
                 'target_arch' => $manifest->targetArch->value,
                 'environment' => $manifest->environment,

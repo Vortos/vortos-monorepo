@@ -24,9 +24,10 @@ return new class extends AbstractModuleSchemaProvider {
     public function define(Schema $schema): void
     {
         $table = $schema->createTable($this->t('release_build_manifests'));
-        $table->addColumn('build_id',     'string',             ['length' => 36, 'notnull' => true]);
-        $table->addColumn('git_sha',      'string',             ['length' => 40, 'notnull' => true]);
-        $table->addColumn('image_digest', 'string',             ['length' => 71, 'notnull' => true]);
+        $table->addColumn('build_id',       'string',             ['length' => 36, 'notnull' => true]);
+        $table->addColumn('git_sha',        'string',             ['length' => 40, 'notnull' => true]);
+        $table->addColumn('image_repository','string',            ['length' => 255, 'notnull' => true]);
+        $table->addColumn('image_digest',   'string',             ['length' => 71, 'notnull' => true]);
         $table->addColumn('target_arch',  'string',             ['length' => 20, 'notnull' => true]);
         $table->addColumn('environment',  'string',             ['length' => 64, 'notnull' => true]);
         $table->addColumn('schema_hash',  'string',             ['length' => 71, 'notnull' => true]);

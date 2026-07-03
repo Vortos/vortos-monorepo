@@ -18,7 +18,8 @@ final class BuildManifestTest extends TestCase
         return new BuildManifest(
             buildId: 'build-001',
             gitSha: 'abc1234',
-            imageDigest: 'sha256:' . str_repeat('a', 64),
+            imageRepository: 'ghcr.io/acme/app',
+            imageDigest:'sha256:' . str_repeat('a', 64),
             targetArch: Arch::Arm64,
             environment: 'production',
             schemaFingerprint: new SchemaFingerprint(['m1', 'm2']),
@@ -34,6 +35,8 @@ final class BuildManifestTest extends TestCase
         $m = self::validManifest();
         $this->assertSame('build-001', $m->buildId);
         $this->assertSame('abc1234', $m->gitSha);
+        $this->assertSame('ghcr.io/acme/app', $m->imageRepository);
+        $this->assertSame('ghcr.io/acme/app@sha256:' . str_repeat('a', 64), $m->pullReference());
         $this->assertSame(Arch::Arm64, $m->targetArch);
         $this->assertSame('production', $m->environment);
         $this->assertSame(['m1', 'm2'], $m->schemaFingerprint->migrationIds);
@@ -52,7 +55,8 @@ final class BuildManifestTest extends TestCase
         $m = new BuildManifest(
             buildId: 'b',
             gitSha: str_repeat('a', 40),
-            imageDigest: 'sha256:' . str_repeat('a', 64),
+            imageRepository: 'ghcr.io/acme/app',
+            imageDigest:'sha256:' . str_repeat('a', 64),
             targetArch: Arch::Amd64,
             environment: 'staging',
             schemaFingerprint: SchemaFingerprint::empty(),
@@ -67,7 +71,8 @@ final class BuildManifestTest extends TestCase
         $m = new BuildManifest(
             buildId: 'b',
             gitSha: 'abc1234',
-            imageDigest: 'sha256:' . str_repeat('a', 64),
+            imageRepository: 'ghcr.io/acme/app',
+            imageDigest:'sha256:' . str_repeat('a', 64),
             targetArch: Arch::Amd64,
             environment: 'dev',
             schemaFingerprint: SchemaFingerprint::empty(),
@@ -87,7 +92,8 @@ final class BuildManifestTest extends TestCase
         new BuildManifest(
             buildId: '',
             gitSha: 'abc1234',
-            imageDigest: 'sha256:' . str_repeat('a', 64),
+            imageRepository: 'ghcr.io/acme/app',
+            imageDigest:'sha256:' . str_repeat('a', 64),
             targetArch: Arch::Arm64,
             environment: 'prod',
             schemaFingerprint: SchemaFingerprint::empty(),
@@ -104,7 +110,8 @@ final class BuildManifestTest extends TestCase
         new BuildManifest(
             buildId: 'b',
             gitSha: $sha,
-            imageDigest: 'sha256:' . str_repeat('a', 64),
+            imageRepository: 'ghcr.io/acme/app',
+            imageDigest:'sha256:' . str_repeat('a', 64),
             targetArch: Arch::Arm64,
             environment: 'prod',
             schemaFingerprint: SchemaFingerprint::empty(),
@@ -123,6 +130,63 @@ final class BuildManifestTest extends TestCase
         yield 'spaces' => ['abc 234'];
     }
 
+    #[DataProvider('invalidImageRepositoryProvider')]
+    public function test_rejects_invalid_image_repository(string $repository): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Image repository');
+
+        new BuildManifest(
+            buildId: 'b',
+            gitSha: 'abc1234',
+            imageRepository: $repository,
+            imageDigest: 'sha256:' . str_repeat('a', 64),
+            targetArch: Arch::Arm64,
+            environment: 'prod',
+            schemaFingerprint: SchemaFingerprint::empty(),
+            createdAt: new \DateTimeImmutable(),
+        );
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function invalidImageRepositoryProvider(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'digest suffix' => ['ghcr.io/acme/app@sha256:' . str_repeat('a', 64)];
+        yield 'tag suffix' => ['ghcr.io/acme/app:v1'];
+        yield 'uppercase' => ['ghcr.io/Acme/App'];
+        yield 'trailing slash' => ['ghcr.io/acme/app/'];
+        yield 'double slash' => ['ghcr.io//app'];
+        yield 'whitespace' => ['ghcr.io/acme app'];
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function validImageRepositoryProvider(): iterable
+    {
+        yield 'bare' => ['app'];
+        yield 'dockerhub library' => ['docker.io/library/app'];
+        yield 'ghcr nested' => ['ghcr.io/acme/team/app'];
+        yield 'host with port' => ['localhost:5000/app'];
+        yield 'dashes and dots' => ['registry.example.com/my-team/my.app'];
+    }
+
+    #[DataProvider('validImageRepositoryProvider')]
+    public function test_accepts_valid_image_repository(string $repository): void
+    {
+        $m = new BuildManifest(
+            buildId: 'b',
+            gitSha: 'abc1234',
+            imageRepository: $repository,
+            imageDigest: 'sha256:' . str_repeat('a', 64),
+            targetArch: Arch::Arm64,
+            environment: 'prod',
+            schemaFingerprint: SchemaFingerprint::empty(),
+            createdAt: new \DateTimeImmutable(),
+        );
+
+        $this->assertSame($repository, $m->imageRepository);
+    }
+
     #[DataProvider('invalidImageDigestProvider')]
     public function test_rejects_invalid_image_digest(string $digest): void
     {
@@ -132,7 +196,8 @@ final class BuildManifestTest extends TestCase
         new BuildManifest(
             buildId: 'b',
             gitSha: 'abc1234',
-            imageDigest: $digest,
+            imageRepository: 'ghcr.io/acme/app',
+            imageDigest:$digest,
             targetArch: Arch::Arm64,
             environment: 'prod',
             schemaFingerprint: SchemaFingerprint::empty(),
@@ -160,7 +225,8 @@ final class BuildManifestTest extends TestCase
         new BuildManifest(
             buildId: 'b',
             gitSha: 'abc1234',
-            imageDigest: 'sha256:' . str_repeat('a', 64),
+            imageRepository: 'ghcr.io/acme/app',
+            imageDigest:'sha256:' . str_repeat('a', 64),
             targetArch: Arch::Arm64,
             environment: '',
             schemaFingerprint: SchemaFingerprint::empty(),
@@ -177,6 +243,7 @@ final class BuildManifestTest extends TestCase
 
         $this->assertSame($original->buildId, $restored->buildId);
         $this->assertSame($original->gitSha, $restored->gitSha);
+        $this->assertSame($original->imageRepository, $restored->imageRepository);
         $this->assertSame($original->imageDigest, $restored->imageDigest);
         $this->assertSame($original->targetArch, $restored->targetArch);
         $this->assertSame($original->environment, $restored->environment);
@@ -207,6 +274,7 @@ final class BuildManifestTest extends TestCase
 
         $this->assertArrayHasKey('build_id', $arr);
         $this->assertArrayHasKey('git_sha', $arr);
+        $this->assertArrayHasKey('image_repository', $arr);
         $this->assertArrayHasKey('image_digest', $arr);
         $this->assertArrayHasKey('target_arch', $arr);
         $this->assertArrayHasKey('environment', $arr);

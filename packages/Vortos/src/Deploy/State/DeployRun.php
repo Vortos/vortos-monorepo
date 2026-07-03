@@ -15,6 +15,7 @@ final class DeployRun
         public readonly string $planHash,
         public readonly string $definitionHash,
         public readonly string $desiredDigest,
+        public readonly string $desiredRepository = '',
         public DeployStatus $status = DeployStatus::Pending,
         public readonly \DateTimeImmutable $startedAt = new \DateTimeImmutable(),
         public \DateTimeImmutable $updatedAt = new \DateTimeImmutable(),
@@ -59,6 +60,7 @@ final class DeployRun
             'plan_hash' => $this->planHash,
             'definition_hash' => $this->definitionHash,
             'desired_digest' => $this->desiredDigest,
+            'desired_repository' => $this->desiredRepository,
             'status' => $this->status->value,
             'outcomes' => array_map(
                 static fn (StepOutcome $o): array => $o->toArray(),
@@ -78,6 +80,7 @@ final class DeployRun
             planHash: (string) $data['plan_hash'],
             definitionHash: (string) $data['definition_hash'],
             desiredDigest: (string) $data['desired_digest'],
+            desiredRepository: (string) ($data['desired_repository'] ?? ''),
             status: DeployStatus::from((string) $data['status']),
             startedAt: new \DateTimeImmutable((string) $data['started_at']),
             updatedAt: new \DateTimeImmutable((string) $data['updated_at']),

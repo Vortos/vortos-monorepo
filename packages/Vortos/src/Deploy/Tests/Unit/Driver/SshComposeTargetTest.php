@@ -74,6 +74,7 @@ final class SshComposeTargetTest extends TestCase
         $manifest = new BuildManifest(
             'build-1',
             'abc1234',
+            'ghcr.io/acme/app',
             'sha256:' . str_repeat('ab', 32),
             Arch::Arm64,
             'production',

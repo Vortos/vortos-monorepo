@@ -134,6 +134,7 @@ final class DeployIntegrationTest extends TestCase
         $manifest = new BuildManifest(
             buildId: 'test-build',
             gitSha: 'abcdef1',
+            imageRepository: 'ghcr.io/acme/app',
             imageDigest: self::DIGEST,
             targetArch: Arch::Arm64,
             environment: 'production',

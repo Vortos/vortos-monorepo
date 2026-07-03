@@ -165,6 +165,7 @@ final class DbalManifestReadModelTest extends TestCase
         return new BuildManifest(
             buildId: $buildId,
             gitSha: 'abc1234',
+            imageRepository: 'ghcr.io/acme/app',
             imageDigest: 'sha256:' . str_repeat('a', 64),
             targetArch: Arch::Arm64,
             environment: $env,
@@ -181,6 +182,7 @@ final class DbalManifestReadModelTest extends TestCase
         $manifests = $schema->createTable('release_build_manifests');
         $manifests->addColumn('build_id', 'string', ['length' => 36]);
         $manifests->addColumn('git_sha', 'string', ['length' => 40]);
+        $manifests->addColumn('image_repository', 'string', ['length' => 255]);
         $manifests->addColumn('image_digest', 'string', ['length' => 71]);
         $manifests->addColumn('target_arch', 'string', ['length' => 20]);
         $manifests->addColumn('environment', 'string', ['length' => 64]);

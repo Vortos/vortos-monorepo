@@ -63,6 +63,7 @@ final class LivenessIndependenceDoctorCheckTest extends TestCase
         $manifest = new BuildManifest(
             buildId: 'build-1',
             gitSha: 'abc1234',
+            imageRepository: 'ghcr.io/acme/app',
             imageDigest: 'sha256:' . str_repeat('a', 64),
             targetArch: Arch::Arm64,
             environment: 'prod',

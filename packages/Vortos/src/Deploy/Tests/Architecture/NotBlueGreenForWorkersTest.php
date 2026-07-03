@@ -92,6 +92,7 @@ final class NotBlueGreenForWorkersTest extends TestCase
         $manifest = new BuildManifest(
             buildId: 'build-1',
             gitSha: str_repeat('a', 40),
+            imageRepository: 'ghcr.io/acme/app',
             imageDigest: 'sha256:' . str_repeat('ab', 32),
             targetArch: Arch::Arm64,
             environment: 'production',

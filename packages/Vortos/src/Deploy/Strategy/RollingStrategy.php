@@ -30,6 +30,7 @@ final class RollingStrategy implements DeployStrategyInterface
     public function phases(DeployContext $context): array
     {
         $digest = $context->desiredManifest->imageDigest;
+        $repository = $context->desiredManifest->imageRepository;
         $phases = [];
 
         if (!$context->desiredManifest->schemaFingerprint->isEmpty()) {
@@ -46,7 +47,7 @@ final class RollingStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::DrainWorker,
                 'Rolling drain and restart workers',
-                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest],
+                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 
@@ -54,7 +55,7 @@ final class RollingStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::StartContainer,
                 'Rolling update containers one by one',
-                ['image_digest' => $digest, 'strategy' => 'rolling'],
+                ['image_digest' => $digest, 'image_repository' => $repository, 'strategy' => 'rolling'],
             ),
         ]);
 
@@ -70,7 +71,7 @@ final class RollingStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::UpdateState,
                 'All nodes updated — record new state',
-                ['image_digest' => $digest],
+                ['image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 

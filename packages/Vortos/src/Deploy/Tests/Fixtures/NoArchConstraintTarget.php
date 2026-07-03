@@ -12,6 +12,7 @@ use Vortos\Deploy\Target\ActiveColor;
 use Vortos\Deploy\Target\DeployCapability;
 use Vortos\Deploy\Target\DeployTargetInterface;
 use Vortos\Deploy\Target\TargetStatus;
+use Vortos\Release\Manifest\BuildManifest;
 use Vortos\OpsKit\Attribute\AsDriver;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
 
@@ -35,19 +36,16 @@ final class NoArchConstraintTarget implements DeployTargetInterface
         return new DeployPlan([], $context->definition->definitionHash);
     }
 
-    public function push(ImageReference $image): ImageReference
-    {
-        return $image->withDigest('sha256:' . str_repeat('a', 64));
-    }
+    public function assertImageAvailable(ImageReference $image): void {}
 
     public function migrate(DeployPlan $plan): void {}
 
-    public function release(DeployPlan $plan): TargetStatus
+    public function release(DeployPlan $plan, EnvironmentName $env): TargetStatus
     {
         return new TargetStatus(ActiveColor::Green, 'sha256:' . str_repeat('a', 64), 'healthy', new \DateTimeImmutable());
     }
 
-    public function rollback(DeployPlan $plan): TargetStatus
+    public function rollback(DeployPlan $plan, EnvironmentName $env, ?BuildManifest $targetManifest = null): TargetStatus
     {
         return new TargetStatus(ActiveColor::Blue, 'sha256:' . str_repeat('b', 64), 'healthy', new \DateTimeImmutable());
     }

@@ -133,6 +133,7 @@ final class DbalManifestReadModel implements ManifestReadModelInterface
         return new BuildManifest(
             buildId: $row['build_id'],
             gitSha: $row['git_sha'],
+            imageRepository: $row['image_repository'],
             imageDigest: $row['image_digest'],
             targetArch: Arch::from($row['target_arch']),
             environment: $row['environment'],

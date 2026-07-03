@@ -90,7 +90,7 @@ final class DeployWiringPass implements CompilerPassInterface
                 ->setArgument('$auditRecorder', new Reference(DeployAuditRecorder::class))
                 ->setPublic(false);
 
-            $container->register(DeployRunner::class, DeployRunner::class)
+            $runnerDef = $container->register(DeployRunner::class, DeployRunner::class)
                 ->setArgument('$contextFactory', new Reference(PreflightContextFactory::class))
                 ->setArgument('$targets', new Reference(DeployTargetRegistry::class))
                 ->setArgument('$planRenderer', new Reference(PlanRenderer::class))
@@ -98,6 +98,13 @@ final class DeployWiringPass implements CompilerPassInterface
                 ->setArgument('$rollbackRunner', new Reference(RollbackRunner::class))
                 ->setArgument('$auditRecorder', new Reference(DeployAuditRecorder::class))
                 ->setPublic(false);
+
+            // Push delivery only: the SSH connection activator is registered by DeployExtension
+            // when push mode + an SSH host are configured. When present, wire it so the runner
+            // opens/closes the connection around the mutating deploy section.
+            if ($container->hasDefinition(\Vortos\Deploy\Execution\SshConnectionActivator::class)) {
+                $runnerDef->setArgument('$connectionActivator', new Reference(\Vortos\Deploy\Execution\SshConnectionActivator::class));
+            }
         }
     }
 }

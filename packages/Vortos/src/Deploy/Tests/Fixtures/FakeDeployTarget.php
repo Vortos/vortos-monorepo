@@ -14,6 +14,7 @@ use Vortos\Deploy\Target\DeployTargetInterface;
 use Vortos\Deploy\Target\TargetStatus;
 use Vortos\OpsKit\Attribute\AsDriver;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
+use Vortos\Release\Manifest\BuildManifest;
 
 #[AsDriver('fake-target')]
 final class FakeDeployTarget implements DeployTargetInterface
@@ -39,14 +40,11 @@ final class FakeDeployTarget implements DeployTargetInterface
         return new DeployPlan([], $context->definition->definitionHash);
     }
 
-    public function push(ImageReference $image): ImageReference
-    {
-        return $image->withDigest('sha256:' . str_repeat('a', 64));
-    }
+    public function assertImageAvailable(ImageReference $image): void {}
 
     public function migrate(DeployPlan $plan): void {}
 
-    public function release(DeployPlan $plan): TargetStatus
+    public function release(DeployPlan $plan, EnvironmentName $env): TargetStatus
     {
         return new TargetStatus(
             ActiveColor::Green,
@@ -56,7 +54,7 @@ final class FakeDeployTarget implements DeployTargetInterface
         );
     }
 
-    public function rollback(DeployPlan $plan): TargetStatus
+    public function rollback(DeployPlan $plan, EnvironmentName $env, ?BuildManifest $targetManifest = null): TargetStatus
     {
         return new TargetStatus(
             ActiveColor::Blue,

@@ -15,6 +15,7 @@ final readonly class DeployRequest
         public bool $resume = false,
         public ?string $targetBuildId = null,
         public ?string $imageDigest = null,
+        public ?string $imageRepository = null,
         public string $actorId = 'unknown',
         public ActorIdentitySource $actorIdentitySource = ActorIdentitySource::Local,
     ) {
@@ -26,6 +27,13 @@ final readonly class DeployRequest
             throw new \InvalidArgumentException(sprintf(
                 'Image digest must match sha256:<64 hex>, got "%s".',
                 $imageDigest,
+            ));
+        }
+
+        if ($imageRepository !== null && preg_match('#^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$#', $imageRepository) !== 1) {
+            throw new \InvalidArgumentException(sprintf(
+                'Image repository must be a lowercase OCI repository with no tag/digest suffix, got "%s".',
+                $imageRepository,
             ));
         }
     }

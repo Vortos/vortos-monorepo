@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Vortos\Deploy\Runner;
 
 use Vortos\Deploy\Audit\DeployAuditRecorder;
+use Vortos\Deploy\Definition\EnvironmentName;
+use Vortos\Deploy\Execution\SshConnectionActivator;
 use Vortos\Deploy\Plan\DeployContext;
 use Vortos\Deploy\Plan\PlanRenderer;
 use Vortos\Deploy\Preflight\DeployDoctor;
@@ -36,6 +38,7 @@ final class DeployRunner
         private readonly DeployDoctor $doctor,
         private readonly RollbackRunner $rollbackRunner,
         private readonly ?DeployAuditRecorder $auditRecorder = null,
+        private readonly ?SshConnectionActivator $connectionActivator = null,
     ) {}
 
     public function run(DeployRequest $request): DeployOutcome
@@ -87,11 +90,40 @@ final class DeployRunner
         }
 
         $digest = $request->imageDigest ?? $manifest->imageDigest;
-        $image = new ImageReference('app', digest: $digest);
+        $repository = $request->imageRepository ?? $manifest->imageRepository;
+        $image = new ImageReference($repository, digest: $digest);
+
+        // The mutating section: image verify → release → (on failure) auto-rollback. In the
+        // push model this must run with an active SSH connection, so it is wrapped by the
+        // connection activator (which leases the credential, activates the transport, and
+        // tears both down afterwards). In local/pull mode the activator is absent and this
+        // runs directly.
+        $deploy = fn (): DeployOutcome => $this->executeMutating($request, $definition, $target, $plan, $image, $preview, $report, $manifest);
+
+        if ($this->connectionActivator !== null) {
+            return $this->connectionActivator->withConnection($definition, new EnvironmentName($env), $deploy);
+        }
+
+        return $deploy();
+    }
+
+    private function executeMutating(
+        DeployRequest $request,
+        \Vortos\Deploy\Definition\DeploymentDefinition $definition,
+        \Vortos\Deploy\Target\DeployTargetInterface $target,
+        \Vortos\Deploy\Plan\DeployPlan $plan,
+        ImageReference $image,
+        string $preview,
+        \Vortos\Deploy\Preflight\PreflightReport $report,
+        \Vortos\Release\Manifest\BuildManifest $manifest,
+    ): DeployOutcome {
+        $env = $request->env;
 
         try {
-            $target->push($image);
-            $status = $target->release($plan);
+            // Fail-closed: the build job is the only pusher; verify the pinned image is
+            // actually present in its registry before mutating anything on the target.
+            $target->assertImageAvailable($image);
+            $status = $target->release($plan, new EnvironmentName($env));
 
             $this->auditRecorder?->succeeded(
                 $env,

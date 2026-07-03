@@ -77,7 +77,7 @@ final class KubernetesTargetTest extends TestCase
         $this->stateStore->complete('existing-run');
 
         $opsBefore = $this->kubeApi->opCount();
-        $status = $this->target->release($plan);
+        $status = $this->target->release($plan, new EnvironmentName('production'));
         $opsAfter = $this->kubeApi->opCount();
 
         $this->assertSame('ok', $status->healthStatus);
@@ -101,12 +101,29 @@ final class KubernetesTargetTest extends TestCase
         $this->assertSame('unknown', $status->healthStatus);
     }
 
-    public function test_push_delegates_to_registry(): void
+    public function test_assert_image_available_passes_for_present_pinned_image(): void
+    {
+        $image = new \Vortos\Deploy\Registry\ImageReference('myapp', digest: 'sha256:' . str_repeat('a', 64));
+
+        $this->target->assertImageAvailable($image);
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_assert_image_available_rejects_unpinned_image(): void
     {
         $image = new \Vortos\Deploy\Registry\ImageReference('myapp', tag: 'latest');
-        $result = $this->target->push($image);
 
-        $this->assertTrue($result->isDigestPinned());
+        $this->expectException(\Vortos\Deploy\Exception\ImageNotAvailableException::class);
+        $this->target->assertImageAvailable($image);
+    }
+
+    public function test_assert_image_available_rejects_digest_mismatch(): void
+    {
+        $image = new \Vortos\Deploy\Registry\ImageReference('myapp', digest: 'sha256:' . str_repeat('b', 64));
+
+        $this->expectException(\Vortos\Deploy\Exception\ImageNotAvailableException::class);
+        $this->target->assertImageAvailable($image);
     }
 
     public function test_capabilities_returns_k8s_descriptor(): void

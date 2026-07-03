@@ -97,7 +97,12 @@ use Vortos\Deploy\Driver\Oci\OciRegistry;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Execution\CommandRunnerInterface;
+use Vortos\Deploy\Execution\DeployConnectionContext;
+use Vortos\Deploy\Execution\LazySshTransport;
 use Vortos\Deploy\Execution\ProcessCommandRunner;
+use Vortos\Deploy\Execution\SshConnectionActivator;
+use Vortos\Deploy\Execution\SshConnectionSettings;
+use Vortos\Deploy\Execution\SshTransportInterface;
 use Vortos\Deploy\Gate\ReadinessGateInterface;
 use Vortos\Deploy\Gate\SmokeRunnerInterface;
 use Vortos\Deploy\Oci\ImageSignerInterface;
@@ -638,6 +643,46 @@ final class DeployExtension extends Extension
                 ->setArgument('$applier', new Reference(DesiredStateApplier::class))
                 ->setArgument('$rateLimiter', new Reference(ReconcileRateLimiter::class))
                 ->setPublic(false);
+        }
+
+        // ── Push delivery: real SSH transport wiring ──
+        // Only when push mode AND an SSH host is configured do we bind a live transport;
+        // otherwise the three consumers keep their null $sshTransport (local execution) and
+        // nothing changes for local/dev/pull installs. The connection itself is resolved
+        // per-deploy by SshConnectionActivator (credential lease → SshConnectionConfig).
+        if ($deliveryMode === 'push' && (string) ($_ENV['VORTOS_DEPLOY_HOST'] ?? '') !== '') {
+            $container->register(DeployConnectionContext::class, DeployConnectionContext::class)
+                ->setPublic(false);
+
+            $container->register(SshConnectionSettings::class, SshConnectionSettings::class)
+                ->setArgument('$host', (string) $_ENV['VORTOS_DEPLOY_HOST'])
+                ->setArgument('$user', (string) ($_ENV['VORTOS_DEPLOY_USER'] ?? 'deploy'))
+                ->setArgument('$port', (int) ($_ENV['VORTOS_DEPLOY_PORT'] ?? 22))
+                ->setPublic(false);
+
+            $container->register(LazySshTransport::class, LazySshTransport::class)
+                ->setArgument('$runner', new Reference(CommandRunnerInterface::class))
+                ->setArgument('$context', new Reference(DeployConnectionContext::class))
+                ->setPublic(false);
+
+            $container->setAlias(SshTransportInterface::class, LazySshTransport::class)
+                ->setPublic(false);
+
+            $container->register(SshConnectionActivator::class, SshConnectionActivator::class)
+                ->setArgument('$credentials', new Reference(CredentialProviderRegistry::class))
+                ->setArgument('$context', new Reference(DeployConnectionContext::class))
+                ->setArgument('$settings', new Reference(SshConnectionSettings::class))
+                ->setPublic(false);
+
+            foreach ([StepExecutor::class, MountedConfigWriter::class, SupervisorWorkerController::class] as $consumer) {
+                $container->getDefinition($consumer)
+                    ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
+            }
+
+            // Caddy admin API stays bound to the VPS loopback; reach it through an SSH
+            // local port-forward so it is never publicly exposed.
+            $container->getDefinition(CaddyAdminClient::class)
+                ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
         }
 
         // ── Block 11: Pull-agent reconcile command (always visible; fail-loud in push mode) ──

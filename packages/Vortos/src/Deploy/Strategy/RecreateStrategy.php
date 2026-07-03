@@ -29,6 +29,7 @@ final class RecreateStrategy implements DeployStrategyInterface
     public function phases(DeployContext $context): array
     {
         $digest = $context->desiredManifest->imageDigest;
+        $repository = $context->desiredManifest->imageRepository;
         $phases = [];
 
         if (!$context->desiredManifest->schemaFingerprint->isEmpty()) {
@@ -45,7 +46,7 @@ final class RecreateStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::DrainWorker,
                 'Rolling drain and restart workers',
-                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest],
+                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 
@@ -57,12 +58,12 @@ final class RecreateStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::PullImage,
                 sprintf('Pull new image @%s', $digest),
-                ['image_digest' => $digest],
+                ['image_digest' => $digest, 'image_repository' => $repository],
             ),
             new DeployStep(
                 StepAction::StartContainer,
                 'Start new containers (downtime ends)',
-                ['image_digest' => $digest],
+                ['image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 
@@ -70,7 +71,7 @@ final class RecreateStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::UpdateState,
                 'Record new state',
-                ['image_digest' => $digest],
+                ['image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
 

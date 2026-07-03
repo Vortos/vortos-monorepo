@@ -62,7 +62,7 @@ final class DeployRunnerDryRunTest extends TestCase
         $this->assertNotSame('', (string) $outcome->preview);
 
         // The whole point: zero mutation.
-        $this->assertSame(0, $target->pushCalls);
+        $this->assertSame(0, $target->assertImageAvailableCalls);
         $this->assertSame(0, $target->releaseCalls);
         $this->assertSame(0, $target->rollbackCalls);
     }

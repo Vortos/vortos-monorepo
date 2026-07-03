@@ -29,6 +29,7 @@ final class AssertIssuableTest extends TestCase
     {
         $secrets = new FakeSecretsProvider();
         $secrets->setSecret('deploy_ssh_private_key', 'PRIVATE-KEY-MATERIAL');
+        $secrets->setSecret('deploy_known_hosts', 'vps.example.com ssh-ed25519 AAAA');
 
         $provider = new SshKeyCredentialProvider($secrets);
 
@@ -44,12 +45,26 @@ final class AssertIssuableTest extends TestCase
         $provider->assertIssuable($this->env);
     }
 
+    public function test_ssh_key_fails_when_known_hosts_secret_absent(): void
+    {
+        // Private key present but no known_hosts: strict host-key verification is mandatory,
+        // so the preflight must fail loud rather than defer the failure to deploy time.
+        $secrets = new FakeSecretsProvider();
+        $secrets->setSecret('deploy_ssh_private_key', 'PRIVATE-KEY-MATERIAL');
+
+        $provider = new SshKeyCredentialProvider($secrets);
+
+        $this->expectException(CredentialNotIssuableException::class);
+        $provider->assertIssuable($this->env);
+    }
+
     public function test_ssh_key_assert_issuable_does_not_reveal_secret(): void
     {
         // list() returns names only; a missing-but-named secret still passes preflight
         // without get()/reveal() ever running.
         $secrets = new FakeSecretsProvider();
         $secrets->setSecret('deploy_ssh_private_key', 'SENSITIVE');
+        $secrets->setSecret('deploy_known_hosts', 'vps.example.com ssh-ed25519 AAAA');
 
         $provider = new SshKeyCredentialProvider($secrets);
         $provider->assertIssuable($this->env);

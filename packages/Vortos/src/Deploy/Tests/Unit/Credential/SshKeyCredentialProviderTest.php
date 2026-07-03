@@ -79,6 +79,51 @@ final class SshKeyCredentialProviderTest extends TestCase
         $this->assertSame('custom-key-material', $credential->material->reveal());
     }
 
+    public function test_lease_exposes_identity_material_without_touching_disk(): void
+    {
+        $secrets = new FakeSecretsProvider();
+        $secrets->setSecret('deploy_ssh_private_key', 'PRIVATE-KEY-BYTES');
+
+        $provider = new SshKeyCredentialProvider($secrets);
+        $lease = $provider->lease(new EnvironmentName('production'));
+
+        $lease->use(function ($use): void {
+            // The provider never writes to disk (CredentialNoStandingSecretTest); it exposes
+            // the raw material for the transport layer to materialize within the lease scope.
+            self::assertNull($use->identityPath());
+            self::assertSame('PRIVATE-KEY-BYTES', $use->identityMaterial()->reveal());
+        });
+    }
+
+    public function test_lease_provides_known_hosts_material_for_strict_verification(): void
+    {
+        $secrets = new FakeSecretsProvider();
+        $secrets->setSecret('deploy_ssh_private_key', 'KEY');
+        $secrets->setSecret('deploy_known_hosts', 'vps.example.com ssh-ed25519 AAAA...');
+
+        $provider = new SshKeyCredentialProvider($secrets);
+        $lease = $provider->lease(new EnvironmentName('production'));
+
+        $lease->use(function ($use): void {
+            $material = $use->knownHostsMaterial();
+            self::assertNotNull($material, 'known_hosts must be provided so host-key checking is not trust-on-first-use');
+            self::assertSame('vps.example.com ssh-ed25519 AAAA...', $material->reveal());
+        });
+    }
+
+    public function test_lease_without_known_hosts_secret_leaves_known_hosts_null(): void
+    {
+        $secrets = new FakeSecretsProvider();
+        $secrets->setSecret('deploy_ssh_private_key', 'KEY');
+
+        $provider = new SshKeyCredentialProvider($secrets);
+        $lease = $provider->lease(new EnvironmentName('production'));
+
+        $lease->use(function ($use): void {
+            self::assertNull($use->knownHostsMaterial());
+        });
+    }
+
     public function test_capabilities_declare_no_special_features(): void
     {
         $secrets = new FakeSecretsProvider();

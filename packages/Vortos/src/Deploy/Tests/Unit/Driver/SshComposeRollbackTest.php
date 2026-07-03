@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Deploy\Tests\Unit\Driver;
 
 use PHPUnit\Framework\TestCase;
+use Vortos\Deploy\Definition\EnvironmentName;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Exception\RollbackRefusedException;
@@ -33,6 +34,7 @@ final class SshComposeRollbackTest extends TestCase
         return new BuildManifest(
             buildId: 'build-1',
             gitSha: 'abc1234',
+            imageRepository: 'ghcr.io/acme/app',
             imageDigest: 'sha256:' . str_repeat('a', 64),
             targetArch: Arch::Arm64,
             environment: 'production',
@@ -84,7 +86,7 @@ final class SshComposeRollbackTest extends TestCase
 
         $this->expectException(RollbackRefusedException::class);
 
-        $target->rollback($plan, $illegalTarget);
+        $target->rollback($plan, new EnvironmentName('production'), $illegalTarget);
     }
 
     public function test_rollback_succeeds_on_legal_target(): void
@@ -101,7 +103,7 @@ final class SshComposeRollbackTest extends TestCase
         $plan = new DeployPlan(phases: [], definitionHash: 'def-hash');
         $legalTarget = $this->manifest(['m001']);
 
-        $status = $target->rollback($plan, $legalTarget);
+        $status = $target->rollback($plan, new EnvironmentName('production'), $legalTarget);
 
         self::assertSame('ok', $status->healthStatus);
     }
@@ -112,7 +114,7 @@ final class SshComposeRollbackTest extends TestCase
 
         $plan = new DeployPlan(phases: [], definitionHash: 'def-hash');
 
-        $status = $target->rollback($plan, $this->manifest(['m001']));
+        $status = $target->rollback($plan, new EnvironmentName('production'), $this->manifest(['m001']));
 
         self::assertSame('ok', $status->healthStatus);
     }

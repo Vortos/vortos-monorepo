@@ -39,7 +39,7 @@ final class DeployRunnerTest extends TestCase
 
         $this->assertSame(DeployOutcomeStatus::Refused, $outcome->status);
         $this->assertSame(1, $outcome->exitCode());
-        $this->assertSame(0, $target->pushCalls);
+        $this->assertSame(0, $target->assertImageAvailableCalls);
         $this->assertSame(0, $target->releaseCalls);
         $this->assertSame(0, $target->planCalls, 'a refused deploy must not even build the plan path that mutates');
     }
@@ -53,7 +53,7 @@ final class DeployRunnerTest extends TestCase
 
         $this->assertSame(DeployOutcomeStatus::Deployed, $outcome->status);
         $this->assertSame(0, $outcome->exitCode());
-        $this->assertSame(1, $target->pushCalls);
+        $this->assertSame(1, $target->assertImageAvailableCalls);
         $this->assertSame(1, $target->releaseCalls);
         $this->assertSame(0, $target->rollbackCalls);
     }

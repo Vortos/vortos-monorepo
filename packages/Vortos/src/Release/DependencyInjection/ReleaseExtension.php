@@ -12,13 +12,16 @@ use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 use Vortos\Release\Changelog\ChangelogRenderer;
 use Vortos\Release\Audit\NullReleaseAuditEmitter;
 use Vortos\Release\Audit\ReleaseAuditEmitterInterface;
+use Vortos\Release\Console\RecordManifestCommand;
 use Vortos\Release\Console\ReleaseChangelogCommand;
 use Vortos\Release\Console\ReleaseTagCommand;
 use Vortos\Release\Git\GitRemoteResolver;
 use Vortos\Release\Git\GitRepositoryInterface;
 use Vortos\Release\Git\Process\ProcessGitRepository;
 use Vortos\Release\Migration\AppliedMigrationSetReaderInterface;
+use Vortos\Release\Migration\AvailableMigrationSetReaderInterface;
 use Vortos\Release\Migration\DoctrineAppliedMigrationSetReader;
+use Vortos\Release\Migration\DoctrineAvailableMigrationSetReader;
 use Vortos\Release\ReadModel\DbalManifestReadModel;
 use Vortos\Release\ReadModel\DbalManifestRepository;
 use Vortos\Release\ReadModel\ManifestReadModelInterface;
@@ -56,6 +59,13 @@ final class ReleaseExtension extends Extension
             ->setPublic(false);
 
         $container->setAlias(AppliedMigrationSetReaderInterface::class, DoctrineAppliedMigrationSetReader::class)
+            ->setPublic(false);
+
+        $container->register(DoctrineAvailableMigrationSetReader::class, DoctrineAvailableMigrationSetReader::class)
+            ->setArgument('$factoryProvider', new Reference(DependencyFactoryProviderInterface::class))
+            ->setPublic(false);
+
+        $container->setAlias(AvailableMigrationSetReaderInterface::class, DoctrineAvailableMigrationSetReader::class)
             ->setPublic(false);
 
         $container->register(DbalManifestRepository::class, DbalManifestRepository::class)
@@ -161,6 +171,12 @@ final class ReleaseExtension extends Extension
             ->setArgument('$skewGuard', new Reference(VersionSkewGuard::class))
             ->setArgument('$remoteResolver', new Reference(GitRemoteResolver::class))
             ->setArgument('$commitParser', new Reference(ConventionalCommitParser::class))
+            ->addTag('console.command')
+            ->setPublic(false);
+
+        $container->register(RecordManifestCommand::class, RecordManifestCommand::class)
+            ->setArgument('$manifests', new Reference(ManifestRepositoryInterface::class))
+            ->setArgument('$migrations', new Reference(AvailableMigrationSetReaderInterface::class))
             ->addTag('console.command')
             ->setPublic(false);
 

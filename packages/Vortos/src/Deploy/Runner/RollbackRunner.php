@@ -69,7 +69,7 @@ final class RollbackRunner
         $state = $this->stateBuilder->build($definition, $target, $live->color, $live->imageDigest);
         $plan = $this->targets->target($definition->host)->plan(new DeployContext($definition, $target, $state));
 
-        $status = $this->targets->target($definition->host)->rollback($plan);
+        $status = $this->targets->target($definition->host)->rollback($plan, new EnvironmentName($env), $target);
 
         $this->auditRecorder?->rolledBack(
             $env,

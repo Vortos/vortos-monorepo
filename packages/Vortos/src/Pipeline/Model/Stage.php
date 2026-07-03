@@ -11,6 +11,7 @@ final readonly class Stage
      * @param list<string>                 $needs
      * @param array<string, string>        $outputs
      * @param list<ServiceContainer>       $services CI sidecars (db/redis/kafka) for this job
+     * @param array<string, string>        $env      Job-level environment shared by every step in the job
      */
     public function __construct(
         public string $id,
@@ -26,6 +27,7 @@ final readonly class Stage
         public ?Matrix $matrix = null,
         public array $outputs = [],
         public array $services = [],
+        public array $env = [],
     ) {
         if ($id === '') {
             throw new \InvalidArgumentException('Stage ID must be non-empty.');
@@ -33,6 +35,15 @@ final readonly class Stage
 
         if ($steps === [] && $matrix === null) {
             throw new \InvalidArgumentException(sprintf('Stage "%s" must contain at least one step.', $id));
+        }
+
+        foreach (array_keys($this->env) as $envKey) {
+            if (preg_match('/^[A-Z_][A-Z0-9_]*$/', (string) $envKey) !== 1) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Stage env key must match [A-Z_][A-Z0-9_]*, got "%s".',
+                    $envKey,
+                ));
+            }
         }
 
         foreach (array_keys($this->outputs) as $key) {
@@ -86,6 +97,12 @@ final readonly class Stage
 
         if ($this->outputs !== []) {
             $data['outputs'] = $this->outputs;
+        }
+
+        if ($this->env !== []) {
+            $env = $this->env;
+            ksort($env);
+            $data['env'] = $env;
         }
 
         return $data;

@@ -13,6 +13,7 @@ use Vortos\Deploy\DependencyInjection\Compiler\CollectCredentialProvidersPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectDeployTargetsPass;
 use Vortos\Deploy\Console\PullAgentReconcileCommand;
 use Vortos\Deploy\DependencyInjection\DeployExtension;
+use Vortos\Deploy\Execution\SshConnectionSettings;
 use Vortos\Deploy\Plan\DeployPlanner;
 use Vortos\Deploy\PullAgent\PullAgentReconciler;
 use Vortos\Deploy\Plan\PlanRenderer;
@@ -154,6 +155,57 @@ final class DeployExtensionTest extends TestCase
             );
         } finally {
             if ($prev !== null) { $_ENV['VORTOS_DEPLOY_DELIVERY_MODE'] = $prev; } else { unset($_ENV['VORTOS_DEPLOY_DELIVERY_MODE']); }
+        }
+    }
+
+    public function test_empty_user_and_port_coalesce_to_defaults(): void
+    {
+        // A CI `docker run -e VAR` fed from an unset GitHub var forwards an empty string, not an
+        // absent key. Empty user/port must fall back to deploy/22 rather than binding '' / port 0.
+        $env = ['VORTOS_DEPLOY_HOST', 'VORTOS_DEPLOY_USER', 'VORTOS_DEPLOY_PORT'];
+        $prev = [];
+        foreach ($env as $k) { $prev[$k] = $_ENV[$k] ?? null; }
+
+        $_ENV['VORTOS_DEPLOY_HOST'] = 'deploy.example.com';
+        $_ENV['VORTOS_DEPLOY_USER'] = '';
+        $_ENV['VORTOS_DEPLOY_PORT'] = '';
+
+        try {
+            $container = new ContainerBuilder();
+            (new DeployExtension())->load([], $container);
+
+            $settings = $container->getDefinition(SshConnectionSettings::class);
+            self::assertSame('deploy.example.com', $settings->getArgument('$host'));
+            self::assertSame('deploy', $settings->getArgument('$user'));
+            self::assertSame(22, $settings->getArgument('$port'));
+        } finally {
+            foreach ($env as $k) {
+                if ($prev[$k] !== null) { $_ENV[$k] = $prev[$k]; } else { unset($_ENV[$k]); }
+            }
+        }
+    }
+
+    public function test_explicit_user_and_port_are_honoured(): void
+    {
+        $env = ['VORTOS_DEPLOY_HOST', 'VORTOS_DEPLOY_USER', 'VORTOS_DEPLOY_PORT'];
+        $prev = [];
+        foreach ($env as $k) { $prev[$k] = $_ENV[$k] ?? null; }
+
+        $_ENV['VORTOS_DEPLOY_HOST'] = 'deploy.example.com';
+        $_ENV['VORTOS_DEPLOY_USER'] = 'releaser';
+        $_ENV['VORTOS_DEPLOY_PORT'] = '2222';
+
+        try {
+            $container = new ContainerBuilder();
+            (new DeployExtension())->load([], $container);
+
+            $settings = $container->getDefinition(SshConnectionSettings::class);
+            self::assertSame('releaser', $settings->getArgument('$user'));
+            self::assertSame(2222, $settings->getArgument('$port'));
+        } finally {
+            foreach ($env as $k) {
+                if ($prev[$k] !== null) { $_ENV[$k] = $prev[$k]; } else { unset($_ENV[$k]); }
+            }
         }
     }
 }

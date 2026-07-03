@@ -162,6 +162,79 @@ final class PipelineBuilderDeployStageTest extends TestCase
         }
     }
 
+    public function test_ssh_key_posture_pins_secrets_store_path_to_mount_target(): void
+    {
+        $definition = new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+        );
+
+        $steps = $this->commandSteps($this->deployStage($definition));
+
+        foreach ($steps as $step) {
+            // The store path forwarded to the container must equal the mount target, otherwise
+            // the app resolves the WORKDIR-relative default and never sees the mounted file.
+            $this->assertStringContainsString(
+                '-e VORTOS_SECRETS_STORE_PATH=/app/vortos-secrets.age',
+                $step->run,
+                'ssh-key posture must pin the in-container secrets store path to the mount target',
+            );
+        }
+    }
+
+    public function test_oidc_posture_does_not_pin_secrets_store_path(): void
+    {
+        // OIDC posture mounts no store, so it must not reference a store path either.
+        $steps = $this->commandSteps($this->deployStage($this->withBuild()));
+
+        foreach ($steps as $step) {
+            $this->assertStringNotContainsString('VORTOS_SECRETS_STORE_PATH', $step->run);
+        }
+    }
+
+    public function test_deploy_job_sources_connection_coordinates_from_environment_vars(): void
+    {
+        // Both postures must publish host/user/port at the job level from the per-environment
+        // GitHub vars context; the docker `-e VAR` pass-through has nothing to forward otherwise.
+        foreach ([true, false] as $oidc) {
+            $stage = $this->deployStage(new PipelineDefinition(
+                environments: ['production'],
+                imageRepository: 'ghcr.io/acme/app',
+                nativeRunnerLabel: 'ubuntu-24.04-arm',
+                oidc: $oidc,
+            ));
+
+            $this->assertSame('${{ vars.VORTOS_DEPLOY_HOST }}', $stage->env['VORTOS_DEPLOY_HOST'] ?? null);
+            $this->assertSame('${{ vars.VORTOS_DEPLOY_USER }}', $stage->env['VORTOS_DEPLOY_USER'] ?? null);
+            $this->assertSame('${{ vars.VORTOS_DEPLOY_PORT }}', $stage->env['VORTOS_DEPLOY_PORT'] ?? null);
+        }
+    }
+
+    public function test_deploy_connection_coordinates_are_not_static_secrets(): void
+    {
+        // Host/user/port are non-secret coordinates: sourcing them from `secrets.*` would break
+        // the OIDC zero-standing-secret posture. They must come from `vars.*`.
+        $stage = $this->deployStage($this->withBuild());
+
+        foreach ($stage->env as $value) {
+            $this->assertStringNotContainsString('secrets.', $value);
+        }
+    }
+
+    public function test_deploy_on_runner_stage_also_publishes_connection_env(): void
+    {
+        // No imageRepository => degenerate on-runner path; still needs the connection env.
+        $stage = $this->deployStage(new PipelineDefinition(
+            environments: ['production'],
+        ));
+
+        $this->assertSame('${{ vars.VORTOS_DEPLOY_HOST }}', $stage->env['VORTOS_DEPLOY_HOST'] ?? null);
+        $this->assertSame('${{ vars.VORTOS_DEPLOY_USER }}', $stage->env['VORTOS_DEPLOY_USER'] ?? null);
+        $this->assertSame('${{ vars.VORTOS_DEPLOY_PORT }}', $stage->env['VORTOS_DEPLOY_PORT'] ?? null);
+    }
+
     public function test_record_manifest_derives_arch_and_git_sha(): void
     {
         $steps = $this->commandSteps($this->deployStage($this->withBuild()));

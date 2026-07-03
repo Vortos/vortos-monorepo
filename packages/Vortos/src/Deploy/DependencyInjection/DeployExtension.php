@@ -645,46 +645,6 @@ final class DeployExtension extends Extension
                 ->setPublic(false);
         }
 
-        // ── Push delivery: real SSH transport wiring ──
-        // Only when push mode AND an SSH host is configured do we bind a live transport;
-        // otherwise the three consumers keep their null $sshTransport (local execution) and
-        // nothing changes for local/dev/pull installs. The connection itself is resolved
-        // per-deploy by SshConnectionActivator (credential lease → SshConnectionConfig).
-        if ($deliveryMode === 'push' && (string) ($_ENV['VORTOS_DEPLOY_HOST'] ?? '') !== '') {
-            $container->register(DeployConnectionContext::class, DeployConnectionContext::class)
-                ->setPublic(false);
-
-            $container->register(SshConnectionSettings::class, SshConnectionSettings::class)
-                ->setArgument('$host', (string) $_ENV['VORTOS_DEPLOY_HOST'])
-                ->setArgument('$user', (string) ($_ENV['VORTOS_DEPLOY_USER'] ?? 'deploy'))
-                ->setArgument('$port', (int) ($_ENV['VORTOS_DEPLOY_PORT'] ?? 22))
-                ->setPublic(false);
-
-            $container->register(LazySshTransport::class, LazySshTransport::class)
-                ->setArgument('$runner', new Reference(CommandRunnerInterface::class))
-                ->setArgument('$context', new Reference(DeployConnectionContext::class))
-                ->setPublic(false);
-
-            $container->setAlias(SshTransportInterface::class, LazySshTransport::class)
-                ->setPublic(false);
-
-            $container->register(SshConnectionActivator::class, SshConnectionActivator::class)
-                ->setArgument('$credentials', new Reference(CredentialProviderRegistry::class))
-                ->setArgument('$context', new Reference(DeployConnectionContext::class))
-                ->setArgument('$settings', new Reference(SshConnectionSettings::class))
-                ->setPublic(false);
-
-            foreach ([StepExecutor::class, MountedConfigWriter::class, SupervisorWorkerController::class] as $consumer) {
-                $container->getDefinition($consumer)
-                    ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
-            }
-
-            // Caddy admin API stays bound to the VPS loopback; reach it through an SSH
-            // local port-forward so it is never publicly exposed.
-            $container->getDefinition(CaddyAdminClient::class)
-                ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
-        }
-
         // ── Block 11: Pull-agent reconcile command (always visible; fail-loud in push mode) ──
 
         $container->register(PullAgentReconcileCommand::class, PullAgentReconcileCommand::class)
@@ -736,6 +696,51 @@ final class DeployExtension extends Extension
             '$rollbackGuard',
             new Reference(RollbackGuard::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
         );
+
+        // ── Push delivery: real SSH transport wiring ──
+        // Only when push mode AND an SSH host is configured do we bind a live transport;
+        // otherwise the four consumers keep their null $sshTransport (local execution) and
+        // nothing changes for local/dev/pull installs. The connection itself is resolved
+        // per-deploy by SshConnectionActivator (credential lease → SshConnectionConfig). This
+        // runs after StepExecutor/SshComposeTarget are registered so every consumer definition
+        // it mutates already exists.
+        if ($deliveryMode === 'push' && (string) ($_ENV['VORTOS_DEPLOY_HOST'] ?? '') !== '') {
+            $container->register(DeployConnectionContext::class, DeployConnectionContext::class)
+                ->setPublic(false);
+
+            $container->register(SshConnectionSettings::class, SshConnectionSettings::class)
+                // Empty string is the canonical "unset" a CI pass-through (docker run -e VAR
+                // fed from an unset GitHub var) yields, so coalesce it to the defaults rather
+                // than binding an empty user or port 0.
+                ->setArgument('$host', (string) $_ENV['VORTOS_DEPLOY_HOST'])
+                ->setArgument('$user', ((string) ($_ENV['VORTOS_DEPLOY_USER'] ?? '')) ?: 'deploy')
+                ->setArgument('$port', (int) (($_ENV['VORTOS_DEPLOY_PORT'] ?? '') ?: 22))
+                ->setPublic(false);
+
+            $container->register(LazySshTransport::class, LazySshTransport::class)
+                ->setArgument('$runner', new Reference(CommandRunnerInterface::class))
+                ->setArgument('$context', new Reference(DeployConnectionContext::class))
+                ->setPublic(false);
+
+            $container->setAlias(SshTransportInterface::class, LazySshTransport::class)
+                ->setPublic(false);
+
+            $container->register(SshConnectionActivator::class, SshConnectionActivator::class)
+                ->setArgument('$credentials', new Reference(CredentialProviderRegistry::class))
+                ->setArgument('$context', new Reference(DeployConnectionContext::class))
+                ->setArgument('$settings', new Reference(SshConnectionSettings::class))
+                ->setPublic(false);
+
+            foreach ([StepExecutor::class, MountedConfigWriter::class, SupervisorWorkerController::class] as $consumer) {
+                $container->getDefinition($consumer)
+                    ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
+            }
+
+            // Caddy admin API stays bound to the VPS loopback; reach it through an SSH
+            // local port-forward so it is never publicly exposed.
+            $container->getDefinition(CaddyAdminClient::class)
+                ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
+        }
 
         // ── Block 12: Definition resolver. The base builder is produced by the factory, which
         //    applies the application's config/deploy.php when present (no service override

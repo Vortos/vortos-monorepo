@@ -400,4 +400,34 @@ final class GitHubWorkflowMapperTest extends TestCase
             steps: [new CommandStep('Run tests', 'composer test')],
         );
     }
+
+    public function test_maps_job_level_env(): void
+    {
+        $pipeline = new Pipeline(
+            name: 'CI',
+            triggers: [new Trigger(TriggerEvent::Push)],
+            stages: [new Stage(
+                id: 'deploy',
+                displayName: 'Deploy',
+                kind: StageKind::Deploy,
+                steps: [new CommandStep('Deploy', 'vortos deploy')],
+                env: ['VORTOS_DEPLOY_USER' => '${{ vars.VORTOS_DEPLOY_USER }}', 'VORTOS_DEPLOY_HOST' => '${{ vars.VORTOS_DEPLOY_HOST }}'],
+            )],
+            permissions: Permissions::readOnly(),
+        );
+
+        $result = $this->mapper->map($pipeline);
+
+        $this->assertSame(
+            ['VORTOS_DEPLOY_HOST' => '${{ vars.VORTOS_DEPLOY_HOST }}', 'VORTOS_DEPLOY_USER' => '${{ vars.VORTOS_DEPLOY_USER }}'],
+            $result['jobs']['deploy']['env'],
+        );
+    }
+
+    public function test_omits_job_env_when_empty(): void
+    {
+        $result = $this->mapper->map($this->minimalPipeline());
+
+        $this->assertArrayNotHasKey('env', $result['jobs']['tests']);
+    }
 }

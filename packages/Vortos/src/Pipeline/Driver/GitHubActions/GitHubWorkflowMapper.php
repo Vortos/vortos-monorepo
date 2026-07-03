@@ -127,6 +127,12 @@ final class GitHubWorkflowMapper
             $job['services'] = $this->mapServices($stage->services);
         }
 
+        if ($stage->env !== []) {
+            $env = $stage->env;
+            ksort($env);
+            $job['env'] = $env;
+        }
+
         $job['steps'] = $this->mapSteps($stage->steps);
 
         return $job;

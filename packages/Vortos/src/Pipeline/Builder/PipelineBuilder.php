@@ -27,6 +27,15 @@ use Vortos\Pipeline\Registry\RegistryLoginContext;
 
 final class PipelineBuilder
 {
+    /**
+     * In-container path the committed, age-encrypted secrets ciphertext is mounted to and
+     * read from. Used as both the `docker run -v` mount target and the value of
+     * VORTOS_SECRETS_STORE_PATH so the mount and the store path can never drift. This
+     * overrides the image's project-dir default (Secrets\...\SecretsExtension), which would
+     * otherwise resolve against WORKDIR and miss the mounted file entirely.
+     */
+    private const SECRETS_STORE_CONTAINER_PATH = '/app/vortos-secrets.age';
+
     public function __construct(
         private readonly StageGate $gate,
         private readonly ?CiRegistryLoginProviderRegistry $loginProviders = null,
@@ -328,9 +337,22 @@ final class PipelineBuilder
         $useAgeKek = !$definition->oidc;
         $stepEnv = $useAgeKek ? ['VORTOS_AGE_IDENTITY' => '${{ secrets.VORTOS_AGE_IDENTITY }}'] : [];
 
+        // The pass-through `-e VAR` forms below forward the deploy connection coordinates from
+        // the runner shell into the container; they are populated at the job level from the
+        // per-environment GitHub `vars.*` context (see deployConnectionEnv()). In the ssh-key
+        // posture the encrypted store is mounted read-only and its in-container path is pinned
+        // explicitly so the app does not fall back to the WORKDIR-relative default.
+        $secretsMount = $useAgeKek
+            ? sprintf(
+                '-e VORTOS_AGE_IDENTITY -e VORTOS_SECRETS_STORE_PATH=%s -v "$PWD/vortos-secrets.age:%s:ro" ',
+                self::SECRETS_STORE_CONTAINER_PATH,
+                self::SECRETS_STORE_CONTAINER_PATH,
+            )
+            : '';
+
         $dockerRun = 'docker run --rm '
             . '-e VORTOS_DEPLOY_HOST -e VORTOS_DEPLOY_USER -e VORTOS_DEPLOY_PORT '
-            . ($useAgeKek ? '-e VORTOS_AGE_IDENTITY -v "$PWD/vortos-secrets.age:/app/vortos-secrets.age:ro" ' : '')
+            . $secretsMount
             . $imageRef . ' php bin/console ';
 
         $loginProvider = $this->requireLoginProvider($definition->registryProvider);
@@ -374,7 +396,28 @@ final class PipelineBuilder
             timeoutMinutes: $definition->defaultTimeoutMinutes,
             matrix: $this->environmentMatrix($definition),
             condition: "github.ref == 'refs/heads/main' && github.event_name == 'push'",
+            env: $this->deployConnectionEnv(),
         );
+    }
+
+    /**
+     * Deploy connection coordinates, sourced from the per-environment GitHub `vars.*` context.
+     * The deploy job binds `environment: ${{ matrix.environment }}`, so GitHub overlays
+     * environment-scoped variables onto repository variables — giving a distinct host/user/port
+     * per target environment with zero standing secrets. These are non-secret coordinates, so
+     * they live in `vars` (not `secrets`), preserving the OIDC zero-standing-secret invariant.
+     * User and port may be left unset upstream; the runtime supplies deploy/22 defaults when the
+     * forwarded value is empty (Deploy\...\DeployExtension).
+     *
+     * @return array<string, string>
+     */
+    private function deployConnectionEnv(): array
+    {
+        return [
+            'VORTOS_DEPLOY_HOST' => '${{ vars.VORTOS_DEPLOY_HOST }}',
+            'VORTOS_DEPLOY_USER' => '${{ vars.VORTOS_DEPLOY_USER }}',
+            'VORTOS_DEPLOY_PORT' => '${{ vars.VORTOS_DEPLOY_PORT }}',
+        ];
     }
 
     /**
@@ -416,6 +459,7 @@ final class PipelineBuilder
             timeoutMinutes: $definition->defaultTimeoutMinutes,
             matrix: $this->environmentMatrix($definition),
             condition: "github.ref == 'refs/heads/main' && github.event_name == 'push'",
+            env: $this->deployConnectionEnv(),
         );
     }
 

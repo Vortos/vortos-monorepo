@@ -102,5 +102,37 @@ final class StageTest extends TestCase
         $this->assertArrayNotHasKey('condition', $array);
         $this->assertArrayNotHasKey('environment', $array);
         $this->assertArrayNotHasKey('timeout_minutes', $array);
+        $this->assertArrayNotHasKey('env', $array);
+    }
+
+    public function test_job_env_is_sorted_in_to_array(): void
+    {
+        $stage = new Stage(
+            id: 'deploy',
+            displayName: 'Deploy',
+            kind: StageKind::Deploy,
+            steps: [new CommandStep('Deploy', 'vortos deploy')],
+            env: ['VORTOS_DEPLOY_USER' => 'deploy', 'VORTOS_DEPLOY_HOST' => 'host'],
+        );
+
+        $array = $stage->toArray();
+
+        $this->assertSame(
+            ['VORTOS_DEPLOY_HOST' => 'host', 'VORTOS_DEPLOY_USER' => 'deploy'],
+            $array['env'],
+        );
+    }
+
+    public function test_invalid_job_env_key_rejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new Stage(
+            id: 'deploy',
+            displayName: 'Deploy',
+            kind: StageKind::Deploy,
+            steps: [new CommandStep('Deploy', 'vortos deploy')],
+            env: ['not a valid key' => 'x'],
+        );
     }
 }

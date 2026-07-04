@@ -25,7 +25,7 @@ final class KnownActionFactory
 
     public static function monorepoSplit(): PinnedAction
     {
-        return new PinnedAction('danharrin', 'monorepo-split-github-action', '63793f7cf8244948e0fda80e8b1e3f66db8f6b95', 'v2.4.5');
+        return new PinnedAction('danharrin', 'monorepo-split-github-action', '14e42e2437f674b8987c1f50ca3689116aea1893', 'v2.4.5');
     }
 
     public static function setupBuildx(): PinnedAction
@@ -50,7 +50,7 @@ final class KnownActionFactory
 
     public static function sbomAttest(): PinnedAction
     {
-        return new PinnedAction('anchore', 'sbom-action', 'fc46e51fd3cb168ffb36c6d1915723c47db58571', 'v0');
+        return new PinnedAction('anchore', 'sbom-action', 'e22c389904149dbc22b58101806040fa8d37a610', 'v0.24.0');
     }
 
     /** @return list<PinnedAction> */

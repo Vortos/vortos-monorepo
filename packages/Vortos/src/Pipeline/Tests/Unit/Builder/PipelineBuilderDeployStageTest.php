@@ -83,65 +83,73 @@ final class PipelineBuilderDeployStageTest extends TestCase
         $this->assertArrayNotHasKey('id-token', $perms);
     }
 
-    public function test_deploy_records_manifest_before_deploying(): void
+    /** The single command step that SSHes to the VPS and runs the remote deploy script. */
+    private function remoteStep(PipelineDefinition $definition): CommandStep
     {
-        $steps = $this->commandSteps($this->deployStage($this->withBuild()));
-        $runs = array_map(static fn (CommandStep $s): string => $s->run, $steps);
-
-        $recordIdx = null;
-        $deployIdx = null;
-        foreach ($runs as $i => $run) {
-            if (str_contains($run, 'vortos:release:record-manifest')) {
-                $recordIdx = $i;
-            }
-            if (str_contains($run, ' deploy --env=')) {
-                $deployIdx = $i;
+        foreach ($this->commandSteps($this->deployStage($definition)) as $step) {
+            if (str_contains($step->run, 'bash -euo pipefail -s')) {
+                return $step;
             }
         }
 
-        $this->assertNotNull($recordIdx, 'record-manifest step must be emitted (closes blocker E)');
-        $this->assertNotNull($deployIdx, 'deploy step must be emitted');
+        self::fail('No remote-exec deploy step was emitted.');
+    }
+
+    public function test_deploy_runs_on_the_target_over_ssh_never_on_the_runner(): void
+    {
+        // G1 + B9: the image is pulled and executed on the VPS (arm host, app network), never
+        // `docker run` on the amd64 runner.
+        $stage = $this->deployStage($this->withBuild());
+        $remote = $this->remoteStep($this->withBuild());
+
+        self::assertSame('ubuntu-latest', $stage->runner->label);
+        self::assertStringContainsString('ssh -i ~/.ssh/vortos_deploy', $remote->run);
+        self::assertStringContainsString("'bash -euo pipefail -s' <<'VORTOS_REMOTE'", $remote->run);
+        self::assertStringContainsString('--network vortos-net', $remote->run);
+        // The runner shell must never itself run the arch-specific image.
+        foreach ($this->commandSteps($this->deployStage($this->withBuild())) as $step) {
+            self::assertStringNotContainsString('docker run --rm ghcr.io/acme/app@', $step->run);
+        }
+    }
+
+    public function test_deploy_records_manifest_before_deploying(): void
+    {
+        $run = $this->remoteStep($this->withBuild())->run;
+
+        $recordIdx = strpos($run, 'vortos:release:record-manifest');
+        $deployIdx = strpos($run, 'php bin/console deploy --env=');
+
+        $this->assertIsInt($recordIdx, 'record-manifest must be emitted');
+        $this->assertIsInt($deployIdx, 'deploy must be emitted');
         $this->assertLessThan($deployIdx, $recordIdx, 'record-manifest must run before deploy');
     }
 
-    public function test_deploy_in_image_uses_docker_run_with_pinned_reference(): void
+    public function test_deploy_pulls_and_runs_the_pinned_reference_on_the_target(): void
     {
-        $steps = $this->commandSteps($this->deployStage($this->withBuild()));
+        $run = $this->remoteStep($this->withBuild())->run;
 
-        foreach ($steps as $step) {
-            $this->assertStringContainsString('docker run --rm', $step->run);
-            $this->assertStringContainsString('ghcr.io/acme/app@${{ needs.build.outputs.image }}', $step->run);
-        }
+        $this->assertStringContainsString('docker pull ghcr.io/acme/app@${{ needs.build.outputs.image }}', $run);
+        $this->assertStringContainsString('ghcr.io/acme/app@${{ needs.build.outputs.image }} php bin/console', $run);
     }
 
     public function test_deploy_passes_image_repository_and_digest(): void
     {
-        $steps = $this->commandSteps($this->deployStage($this->withBuild()));
-        $deploy = null;
-        foreach ($steps as $s) {
-            if (str_contains($s->run, ' deploy --env=')) {
-                $deploy = $s;
-            }
-        }
+        $run = $this->remoteStep($this->withBuild())->run;
 
-        self::assertNotNull($deploy);
-        $this->assertStringContainsString('--image-repository=ghcr.io/acme/app', $deploy->run);
-        $this->assertStringContainsString('--image-digest=${{ needs.build.outputs.image }}', $deploy->run);
+        $this->assertStringContainsString('--image-repository=ghcr.io/acme/app', $run);
+        $this->assertStringContainsString('--image-digest=${{ needs.build.outputs.image }}', $run);
     }
 
     public function test_oidc_default_deploy_references_no_standing_secret(): void
     {
         // Default posture (oidc true): zero standing secrets — no age KEK, no mounted store.
-        $steps = $this->commandSteps($this->deployStage($this->withBuild()));
+        $run = $this->remoteStep($this->withBuild())->run;
 
-        foreach ($steps as $step) {
-            $this->assertArrayNotHasKey('VORTOS_AGE_IDENTITY', $step->env);
-            $this->assertStringNotContainsString('VORTOS_AGE_IDENTITY', $step->run);
-            $this->assertStringNotContainsString('vortos-secrets.age', $step->run);
-        }
+        $this->assertStringNotContainsString('VORTOS_AGE_IDENTITY', $run);
+        $this->assertStringNotContainsString('vortos-secrets.age', $run);
     }
 
-    public function test_ssh_key_posture_exposes_age_kek_and_mounts_store(): void
+    public function test_ssh_key_posture_forwards_age_kek_and_mounts_delivered_store(): void
     {
         $definition = new PipelineDefinition(
             environments: ['production'],
@@ -150,19 +158,14 @@ final class PipelineBuilderDeployStageTest extends TestCase
             oidc: false,
         );
 
-        $steps = $this->commandSteps($this->deployStage($definition));
+        $run = $this->remoteStep($definition)->run;
 
-        foreach ($steps as $step) {
-            $this->assertSame(
-                '${{ secrets.VORTOS_AGE_IDENTITY }}',
-                $step->env['VORTOS_AGE_IDENTITY'] ?? null,
-                'ssh-key posture opens the encrypted store with the age KEK',
-            );
-            $this->assertStringContainsString('-v "$PWD/vortos-secrets.age:/app/vortos-secrets.age:ro"', $step->run);
-        }
+        $this->assertStringContainsString('export VORTOS_AGE_IDENTITY=\'${{ secrets.VORTOS_AGE_IDENTITY }}\'', $run);
+        $this->assertStringContainsString('-e VORTOS_SECRETS_STORE_PATH=/app/vortos-secrets.age', $run);
+        $this->assertStringContainsString('-v /opt/vortos/vortos-secrets.age:/app/vortos-secrets.age:ro', $run);
     }
 
-    public function test_ssh_key_posture_pins_secrets_store_path_to_mount_target(): void
+    public function test_ssh_key_posture_uses_deploy_ssh_key_secret(): void
     {
         $definition = new PipelineDefinition(
             environments: ['production'],
@@ -171,27 +174,8 @@ final class PipelineBuilderDeployStageTest extends TestCase
             oidc: false,
         );
 
-        $steps = $this->commandSteps($this->deployStage($definition));
-
-        foreach ($steps as $step) {
-            // The store path forwarded to the container must equal the mount target, otherwise
-            // the app resolves the WORKDIR-relative default and never sees the mounted file.
-            $this->assertStringContainsString(
-                '-e VORTOS_SECRETS_STORE_PATH=/app/vortos-secrets.age',
-                $step->run,
-                'ssh-key posture must pin the in-container secrets store path to the mount target',
-            );
-        }
-    }
-
-    public function test_oidc_posture_does_not_pin_secrets_store_path(): void
-    {
-        // OIDC posture mounts no store, so it must not reference a store path either.
-        $steps = $this->commandSteps($this->deployStage($this->withBuild()));
-
-        foreach ($steps as $step) {
-            $this->assertStringNotContainsString('VORTOS_SECRETS_STORE_PATH', $step->run);
-        }
+        $allRuns = implode("\n", array_map(static fn (CommandStep $s): string => $s->run, $this->commandSteps($this->deployStage($definition))));
+        $this->assertStringContainsString('secrets.VORTOS_DEPLOY_SSH_KEY', $allRuns);
     }
 
     public function test_deploy_job_sources_connection_coordinates_from_environment_vars(): void
@@ -237,18 +221,11 @@ final class PipelineBuilderDeployStageTest extends TestCase
 
     public function test_record_manifest_derives_arch_and_git_sha(): void
     {
-        $steps = $this->commandSteps($this->deployStage($this->withBuild()));
-        $record = null;
-        foreach ($steps as $s) {
-            if (str_contains($s->run, 'record-manifest')) {
-                $record = $s;
-            }
-        }
+        $run = $this->remoteStep($this->withBuild())->run;
 
-        self::assertNotNull($record);
-        $this->assertStringContainsString('--repository=ghcr.io/acme/app', $record->run);
-        $this->assertStringContainsString('--digest=${{ needs.build.outputs.image }}', $record->run);
-        $this->assertStringContainsString('--git-sha=${{ github.sha }}', $record->run);
-        $this->assertStringContainsString('--arch=linux/arm64', $record->run);
+        $this->assertStringContainsString('--repository=ghcr.io/acme/app', $run);
+        $this->assertStringContainsString('--digest=${{ needs.build.outputs.image }}', $run);
+        $this->assertStringContainsString('--git-sha=${{ github.sha }}', $run);
+        $this->assertStringContainsString('--arch=linux/arm64', $run);
     }
 }

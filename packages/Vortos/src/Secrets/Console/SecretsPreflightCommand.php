@@ -10,12 +10,18 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Secrets\Preflight\RequiredSecrets;
+use Vortos\Secrets\Provider\EnvironmentProviderResolver;
 use Vortos\Secrets\Provider\SecretsProviderRegistry;
 use Vortos\Secrets\Service\SecretsPreflight;
 
 /**
  * The CI/doctor gate: fails closed (non-zero exit) when any required secret is
  * missing, and always names every gap.
+ *
+ * `--env` is the **environment name** (production/staging/…), resolved to a secrets driver via
+ * {@see EnvironmentProviderResolver} — so `--env=production` works out of the box against the
+ * zero-config `env` driver instead of throwing UnknownDriverException (B4). `--driver` overrides the
+ * resolution for apps running more than one custody backend.
  */
 #[AsCommand(
     name: 'secrets:preflight',
@@ -27,6 +33,7 @@ final class SecretsPreflightCommand extends Command
         private readonly SecretsProviderRegistry $providers,
         private readonly SecretsPreflight $preflight,
         private readonly RequiredSecrets $requiredSecrets,
+        private readonly EnvironmentProviderResolver $environmentResolver,
     ) {
         parent::__construct();
     }
@@ -34,13 +41,20 @@ final class SecretsPreflightCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Provider driver key for the target environment', 'env')
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment name (production, staging, …)', 'production')
+            ->addOption('driver', null, InputOption::VALUE_REQUIRED, 'Override the secrets driver key (bypasses environment resolution)')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Output the report as JSON');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $provider = $this->providers->provider((string) $input->getOption('env'));
+        $env = (string) $input->getOption('env');
+        $driverOption = $input->getOption('driver');
+        $driverKey = is_string($driverOption) && $driverOption !== ''
+            ? $driverOption
+            : $this->environmentResolver->driverFor($env);
+
+        $provider = $this->providers->provider($driverKey);
         $report = $this->preflight->check($provider, $this->requiredSecrets);
 
         if ($input->getOption('json')) {

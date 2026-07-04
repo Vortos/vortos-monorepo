@@ -20,6 +20,10 @@ final readonly class PipelineDefinition
      * @param list<ServiceContainer> $testServiceContainers CI sidecars for the test job (db/redis/kafka)
      * @param list<array{name: string, run: string}> $testSteps extra shell steps injected into the test job
      *                                                          (migrations, contract checks, …), after deps install
+     * @param list<array{name: string, run: string}> $bootstrapSteps shell steps injected into EVERY
+     *                    container-booting job (test, static-analysis, agnosticism) after deps install and
+     *                    before the stage command — e.g. `cp .env.example .env` so the DI container can
+     *                    compile `%env()%` references. This is what lets the generated CI replace a real ci.yml.
      */
     public function __construct(
         public string $emitter = 'github',
@@ -51,9 +55,33 @@ final readonly class PipelineDefinition
         public string $analyseCommand = './vendor/bin/phpstan analyse',
         public array $testServiceContainers = [],
         public array $testSteps = [],
+        // ── Deploy/trigger branch (B3) ──
+        public string $deploymentBranch = 'main',
+        // ── Deploy-on-target coordinates (G1) ──
+        public string $remoteDeployDir = '/opt/vortos',
+        public string $appNetwork = 'vortos-net',
+        // ── Per-job bootstrap + quality-stage optionality (B6/G6) ──
+        public array $bootstrapSteps = [],
+        public bool $emitStaticAnalysis = true,
+        public bool $emitAgnosticism = true,
     ) {
         if ($emitter === '') {
             throw new \InvalidArgumentException('Pipeline emitter must be non-empty.');
+        }
+
+        if ($deploymentBranch === '' || preg_match('/\s/', $deploymentBranch) === 1) {
+            throw new \InvalidArgumentException(sprintf(
+                'Deployment branch must be a non-empty ref name without whitespace, got "%s".',
+                $deploymentBranch,
+            ));
+        }
+
+        if ($remoteDeployDir === '' || preg_match('/\s/', $remoteDeployDir) === 1) {
+            throw new \InvalidArgumentException('Remote deploy dir must be a non-empty path without whitespace.');
+        }
+
+        if ($appNetwork === '' || preg_match('/\s/', $appNetwork) === 1) {
+            throw new \InvalidArgumentException('App network must be a non-empty name without whitespace.');
         }
 
         if ($registryProvider === '') {
@@ -115,11 +143,16 @@ final readonly class PipelineDefinition
         $data = [
             'benchmark' => $this->benchmark,
             'build_mode' => $this->buildMode->value,
+            'app_network' => $this->appNetwork,
             'default_timeout_minutes' => $this->defaultTimeoutMinutes,
+            'deployment_branch' => $this->deploymentBranch,
             'dockerfile_path' => $this->dockerfilePath,
+            'remote_deploy_dir' => $this->remoteDeployDir,
+            'emit_agnosticism' => $this->emitAgnosticism,
             'emit_sbom' => $this->emitSbom,
             'emit_scan_gate' => $this->emitScanGate,
             'emit_sign' => $this->emitSign,
+            'emit_static_analysis' => $this->emitStaticAnalysis,
             'emitter' => $this->emitter,
             'environments' => $this->environments,
             'oidc' => $this->oidc,

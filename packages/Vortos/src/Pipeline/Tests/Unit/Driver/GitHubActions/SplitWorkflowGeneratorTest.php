@@ -49,7 +49,7 @@ final class SplitWorkflowGeneratorTest extends TestCase
         foreach ($result['jobs'] as $job) {
             foreach ($job['steps'] as $step) {
                 if (isset($step['uses'])) {
-                    $allSteps[] = $step['uses'];
+                    $allSteps[] = $step['uses']->value;
                 }
             }
         }

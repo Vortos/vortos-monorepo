@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Pipeline\Driver\GitHubActions;
 
 use InvalidArgumentException;
+use Vortos\Pipeline\Driver\GitHubActions\Yaml\CommentedScalar;
 
 final class WorkflowYamlWriter
 {
@@ -41,6 +42,8 @@ final class WorkflowYamlWriter
                 } else {
                     $out .= "\n" . $this->dumpMap($value, $indent + 1);
                 }
+            } elseif ($value instanceof CommentedScalar) {
+                $out .= ' ' . $this->formatCommentedScalar($value) . "\n";
             } elseif (is_string($value) && str_contains($value, "\n")) {
                 $out .= " |\n" . $this->dumpBlockScalar($value, $indent + 1);
             } else {
@@ -88,6 +91,8 @@ final class WorkflowYamlWriter
                     } else {
                         $out .= "\n" . $this->dumpMap($v, $indent + 2);
                     }
+                } elseif ($v instanceof CommentedScalar) {
+                    $out .= ' ' . $this->formatCommentedScalar($v) . "\n";
                 } elseif (is_string($v) && str_contains($v, "\n")) {
                     $out .= " |\n" . $this->dumpBlockScalar($v, $indent + 2);
                 } else {
@@ -97,6 +102,29 @@ final class WorkflowYamlWriter
         }
 
         return $out;
+    }
+
+    private function formatCommentedScalar(CommentedScalar $scalar): string
+    {
+        // The comment is emitted OUTSIDE the scalar as a genuine YAML comment, so a pinned `uses:`
+        // resolves to the SHA ref and `# v4` is a real comment — never folded into the value (which
+        // would make GitHub resolve a nonexistent `<sha> # v4` ref).
+        return $this->formatPlainOrQuoted($scalar->value) . '  # ' . $scalar->comment;
+    }
+
+    /**
+     * A pinned action ref (`owner/repo@<sha>`) is plain-safe in YAML: the only reserved indicators
+     * it contains (`@`) are forbidden only as the FIRST character, and the value starts with an
+     * alphanumeric. Emit such tokens plain so the ref stays clean; anything else falls back to the
+     * conservative {@see formatScalar} quoting.
+     */
+    private function formatPlainOrQuoted(string $value): string
+    {
+        if (preg_match('#^[A-Za-z0-9][A-Za-z0-9._/@-]*$#', $value) === 1) {
+            return $value;
+        }
+
+        return $this->formatScalar($value);
     }
 
     /** @param list<mixed> $list */

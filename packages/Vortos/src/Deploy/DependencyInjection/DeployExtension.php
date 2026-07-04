@@ -15,8 +15,11 @@ use Vortos\Deploy\Audit\DeployAuditRecorder;
 use Vortos\Deploy\Audit\DeployAuditSinkInterface;
 use Vortos\Deploy\Console\DeployCommand;
 use Vortos\Deploy\Console\DoctorCommand;
+use Vortos\Deploy\Console\ProvisionCommand;
 use Vortos\Deploy\Console\PullAgentReconcileCommand;
 use Vortos\Deploy\Console\RollbackCommand;
+use Vortos\Deploy\Delivery\ArtifactDelivery;
+use Vortos\Deploy\Provision\FirstDeployProvisioner;
 use Vortos\Deploy\Canary\CanaryAnalyzerInterface;
 use Vortos\Deploy\Canary\CanaryAnalyzerRegistry;
 use Vortos\Deploy\Canary\CanaryGate;
@@ -731,6 +734,12 @@ final class DeployExtension extends Extension
                 ->setArgument('$settings', new Reference(SshConnectionSettings::class))
                 ->setPublic(false);
 
+            // Config/secret delivery over the transport (G3) — available whenever push-mode SSH is
+            // wired, so an operator or the push-mode deploy path can ship the deploy dir atomically.
+            $container->register(ArtifactDelivery::class, ArtifactDelivery::class)
+                ->setArgument('$transport', new Reference(SshTransportInterface::class))
+                ->setPublic(false);
+
             foreach ([StepExecutor::class, MountedConfigWriter::class, SupervisorWorkerController::class] as $consumer) {
                 $container->getDefinition($consumer)
                     ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
@@ -834,6 +843,17 @@ final class DeployExtension extends Extension
 
         $container->register(DeployCommand::class, DeployCommand::class)
             ->setArgument('$runner', new Reference(DeployRunner::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('console.command')
+            ->setPublic(false);
+
+        // First-deploy provisioning (G4): pure planner + command. No cross-package deps — the plan
+        // just orchestrates existing console commands (keys/migrate/preflight), so it registers
+        // unconditionally and appears in the deploy-on-target remote script.
+        $container->register(FirstDeployProvisioner::class, FirstDeployProvisioner::class)
+            ->setPublic(false);
+
+        $container->register(ProvisionCommand::class, ProvisionCommand::class)
+            ->setArgument('$provisioner', new Reference(FirstDeployProvisioner::class))
             ->addTag('console.command')
             ->setPublic(false);
     }

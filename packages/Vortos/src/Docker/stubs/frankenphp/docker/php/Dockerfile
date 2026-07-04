@@ -71,7 +71,7 @@ USER app:app
 EXPOSE 80 443
 
 # ============================================================
-# Stage 3b — Worker: supervisord target
+# Stage 3b — Worker: supervisord target (dev; bind-mounts code)
 # ============================================================
 FROM base AS worker
 
@@ -83,3 +83,33 @@ RUN mkdir -p /var/log/supervisor
 COPY docker/worker/supervisord.conf /etc/supervisord.conf
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
+
+# ============================================================
+# Stage 4 — App: self-contained production image (DEFAULT stage)
+#
+# Bakes the application code + a production vendor tree into the image so it can run with NO
+# bind-mounted working tree — the deploy-in-image / deploy-on-target model pulls this by digest and
+# runs `frankenphp run` (backend), `supervisord` (worker), or `php bin/console <cmd>` (deploy) from
+# the very same immutable artifact. It carries both the HTTP server (from base) and supervisor so a
+# single image serves every role.
+# ============================================================
+FROM base AS app
+
+RUN apt-get update && apt-get install -y --no-install-recommends supervisor \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /var/log/supervisor
+
+COPY docker/worker/supervisord.conf /etc/supervisord.conf
+
+# Install dependencies first (better layer caching), then the rest of the source.
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-interaction --no-scripts --prefer-dist --no-autoloader --ignore-platform-reqs
+
+COPY . .
+RUN composer dump-autoload --no-dev --optimize --classmap-authoritative \
+    && chown -R app:app /var/www/html
+
+USER app:app
+
+# Default role is the HTTP server; the worker service overrides `command:` with supervisord.
+CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile", "--adapter", "caddyfile"]

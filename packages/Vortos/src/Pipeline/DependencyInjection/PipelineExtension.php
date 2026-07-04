@@ -10,6 +10,7 @@ use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Pipeline\Builder\KnownActionFactory;
 use Vortos\Pipeline\Builder\PipelineBuilder;
 use Vortos\Pipeline\Builder\StageGate;
+use Vortos\Pipeline\Console\PipelineActionsVerifyCommand;
 use Vortos\Pipeline\Console\PipelineGenerateCommand;
 use Vortos\Pipeline\Console\PipelineVerifyCommand;
 use Vortos\Pipeline\Definition\PipelineDefinition;
@@ -27,6 +28,8 @@ use Vortos\Pipeline\Emitter\PipelineEmitterInterface;
 use Vortos\Pipeline\Emitter\PipelineEmitterRegistry;
 use Vortos\Pipeline\Registry\CiRegistryLoginProviderInterface;
 use Vortos\Pipeline\Registry\CiRegistryLoginProviderRegistry;
+use Vortos\Pipeline\Driver\GitHubActions\GitHubApiActionRefResolver;
+use Vortos\Pipeline\Verification\ActionPinVerifier;
 
 final class PipelineExtension extends Extension
 {
@@ -146,6 +149,18 @@ final class PipelineExtension extends Extension
             ->setArgument('$splitPackages', [])
             ->setArgument('$projectDir', (string) $projectDir)
             ->setArgument('$definition', new Reference(PipelineDefinition::class))
+            ->setPublic(true)
+            ->addTag('console.command');
+
+        $container->register(GitHubApiActionRefResolver::class, GitHubApiActionRefResolver::class)
+            ->setPublic(false);
+
+        $container->register(ActionPinVerifier::class, ActionPinVerifier::class)
+            ->setArgument('$resolver', new Reference(GitHubApiActionRefResolver::class))
+            ->setPublic(false);
+
+        $container->register(PipelineActionsVerifyCommand::class, PipelineActionsVerifyCommand::class)
+            ->setArgument('$verifier', new Reference(ActionPinVerifier::class))
             ->setPublic(true)
             ->addTag('console.command');
     }

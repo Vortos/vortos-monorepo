@@ -10,6 +10,7 @@ use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Secrets\Console\SecretsPreflightCommand;
 use Vortos\Secrets\Preflight\RequiredSecrets;
 use Vortos\Secrets\Preflight\SecretReference;
+use Vortos\Secrets\Provider\EnvironmentProviderResolver;
 use Vortos\Secrets\Provider\SecretsProviderRegistry;
 use Vortos\Secrets\Service\SecretsPreflight;
 use Vortos\Secrets\Tests\Fixtures\InMemorySecretsProvider;
@@ -62,13 +63,39 @@ final class SecretsPreflightCommandTest extends TestCase
         self::assertTrue($decoded['satisfied']);
     }
 
-    public function test_unknown_env_driver_key_raises(): void
+    public function test_env_production_resolves_to_the_env_driver_and_does_not_throw(): void
+    {
+        // B4: the documented production gate must work out of the box — `--env=production` resolves
+        // to the `env` driver instead of looking up a nonexistent driver named "production".
+        $provider = new InMemorySecretsProvider();
+        $provider->put(SecretKey::fromString('present'), SecretValue::fromString('v'));
+        $required = new RequiredSecrets([new SecretReference(SecretKey::fromString('present'))]);
+        $tester = $this->buildTester($provider, $required);
+
+        $tester->execute(['--env' => 'production']);
+
+        self::assertSame(0, $tester->getStatusCode());
+    }
+
+    public function test_unknown_environment_falls_back_to_default_driver(): void
+    {
+        $provider = new InMemorySecretsProvider();
+        $provider->put(SecretKey::fromString('present'), SecretValue::fromString('v'));
+        $required = new RequiredSecrets([new SecretReference(SecretKey::fromString('present'))]);
+        $tester = $this->buildTester($provider, $required);
+
+        $tester->execute(['--env' => 'some-unmapped-env']);
+
+        self::assertSame(0, $tester->getStatusCode());
+    }
+
+    public function test_explicit_unknown_driver_override_raises(): void
     {
         $provider = new InMemorySecretsProvider();
         $tester = $this->buildTester($provider, new RequiredSecrets([]));
 
         $this->expectException(\Throwable::class);
-        $tester->execute(['--env' => 'nope']);
+        $tester->execute(['--driver' => 'nope']);
     }
 
     private function buildTester(InMemorySecretsProvider $provider, RequiredSecrets $required): CommandTester
@@ -77,6 +104,11 @@ final class SecretsPreflightCommandTest extends TestCase
             'env' => static fn (): InMemorySecretsProvider => $provider,
         ]));
 
-        return new CommandTester(new SecretsPreflightCommand($registry, new SecretsPreflight(), $required));
+        return new CommandTester(new SecretsPreflightCommand(
+            $registry,
+            new SecretsPreflight(),
+            $required,
+            new EnvironmentProviderResolver(),
+        ));
     }
 }

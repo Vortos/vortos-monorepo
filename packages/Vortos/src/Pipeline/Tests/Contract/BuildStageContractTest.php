@@ -178,7 +178,7 @@ final class BuildStageContractTest extends TestCase
         $hasSbom = false;
         $hasProvenance = false;
         foreach ($buildSteps as $step) {
-            if (isset($step['uses']) && str_contains($step['uses'], 'sbom-action')) {
+            if (isset($step['uses']) && str_contains($step['uses']->value, 'sbom-action')) {
                 $hasSbom = true;
             }
             if (isset($step['with']['provenance']) && $step['with']['provenance'] === 'true') {
@@ -215,7 +215,7 @@ final class BuildStageContractTest extends TestCase
         $buildSteps = $array['jobs']['build']['steps'];
         $hasQemu = false;
         foreach ($buildSteps as $step) {
-            if (isset($step['uses']) && str_contains($step['uses'], 'setup-qemu-action')) {
+            if (isset($step['uses']) && str_contains($step['uses']->value, 'setup-qemu-action')) {
                 $hasQemu = true;
                 break;
             }
@@ -235,7 +235,7 @@ final class BuildStageContractTest extends TestCase
         $buildSteps = $array['jobs']['build']['steps'];
         foreach ($buildSteps as $step) {
             if (isset($step['uses'])) {
-                $this->assertStringNotContainsString('setup-qemu', $step['uses']);
+                $this->assertStringNotContainsString('setup-qemu', $step['uses']->value);
             }
         }
     }

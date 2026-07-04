@@ -87,7 +87,17 @@ final class CacheExtension extends Extension
             $resolved['driver'] = InMemoryAdapter::class;
         }
 
-        // Only register Redis connection when the active driver needs it
+        // Only register Redis connection when the active driver needs it.
+        //
+        // The connection is deferred to first use. RedisConnectionFactory::fromDsn() connects
+        // eagerly on construction, so if the \Redis service (or anything holding it) were built at
+        // container-boot the process would need a live Redis just to boot — fatal for the
+        // deploy-in-image model, where operator/deploy commands run on a host with no infra. The
+        // \Redis service itself cannot be a lazy proxy (it is an internal ext-redis class), so we
+        // make its userland holders — RedisAdapter and RedisHealthCheck — lazy instead: their real
+        // instantiation (and therefore resolving the \Redis argument and its connect()) is deferred
+        // by PHP 8.4+ native lazy objects until the first cache/health call. A command that never
+        // touches the cache never opens a Redis socket.
         if ($resolved['driver'] === RedisAdapter::class) {
             $container->register(\Redis::class, \Redis::class)
                 ->setFactory([RedisConnectionFactory::class, 'fromDsn'])
@@ -103,10 +113,12 @@ final class CacheExtension extends Extension
                     $resolved['allowed_classes'],
                 ])
                 ->setShared(true)
+                ->setLazy(true)
                 ->setPublic(false);
 
             $container->register(RedisHealthCheck::class, RedisHealthCheck::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
+                ->setLazy(true)
                 ->setPublic(false);
         }
 

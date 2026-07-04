@@ -135,6 +135,28 @@ final class PipelineDefinitionFactory
             $b = $b->testSteps($steps);
         }
 
+        if (($v = $this->strOrEnv($file, 'deployment_branch', 'PIPELINE_DEPLOYMENT_BRANCH')) !== null) {
+            $b = $b->deploymentBranch($v);
+        }
+        if (($v = $this->strOrEnv($file, 'remote_deploy_dir', 'PIPELINE_REMOTE_DEPLOY_DIR')) !== null) {
+            $b = $b->remoteDeployDir($v);
+        }
+        if (($v = $this->strOrEnv($file, 'app_network', 'PIPELINE_APP_NETWORK')) !== null) {
+            $b = $b->appNetwork($v);
+        }
+
+        $bootstrap = $this->testSteps($file['bootstrap_steps'] ?? []);
+        if ($bootstrap !== []) {
+            $b = $b->bootstrapSteps($bootstrap);
+        }
+
+        if (($v = $this->boolOrEnv($file, 'emit_static_analysis', 'PIPELINE_EMIT_STATIC_ANALYSIS')) !== null) {
+            $b = $b->emitStaticAnalysis($v);
+        }
+        if (($v = $this->boolOrEnv($file, 'emit_agnosticism', 'PIPELINE_EMIT_AGNOSTICISM')) !== null) {
+            $b = $b->emitAgnosticism($v);
+        }
+
         return $b->build();
     }
 

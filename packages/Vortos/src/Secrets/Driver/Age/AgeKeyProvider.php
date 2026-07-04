@@ -7,6 +7,7 @@ namespace Vortos\Secrets\Driver\Age;
 use InvalidArgumentException;
 use Vortos\OpsKit\Attribute\AsDriver;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
+use Vortos\Secrets\Crypto\AgeKeyCodec;
 use Vortos\Secrets\Crypto\Identity;
 use Vortos\Secrets\Exception\DecryptionFailedException;
 use Vortos\Secrets\Exception\KeyUnavailableException;
@@ -32,15 +33,11 @@ final class AgeKeyProvider implements KeyProviderInterface
     private readonly string $publicKey;
 
     public function __construct(
-        string $publicKeyBase64,
+        string $publicKey,
         private readonly string $identitySeedEnvVar = 'VORTOS_SECRETS_AGE_IDENTITY',
     ) {
-        $decoded = base64_decode($publicKeyBase64, true);
-        if ($decoded === false || strlen($decoded) !== SODIUM_CRYPTO_BOX_PUBLICKEYBYTES) {
-            throw new InvalidArgumentException('AgeKeyProvider public key must be a valid base64-encoded X25519 public key.');
-        }
-
-        $this->publicKey = $decoded;
+        // Accepts the standard age recipient format (`age1…`) or raw base64 X25519 (B5).
+        $this->publicKey = AgeKeyCodec::decodePublicKey($publicKey);
     }
 
     public function capabilities(): CapabilityDescriptor
@@ -80,7 +77,8 @@ final class AgeKeyProvider implements KeyProviderInterface
         }
 
         try {
-            return Identity::fromBase64Seed($seed);
+            // Accepts the standard age identity format (`AGE-SECRET-KEY-1…`) or raw base64 (B5).
+            return Identity::fromSecretKeySeed(AgeKeyCodec::decodeIdentity($seed));
         } catch (InvalidArgumentException $e) {
             throw KeyUnavailableException::identityMalformed($e->getMessage());
         }

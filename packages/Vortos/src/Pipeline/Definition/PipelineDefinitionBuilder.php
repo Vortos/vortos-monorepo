@@ -43,6 +43,13 @@ final class PipelineDefinitionBuilder
     private array $testServiceContainers = [];
     /** @var list<array{name: string, run: string}> */
     private array $testSteps = [];
+    private string $deploymentBranch = 'main';
+    private string $remoteDeployDir = '/opt/vortos';
+    private string $appNetwork = 'vortos-net';
+    /** @var list<array{name: string, run: string}> */
+    private array $bootstrapSteps = [];
+    private bool $emitStaticAnalysis = true;
+    private bool $emitAgnosticism = true;
 
     public static function create(): self
     {
@@ -263,6 +270,70 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    public function deploymentBranch(string $branch): self
+    {
+        $clone = clone $this;
+        $clone->deploymentBranch = $branch;
+
+        return $clone;
+    }
+
+    public function remoteDeployDir(string $dir): self
+    {
+        $clone = clone $this;
+        $clone->remoteDeployDir = $dir;
+
+        return $clone;
+    }
+
+    public function appNetwork(string $network): self
+    {
+        $clone = clone $this;
+        $clone->appNetwork = $network;
+
+        return $clone;
+    }
+
+    /** @param list<array{name: string, run: string}> $steps */
+    public function bootstrapSteps(array $steps): self
+    {
+        $clone = clone $this;
+        $clone->bootstrapSteps = $steps;
+
+        return $clone;
+    }
+
+    /**
+     * Convenience: prepend a `cp <from> <to>` bootstrap step so boot-dependent jobs (test,
+     * static-analysis, agnosticism) have an env file before the DI container compiles `%env()%`.
+     */
+    public function prepareEnvFile(string $from = '.env.example', string $to = '.env'): self
+    {
+        $clone = clone $this;
+        $clone->bootstrapSteps = [
+            ['name' => 'Prepare application env file', 'run' => sprintf('cp %s %s', $from, $to)],
+            ...$clone->bootstrapSteps,
+        ];
+
+        return $clone;
+    }
+
+    public function emitStaticAnalysis(bool $enabled): self
+    {
+        $clone = clone $this;
+        $clone->emitStaticAnalysis = $enabled;
+
+        return $clone;
+    }
+
+    public function emitAgnosticism(bool $enabled): self
+    {
+        $clone = clone $this;
+        $clone->emitAgnosticism = $enabled;
+
+        return $clone;
+    }
+
     public function build(): PipelineDefinition
     {
         return new PipelineDefinition(
@@ -293,6 +364,12 @@ final class PipelineDefinitionBuilder
             analyseCommand: $this->analyseCommand,
             testServiceContainers: $this->testServiceContainers,
             testSteps: $this->testSteps,
+            deploymentBranch: $this->deploymentBranch,
+            remoteDeployDir: $this->remoteDeployDir,
+            appNetwork: $this->appNetwork,
+            bootstrapSteps: $this->bootstrapSteps,
+            emitStaticAnalysis: $this->emitStaticAnalysis,
+            emitAgnosticism: $this->emitAgnosticism,
         );
     }
 }

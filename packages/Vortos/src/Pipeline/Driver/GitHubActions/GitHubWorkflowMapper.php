@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Pipeline\Driver\GitHubActions;
 
+use Vortos\Pipeline\Driver\GitHubActions\Yaml\CommentedScalar;
 use Vortos\Pipeline\Model\ActionStep;
 use Vortos\Pipeline\Model\CommandStep;
 use Vortos\Pipeline\Model\Matrix;
@@ -207,7 +208,9 @@ final class GitHubWorkflowMapper
     {
         $mapped = [
             'name' => $step->name,
-            'uses' => $step->action->toCommentedString(),
+            // The version is a structural trailing comment, not part of the ref — so the writer
+            // emits `uses: owner/repo@<sha>  # v4` with `# v4` a genuine YAML comment (B1).
+            'uses' => new CommentedScalar($step->action->toUsesString(), $step->action->versionComment),
         ];
 
         if ($step->id !== null) {

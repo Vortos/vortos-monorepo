@@ -87,7 +87,7 @@ final class SecretsExtensionTest extends TestCase
         try {
             $container = $this->compiledContainer();
             $def = $container->getDefinition(AgeKeyProvider::class);
-            self::assertSame('some-base64-key', $def->getArgument('$publicKeyBase64'));
+            self::assertSame('some-base64-key', $def->getArgument('$publicKey'));
             self::assertSame('CUSTOM_IDENTITY_VAR', $def->getArgument('$identitySeedEnvVar'));
         } finally {
             unset($_ENV['VORTOS_SECRETS_AGE_PUBLIC_KEY'], $_ENV['VORTOS_SECRETS_AGE_IDENTITY_ENV']);

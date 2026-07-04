@@ -7,6 +7,7 @@ namespace Vortos\Pipeline\Tests\Unit\Driver\GitHubActions;
 use PHPUnit\Framework\TestCase;
 use Vortos\Pipeline\Builder\KnownActionFactory;
 use Vortos\Pipeline\Driver\GitHubActions\GitHubWorkflowMapper;
+use Vortos\Pipeline\Driver\GitHubActions\Yaml\CommentedScalar;
 use Vortos\Pipeline\Model\ActionStep;
 use Vortos\Pipeline\Model\CommandStep;
 use Vortos\Pipeline\Model\Matrix;
@@ -298,7 +299,11 @@ final class GitHubWorkflowMapperTest extends TestCase
         $result = $this->mapper->map($pipeline);
         $step = $result['jobs']['tests']['steps'][0];
         $this->assertSame('Checkout', $step['name']);
-        $this->assertSame($action->toCommentedString(), $step['uses']);
+        // `uses` is a structural CommentedScalar so the writer can emit the version as a genuine
+        // trailing YAML comment (B1), never folded into the ref.
+        $this->assertInstanceOf(CommentedScalar::class, $step['uses']);
+        $this->assertSame($action->toUsesString(), $step['uses']->value);
+        $this->assertSame($action->versionComment, $step['uses']->comment);
         $this->assertArrayNotHasKey('run', $step);
     }
 

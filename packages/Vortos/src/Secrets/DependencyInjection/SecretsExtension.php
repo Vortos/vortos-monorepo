@@ -20,6 +20,7 @@ use Vortos\Secrets\Driver\File\FileSecretStore;
 use Vortos\Secrets\Key\KeyProviderInterface;
 use Vortos\Secrets\Key\KeyProviderRegistry;
 use Vortos\Secrets\Preflight\RequiredSecrets;
+use Vortos\Secrets\Provider\EnvironmentProviderResolver;
 use Vortos\Secrets\Provider\SecretsProviderInterface;
 use Vortos\Secrets\Provider\SecretsProviderRegistry;
 use Vortos\Secrets\Service\RotationManager;
@@ -79,7 +80,7 @@ final class SecretsExtension extends Extension
             ->setPublic(false);
 
         $container->register(AgeKeyProvider::class, AgeKeyProvider::class)
-            ->setArgument('$publicKeyBase64', (string) ($_ENV['VORTOS_SECRETS_AGE_PUBLIC_KEY'] ?? ''))
+            ->setArgument('$publicKey', (string) ($_ENV['VORTOS_SECRETS_AGE_PUBLIC_KEY'] ?? ''))
             ->setArgument('$identitySeedEnvVar', (string) ($_ENV['VORTOS_SECRETS_AGE_IDENTITY_ENV'] ?? 'VORTOS_SECRETS_AGE_IDENTITY'))
             ->setAutoconfigured(true)
             ->addTag(CollectKeyProvidersPass::TAG)
@@ -121,12 +122,24 @@ final class SecretsExtension extends Extension
             ->setArguments([$projectDir])
             ->setPublic(false);
 
+        // Environment → secrets-driver resolution for the preflight gate (B4). Defaults every
+        // environment to the `env` driver; override per environment via
+        // VORTOS_SECRETS_ENVIRONMENT_DRIVERS="production:env,staging:vault".
+        $container->register(EnvironmentProviderResolver::class, EnvironmentProviderResolver::class)
+            ->setFactory([EnvironmentProviderResolver::class, 'fromSpec'])
+            ->setArguments([
+                (string) ($_ENV['VORTOS_SECRETS_ENVIRONMENT_DRIVERS'] ?? ''),
+                (string) ($_ENV['VORTOS_SECRETS_DEFAULT_DRIVER'] ?? 'env'),
+            ])
+            ->setPublic(false);
+
         // ── Console commands ──
 
         $container->register(SecretsPreflightCommand::class, SecretsPreflightCommand::class)
             ->setArgument('$providers', new Reference(SecretsProviderRegistry::class))
             ->setArgument('$preflight', new Reference(SecretsPreflight::class))
             ->setArgument('$requiredSecrets', new Reference(RequiredSecrets::class))
+            ->setArgument('$environmentResolver', new Reference(EnvironmentProviderResolver::class))
             ->addTag('console.command')
             ->setPublic(false);
 

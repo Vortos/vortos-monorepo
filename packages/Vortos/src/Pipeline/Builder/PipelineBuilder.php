@@ -27,15 +27,6 @@ use Vortos\Pipeline\Registry\RegistryLoginContext;
 
 final class PipelineBuilder
 {
-    /**
-     * In-container path the committed, age-encrypted secrets ciphertext is mounted to and
-     * read from. Used as both the `docker run -v` mount target and the value of
-     * VORTOS_SECRETS_STORE_PATH so the mount and the store path can never drift. This
-     * overrides the image's project-dir default (Secrets\...\SecretsExtension), which would
-     * otherwise resolve against WORKDIR and miss the mounted file entirely.
-     */
-    private const SECRETS_STORE_CONTAINER_PATH = '/app/vortos-secrets.age';
-
     public function __construct(
         private readonly StageGate $gate,
         private readonly ?CiRegistryLoginProviderRegistry $loginProviders = null,
@@ -51,7 +42,7 @@ final class PipelineBuilder
 
         return new Pipeline(
             name: 'CI',
-            triggers: $this->buildTriggers(),
+            triggers: $this->buildTriggers($definition),
             stages: [...$stages, ...$splitStages],
             permissions: Permissions::readOnly(),
             concurrencyGroup: '${{ github.workflow }}-${{ github.ref }}',
@@ -90,11 +81,28 @@ final class PipelineBuilder
     {
         return match ($kind) {
             StageKind::Test => $this->testStage($definition),
-            StageKind::StaticAnalysis => $this->staticAnalysisStage($definition),
-            StageKind::Agnosticism => $this->agnosticismStage($definition),
+            // Optional quality stages: an app with no PHPStan / no agnosticism tests can turn these
+            // off rather than ship a red pipeline (G6).
+            StageKind::StaticAnalysis => $definition->emitStaticAnalysis ? $this->staticAnalysisStage($definition) : null,
+            StageKind::Agnosticism => $definition->emitAgnosticism ? $this->agnosticismStage($definition) : null,
             StageKind::Deploy => $this->deployStage($definition),
             default => null,
         };
+    }
+
+    /**
+     * Shell steps injected into every container-booting job (test, static-analysis, agnosticism),
+     * after `composer install` and before the stage command — e.g. `cp .env.example .env` so the DI
+     * container can compile `%env()%` references (B6/G6).
+     *
+     * @return list<CommandStep>
+     */
+    private function bootstrapSteps(PipelineDefinition $definition): array
+    {
+        return array_map(
+            static fn (array $step): CommandStep => new CommandStep($step['name'], $step['run']),
+            $definition->bootstrapSteps,
+        );
     }
 
     private function testStage(PipelineDefinition $definition): Stage
@@ -107,6 +115,7 @@ final class PipelineBuilder
                 'coverage' => 'none',
             ]),
             new CommandStep('Install dependencies', 'composer install --no-interaction --prefer-dist --ignore-platform-reqs'),
+            ...$this->bootstrapSteps($definition),
         ];
 
         // App-declared steps (migrations, contract checks, seed, …) run after deps install and
@@ -143,6 +152,7 @@ final class PipelineBuilder
                     'coverage' => 'none',
                 ]),
                 new CommandStep('Install dependencies', 'composer install --no-interaction --prefer-dist --ignore-platform-reqs'),
+                ...$this->bootstrapSteps($definition),
                 new CommandStep('Run PHPStan', $definition->analyseCommand),
             ],
             needs: ['tests'],
@@ -166,6 +176,7 @@ final class PipelineBuilder
                     'coverage' => 'none',
                 ]),
                 new CommandStep('Install dependencies', 'composer install --no-interaction --prefer-dist --ignore-platform-reqs'),
+                ...$this->bootstrapSteps($definition),
                 new CommandStep('Run agnosticism lint', './vendor/bin/phpunit --testdox --filter Agnosticism'),
             ],
             needs: ['tests'],
@@ -285,12 +296,12 @@ final class PipelineBuilder
             displayName: 'Build & Push Image',
             kind: StageKind::Build,
             steps: $steps,
-            needs: ['tests', 'analyse', 'agnosticism'],
+            needs: $this->qualityStageIds($definition),
             runner: $runner,
             permissions: $permissions,
             timeoutMinutes: $definition->defaultTimeoutMinutes,
             outputs: ['image' => '${{ steps.image.outputs.digest }}'],
-            condition: "github.ref == 'refs/heads/main' && github.event_name == 'push' || github.ref_type == 'tag'",
+            condition: $this->pushToDeploymentBranchCondition($definition) . " || github.ref_type == 'tag'",
         );
     }
 
@@ -316,72 +327,30 @@ final class PipelineBuilder
     }
 
     /**
-     * Deploy-in-image: run record-manifest + doctor + deploy INSIDE the built image via
-     * `docker run <repo>@<digest>`, so the app's config and RS256 keys are present by
-     * construction — no PHP/composer/keys on the runner. The only CI secret is the age KEK
-     * (VORTOS_AGE_IDENTITY); the committed, age-encrypted secrets file is mounted in.
+     * Deploy-on-target: the runner opens SSH to the VPS and runs record-manifest + provision +
+     * doctor + deploy INSIDE the built image **on the VPS**, attached to the app's Docker network
+     * (G1 + B9). The commands reach the production release-ledger DB by construction, and the
+     * arm64-native image runs on the arm64 host — never `docker run` on the amd64 runner.
+     *
+     * Posture: ssh-key (oidc:false) authenticates with `secrets.VORTOS_DEPLOY_SSH_KEY` and forwards
+     * the age KEK; OIDC (default) federates a short-lived SSH certificate from the runner's id-token
+     * against a configurable CA (non-secret `vars.*`) — preserving the zero-standing-secret invariant.
      */
     private function deployInImageStage(PipelineDefinition $definition): Stage
     {
         $repo = $definition->imageRepository;
         \assert($repo !== null);
 
-        $arch = $definition->targetArch->value;
-        $imageRef = $repo . '@${{ needs.build.outputs.image }}';
+        $digestExpr = '${{ needs.build.outputs.image }}';
+        $imageRef = $repo . '@' . $digestExpr;
+        $envExpr = '${{ matrix.environment }}';
 
-        // Posture-aware secrets. OIDC path (default): zero standing secrets — the deploy
-        // credential federates from the runner's OIDC id-token, so the generated workflow
-        // references no static secret (enforced by OidcZeroStandingSecretTest). ssh-key path
-        // (oidc:false): the encrypted secrets store is opened with the age KEK, the single
-        // CI secret, and the committed ciphertext file is mounted in read-only.
-        $useAgeKek = !$definition->oidc;
-        $stepEnv = $useAgeKek ? ['VORTOS_AGE_IDENTITY' => '${{ secrets.VORTOS_AGE_IDENTITY }}'] : [];
-
-        // The pass-through `-e VAR` forms below forward the deploy connection coordinates from
-        // the runner shell into the container; they are populated at the job level from the
-        // per-environment GitHub `vars.*` context (see deployConnectionEnv()). In the ssh-key
-        // posture the encrypted store is mounted read-only and its in-container path is pinned
-        // explicitly so the app does not fall back to the WORKDIR-relative default.
-        $secretsMount = $useAgeKek
-            ? sprintf(
-                '-e VORTOS_AGE_IDENTITY -e VORTOS_SECRETS_STORE_PATH=%s -v "$PWD/vortos-secrets.age:%s:ro" ',
-                self::SECRETS_STORE_CONTAINER_PATH,
-                self::SECRETS_STORE_CONTAINER_PATH,
-            )
-            : '';
-
-        $dockerRun = 'docker run --rm '
-            . '-e VORTOS_DEPLOY_HOST -e VORTOS_DEPLOY_USER -e VORTOS_DEPLOY_PORT '
-            . $secretsMount
-            . $imageRef . ' php bin/console ';
-
-        $loginProvider = $this->requireLoginProvider($definition->registryProvider);
+        $remoteScript = (new RemoteDeployScript())->build($definition, $imageRef, $repo, $digestExpr, $envExpr);
 
         $steps = [
             new ActionStep('Checkout', KnownActionFactory::checkout()),
-            $loginProvider->loginStep(new RegistryLoginContext($definition)),
-            new CommandStep(
-                'Record build manifest',
-                $dockerRun . sprintf(
-                    'vortos:release:record-manifest --env=${{ matrix.environment }} --repository=%s --digest=${{ needs.build.outputs.image }} --git-sha=${{ github.sha }} --arch=%s --builder-id=github-actions',
-                    $repo,
-                    $arch,
-                ),
-                env: $stepEnv,
-            ),
-            new CommandStep(
-                'Run deploy doctor',
-                $dockerRun . 'deploy:doctor --env=${{ matrix.environment }} --json',
-                env: $stepEnv,
-            ),
-            new CommandStep(
-                'Deploy',
-                $dockerRun . sprintf(
-                    'deploy --env=${{ matrix.environment }} --yes --json --image-repository=%s --image-digest=${{ needs.build.outputs.image }}',
-                    $repo,
-                ),
-                env: $stepEnv,
-            ),
+            $this->sshSetupStep($definition),
+            new CommandStep('Deploy on target over SSH', $this->sshInvocation($remoteScript)),
         ];
 
         return new Stage(
@@ -389,15 +358,64 @@ final class PipelineBuilder
             displayName: 'Deploy',
             kind: StageKind::Deploy,
             steps: $steps,
-            needs: ['tests', 'analyse', 'agnosticism', 'build'],
+            needs: [...$this->qualityStageIds($definition), 'build'],
+            // The runner only runs an ssh client; it never `docker run`s the arm64 image (B9).
             runner: new RunnerSpec(),
             permissions: $this->deployPermissions($definition),
             environment: '${{ matrix.environment }}',
             timeoutMinutes: $definition->defaultTimeoutMinutes,
             matrix: $this->environmentMatrix($definition),
-            condition: "github.ref == 'refs/heads/main' && github.event_name == 'push'",
+            condition: $this->pushToDeploymentBranchCondition($definition),
             env: $this->deployConnectionEnv(),
         );
+    }
+
+    /**
+     * Posture-aware SSH credential setup on the runner. ssh-key posture materialises a 0600 private
+     * key from the single CI secret plus a strict known_hosts; OIDC posture federates a short-lived
+     * certificate from the id-token against a configurable CA — referencing only non-secret `vars.*`
+     * so the zero-standing-secret invariant holds.
+     */
+    private function sshSetupStep(PipelineDefinition $definition): CommandStep
+    {
+        if ($definition->oidc) {
+            $run = <<<'SH'
+                mkdir -p ~/.ssh && chmod 700 ~/.ssh
+                printf '%s\n' "${{ vars.VORTOS_DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+                # OIDC federation: exchange the runner id-token for a short-lived SSH certificate.
+                # Zero standing secrets — the CA endpoint and principals are non-secret vars.
+                ID_TOKEN="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                  "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ vars.VORTOS_SSH_CA_AUDIENCE }}" | jq -r '.value')"
+                ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/vortos_deploy
+                curl -sS -X POST "${{ vars.VORTOS_SSH_CA_URL }}" \
+                  -H "Authorization: Bearer $ID_TOKEN" \
+                  --data-binary @~/.ssh/vortos_deploy.pub > ~/.ssh/vortos_deploy-cert.pub
+                chmod 600 ~/.ssh/vortos_deploy-cert.pub
+                SH;
+        } else {
+            $run = <<<'SH'
+                mkdir -p ~/.ssh && chmod 700 ~/.ssh
+                printf '%s\n' "${{ secrets.VORTOS_DEPLOY_SSH_KEY }}" > ~/.ssh/vortos_deploy && chmod 600 ~/.ssh/vortos_deploy
+                printf '%s\n' "${{ vars.VORTOS_DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+                SH;
+        }
+
+        return new CommandStep('Set up SSH to the deploy target', $run);
+    }
+
+    /**
+     * Wrap the remote deploy script in a strict-host-key SSH invocation, piping it to `bash -s` on
+     * the VPS via a quoted heredoc. GitHub expands every `${{ … }}` before bash runs, so the script
+     * shipped over the channel is fully resolved; the quoted delimiter stops the runner shell from
+     * re-expanding it.
+     */
+    private function sshInvocation(string $remoteScript): string
+    {
+        $ssh = 'ssh -i ~/.ssh/vortos_deploy '
+            . '-o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts '
+            . '-p "${VORTOS_DEPLOY_PORT:-22}" "${VORTOS_DEPLOY_USER:-deploy}@${VORTOS_DEPLOY_HOST}"';
+
+        return $ssh . " 'bash -euo pipefail -s' <<'VORTOS_REMOTE'\n" . rtrim($remoteScript, "\n") . "\nVORTOS_REMOTE\n";
     }
 
     /**
@@ -452,13 +470,13 @@ final class PipelineBuilder
             displayName: 'Deploy',
             kind: StageKind::Deploy,
             steps: $steps,
-            needs: ['tests', 'analyse', 'agnosticism'],
+            needs: $this->qualityStageIds($definition),
             runner: new RunnerSpec(),
             permissions: $this->deployPermissions($definition),
             environment: '${{ matrix.environment }}',
             timeoutMinutes: $definition->defaultTimeoutMinutes,
             matrix: $this->environmentMatrix($definition),
-            condition: "github.ref == 'refs/heads/main' && github.event_name == 'push'",
+            condition: $this->pushToDeploymentBranchCondition($definition),
             env: $this->deployConnectionEnv(),
         );
     }
@@ -485,12 +503,13 @@ final class PipelineBuilder
 
     private function environmentMatrix(PipelineDefinition $definition): Matrix
     {
+        // Scalar axis: `matrix.environment: [production, staging]`, referenced as the scalar
+        // `${{ matrix.environment }}` throughout the deploy job. Emitting objects here
+        // (`[{environment: production}]`) while referencing a scalar is what made GitHub resolve a
+        // stringified object and fail to initialise the deploy job (B8).
         return new Matrix(
             axisName: 'environment',
-            values: array_map(
-                static fn (string $env): array => ['environment' => $env],
-                $definition->environments,
-            ),
+            values: $definition->environments,
         );
     }
 
@@ -521,7 +540,7 @@ final class PipelineBuilder
                     'user_name' => 'Sachintha De Silva',
                     'user_email' => 'yslaksura@gmail.com',
                     'tag' => '${{ github.ref_type == \'tag\' && github.ref_name || \'\' }}',
-                    'branch' => '${{ github.ref_type == \'branch\' && github.ref_name || \'main\' }}',
+                    'branch' => sprintf('${{ github.ref_type == \'branch\' && github.ref_name || \'%s\' }}', $definition->deploymentBranch),
                 ]),
             ],
             needs: $needs,
@@ -537,16 +556,45 @@ final class PipelineBuilder
                 ),
                 failFast: false,
             ),
-            condition: "github.ref == 'refs/heads/main' || github.ref_type == 'tag'",
+            condition: sprintf("github.ref == 'refs/heads/%s' || github.ref_type == 'tag'", $definition->deploymentBranch),
         )];
     }
 
     /** @return list<Trigger> */
-    private function buildTriggers(): array
+    private function buildTriggers(PipelineDefinition $definition): array
     {
         return [
-            new Trigger(TriggerEvent::Push, branches: ['main'], tags: ['*']),
+            new Trigger(TriggerEvent::Push, branches: [$definition->deploymentBranch], tags: ['*']),
             new Trigger(TriggerEvent::PullRequest),
         ];
+    }
+
+    /** A push to the configured deployment branch (B3). */
+    private function pushToDeploymentBranchCondition(PipelineDefinition $definition): string
+    {
+        return sprintf(
+            "github.ref == 'refs/heads/%s' && github.event_name == 'push'",
+            $definition->deploymentBranch,
+        );
+    }
+
+    /**
+     * The upstream quality jobs a build/deploy job must wait on. `analyse` and `agnosticism` are
+     * only listed when actually emitted (G6) — otherwise the generated workflow would `needs:` a
+     * job that does not exist and refuse to run.
+     *
+     * @return list<string>
+     */
+    private function qualityStageIds(PipelineDefinition $definition): array
+    {
+        $ids = ['tests'];
+        if ($definition->emitStaticAnalysis) {
+            $ids[] = 'analyse';
+        }
+        if ($definition->emitAgnosticism) {
+            $ids[] = 'agnosticism';
+        }
+
+        return $ids;
     }
 }

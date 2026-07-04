@@ -6,10 +6,18 @@ namespace Vortos\Pipeline\Driver\GitHubActions;
 
 use Vortos\Pipeline\Builder\KnownActionFactory;
 use Vortos\Pipeline\Definition\PipelineDefinition;
+use Vortos\Pipeline\Driver\GitHubActions\Yaml\CommentedScalar;
+use Vortos\Pipeline\Model\PinnedAction;
 use Vortos\Pipeline\Model\SplitPackage;
 
 final class SplitWorkflowGenerator
 {
+    /** A pinned `uses:` value with the version as a genuine trailing YAML comment (B1). */
+    private function uses(PinnedAction $action): CommentedScalar
+    {
+        return new CommentedScalar($action->toUsesString(), $action->versionComment);
+    }
+
     /**
      * @param list<SplitPackage> $packages
      * @return array<string, mixed>
@@ -26,7 +34,7 @@ final class SplitWorkflowGenerator
 
         $workflow['on'] = [
             'push' => [
-                'branches' => ['main'],
+                'branches' => [$definition->deploymentBranch],
                 'tags' => ['*'],
             ],
         ];
@@ -39,8 +47,8 @@ final class SplitWorkflowGenerator
             'runs-on' => 'ubuntu-latest',
             'timeout-minutes' => $definition->defaultTimeoutMinutes,
             'steps' => [
-                ['name' => 'Checkout', 'uses' => $checkout->toCommentedString()],
-                ['name' => 'Setup PHP', 'uses' => $setupPhp->toCommentedString(), 'with' => [
+                ['name' => 'Checkout', 'uses' => $this->uses($checkout)],
+                ['name' => 'Setup PHP', 'uses' => $this->uses($setupPhp), 'with' => [
                     'php-version' => $definition->phpVersion,
                     'extensions' => implode(', ', $definition->phpExtensions),
                     'coverage' => 'none',
@@ -56,8 +64,8 @@ final class SplitWorkflowGenerator
                 'runs-on' => 'ubuntu-latest',
                 'timeout-minutes' => $definition->defaultTimeoutMinutes,
                 'steps' => [
-                    ['name' => 'Checkout', 'uses' => $checkout->toCommentedString()],
-                    ['name' => 'Setup PHP', 'uses' => $setupPhp->toCommentedString(), 'with' => [
+                    ['name' => 'Checkout', 'uses' => $this->uses($checkout)],
+                    ['name' => 'Setup PHP', 'uses' => $this->uses($setupPhp), 'with' => [
                         'php-version' => $definition->phpVersion,
                         'extensions' => implode(', ', [...$definition->phpExtensions, 'opcache']),
                         'coverage' => 'none',
@@ -76,8 +84,8 @@ final class SplitWorkflowGenerator
                 'runs-on' => 'ubuntu-latest',
                 'timeout-minutes' => $definition->defaultTimeoutMinutes,
                 'steps' => [
-                    ['name' => 'Checkout', 'uses' => $checkout->toCommentedString()],
-                    ['name' => 'Setup Node', 'uses' => $setupNode->toCommentedString(), 'with' => [
+                    ['name' => 'Checkout', 'uses' => $this->uses($checkout)],
+                    ['name' => 'Setup Node', 'uses' => $this->uses($setupNode), 'with' => [
                         'node-version' => $definition->nodeVersion,
                         'cache' => 'npm',
                         'cache-dependency-path' => $uiPath . '/package.json',
@@ -111,12 +119,12 @@ final class SplitWorkflowGenerator
             'steps' => [
                 [
                     'name' => 'Checkout',
-                    'uses' => $checkout->toCommentedString(),
+                    'uses' => $this->uses($checkout),
                     'with' => ['fetch-depth' => '0'],
                 ],
                 [
                     'name' => 'Split',
-                    'uses' => $split->toCommentedString(),
+                    'uses' => $this->uses($split),
                     'env' => ['GITHUB_TOKEN' => '${{ secrets.MONOREPO_SPLIT_TOKEN }}'],
                     'with' => [
                         'package_directory' => '${{ matrix.package.local_path }}',
@@ -125,7 +133,7 @@ final class SplitWorkflowGenerator
                         'user_name' => 'Sachintha De Silva',
                         'user_email' => 'yslaksura@gmail.com',
                         'tag' => '${{ github.ref_type == \'tag\' && github.ref_name || \'\' }}',
-                        'branch' => '${{ github.ref_type == \'branch\' && github.ref_name || \'main\' }}',
+                        'branch' => sprintf('${{ github.ref_type == \'branch\' && github.ref_name || \'%s\' }}', $definition->deploymentBranch),
                     ],
                 ],
             ],

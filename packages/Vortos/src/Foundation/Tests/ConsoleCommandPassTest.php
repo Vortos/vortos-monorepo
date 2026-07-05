@@ -101,6 +101,29 @@ final class ConsoleCommandPassTest extends TestCase
         self::assertSame(FixtureCommand::class, $commandMap['fixture:cmd']);
     }
 
+    public function test_loader_maps_ascommand_aliases_to_the_service(): void
+    {
+        // B11: the FrankenPHP entrypoint stub historically ran `cache:warmup`, but the framework
+        // registers `vortos:cache:warmup`. Honouring #[AsCommand(aliases: [...])] in the lazy loader
+        // lets an alias like `cache:warmup` map to the same service so a stale stub can't hard-break.
+        $container = new ContainerBuilder();
+        $container->register(AliasedFixtureCommand::class, AliasedFixtureCommand::class)
+            ->setPublic(false)
+            ->addTag('console.command');
+        $container->register(Application::class, Application::class)
+            ->setPublic(true);
+
+        (new ConsoleCommandPass())->process($container);
+
+        $loaderRef = (string) $container->getDefinition(Application::class)->getMethodCalls()[0][1][0];
+        /** @var array<string, string> $commandMap */
+        $commandMap = $container->getDefinition($loaderRef)->getArgument(1);
+
+        self::assertArrayHasKey('vortos:fixture:warmup', $commandMap);
+        self::assertArrayHasKey('fixture:warmup', $commandMap);
+        self::assertSame($commandMap['vortos:fixture:warmup'], $commandMap['fixture:warmup']);
+    }
+
     public function test_command_without_a_name_fails_closed(): void
     {
         $container = new ContainerBuilder();
@@ -123,5 +146,10 @@ final class FixtureCommand extends Command
 }
 
 final class NamelessFixtureCommand extends Command
+{
+}
+
+#[AsCommand(name: 'vortos:fixture:warmup', description: 'Aliased fixture.', aliases: ['fixture:warmup'])]
+final class AliasedFixtureCommand extends Command
 {
 }

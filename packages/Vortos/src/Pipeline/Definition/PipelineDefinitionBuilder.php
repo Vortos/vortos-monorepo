@@ -50,6 +50,8 @@ final class PipelineDefinitionBuilder
     private array $bootstrapSteps = [];
     private bool $emitStaticAnalysis = true;
     private bool $emitAgnosticism = true;
+    private QualityMode $staticAnalysisMode = QualityMode::Enforce;
+    private QualityMode $agnosticismMode = QualityMode::Enforce;
 
     public static function create(): self
     {
@@ -334,6 +336,22 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    public function staticAnalysisMode(QualityMode $mode): self
+    {
+        $clone = clone $this;
+        $clone->staticAnalysisMode = $mode;
+
+        return $clone;
+    }
+
+    public function agnosticismMode(QualityMode $mode): self
+    {
+        $clone = clone $this;
+        $clone->agnosticismMode = $mode;
+
+        return $clone;
+    }
+
     public function build(): PipelineDefinition
     {
         return new PipelineDefinition(
@@ -370,6 +388,8 @@ final class PipelineDefinitionBuilder
             bootstrapSteps: $this->bootstrapSteps,
             emitStaticAnalysis: $this->emitStaticAnalysis,
             emitAgnosticism: $this->emitAgnosticism,
+            staticAnalysisMode: $this->staticAnalysisMode,
+            agnosticismMode: $this->agnosticismMode,
         );
     }
 }

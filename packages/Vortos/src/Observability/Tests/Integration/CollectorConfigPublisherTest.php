@@ -52,6 +52,28 @@ final class CollectorConfigPublisherTest extends TestCase
         self::assertFileExists($this->projectDir . '/observability/collector/docker-compose.collector.yaml');
     }
 
+    public function test_compose_fragment_chowns_storage_volume_before_collector_starts(): void
+    {
+        // B13: the persistent-queue named volume is root-owned on first create, but the collector
+        // runs as uid 10001 and crash-loops on `permission denied`. The generated compose must ship
+        // an init sidecar that chowns the volume, and the collector must wait for it.
+        $this->publisher()->publish($this->projectDir, 'grafana', new CollectorBufferPolicy());
+
+        $compose = (string) file_get_contents(
+            $this->projectDir . '/observability/collector/docker-compose.collector.yaml',
+        );
+
+        // Init sidecar chowns the volume, runs as root, and is a one-shot.
+        self::assertStringContainsString('otel-collector-init:', $compose);
+        self::assertStringContainsString('user: 0:0', $compose);
+        self::assertStringContainsString('restart: no', $compose);
+        self::assertStringContainsString('chown -R 10001:10001', $compose);
+
+        // Collector pins its uid and waits for the init sidecar to finish.
+        self::assertStringContainsString('user: 10001:10001', $compose);
+        self::assertStringContainsString('service_completed_successfully', $compose);
+    }
+
     public function test_idempotent_second_publish_skips_unchanged(): void
     {
         $publisher = $this->publisher();

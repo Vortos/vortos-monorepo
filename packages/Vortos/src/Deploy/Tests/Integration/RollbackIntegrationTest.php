@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Tests\Integration;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Cutover\CutoverCoordinator;
 use Vortos\Deploy\Cutover\NullCutoverEventRecorder;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
@@ -78,7 +79,7 @@ final class RollbackIntegrationTest extends TestCase
             registry: $registry,
             readinessGate: new FakeReadinessGate(),
             smokeRunner: new FakeSmokeRunner(),
-            composeFactory: new ComposeProjectFactory(),
+            composeFactory: new ComposeProjectFactory(new RuntimeServiceSpec()),
             localRunner: new FakeCommandRunner(),
             cutoverCoordinator: new CutoverCoordinator(new FakeEdgeRouter(), $store, new NullCutoverEventRecorder()),
         );

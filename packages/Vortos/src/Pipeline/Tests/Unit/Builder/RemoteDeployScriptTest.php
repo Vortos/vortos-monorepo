@@ -25,13 +25,14 @@ final class RemoteDeployScriptTest extends TestCase
         );
     }
 
-    private function definition(bool $oidc): PipelineDefinition
+    private function definition(bool $oidc, string $registryProvider = 'ghcr'): PipelineDefinition
     {
         return new PipelineDefinition(
             environments: ['production'],
             imageRepository: 'ghcr.io/acme/app',
             nativeRunnerLabel: 'ubuntu-24.04-arm',
             oidc: $oidc,
+            registryProvider: $registryProvider,
             remoteDeployDir: '/opt/vortos',
             appNetwork: 'vortos-net',
         );
@@ -55,22 +56,55 @@ final class RemoteDeployScriptTest extends TestCase
         self::assertStringContainsString('ghcr.io/acme/app@${{ needs.build.outputs.image }} php bin/console', $script);
     }
 
-    public function test_records_manifest_before_deploying_and_provisions_first(): void
+    public function test_provisions_before_recording_manifest_then_doctor_then_deploy(): void
     {
+        // G9: provision (which runs vortos:migrate) must precede record-manifest — the ledger table
+        // record-manifest writes to is created by that migration. On a fresh DB the old order
+        // (record first) died with "relation ... does not exist".
         $script = $this->script($this->definition(true));
 
-        $recordPos = strpos($script, 'vortos:release:record-manifest');
         $provisionPos = strpos($script, 'vortos:deploy:provision');
+        $recordPos = strpos($script, 'vortos:release:record-manifest');
         $doctorPos = strpos($script, 'deploy:doctor');
         $deployPos = strpos($script, "php bin/console deploy --env=");
 
-        self::assertIsInt($recordPos);
         self::assertIsInt($provisionPos);
+        self::assertIsInt($recordPos);
         self::assertIsInt($doctorPos);
         self::assertIsInt($deployPos);
-        self::assertLessThan($provisionPos, $recordPos);
-        self::assertLessThan($doctorPos, $provisionPos);
+        self::assertLessThan($recordPos, $provisionPos);
+        self::assertLessThan($doctorPos, $recordPos);
         self::assertLessThan($deployPos, $doctorPos);
+    }
+
+    public function test_one_shots_reach_docker_only_through_the_socket_proxy(): void
+    {
+        // B16: the cutover shells docker compose from inside the one-shot; it must reach Docker via
+        // the least-privilege proxy (DOCKER_HOST), never a raw socket.
+        $script = $this->script($this->definition(true));
+
+        self::assertStringContainsString('-e DOCKER_HOST=tcp://docker-socket-proxy:2375', $script);
+        self::assertStringNotContainsString('/var/run/docker.sock', $script);
+    }
+
+    public function test_ssh_key_posture_grants_the_container_the_store_group(): void
+    {
+        // B15: the 0640 store is group-readable; the container gets that group via --group-add so it
+        // can read the delivered store without a world-readable file.
+        $script = $this->script($this->definition(false));
+
+        self::assertStringContainsString("VORTOS_SECRETS_GID=\"\$(stat -c '%g' /opt/vortos/vortos-secrets.age)\"", $script);
+        self::assertStringContainsString('--group-add "$VORTOS_SECRETS_GID"', $script);
+    }
+
+    public function test_docker_hub_registry_gets_a_real_remote_login(): void
+    {
+        // G7: docker-hub was previously assumed pre-authenticated; now it gets a real remote login.
+        $script = $this->script($this->definition(true, 'docker-hub'));
+
+        self::assertStringContainsString('docker login docker.io', $script);
+        self::assertStringContainsString('secrets.DOCKER_TOKEN', $script);
+        self::assertStringContainsString('secrets.DOCKER_USERNAME', $script);
     }
 
     public function test_record_manifest_carries_arch_repo_and_digest(): void

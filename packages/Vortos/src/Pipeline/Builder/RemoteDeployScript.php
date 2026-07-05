@@ -44,21 +44,6 @@ final class RemoteDeployScript
         // SSH channel) and forwarded into the container, which opens the delivered, age-encrypted
         // store. OIDC posture: zero standing secrets — nothing to forward.
         $useAgeKek = !$definition->oidc;
-        $secretsFlags = $useAgeKek
-            ? sprintf(
-                '-e VORTOS_AGE_IDENTITY -e VORTOS_SECRETS_STORE_PATH=/app/vortos-secrets.age '
-                . '-v %s/vortos-secrets.age:/app/vortos-secrets.age:ro ',
-                $deployDir,
-            )
-            : '';
-
-        $dockerRun = sprintf(
-            'docker run --rm --network %s --env-file %s/.env.prod %s%s php bin/console ',
-            $network,
-            $deployDir,
-            $secretsFlags,
-            $imageRef,
-        );
 
         $lines = ['set -euo pipefail'];
 
@@ -69,34 +54,80 @@ final class RemoteDeployScript
             $lines[] = "export VORTOS_AGE_IDENTITY='\${{ secrets.VORTOS_AGE_IDENTITY }}'";
         }
 
-        // The VPS pulls the image, so it authenticates to the registry there. For GHCR the ephemeral
-        // GITHUB_TOKEN is forwarded over the SSH channel (GITHUB_TOKEN is the one credential allowed
-        // under the OIDC zero-standing-secret posture); other registries are assumed pre-authenticated
-        // on the box (documented prerequisite).
-        if ($definition->registryProvider === 'ghcr') {
-            $lines[] = "echo '\${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '\${{ github.actor }}' --password-stdin";
+        // B15: the age store is delivered 0640 (owner+group read) owned by the deploy uid, but the
+        // one-shot container runs as the image's uid. Read the store's group on the box and grant it
+        // to the container with --group-add so it can group-read the store — least privilege, no
+        // world-read. The store is age ciphertext, so this exposes no plaintext.
+        $groupAdd = '';
+        if ($useAgeKek) {
+            $lines[] = sprintf('VORTOS_SECRETS_GID="$(stat -c \'%%g\' %s/vortos-secrets.age)"', $deployDir);
+            $groupAdd = '--group-add "$VORTOS_SECRETS_GID" ';
         }
 
-        $lines = [
-            ...$lines,
-            sprintf('docker pull %s', $imageRef),
-            $dockerRun . sprintf(
-                'vortos:release:record-manifest --env=%s --repository=%s --digest=%s --git-sha=${{ github.sha }} --arch=%s --builder-id=github-actions',
-                $envExpr,
-                $repo,
-                $digestExpr,
-                $arch,
-            ),
-            $dockerRun . sprintf('vortos:deploy:provision --env=%s --json', $envExpr),
-            $dockerRun . sprintf('deploy:doctor --env=%s --json', $envExpr),
-            $dockerRun . sprintf(
-                'deploy --env=%s --yes --json --image-repository=%s --image-digest=%s',
-                $envExpr,
-                $repo,
-                $digestExpr,
-            ),
-        ];
+        $secretsFlags = $useAgeKek
+            ? sprintf(
+                '-e VORTOS_AGE_IDENTITY -e VORTOS_SECRETS_STORE_PATH=/app/vortos-secrets.age '
+                . '-v %s/vortos-secrets.age:/app/vortos-secrets.age:ro ',
+                $deployDir,
+            )
+            : '';
+
+        // B16: the blue-green cutover shells `docker compose`/`docker pull` from inside the one-shot.
+        // It reaches Docker ONLY through the least-privilege docker-socket-proxy (never the raw
+        // socket), via DOCKER_HOST on the shared app network.
+        $dockerRun = sprintf(
+            'docker run --rm --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 --env-file %s/.env.prod %s%s%s php bin/console ',
+            $network,
+            $deployDir,
+            $groupAdd,
+            $secretsFlags,
+            $imageRef,
+        );
+
+        // The VPS pulls the image, so it authenticates to the registry there. Provider-driven so any
+        // supported registry (ghcr / docker-hub / gcp-artifact) gets a real remote login instead of an
+        // unauthenticated pull (G7).
+        $loginLine = $this->remoteLoginLine($definition->registryProvider);
+        if ($loginLine !== null) {
+            $lines[] = $loginLine;
+        }
+
+        $lines[] = sprintf('docker pull %s', $imageRef);
+
+        // G9: provision runs BEFORE record-manifest. record-manifest writes the release-ledger row,
+        // whose schema is created by `vortos:migrate` inside provision — on a fresh DB the ledger
+        // table would not exist yet if record-manifest ran first.
+        $lines[] = $dockerRun . sprintf('vortos:deploy:provision --env=%s --json', $envExpr);
+        $lines[] = $dockerRun . sprintf(
+            'vortos:release:record-manifest --env=%s --repository=%s --digest=%s --git-sha=${{ github.sha }} --arch=%s --builder-id=github-actions',
+            $envExpr,
+            $repo,
+            $digestExpr,
+            $arch,
+        );
+        $lines[] = $dockerRun . sprintf('deploy:doctor --env=%s --json', $envExpr);
+        $lines[] = $dockerRun . sprintf(
+            'deploy --env=%s --yes --json --image-repository=%s --image-digest=%s',
+            $envExpr,
+            $repo,
+            $digestExpr,
+        );
 
         return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * The remote `docker login` line for the registry provider, or null when none is needed. The
+     * credential source per provider mirrors the build-stage login providers; secrets are piped via
+     * --password-stdin so they never touch argv or the runner disk.
+     */
+    private function remoteLoginLine(string $registryProvider): ?string
+    {
+        return match ($registryProvider) {
+            'ghcr' => "echo '\${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '\${{ github.actor }}' --password-stdin",
+            'docker-hub', 'dockerhub' => "echo '\${{ secrets.DOCKER_TOKEN }}' | docker login docker.io -u '\${{ secrets.DOCKER_USERNAME }}' --password-stdin",
+            'gcp-artifact', 'gcp-artifact-registry' => "echo '\${{ secrets.GCP_ARTIFACT_TOKEN }}' | docker login '\${{ vars.GCP_ARTIFACT_HOST }}' -u oauth2accesstoken --password-stdin",
+            default => null,
+        };
     }
 }

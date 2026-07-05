@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Definition;
 
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Strategy\DeployStrategy;
 use Vortos\Release\Manifest\Arch;
 
 final readonly class DeploymentDefinition
 {
+    public RuntimeServiceSpec $runtimeService;
+
     /**
      * @param list<string> $notifiers
      */
@@ -27,7 +30,10 @@ final readonly class DeploymentDefinition
         public int $workerDrainDeadlineSeconds = 25,
         public string $edgeRouter = 'caddy',
         public string $canaryAnalyzer = 'null',
-    ) {}
+        ?RuntimeServiceSpec $runtimeService = null,
+    ) {
+        $this->runtimeService = $runtimeService ?? new RuntimeServiceSpec();
+    }
 
     public static function create(): DeploymentDefinitionBuilder
     {
@@ -91,6 +97,7 @@ final readonly class DeploymentDefinition
             'secrets' => $this->secrets,
             'strategy' => $this->strategy->value,
             'worker_drain_deadline_seconds' => $this->workerDrainDeadlineSeconds,
+            'runtime_service' => $this->runtimeService->toArray(),
         ];
 
         ksort($data);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Deploy\Tests\Conformance;
 
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Plan\DeployPlanner;
@@ -34,7 +35,7 @@ final class SshComposeTargetConformanceTest extends DeployTargetConformanceTestC
             registry: $registry,
             readinessGate: new FakeReadinessGate(),
             smokeRunner: new FakeSmokeRunner(),
-            composeFactory: new ComposeProjectFactory(),
+            composeFactory: new ComposeProjectFactory(new RuntimeServiceSpec()),
             localRunner: new FakeCommandRunner(),
         );
 

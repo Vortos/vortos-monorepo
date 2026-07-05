@@ -99,6 +99,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends supervisor \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /var/log/supervisor
 
+# Docker CLI + compose plugin (pinned, multi-arch) so the deploy-on-target one-shots can drive the
+# blue-green cutover (`docker compose up -d`, `docker pull`) via DOCKER_HOST. The CLI reaches the
+# daemon ONLY through the least-privilege docker-socket-proxy the deploy sets DOCKER_HOST to — the
+# raw /var/run/docker.sock is never mounted into this image. Copied from the official image so no apt
+# repo is added and the binaries stay version-pinned.
+COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker:27-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
+
 COPY docker/worker/supervisord.conf /etc/supervisord.conf
 
 # Install dependencies first (better layer caching), then the rest of the source.

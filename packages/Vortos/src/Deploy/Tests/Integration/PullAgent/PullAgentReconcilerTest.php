@@ -266,7 +266,7 @@ final class PullAgentReconcilerTest extends TestCase
             verifier: $this->verifier,
             freshnessGuard: new ManifestFreshnessGuard($freshnessWindow),
             freshnessStore: $freshnessStore ?? new FakeDeployStateStore(),
-            applier: new DesiredStateApplier($stateStore, new \Vortos\Deploy\Compose\ComposeProjectFactory()),
+            applier: new DesiredStateApplier($stateStore, new \Vortos\Deploy\Compose\ComposeProjectFactory(new \Vortos\Deploy\Runtime\RuntimeServiceSpec())),
             rateLimiter: $rateLimiter ?? new ReconcileRateLimiter(new InMemoryRateLimitStateStore()),
         );
     }

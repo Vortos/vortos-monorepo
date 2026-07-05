@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use Vortos\Release\Manifest\Arch;
 use Vortos\Release\Manifest\BuildManifest;
 use Vortos\Release\Manifest\ManifestAlreadyExistsException;
+use Vortos\Release\Manifest\ManifestSchemaMissingException;
 use Vortos\Release\Manifest\Provenance;
 use Vortos\Release\ReadModel\DbalManifestRepository;
 use Vortos\Release\Schema\SchemaFingerprint;
@@ -81,6 +82,18 @@ final class DbalManifestRepositoryTest extends TestCase
         $this->expectException(ManifestAlreadyExistsException::class);
         $this->expectExceptionMessage('build-dup');
         $this->repo->record($manifest);
+    }
+
+    public function test_record_against_missing_schema_fails_closed_with_guidance(): void
+    {
+        // G9 defense-in-depth: a fresh DB where migrations have not run. Instead of a raw SQLSTATE
+        // 42P01 / "no such table", record() must surface actionable guidance to run vortos:migrate.
+        $freshDb = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $repo = new DbalManifestRepository($freshDb, 'release_build_manifests', 'release_env_schema_state');
+
+        $this->expectException(ManifestSchemaMissingException::class);
+        $this->expectExceptionMessage('vortos:migrate');
+        $repo->record($this->makeManifest('build-fresh'));
     }
 
     // ── Env state upsert ──

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Definition;
 
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Strategy\DeployStrategy;
 use Vortos\Release\Manifest\Arch;
 
@@ -23,6 +24,18 @@ final class DeploymentDefinitionBuilder
     private int $workerDrainDeadlineSeconds = 25;
     private string $edgeRouter = 'caddy';
     private string $canaryAnalyzer = 'null';
+
+    // Runtime service shape (B16): how the blue/green app + worker containers actually run. Defaults
+    // match the shipped FrankenPHP stub; apps override via the setters below in config/deploy.php.
+    /** @var list<string> */
+    private array $appCommand = RuntimeServiceSpec::DEFAULT_COMMAND;
+    /** @var list<string> */
+    private array $workerCommand = RuntimeServiceSpec::DEFAULT_WORKER_COMMAND;
+    private int $containerPort = RuntimeServiceSpec::DEFAULT_CONTAINER_PORT;
+    /** @var list<string> */
+    private array $envFiles = [RuntimeServiceSpec::DEFAULT_ENV_FILE];
+    /** @var array<string, string> */
+    private array $appEnvironment = ['SERVER_NAME' => ':8080'];
 
     /** @var array<string, \Closure(self): self> */
     private array $envOverrides = [];
@@ -132,6 +145,67 @@ final class DeploymentDefinitionBuilder
         return $clone;
     }
 
+    /** @param list<string> $command the HTTP server argv (must exist in the image) */
+    public function appCommand(array $command): self
+    {
+        $clone = clone $this;
+        $clone->appCommand = array_values($command);
+
+        return $clone;
+    }
+
+    /** @param list<string> $command the worker argv (supervisord/consume) */
+    public function workerCommand(array $command): self
+    {
+        $clone = clone $this;
+        $clone->workerCommand = array_values($command);
+
+        return $clone;
+    }
+
+    /** The internal port the app serves on (edge dials app-<color>:<port>; colors publish no host ports). */
+    public function containerPort(int $port): self
+    {
+        $clone = clone $this;
+        $clone->containerPort = $port;
+
+        return $clone;
+    }
+
+    /** @param list<string> $envFiles absolute paths mounted into the color as env files */
+    public function envFiles(array $envFiles): self
+    {
+        $clone = clone $this;
+        $clone->envFiles = array_values($envFiles);
+
+        return $clone;
+    }
+
+    /** @param array<string, string> $environment extra app-service environment (e.g. SERVER_NAME) */
+    public function appEnvironment(array $environment): self
+    {
+        $clone = clone $this;
+        $clone->appEnvironment = $environment;
+
+        return $clone;
+    }
+
+    /**
+     * The resolved runtime service shape. Consumed by the DI container to drive the cutover compose
+     * generation ({@see \Vortos\Deploy\Compose\ComposeProjectFactory}). Env-agnostic: command/port
+     * are image-level facts, so per-environment overrides don't change them.
+     */
+    public function getRuntimeServiceSpec(): RuntimeServiceSpec
+    {
+        return new RuntimeServiceSpec(
+            command: $this->appCommand,
+            containerPort: $this->containerPort,
+            envFiles: $this->envFiles,
+            workerCommand: $this->workerCommand,
+            environment: $this->appEnvironment,
+        );
+    }
+
     /** @param \Closure(self): self $override */
     public function forEnvironment(string $env, \Closure $override): self
     {
@@ -185,6 +259,7 @@ final class DeploymentDefinitionBuilder
             workerDrainDeadlineSeconds: $this->workerDrainDeadlineSeconds,
             edgeRouter: $this->edgeRouter,
             canaryAnalyzer: $this->canaryAnalyzer,
+            runtimeService: $this->getRuntimeServiceSpec(),
         );
     }
 
@@ -222,6 +297,7 @@ final class DeploymentDefinitionBuilder
             'secrets' => $this->secrets,
             'strategy' => $strategy->value,
             'worker_drain_deadline_seconds' => $this->workerDrainDeadlineSeconds,
+            'runtime_service' => $this->getRuntimeServiceSpec()->toArray(),
         ];
 
         ksort($data);

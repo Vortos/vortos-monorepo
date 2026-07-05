@@ -60,6 +60,7 @@ use Vortos\Cache\Contract\CacheWarmerInterface;
 #[AsCommand(
     name: 'vortos:cache:warmup',
     description: 'Run all registered cache warmers',
+    aliases: ['cache:warmup'],
 )]
 final class CacheWarmupCommand extends Command
 {

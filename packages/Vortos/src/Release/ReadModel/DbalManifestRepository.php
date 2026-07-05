@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Vortos\Release\ReadModel;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\TableNotFoundException;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Vortos\Release\Manifest\BuildManifest;
 use Vortos\Release\Manifest\ManifestAlreadyExistsException;
+use Vortos\Release\Manifest\ManifestSchemaMissingException;
 
 final class DbalManifestRepository implements ManifestRepositoryInterface
 {
@@ -36,6 +38,10 @@ final class DbalManifestRepository implements ManifestRepositoryInterface
             ]);
         } catch (UniqueConstraintViolationException) {
             throw ManifestAlreadyExistsException::forBuildId($manifest->buildId);
+        } catch (TableNotFoundException $e) {
+            // G9 defense-in-depth: a fresh DB without migrations run yet. Fail closed with guidance
+            // instead of a raw SQLSTATE 42P01.
+            throw ManifestSchemaMissingException::forTable($this->manifestTable, $e);
         }
 
         $this->upsertEnvState($manifest);

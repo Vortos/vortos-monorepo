@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Tests\Integration;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Cutover\CutoverCoordinator;
 use Vortos\Deploy\Cutover\NullCutoverEventRecorder;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
@@ -62,7 +63,7 @@ final class DeployLoopIntegrationTest extends TestCase
             registry: $registry,
             readinessGate: new FakeReadinessGate(),
             smokeRunner: new FakeSmokeRunner(),
-            composeFactory: new ComposeProjectFactory(),
+            composeFactory: new ComposeProjectFactory(new RuntimeServiceSpec()),
             localRunner: $localRunner,
             cutoverCoordinator: new CutoverCoordinator($router, $store, new NullCutoverEventRecorder()),
         );

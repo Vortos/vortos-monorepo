@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Vortos\Pipeline\Builder\PipelineBuilder;
 use Vortos\Pipeline\Builder\StageGate;
 use Vortos\Pipeline\Definition\PipelineDefinition;
+use Vortos\Pipeline\Definition\QualityMode;
 use Vortos\Pipeline\Model\ActionStep;
 use Vortos\Pipeline\Model\CommandStep;
 use Vortos\Pipeline\Model\SplitPackage;
@@ -27,6 +28,63 @@ final class PipelineBuilderTest extends TestCase
         $this->assertContains('analyse', $ids);
         $this->assertContains('agnosticism', $ids);
         $this->assertContains('deploy', $ids);
+    }
+
+    private function stageById(PipelineDefinition $definition, string $id): ?object
+    {
+        $pipeline = (new PipelineBuilder(new StageGate()))->build($definition);
+        foreach ($pipeline->stages as $stage) {
+            if ($stage->id === $id) {
+                return $stage;
+            }
+        }
+
+        return null;
+    }
+
+    private function commandStepRun(object $stage, string $stepName): ?string
+    {
+        foreach ($stage->steps as $step) {
+            if ($step instanceof CommandStep && $step->name === $stepName) {
+                return $step->run;
+            }
+        }
+
+        return null;
+    }
+
+    public function test_enforce_mode_emits_the_bare_quality_command(): void
+    {
+        // G6: default (enforce) keeps the fail-closed command as-is.
+        $stage = $this->stageById(new PipelineDefinition(), 'analyse');
+        self::assertNotNull($stage);
+
+        $run = $this->commandStepRun($stage, 'Run PHPStan');
+        self::assertSame('./vendor/bin/phpstan analyse', $run);
+    }
+
+    public function test_warn_mode_guards_on_tool_presence_and_never_fails_the_build(): void
+    {
+        // G6: warn mode skips cleanly if the tool is absent and surfaces issues as warnings.
+        $definition = new PipelineDefinition(staticAnalysisMode: QualityMode::Warn);
+        $stage = $this->stageById($definition, 'analyse');
+        self::assertNotNull($stage);
+
+        $run = (string) $this->commandStepRun($stage, 'Run PHPStan');
+        self::assertStringContainsString('command -v ./vendor/bin/phpstan', $run);
+        self::assertStringContainsString('exit 0', $run);
+        self::assertStringContainsString('::warning::', $run);
+    }
+
+    public function test_off_mode_omits_the_stage_and_the_deploy_dependency(): void
+    {
+        $definition = new PipelineDefinition(staticAnalysisMode: QualityMode::Off);
+
+        self::assertNull($this->stageById($definition, 'analyse'));
+
+        $deploy = $this->stageById($definition, 'deploy');
+        self::assertNotNull($deploy);
+        self::assertNotContains('analyse', $deploy->needs);
     }
 
     public function test_stage_ordering_follows_catalog(): void

@@ -11,6 +11,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Deploy\Provision\FirstDeployProvisioner;
+use Vortos\Deploy\Provision\JwtKeyPresence;
 
 /**
  * First-deploy provisioning (G4): idempotently ensures a fresh box can boot the app — RS256 JWT
@@ -24,8 +25,10 @@ use Vortos\Deploy\Provision\FirstDeployProvisioner;
 )]
 final class ProvisionCommand extends Command
 {
-    public function __construct(private readonly FirstDeployProvisioner $provisioner)
-    {
+    public function __construct(
+        private readonly FirstDeployProvisioner $provisioner,
+        private readonly JwtKeyPresence $jwtKeys = new JwtKeyPresence(),
+    ) {
         parent::__construct();
     }
 
@@ -41,8 +44,8 @@ final class ProvisionCommand extends Command
         $env = (string) $input->getOption('env');
         $json = (bool) $input->getOption('json');
 
-        $keyOutputDir = $this->jwtKeyOutputDir();
-        $keysPresent = $this->jwtKeysPresent();
+        $keyOutputDir = $this->jwtKeys->keyOutputDir();
+        $keysPresent = $this->jwtKeys->present();
 
         $steps = $this->provisioner->plan($keysPresent, $keyOutputDir, $env);
         $application = $this->getApplication();
@@ -83,24 +86,5 @@ final class ProvisionCommand extends Command
         }
 
         return self::SUCCESS;
-    }
-
-    private function jwtKeysPresent(): bool
-    {
-        $private = $_ENV['JWT_PRIVATE_KEY_PATH'] ?? getenv('JWT_PRIVATE_KEY_PATH');
-        $public = $_ENV['JWT_PUBLIC_KEY_PATH'] ?? getenv('JWT_PUBLIC_KEY_PATH');
-
-        return is_string($private) && $private !== '' && is_file($private)
-            && is_string($public) && $public !== '' && is_file($public);
-    }
-
-    private function jwtKeyOutputDir(): string
-    {
-        $private = $_ENV['JWT_PRIVATE_KEY_PATH'] ?? getenv('JWT_PRIVATE_KEY_PATH');
-        if (is_string($private) && $private !== '') {
-            return dirname($private);
-        }
-
-        return getcwd() ?: '.';
     }
 }

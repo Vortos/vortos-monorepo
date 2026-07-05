@@ -1,4 +1,42 @@
+# NOTE: the phpfpm runtime does not yet ship a self-contained image or the edge-router blue-green
+# topology (php-fpm serves FastCGI behind nginx, not HTTP directly). Blue-green cutover targets the
+# frankenphp runtime; phpfpm carries the portable production fixes only — an EXTERNAL vortos-net and
+# the least-privilege docker-socket-proxy for on-box deploy commands. A full edge-router phpfpm
+# topology is a separate task.
 services:
+  docker-socket-proxy:
+    # Least-privilege Docker API for on-box deploy commands. The raw socket is mounted ONLY here
+    # (read-only) and NEVER into the application image; the env below is a strict endpoint allowlist.
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: always
+    environment:
+      CONTAINERS: "1"
+      IMAGES: "1"
+      NETWORKS: "1"
+      EXEC: "1"
+      POST: "1"
+      INFO: "1"
+      VERSION: "1"
+      VOLUMES: "0"
+      BUILD: "0"
+      COMMIT: "0"
+      CONFIGS: "0"
+      SECRETS: "0"
+      SWARM: "0"
+      SERVICES: "0"
+      TASKS: "0"
+      NODES: "0"
+      PLUGINS: "0"
+      SYSTEM: "0"
+      DISTRIBUTION: "0"
+      SESSION: "0"
+      AUTH: "0"
+      LOG_LEVEL: "warning"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - vortos-net
+
   backend:
     build:
       context: ./
@@ -120,7 +158,7 @@ services:
 
 networks:
   vortos-net:
-    driver: bridge
+    external: true
 
 volumes:
   write_db_data:

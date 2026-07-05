@@ -43,6 +43,7 @@ use Vortos\Deploy\Preflight\PreflightContextFactory;
 use Vortos\Deploy\Runner\DeployRunner;
 use Vortos\Deploy\Runner\RollbackRunner;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Credential\CredentialProviderInterface;
 use Vortos\Deploy\Credential\CredentialProviderRegistry;
 use Vortos\Deploy\Credential\EphemeralKeyPairFactory;
@@ -395,9 +396,16 @@ final class DeployExtension extends Extension
 
         $container->setAlias(SmokeRunnerInterface::class, HttpSmokeRunner::class);
 
-        // ── Block 7: Compose project factory ──
+        // ── Block 7: Compose project factory (spec-driven, B16) ──
+        // The RuntimeServiceSpec is sourced from config/deploy.php via the definition builder so the
+        // cutover compose renders the app's REAL command / env_file / internal port — never a stub.
+
+        $container->register(RuntimeServiceSpec::class, RuntimeServiceSpec::class)
+            ->setFactory([new Reference(DeploymentDefinitionBuilder::class), 'getRuntimeServiceSpec'])
+            ->setPublic(false);
 
         $container->register(ComposeProjectFactory::class, ComposeProjectFactory::class)
+            ->setArgument('$spec', new Reference(RuntimeServiceSpec::class))
             ->setPublic(false);
 
         // ── Block 7: File state store (zero-dep default) ──

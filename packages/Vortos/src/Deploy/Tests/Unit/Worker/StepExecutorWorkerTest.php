@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Tests\Unit\Worker;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Plan\DeployPhase;
 use Vortos\Deploy\Plan\DeployPlan;
@@ -52,7 +53,7 @@ final class StepExecutorWorkerTest extends TestCase
             registry: new FakeContainerRegistry(),
             readinessGate: new FakeReadinessGate(),
             smokeRunner: new FakeSmokeRunner(),
-            composeFactory: new ComposeProjectFactory(),
+            composeFactory: new ComposeProjectFactory(new RuntimeServiceSpec()),
             localRunner: new FakeCommandRunner(),
             workerCoordinator: $coordinator,
             workerRegistry: $registry,

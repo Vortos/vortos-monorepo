@@ -7,6 +7,7 @@ namespace Vortos\Deploy\Tests\Unit\Compose;
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ComposeFile;
 use Vortos\Deploy\Registry\ImageReference;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Target\ActiveColor;
 
 final class ComposeFileTest extends TestCase
@@ -16,6 +17,17 @@ final class ComposeFileTest extends TestCase
         return new ImageReference('myrepo/app', 'latest', 'sha256:' . str_repeat('ab', 32));
     }
 
+    private static function spec(): RuntimeServiceSpec
+    {
+        return new RuntimeServiceSpec(
+            command: ['frankenphp', 'run', '--config', '/etc/frankenphp/Caddyfile'],
+            containerPort: 8080,
+            envFiles: ['/opt/vortos/.env.prod'],
+            workerCommand: ['/usr/bin/supervisord', '-c', '/etc/supervisord.conf'],
+            environment: ['SERVER_NAME' => ':8080'],
+        );
+    }
+
     public function test_rejects_non_digest_pinned_image(): void
     {
         $this->expectException(\InvalidArgumentException::class);
@@ -23,22 +35,13 @@ final class ComposeFileTest extends TestCase
             'project',
             ActiveColor::Blue,
             new ImageReference('repo', 'latest'),
-            'serve',
-            'worker',
-            8081,
+            self::spec(),
         );
     }
 
     public function test_to_array_structure(): void
     {
-        $compose = new ComposeFile(
-            'vortos-app-blue',
-            ActiveColor::Blue,
-            self::digestPinnedImage(),
-            'php-server',
-            'php bin/console messenger:consume',
-            8081,
-        );
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec());
 
         $array = $compose->toArray();
 
@@ -48,16 +51,40 @@ final class ComposeFileTest extends TestCase
         $this->assertArrayHasKey('networks', $array);
     }
 
+    public function test_renders_real_command_never_a_stub(): void
+    {
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec());
+        $array = $compose->toArray();
+
+        // B16: the command is the app's real argv, never the hardcoded `php-server` stub.
+        $this->assertSame(
+            ['frankenphp', 'run', '--config', '/etc/frankenphp/Caddyfile'],
+            $array['services']['app-blue']['command'],
+        );
+        $this->assertNotSame('php-server', $array['services']['app-blue']['command']);
+    }
+
+    public function test_app_color_is_internal_only_no_host_ports(): void
+    {
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec());
+        $array = $compose->toArray();
+
+        // Edge-router topology: colors publish NO host ports; they only `expose` the container port.
+        $this->assertArrayNotHasKey('ports', $array['services']['app-blue']);
+        $this->assertSame(['8080'], $array['services']['app-blue']['expose']);
+    }
+
+    public function test_networks_are_external(): void
+    {
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec());
+        $array = $compose->toArray();
+
+        $this->assertSame(['external' => true], $array['networks']['vortos-net']);
+    }
+
     public function test_both_services_share_same_image(): void
     {
-        $compose = new ComposeFile(
-            'vortos-app-green',
-            ActiveColor::Green,
-            self::digestPinnedImage(),
-            'serve',
-            'work',
-            8082,
-        );
+        $compose = new ComposeFile('vortos-app-green', ActiveColor::Green, self::digestPinnedImage(), self::spec());
 
         $array = $compose->toArray();
         $this->assertSame(
@@ -68,46 +95,38 @@ final class ComposeFileTest extends TestCase
 
     public function test_image_is_digest_pinned_in_output(): void
     {
-        $compose = new ComposeFile(
-            'vortos-app-blue',
-            ActiveColor::Blue,
-            self::digestPinnedImage(),
-            'serve',
-            'work',
-            8081,
-        );
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec());
 
         $array = $compose->toArray();
         $this->assertStringContainsString('sha256:', $array['services']['app-blue']['image']);
     }
 
-    public function test_env_file_by_reference(): void
+    public function test_env_file_wired_into_both_services(): void
     {
-        $compose = new ComposeFile(
-            'vortos-app-blue',
-            ActiveColor::Blue,
-            self::digestPinnedImage(),
-            'serve',
-            'work',
-            8081,
-            envFile: '/run/secrets/app.env',
-        );
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec());
 
         $array = $compose->toArray();
-        $this->assertContains('/run/secrets/app.env', $array['services']['app-blue']['env_file']);
-        $this->assertContains('/run/secrets/app.env', $array['services']['worker-blue']['env_file']);
+        // B16: without env_file the color booted with none of its DB/secrets config.
+        $this->assertContains('/opt/vortos/.env.prod', $array['services']['app-blue']['env_file']);
+        $this->assertContains('/opt/vortos/.env.prod', $array['services']['worker-blue']['env_file']);
     }
 
-    public function test_no_env_file_when_null(): void
+    public function test_app_environment_applied_to_app_service_only(): void
     {
-        $compose = new ComposeFile(
-            'vortos-app-blue',
-            ActiveColor::Blue,
-            self::digestPinnedImage(),
-            'serve',
-            'work',
-            8081,
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec());
+        $array = $compose->toArray();
+
+        $this->assertSame(':8080', $array['services']['app-blue']['environment']['SERVER_NAME']);
+        $this->assertArrayNotHasKey('environment', $array['services']['worker-blue']);
+    }
+
+    public function test_no_env_file_when_spec_has_none(): void
+    {
+        $spec = new RuntimeServiceSpec(
+            command: ['frankenphp', 'run'],
+            envFiles: [],
         );
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), $spec);
 
         $array = $compose->toArray();
         $this->assertArrayNotHasKey('env_file', $array['services']['app-blue']);

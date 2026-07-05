@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Tests\Unit\Cutover;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Cutover\EdgeReconciler;
 use Vortos\Deploy\Cutover\LiveRoute;
 use Vortos\Deploy\Cutover\NullCutoverEventRecorder;
@@ -31,7 +32,7 @@ final class EdgeReconcilerTest extends TestCase
         $this->reconciler = new EdgeReconciler(
             $this->router,
             $this->store,
-            new ComposeProjectFactory(),
+            new ComposeProjectFactory(new RuntimeServiceSpec()),
             $this->limiter,
             new NullCutoverEventRecorder(),
         );
@@ -48,7 +49,7 @@ final class EdgeReconcilerTest extends TestCase
     public function test_in_sync_is_noop(): void
     {
         $this->recordRelease(ActiveColor::Blue, 1);
-        $this->router->setLiveRoute(new LiveRoute(ActiveColor::Blue, 'app-blue', 8081, 100));
+        $this->router->setLiveRoute(new LiveRoute(ActiveColor::Blue, 'app-blue', 8080, 100));
 
         $result = $this->reconciler->reconcile('production');
 
@@ -59,7 +60,7 @@ final class EdgeReconcilerTest extends TestCase
     public function test_drift_corrects_to_desired(): void
     {
         $this->recordRelease(ActiveColor::Blue, 1);
-        $this->router->setLiveRoute(new LiveRoute(ActiveColor::Green, 'app-green', 8082, 100));
+        $this->router->setLiveRoute(new LiveRoute(ActiveColor::Green, 'app-green', 8080, 100));
 
         $result = $this->reconciler->reconcile('production');
 
@@ -85,12 +86,12 @@ final class EdgeReconcilerTest extends TestCase
     public function test_rate_limited_skips_corrective_reload(): void
     {
         $this->recordRelease(ActiveColor::Blue, 1);
-        $this->router->setLiveRoute(new LiveRoute(ActiveColor::Green, 'app-green', 8082, 100));
+        $this->router->setLiveRoute(new LiveRoute(ActiveColor::Green, 'app-green', 8080, 100));
 
         $this->reconciler->reconcile('production');
 
         $this->router->clearHistory();
-        $this->router->setLiveRoute(new LiveRoute(ActiveColor::Green, 'app-green', 8082, 100));
+        $this->router->setLiveRoute(new LiveRoute(ActiveColor::Green, 'app-green', 8080, 100));
 
         $result = $this->reconciler->reconcile('production');
 

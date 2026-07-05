@@ -5,42 +5,36 @@ declare(strict_types=1);
 namespace Vortos\Deploy\Compose;
 
 use Vortos\Deploy\Registry\ImageReference;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Target\ActiveColor;
 
-final class ComposeProjectFactory
+/**
+ * Builds the per-color cutover compose and the color endpoint from the app's {@see RuntimeServiceSpec}.
+ * The endpoint (host app-<color>, internal container port) is the single source of truth shared by
+ * the readiness gate and the Caddy upstream dial — so a color that comes up healthy is the exact one
+ * the edge routes to.
+ */
+final readonly class ComposeProjectFactory
 {
-    private const DEFAULT_APP_COMMAND = 'php-server';
-    private const DEFAULT_WORKER_COMMAND = 'php bin/console messenger:consume --time-limit=3600';
-    private const DEFAULT_APP_PORT_BLUE = 8081;
-    private const DEFAULT_APP_PORT_GREEN = 8082;
+    public function __construct(private RuntimeServiceSpec $spec)
+    {
+    }
 
-    public function create(
-        ActiveColor $color,
-        ImageReference $image,
-        ?string $envFile = null,
-        string $appCommand = self::DEFAULT_APP_COMMAND,
-        string $workerCommand = self::DEFAULT_WORKER_COMMAND,
-    ): ComposeFile {
-        $port = $color === ActiveColor::Blue ? self::DEFAULT_APP_PORT_BLUE : self::DEFAULT_APP_PORT_GREEN;
-
+    public function create(ActiveColor $color, ImageReference $image): ComposeFile
+    {
         return new ComposeFile(
             projectName: sprintf('vortos-app-%s', $color->value),
             color: $color,
             image: $image,
-            appCommand: $appCommand,
-            workerCommand: $workerCommand,
-            appPort: $port,
-            envFile: $envFile,
+            spec: $this->spec,
         );
     }
 
     public function endpointFor(ActiveColor $color): ColorEndpoint
     {
-        $port = $color === ActiveColor::Blue ? self::DEFAULT_APP_PORT_BLUE : self::DEFAULT_APP_PORT_GREEN;
-
         return new ColorEndpoint(
             host: sprintf('app-%s', $color->value),
-            port: $port,
+            port: $this->spec->containerPort,
         );
     }
 }

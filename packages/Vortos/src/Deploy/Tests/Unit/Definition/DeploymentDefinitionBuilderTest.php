@@ -27,6 +27,47 @@ final class DeploymentDefinitionBuilderTest extends TestCase
         self::assertTrue($def->autoRollback);
     }
 
+    public function test_default_runtime_service_spec(): void
+    {
+        $def = DeploymentDefinition::create()->build();
+
+        self::assertContains('frankenphp', $def->runtimeService->command);
+        self::assertSame(8080, $def->runtimeService->containerPort);
+        self::assertSame(['/opt/vortos/.env.prod'], $def->runtimeService->envFiles);
+    }
+
+    public function test_runtime_service_builder_methods(): void
+    {
+        $builder = DeploymentDefinition::create()
+            ->appCommand(['frankenphp', 'run', '--config', '/etc/frankenphp/Caddyfile'])
+            ->workerCommand(['php', 'bin/console', 'messenger:consume'])
+            ->containerPort(9000)
+            ->envFiles(['/opt/app/.env.prod'])
+            ->appEnvironment(['SERVER_NAME' => ':9000']);
+
+        $spec = $builder->getRuntimeServiceSpec();
+        self::assertSame(9000, $spec->containerPort);
+        self::assertSame(['/opt/app/.env.prod'], $spec->envFiles);
+        self::assertSame(['SERVER_NAME' => ':9000'], $spec->environment);
+
+        // The spec is part of the definition + its content-hash.
+        $def = $builder->build();
+        self::assertSame(9000, $def->runtimeService->containerPort);
+        self::assertNotSame(
+            DeploymentDefinition::create()->build()->definitionHash,
+            $def->definitionHash,
+        );
+    }
+
+    public function test_runtime_service_builder_is_immutable(): void
+    {
+        $b1 = DeploymentDefinition::create();
+        $b2 = $b1->containerPort(1234);
+
+        self::assertSame(8080, $b1->getRuntimeServiceSpec()->containerPort);
+        self::assertSame(1234, $b2->getRuntimeServiceSpec()->containerPort);
+    }
+
     public function test_fluent_builder_is_immutable(): void
     {
         $b1 = DeploymentDefinition::create();

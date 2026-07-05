@@ -24,8 +24,15 @@ final class DeliveryManifest
 
     /**
      * The default artifact set for a Vortos deploy, resolved against the project dir. The config
-     * trees are expanded to their concrete files; the secrets store is shipped 0600. Optional trees
-     * that do not exist are simply skipped.
+     * trees are expanded to their concrete files. Optional trees that do not exist are simply skipped.
+     *
+     * The secrets store is shipped 0640, not 0600 (B15): the deploy-in-image one-shots read it as the
+     * image's runtime uid, which differs from the delivering (deploy) uid, so an owner-only 0600 file
+     * is unreadable by the container. 0640 grants owner+group read; the remote run adds the store's
+     * group to the container via docker run --group-add, so only that group — never the world — can
+     * read it. The bytes are age CIPHERTEXT (the KEK arrives via env, never on disk), so group-read
+     * leaks no plaintext. .env.prod stays 0600: the docker CLI reads it as the deploy uid via
+     * --env-file, so the container uid never needs to.
      */
     public static function default(string $projectDir): self
     {
@@ -33,7 +40,7 @@ final class DeliveryManifest
         $artifacts = [
             new DeliveryArtifact($projectDir . '/' . DeliveryDefaults::ENV_FILE, DeliveryDefaults::ENV_FILE, '0600', required: true),
             new DeliveryArtifact($projectDir . '/' . DeliveryDefaults::COMPOSE_FILE, DeliveryDefaults::COMPOSE_FILE, '0644', required: true),
-            new DeliveryArtifact($projectDir . '/' . DeliveryDefaults::SECRETS_FILE, DeliveryDefaults::SECRETS_FILE, '0600', required: false),
+            new DeliveryArtifact($projectDir . '/' . DeliveryDefaults::SECRETS_FILE, DeliveryDefaults::SECRETS_FILE, '0640', required: false),
         ];
 
         foreach (DeliveryDefaults::CONFIG_TREES as $tree) {

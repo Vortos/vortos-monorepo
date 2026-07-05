@@ -60,16 +60,23 @@ final class ArtifactDeliveryTest extends TestCase
 
         $manifest = new DeliveryManifest([
             new DeliveryArtifact($this->tmp . '/.env.prod', '.env.prod', '0600', required: true),
-            new DeliveryArtifact($this->tmp . '/vortos-secrets.age', 'vortos-secrets.age', '0600', required: false),
+            // B15: the age store ships 0640 (owner+group read) so the container uid can read it.
+            new DeliveryArtifact($this->tmp . '/vortos-secrets.age', 'vortos-secrets.age', '0640', required: false),
         ]);
         $transport = new RecordingTransport();
 
         (new ArtifactDelivery($transport))->deliver($manifest, '/opt/vortos');
 
-        // Everything is staged under an incoming dir, never written straight into the deploy dir.
+        // Everything is staged under an incoming dir, never written straight into the deploy dir, and
+        // each artifact's declared mode is preserved.
         foreach ($transport->copies as [$local, $remote, $mode]) {
             self::assertStringContainsString('/.incoming-', $remote);
-            self::assertSame('0600', $mode, 'Secret files must be shipped 0600.');
+            if (str_contains((string) $remote, 'vortos-secrets.age')) {
+                self::assertSame('0640', $mode, 'The age store must be shipped 0640 (B15).');
+            }
+            if (str_ends_with((string) $remote, '.env.prod')) {
+                self::assertSame('0600', $mode, '.env.prod stays owner-only 0600.');
+            }
         }
 
         // The last command is the atomic swap into the deploy dir followed by staging cleanup.

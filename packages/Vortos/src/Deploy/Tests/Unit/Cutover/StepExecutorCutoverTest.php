@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Tests\Unit\Cutover;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Cutover\CutoverCoordinator;
 use Vortos\Deploy\Cutover\NullCutoverEventRecorder;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
@@ -42,7 +43,7 @@ final class StepExecutorCutoverTest extends TestCase
             registry: new FakeContainerRegistry(),
             readinessGate: new FakeReadinessGate(),
             smokeRunner: new FakeSmokeRunner(),
-            composeFactory: new ComposeProjectFactory(),
+            composeFactory: new ComposeProjectFactory(new RuntimeServiceSpec()),
             localRunner: new FakeCommandRunner(),
             cutoverCoordinator: $coordinator,
         );
@@ -96,7 +97,7 @@ final class StepExecutorCutoverTest extends TestCase
             registry: new FakeContainerRegistry(),
             readinessGate: new FakeReadinessGate(),
             smokeRunner: new FakeSmokeRunner(),
-            composeFactory: new ComposeProjectFactory(),
+            composeFactory: new ComposeProjectFactory(new RuntimeServiceSpec()),
             localRunner: new FakeCommandRunner(),
             cutoverCoordinator: $coordinator,
         );
@@ -138,7 +139,7 @@ final class StepExecutorCutoverTest extends TestCase
             registry: new FakeContainerRegistry(),
             readinessGate: new FakeReadinessGate(),
             smokeRunner: new FakeSmokeRunner(),
-            composeFactory: new ComposeProjectFactory(),
+            composeFactory: new ComposeProjectFactory(new RuntimeServiceSpec()),
             localRunner: new FakeCommandRunner(),
         );
 

@@ -1,0 +1,21 @@
+# =============================================================================
+# Edge router — bootstrap config.
+#
+# This is the STANDALONE edge Caddy (not the app's FrankenPHP server). It owns
+# 80/443 and reverse-proxies to the active blue/green color. This file is only
+# the bootstrap: it enables the admin API on the internal network and returns
+# 503 until the first deploy cuts a color in. At cutover the deploy POSTs a full
+# JSON config to the admin API (http://edge:2019), which REPLACES everything
+# below and points the upstream at `app-<color>:8080` with active health checks.
+#
+# The admin API is bound to the internal, never-published `vortos-net` so the
+# on-box deploy container can reach it; it is not exposed to the internet.
+# =============================================================================
+{
+	admin {$CADDY_ADMIN:localhost:2019}
+}
+
+# Maintenance placeholder until the first cutover reconfigures the edge.
+:80 {
+	respond "Service is being provisioned. Please retry shortly." 503
+}

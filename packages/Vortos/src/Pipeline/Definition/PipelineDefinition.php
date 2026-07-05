@@ -64,6 +64,10 @@ final readonly class PipelineDefinition
         public array $bootstrapSteps = [],
         public bool $emitStaticAnalysis = true,
         public bool $emitAgnosticism = true,
+        // ── Quality-stage behaviour (G6): enforce (default) / warn / off. `off` overrides the emit
+        //    bools above; `warn` guards on tool presence and never fails the build. ──
+        public QualityMode $staticAnalysisMode = QualityMode::Enforce,
+        public QualityMode $agnosticismMode = QualityMode::Enforce,
     ) {
         if ($emitter === '') {
             throw new \InvalidArgumentException('Pipeline emitter must be non-empty.');

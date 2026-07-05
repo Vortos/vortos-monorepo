@@ -142,7 +142,12 @@ class ConsoleCommandPass implements CompilerPassInterface
                 ));
             }
 
-            $aliases = array_values(array_filter($aliases, static fn (string $a): bool => $a !== ''));
+            // Aliases come from two places: the legacy pipe syntax (name: 'a|b') parsed above, and the
+            // modern #[AsCommand(aliases: [...])] param. Symfony's own pass honours both; mirror that so
+            // an alias declared either way is registered in the lazy loader's command map (e.g.
+            // 'cache:warmup' → 'vortos:cache:warmup', so a stale stub can't invoke an unmapped name).
+            $aliases = array_merge($aliases, $attribute?->aliases ?? []);
+            $aliases = array_values(array_unique(array_filter($aliases, static fn (string $a): bool => $a !== '')));
 
             $commandMap[$commandName] = $id;
             foreach ($aliases as $alias) {

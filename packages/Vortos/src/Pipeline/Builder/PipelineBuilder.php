@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Pipeline\Builder;
 
 use Vortos\Pipeline\Definition\PipelineDefinition;
+use Vortos\Pipeline\Definition\QualityMode;
 use Vortos\Pipeline\Model\ActionStep;
 use Vortos\Pipeline\Model\BuildMode;
 use Vortos\Pipeline\Model\CommandStep;
@@ -82,9 +83,9 @@ final class PipelineBuilder
         return match ($kind) {
             StageKind::Test => $this->testStage($definition),
             // Optional quality stages: an app with no PHPStan / no agnosticism tests can turn these
-            // off rather than ship a red pipeline (G6).
-            StageKind::StaticAnalysis => $definition->emitStaticAnalysis ? $this->staticAnalysisStage($definition) : null,
-            StageKind::Agnosticism => $definition->emitAgnosticism ? $this->agnosticismStage($definition) : null,
+            // off (or run them non-blocking in `warn` mode) rather than ship a red pipeline (G6).
+            StageKind::StaticAnalysis => $this->emitsStaticAnalysis($definition) ? $this->staticAnalysisStage($definition) : null,
+            StageKind::Agnosticism => $this->emitsAgnosticism($definition) ? $this->agnosticismStage($definition) : null,
             StageKind::Deploy => $this->deployStage($definition),
             default => null,
         };
@@ -153,7 +154,11 @@ final class PipelineBuilder
                 ]),
                 new CommandStep('Install dependencies', 'composer install --no-interaction --prefer-dist --ignore-platform-reqs'),
                 ...$this->bootstrapSteps($definition),
-                new CommandStep('Run PHPStan', $definition->analyseCommand),
+                new CommandStep('Run PHPStan', $this->qualityCommand(
+                    $definition->staticAnalysisMode,
+                    $definition->analyseCommand,
+                    'PHPStan',
+                )),
             ],
             needs: ['tests'],
             runner: new RunnerSpec(),
@@ -177,13 +182,59 @@ final class PipelineBuilder
                 ]),
                 new CommandStep('Install dependencies', 'composer install --no-interaction --prefer-dist --ignore-platform-reqs'),
                 ...$this->bootstrapSteps($definition),
-                new CommandStep('Run agnosticism lint', './vendor/bin/phpunit --testdox --filter Agnosticism'),
+                new CommandStep('Run agnosticism lint', $this->qualityCommand(
+                    $definition->agnosticismMode,
+                    './vendor/bin/phpunit --testdox --filter Agnosticism',
+                    'Agnosticism lint',
+                )),
             ],
             needs: ['tests'],
             runner: new RunnerSpec(),
             permissions: Permissions::readOnly(),
             timeoutMinutes: $definition->defaultTimeoutMinutes,
         );
+    }
+
+    private function emitsStaticAnalysis(PipelineDefinition $definition): bool
+    {
+        return $definition->emitStaticAnalysis && $definition->staticAnalysisMode->emits();
+    }
+
+    private function emitsAgnosticism(PipelineDefinition $definition): bool
+    {
+        return $definition->emitAgnosticism && $definition->agnosticismMode->emits();
+    }
+
+    /**
+     * The shell for a quality stage's command. In `enforce` mode the command runs as-is (fail-closed).
+     * In `warn` mode it is guarded on the tool being installed (skip cleanly if absent) and made
+     * non-failing (issues surface as GitHub warnings), so an app adopting the tool never ships a red
+     * pipeline (G6).
+     */
+    private function qualityCommand(QualityMode $mode, string $command, string $label): string
+    {
+        if ($mode !== QualityMode::Warn) {
+            return $command;
+        }
+
+        $tool = $this->toolBinary($command);
+
+        return sprintf(
+            'command -v %1$s >/dev/null 2>&1 || { echo "::warning::%2$s tool (%1$s) not installed — stage skipped"; exit 0; }; '
+            . '%3$s || echo "::warning::%2$s reported issues (warn mode; not failing the build)"',
+            $tool,
+            $label,
+            $command,
+        );
+    }
+
+    /** The executable a command invokes — the first whitespace-delimited token. */
+    private function toolBinary(string $command): string
+    {
+        $trimmed = ltrim($command);
+        $spacePos = strpos($trimmed, ' ');
+
+        return $spacePos === false ? $trimmed : substr($trimmed, 0, $spacePos);
     }
 
     private function buildImageStage(PipelineDefinition $definition): ?Stage
@@ -588,10 +639,10 @@ final class PipelineBuilder
     private function qualityStageIds(PipelineDefinition $definition): array
     {
         $ids = ['tests'];
-        if ($definition->emitStaticAnalysis) {
+        if ($this->emitsStaticAnalysis($definition)) {
             $ids[] = 'analyse';
         }
-        if ($definition->emitAgnosticism) {
+        if ($this->emitsAgnosticism($definition)) {
             $ids[] = 'agnosticism';
         }
 

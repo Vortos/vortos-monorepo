@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Tests\Unit\Driver;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Exception\DeployAbortedException;
 use Vortos\Deploy\Plan\CurrentDeployState;
@@ -49,7 +50,7 @@ final class StepExecutorTest extends TestCase
             registry: $this->registry,
             readinessGate: $this->gate,
             smokeRunner: $this->smokeRunner,
-            composeFactory: new ComposeProjectFactory(),
+            composeFactory: new ComposeProjectFactory(new RuntimeServiceSpec()),
             localRunner: $this->runner,
         );
     }
@@ -81,7 +82,7 @@ final class StepExecutorTest extends TestCase
             registry: $this->registry,
             readinessGate: $this->gate,
             smokeRunner: $this->smokeRunner,
-            composeFactory: new ComposeProjectFactory(),
+            composeFactory: new ComposeProjectFactory(new RuntimeServiceSpec()),
             localRunner: $this->runner,
             sshTransport: $transport,
         );

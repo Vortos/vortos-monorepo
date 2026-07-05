@@ -1,27 +1,79 @@
+# =============================================================================
+# Production baseline stack — edge-router blue-green topology.
+#
+# This file brings up the DURABLE layer of the box: infrastructure, the edge
+# router, and the least-privilege Docker API proxy the deploy uses. It does NOT
+# bring up the application — the app runs as internal-only blue/green colors
+# (services `app-blue` / `app-green`, project `vortos-app-<color>`) that the
+# deploy pipeline creates and cuts over. Publishing 80/443 from an app service
+# here would collide with the edge and defeat zero-downtime cutover, so the app
+# is deliberately absent.
+#
+#   operator (once):   docker compose -f docker-compose.prod.yaml up -d
+#   deploy (per release): brings up the next color, health-gates it, then
+#                         repoints the edge — see vortos-deploy.
+#
+# `vortos-net` is EXTERNAL and shared with the color projects + the edge
+# (create it once: `docker network create vortos-net`; first-deploy
+# provisioning also ensures it). The deploy reaches Docker only through
+# `docker-socket-proxy` (a narrow API allowlist) — never the raw socket.
+# =============================================================================
 services:
-  backend:
-    # Self-contained, immutable image: code + vendor are baked in (built in CI, pulled by digest).
-    # VORTOS_IMAGE_REF is set to `<repo>@<digest>` by the deploy — never build on the box, never
-    # bind-mount the working tree over the baked code.
-    image: ${VORTOS_IMAGE_REF:?set VORTOS_IMAGE_REF to the pulled <repo>@<digest> in .env.prod}
-    command: ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile", "--adapter", "caddyfile"]
-    volumes:
-      # Config (not code) is delivered to the VPS and mounted read-only.
-      - ./docker/frankenphp/Caddyfile:/etc/frankenphp/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    environment:
-      SERVER_NAME: "${SERVER_NAME:-:80}"
-      WORKER_NUM: "${WORKER_NUM:-4}"
+  edge:
+    # The edge owns 80/443 and reverse-proxies to the active color over vortos-net.
+    # Its admin API (loopback + vortos-net) is how the deploy repoints upstreams at cutover.
+    image: caddy:2-alpine
+    restart: always
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      # Admin API bound on the internal network so the on-box deploy container can POST the
+      # cutover config to http://edge:2019. vortos-net is never published, so it is not exposed.
+      CADDY_ADMIN: "0.0.0.0:2019"
     networks:
       - vortos-net
-    env_file:
-      - ./.env.prod
+
+  docker-socket-proxy:
+    # Least-privilege Docker API for the deploy one-shots. The raw /var/run/docker.sock is mounted
+    # ONLY here (read-only) and NEVER into the application image. The env below is a strict allowlist:
+    # only the endpoints the blue-green cutover needs are enabled; everything else is denied.
+    image: tecnativa/docker-socket-proxy:0.3.0
     restart: always
+    environment:
+      # --- allowed (what `docker compose up -d` + pull + health inspect require) ---
+      CONTAINERS: "1"
+      IMAGES: "1"
+      NETWORKS: "1"
+      EXEC: "1"
+      POST: "1"
+      INFO: "1"
+      VERSION: "1"
+      # --- explicitly denied (dangerous / unused) ---
+      VOLUMES: "0"
+      BUILD: "0"
+      COMMIT: "0"
+      CONFIGS: "0"
+      SECRETS: "0"
+      SWARM: "0"
+      SERVICES: "0"
+      TASKS: "0"
+      NODES: "0"
+      PLUGINS: "0"
+      SYSTEM: "0"
+      DISTRIBUTION: "0"
+      SESSION: "0"
+      AUTH: "0"
+      LOG_LEVEL: "warning"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - vortos-net
 
   write_db:
     image: postgres:18-alpine
@@ -95,25 +147,9 @@ services:
       - vortos-net
     restart: always
 
-  worker:
-    # Same baked image as backend, different entrypoint (supervisord runs the queue workers).
-    image: ${VORTOS_IMAGE_REF:?set VORTOS_IMAGE_REF to the pulled <repo>@<digest> in .env.prod}
-    command: ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
-    restart: always
-    depends_on:
-      - kafka
-      - write_db
-      - redis
-    networks:
-      - vortos-net
-    env_file:
-      - ./.env.prod
-    healthcheck:
-      disable: true
-
 networks:
   vortos-net:
-    driver: bridge
+    external: true
 
 volumes:
   write_db_data:

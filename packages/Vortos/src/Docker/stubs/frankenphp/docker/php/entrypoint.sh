@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
 
-php bin/console cache:warmup
+php bin/console vortos:cache:warmup
 
 exec docker-php-entrypoint "$@"

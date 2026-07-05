@@ -56,7 +56,7 @@ final class SshComposeRollbackTest extends TestCase
             registry: new FakeContainerRegistry(),
             readinessGate: new FakeReadinessGate(),
             smokeRunner: new FakeSmokeRunner(),
-            composeFactory: new \Vortos\Deploy\Compose\ComposeProjectFactory(),
+            composeFactory: new \Vortos\Deploy\Compose\ComposeProjectFactory(new \Vortos\Deploy\Runtime\RuntimeServiceSpec()),
             localRunner: new FakeCommandRunner(),
         );
 

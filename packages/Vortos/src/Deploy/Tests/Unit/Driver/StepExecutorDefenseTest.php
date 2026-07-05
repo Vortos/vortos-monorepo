@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Tests\Unit\Driver;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Exception\ContractInSameDeployException;
 use Vortos\Deploy\Plan\DeployPhase;
@@ -41,7 +42,7 @@ final class StepExecutorDefenseTest extends TestCase
             registry: new FakeContainerRegistry(),
             readinessGate: new FakeReadinessGate(),
             smokeRunner: new FakeSmokeRunner(),
-            composeFactory: new ComposeProjectFactory(),
+            composeFactory: new ComposeProjectFactory(new RuntimeServiceSpec()),
             localRunner: new FakeCommandRunner(),
             phaseReader: $phaseReader,
         );

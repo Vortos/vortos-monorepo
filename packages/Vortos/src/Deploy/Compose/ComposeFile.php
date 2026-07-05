@@ -5,26 +5,22 @@ declare(strict_types=1);
 namespace Vortos\Deploy\Compose;
 
 use Vortos\Deploy\Registry\ImageReference;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Target\ActiveColor;
 
+/**
+ * Renders the blue/green cutover compose for a single color from the app's real
+ * {@see RuntimeServiceSpec}. The colors are internal-only (edge-router topology): the app service
+ * publishes NO host ports — it only exposes its container port so the standalone edge (Caddy) can
+ * reverse-proxy to app-<color>:<containerPort> over the shared external vortos-net.
+ */
 final readonly class ComposeFile
 {
-    /**
-     * @param array<string, string> $appEnvironment
-     * @param array<string, string> $workerEnvironment
-     * @param list<string>          $networks
-     */
     public function __construct(
         public string $projectName,
         public ActiveColor $color,
         public ImageReference $image,
-        public string $appCommand,
-        public string $workerCommand,
-        public int $appPort,
-        public array $appEnvironment = [],
-        public array $workerEnvironment = [],
-        public array $networks = ['vortos-net'],
-        public ?string $envFile = null,
+        public RuntimeServiceSpec $spec,
     ) {
         if (!$image->isDigestPinned()) {
             throw new \InvalidArgumentException('Compose file image must be digest-pinned.');
@@ -38,30 +34,29 @@ final readonly class ComposeFile
 
         $appService = [
             'image' => $imageRef,
-            'command' => $this->appCommand,
-            'ports' => [sprintf('%d:8080', $this->appPort)],
-            'networks' => $this->networks,
+            'command' => $this->spec->command,
+            // Internal-only: expose (not publish). The edge owns 80/443 and dials this over vortos-net.
+            'expose' => [(string) $this->spec->containerPort],
+            'networks' => $this->spec->networks,
             'restart' => 'unless-stopped',
         ];
 
         $workerService = [
             'image' => $imageRef,
-            'command' => $this->workerCommand,
-            'networks' => $this->networks,
+            'command' => $this->spec->workerCommand,
+            'networks' => $this->spec->networks,
             'restart' => 'unless-stopped',
         ];
 
-        if ($this->envFile !== null) {
-            $appService['env_file'] = [$this->envFile];
-            $workerService['env_file'] = [$this->envFile];
+        if ($this->spec->envFiles !== []) {
+            $appService['env_file'] = $this->spec->envFiles;
+            $workerService['env_file'] = $this->spec->envFiles;
         }
 
-        if ($this->appEnvironment !== []) {
-            $appService['environment'] = $this->appEnvironment;
-        }
-
-        if ($this->workerEnvironment !== []) {
-            $workerService['environment'] = $this->workerEnvironment;
+        if ($this->spec->environment !== []) {
+            // SERVER_NAME etc. shape how the app serves HTTP; the worker doesn't serve HTTP, so it
+            // takes only env_file (its real runtime config), never the HTTP-serving overrides.
+            $appService['environment'] = $this->spec->environment;
         }
 
         return [
@@ -69,7 +64,7 @@ final readonly class ComposeFile
                 sprintf('app-%s', $this->color->value) => $appService,
                 sprintf('worker-%s', $this->color->value) => $workerService,
             ],
-            'networks' => array_fill_keys($this->networks, ['external' => true]),
+            'networks' => array_fill_keys($this->spec->networks, ['external' => true]),
         ];
     }
 }

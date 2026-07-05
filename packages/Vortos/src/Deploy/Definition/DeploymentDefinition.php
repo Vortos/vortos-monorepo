@@ -31,6 +31,7 @@ final readonly class DeploymentDefinition
         public string $edgeRouter = 'caddy',
         public string $canaryAnalyzer = 'null',
         ?RuntimeServiceSpec $runtimeService = null,
+        public WorkerTopology $workerTopology = WorkerTopology::RideColor,
     ) {
         $this->runtimeService = $runtimeService ?? new RuntimeServiceSpec();
     }
@@ -59,6 +60,7 @@ final readonly class DeploymentDefinition
         array $envOverrides = [],
         string $edgeRouter = 'caddy',
         string $canaryAnalyzer = 'null',
+        WorkerTopology $workerTopology = WorkerTopology::RideColor,
     ): self {
         $builder = self::create()
             ->host($host)
@@ -73,7 +75,8 @@ final readonly class DeploymentDefinition
             ->autoRollback($autoRollback)
             ->workerDrainDeadlineSeconds($workerDrainDeadlineSeconds)
             ->edgeRouter($edgeRouter)
-            ->canaryAnalyzer($canaryAnalyzer);
+            ->canaryAnalyzer($canaryAnalyzer)
+            ->workerTopology($workerTopology);
 
         foreach ($envOverrides as $env => $override) {
             $builder = $builder->forEnvironment($env, $override);
@@ -97,6 +100,7 @@ final readonly class DeploymentDefinition
             'secrets' => $this->secrets,
             'strategy' => $this->strategy->value,
             'worker_drain_deadline_seconds' => $this->workerDrainDeadlineSeconds,
+            'worker_topology' => $this->workerTopology->value,
             'runtime_service' => $this->runtimeService->toArray(),
         ];
 

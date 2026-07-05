@@ -59,6 +59,17 @@ final readonly class ComposeFile
             $appService['environment'] = $this->spec->environment;
         }
 
+        // G8: file-shaped secrets are materialised to a tmpfs host path by the deploy one-shot and
+        // bind-mounted read-only into both the app and worker color at their declared container path.
+        if ($this->spec->fileSecrets !== []) {
+            $volumes = array_map(
+                static fn ($fileSecret): string => $fileSecret->composeVolume(),
+                $this->spec->fileSecrets,
+            );
+            $appService['volumes'] = $volumes;
+            $workerService['volumes'] = $volumes;
+        }
+
         return [
             'services' => [
                 sprintf('app-%s', $this->color->value) => $appService,

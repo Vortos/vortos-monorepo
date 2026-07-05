@@ -37,6 +37,7 @@ final class RuntimeServiceSpecTest extends TestCase
             'worker_command' => ['php', 'bin/console', 'messenger:consume'],
             'environment' => ['SERVER_NAME' => ':9000'],
             'networks' => ['vortos-net'],
+            'file_secrets' => [],
         ], $spec->toArray());
     }
 

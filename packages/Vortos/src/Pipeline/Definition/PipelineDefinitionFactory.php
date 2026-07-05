@@ -144,6 +144,12 @@ final class PipelineDefinitionFactory
         if (($v = $this->strOrEnv($file, 'app_network', 'PIPELINE_APP_NETWORK')) !== null) {
             $b = $b->appNetwork($v);
         }
+        if (($v = $this->listOrEnv($file, 'runtime_env_files', 'PIPELINE_RUNTIME_ENV_FILES')) !== null && $v !== []) {
+            $b = $b->runtimeEnvFiles($v);
+        }
+        if (($v = $this->listOrEnv($file, 'runtime_file_secret_dirs', 'PIPELINE_RUNTIME_FILE_SECRET_DIRS')) !== null) {
+            $b = $b->runtimeFileSecretDirs($v);
+        }
 
         $bootstrap = $this->testSteps($file['bootstrap_steps'] ?? []);
         if ($bootstrap !== []) {

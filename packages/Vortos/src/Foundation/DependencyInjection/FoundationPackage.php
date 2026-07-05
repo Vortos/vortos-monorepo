@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\Foundation\DependencyInjection\Compiler\ConsoleCommandPass;
+use Vortos\Foundation\DependencyInjection\Compiler\ContainerDumpabilityPass;
 use Vortos\Foundation\DependencyInjection\Compiler\DecoratorCompilerPass;
 use Vortos\Foundation\DependencyInjection\Compiler\DefaultImplCompilerPass;
 use Vortos\Foundation\DependencyInjection\Compiler\DoctorCheckPass;
@@ -36,5 +37,9 @@ final class FoundationPackage implements PackageInterface
         $container->addCompilerPass(new DefaultImplCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 5);
         $container->addCompilerPass(new OverrideImplCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 0);
         $container->addCompilerPass(new DecoratorCompilerPass(),    PassConfig::TYPE_BEFORE_OPTIMIZATION, -5);
+
+        // B21: fail-closed guard that the container is dumpable. Runs last (after removals), so it
+        // sees only live, fully-resolved definitions and pre-empts PhpDumper's one-at-a-time errors.
+        $container->addCompilerPass(new ContainerDumpabilityPass(), PassConfig::TYPE_AFTER_REMOVING, -100);
     }
 }

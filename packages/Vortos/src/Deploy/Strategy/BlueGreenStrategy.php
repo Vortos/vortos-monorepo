@@ -44,18 +44,11 @@ final class BlueGreenStrategy implements DeployStrategyInterface
             ]);
         }
 
-        $phases[] = new DeployPhase(PhaseKind::RollWorkers, [
-            new DeployStep(
-                StepAction::DrainWorker,
-                'Rolling drain and restart workers',
-                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest, 'image_repository' => $repository],
-            ),
-            new DeployStep(
-                StepAction::StartWorker,
-                'Noop — workers launched during drain rollout',
-                ['image_digest' => $digest, 'image_repository' => $repository],
-            ),
-        ]);
+        // B20: only emitted when the deployment uses an external supervisord; ride-color topologies
+        // (the ssh-compose default) get no supervisorctl phase — workers ride the compose color.
+        foreach (WorkerRolloutPhaseFactory::phasesFor($context) as $phase) {
+            $phases[] = $phase;
+        }
 
         $phases[] = new DeployPhase(PhaseKind::StageColor, [
             new DeployStep(

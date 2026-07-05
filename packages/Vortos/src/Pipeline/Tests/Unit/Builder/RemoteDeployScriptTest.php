@@ -126,6 +126,103 @@ final class RemoteDeployScriptTest extends TestCase
         self::assertStringContainsString('-v /opt/vortos/vortos-secrets.age:/app/vortos-secrets.age:ro', $script);
     }
 
+    public function test_runtime_env_files_are_bind_mounted_read_only_into_the_one_shot(): void
+    {
+        // B19: the nested cutover compose references env_file: <runtime paths>, resolved INSIDE the
+        // one-shot. Each declared runtime env-file must be bind-mounted read-only at its same absolute
+        // path so `docker compose up` for the color can read it (otherwise "env file ... not found").
+        $script = $this->script($this->definition(true));
+
+        self::assertStringContainsString('-v /opt/vortos/.env.prod:/opt/vortos/.env.prod:ro', $script);
+    }
+
+    public function test_multiple_runtime_env_files_each_mounted_and_deduped(): void
+    {
+        $definition = new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: true,
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            runtimeEnvFiles: ['/opt/vortos/.env.prod', '/etc/app/secrets.env', '/opt/vortos/.env.prod'],
+        );
+
+        $script = $this->script($definition);
+
+        self::assertStringContainsString('-v /opt/vortos/.env.prod:/opt/vortos/.env.prod:ro', $script);
+        self::assertStringContainsString('-v /etc/app/secrets.env:/etc/app/secrets.env:ro', $script);
+        // The docker-run template is reused across all console commands, so each mount repeats once
+        // per command. The duplicate .env.prod entry must not double it: its count must equal the
+        // count of the unique secrets.env mount.
+        self::assertSame(
+            substr_count($script, '-v /etc/app/secrets.env:/etc/app/secrets.env:ro'),
+            substr_count($script, '-v /opt/vortos/.env.prod:/opt/vortos/.env.prod:ro'),
+            'a duplicate env-file path is not mounted twice per docker run',
+        );
+    }
+
+    public function test_relative_runtime_env_file_paths_are_rejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: true,
+            runtimeEnvFiles: ['relative/.env'],
+        );
+    }
+
+    public function test_file_secrets_are_created_mounted_and_materialized_before_cutover(): void
+    {
+        // G8: tmpfs dirs are created (0700), bind-mounted RW into the one-shot, and the file secrets
+        // are materialized right before the cutover deploy so the color's compose mounts find them.
+        $definition = new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: true,
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            runtimeFileSecretDirs: ['/run/vortos-secrets'],
+        );
+
+        $script = $this->script($definition);
+
+        self::assertStringContainsString('mkdir -p /run/vortos-secrets && chmod 700 /run/vortos-secrets', $script);
+        self::assertStringContainsString('-v /run/vortos-secrets:/run/vortos-secrets ', $script);
+        self::assertStringContainsString('vortos:deploy:materialize-file-secrets --env=', $script);
+
+        $materializePos = strpos($script, 'vortos:deploy:materialize-file-secrets');
+        $deployPos = strpos($script, 'php bin/console deploy --env=');
+        self::assertIsInt($materializePos);
+        self::assertIsInt($deployPos);
+        self::assertLessThan($deployPos, $materializePos, 'file secrets must be materialized before cutover');
+    }
+
+    public function test_no_file_secret_plumbing_when_none_declared(): void
+    {
+        $script = $this->script($this->definition(true));
+
+        self::assertStringNotContainsString('materialize-file-secrets', $script);
+        self::assertStringNotContainsString('mkdir -p /run', $script);
+    }
+
+    public function test_non_tmpfs_file_secret_dir_is_rejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: true,
+            runtimeFileSecretDirs: ['/opt/vortos/secrets'], // not tmpfs
+        );
+    }
+
     public function test_oidc_posture_is_free_of_standing_secrets(): void
     {
         $script = $this->script($this->definition(true));

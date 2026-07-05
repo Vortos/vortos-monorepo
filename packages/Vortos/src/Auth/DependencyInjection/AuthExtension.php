@@ -6,7 +6,9 @@ namespace Vortos\Auth\DependencyInjection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
+use Vortos\Auth\Jwt\Key\Keyring;
 use Vortos\Auth\Contract\PasswordHasherInterface;
 use Vortos\Auth\Contract\RehashableUserPersisterInterface;
 use Vortos\Auth\Contract\TokenStorageInterface;
@@ -123,11 +125,14 @@ final class AuthExtension extends Extension
             $this->ensureRedisService($container, $env);
         }
 
-        // JwtConfig — signing material comes from the keyring (supports rotation).
-        $keyring = $config->buildKeyring();
+        // JwtConfig — signing material comes from the keyring (supports rotation). B21: the keyring is
+        // registered as an inline-Definition-built service (never a raw Keyring object argument) so the
+        // prod HTTP container dumps via PhpDumper; every consumer references it.
+        $container->setDefinition(Keyring::class, $config->keyringDefinition())
+            ->setShared(true)->setPublic(false);
         $container->register(JwtConfig::class, JwtConfig::class)
             ->setArguments([
-                $keyring,
+                new Reference(Keyring::class),
                 $resolved['access_token_ttl'],
                 $resolved['refresh_token_ttl'],
                 $resolved['issuer'],
@@ -138,7 +143,7 @@ final class AuthExtension extends Extension
         // JWKS endpoint — publishes public signing keys for RS256 keyrings.
         if ($config->isJwksEnabled()) {
             $container->register(JwksExporter::class, JwksExporter::class)
-                ->setArguments([$keyring])
+                ->setArguments([new Reference(Keyring::class)])
                 ->setShared(true)->setPublic(false);
 
             $container->register(JwksController::class, JwksController::class)
@@ -247,13 +252,14 @@ final class AuthExtension extends Extension
                 ])
                 ->setShared(true)->setPublic(false);
 
-            $rateLimitFailureConfig = new RateLimitFailureConfig(
-                ipMode: RateLimitFailureMode::from($resolved['rate_limit_failure_mode_ip']),
-                globalMode: RateLimitFailureMode::from($resolved['rate_limit_failure_mode_global']),
-                userMode: RateLimitFailureMode::from($resolved['rate_limit_failure_mode_user']),
-                circuitBreakerThreshold: $resolved['rate_limit_circuit_breaker_threshold'],
-                circuitBreakerResetSeconds: $resolved['rate_limit_circuit_breaker_reset_seconds'],
-            );
+            // B21: inline Definition (enums + ints are dumpable), not a raw RateLimitFailureConfig object.
+            $rateLimitFailureConfig = new Definition(RateLimitFailureConfig::class, [
+                '$ipMode' => RateLimitFailureMode::from($resolved['rate_limit_failure_mode_ip']),
+                '$globalMode' => RateLimitFailureMode::from($resolved['rate_limit_failure_mode_global']),
+                '$userMode' => RateLimitFailureMode::from($resolved['rate_limit_failure_mode_user']),
+                '$circuitBreakerThreshold' => $resolved['rate_limit_circuit_breaker_threshold'],
+                '$circuitBreakerResetSeconds' => $resolved['rate_limit_circuit_breaker_reset_seconds'],
+            ]);
 
             $container->register(RedisQuotaStore::class, RedisQuotaStore::class)
                 ->setArgument('$redis', new Reference(\Redis::class))

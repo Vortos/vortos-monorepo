@@ -72,14 +72,35 @@ final class RemoteDeployScript
             )
             : '';
 
+        // B19: the blue-green cutover runs `docker compose up` for the color from INSIDE this one-shot.
+        // The generated cutover compose sets `env_file:` to the RuntimeServiceSpec env-file paths —
+        // host paths that are absent inside the one-shot unless mounted. Bind-mount each declared
+        // runtime env-file read-only at its identical absolute path so `docker compose` can resolve it.
+        // Deduplicated and rooted-checked at the definition; the color genuinely needs this env to boot.
+        $runtimeEnvMounts = '';
+        foreach (array_values(array_unique($definition->runtimeEnvFiles)) as $envFile) {
+            $runtimeEnvMounts .= sprintf('-v %s:%s:ro ', $envFile, $envFile);
+        }
+
+        // G8: file-shaped secrets are materialised by the one-shot into tmpfs host dirs, which the
+        // color then bind-mounts read-only. The one-shot mounts each dir read-write so the materialize
+        // step can write; the dirs are created (0700) up-front so the docker -v mount target exists.
+        $fileSecretDirs = array_values(array_unique($definition->runtimeFileSecretDirs));
+        $fileSecretMounts = '';
+        foreach ($fileSecretDirs as $dir) {
+            $fileSecretMounts .= sprintf('-v %s:%s ', $dir, $dir);
+        }
+
         // B16: the blue-green cutover shells `docker compose`/`docker pull` from inside the one-shot.
         // It reaches Docker ONLY through the least-privilege docker-socket-proxy (never the raw
         // socket), via DOCKER_HOST on the shared app network.
         $dockerRun = sprintf(
-            'docker run --rm --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 --env-file %s/.env.prod %s%s%s php bin/console ',
+            'docker run --rm --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 --env-file %s/.env.prod %s%s%s%s%s php bin/console ',
             $network,
             $deployDir,
             $groupAdd,
+            $runtimeEnvMounts,
+            $fileSecretMounts,
             $secretsFlags,
             $imageRef,
         );
@@ -94,6 +115,11 @@ final class RemoteDeployScript
 
         $lines[] = sprintf('docker pull %s', $imageRef);
 
+        // G8: create the tmpfs secret dirs (0700) so the one-shot's read-write mount target exists.
+        foreach ($fileSecretDirs as $dir) {
+            $lines[] = sprintf('mkdir -p %s && chmod 700 %s', $dir, $dir);
+        }
+
         // G9: provision runs BEFORE record-manifest. record-manifest writes the release-ledger row,
         // whose schema is created by `vortos:migrate` inside provision — on a fresh DB the ledger
         // table would not exist yet if record-manifest ran first.
@@ -106,6 +132,13 @@ final class RemoteDeployScript
             $arch,
         );
         $lines[] = $dockerRun . sprintf('deploy:doctor --env=%s --json', $envExpr);
+
+        // G8: materialize file-shaped secrets to their tmpfs paths right before the cutover, so the
+        // color's compose mounts find them. Only emitted when file secrets are declared.
+        if ($fileSecretDirs !== []) {
+            $lines[] = $dockerRun . sprintf('vortos:deploy:materialize-file-secrets --env=%s --json', $envExpr);
+        }
+
         $lines[] = $dockerRun . sprintf(
             'deploy --env=%s --yes --json --image-repository=%s --image-digest=%s',
             $envExpr,

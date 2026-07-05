@@ -4,8 +4,31 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Cutover;
 
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
+
 final class EdgeConfigGenerator
 {
+    /**
+     * @param int $containerPort the internal port the color serves on — the single source of truth is
+     *                           {@see RuntimeServiceSpec::$containerPort}, threaded here from
+     *                           config/deploy.php so the edge dial can never drift from the compose
+     *                           expose port (watch-list: was hardcoded 8081 vs the 8080 spec default).
+     */
+    public function __construct(
+        private readonly int $containerPort = RuntimeServiceSpec::DEFAULT_CONTAINER_PORT,
+    ) {}
+
+    /** Build from the app's runtime spec so the edge dial port is the single source of truth. */
+    public static function fromSpec(RuntimeServiceSpec $spec): self
+    {
+        return new self($spec->containerPort);
+    }
+
+    private function dial(string $color): string
+    {
+        return sprintf('app-%s:%d', $color, $this->containerPort);
+    }
+
     /** @return array<string, mixed> */
     public function generateCaddyConfig(string $domain): array
     {
@@ -28,7 +51,7 @@ final class EdgeConfigGenerator
                                         [
                                             'handler' => 'reverse_proxy',
                                             'upstreams' => [
-                                                ['dial' => 'app-blue:8081'],
+                                                ['dial' => $this->dial('blue')],
                                             ],
                                             'health_checks' => [
                                                 'active' => [
@@ -90,7 +113,7 @@ final class EdgeConfigGenerator
             $cfg = $this->generateCaddyConfig($domain);
             // Swap the single upstream to green
             $cfg['apps']['http']['servers']['app']['routes'][0]['handle'][0]['upstreams'] = [
-                ['dial' => 'app-green:8081'],
+                ['dial' => $this->dial('green')],
             ];
 
             return $cfg;
@@ -103,8 +126,8 @@ final class EdgeConfigGenerator
                 'selection_policy' => ['policy' => 'weighted_round_robin'],
             ],
             'upstreams' => [
-                ['dial' => 'app-blue:8081', 'weight' => $blueWeight],
-                ['dial' => 'app-green:8081', 'weight' => $greenWeight],
+                ['dial' => $this->dial('blue'), 'weight' => $blueWeight],
+                ['dial' => $this->dial('green'), 'weight' => $greenWeight],
             ],
             'health_checks' => [
                 'active' => [

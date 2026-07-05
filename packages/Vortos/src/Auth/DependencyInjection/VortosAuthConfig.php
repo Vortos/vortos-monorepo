@@ -13,6 +13,7 @@ use Vortos\Auth\Quota\QuotaFailureMode;
 use Vortos\Auth\RateLimit\RateLimitFailureConfig;
 use Vortos\Auth\RateLimit\RateLimitFailureMode;
 use Vortos\Auth\Storage\InMemoryTokenStorage;
+use Symfony\Component\DependencyInjection\Definition;
 
 final class VortosAuthConfig
 {
@@ -113,6 +114,34 @@ final class VortosAuthConfig
         }
 
         return new Keyring(...$this->signingKeys);
+    }
+
+    /**
+     * The keyring as an inline, dumpable {@see Definition} (B21). The prod HTTP container is cached
+     * via PhpDumper, which cannot serialise a raw Keyring/SigningKey object argument; each signing key
+     * is instead expressed as a Definition using SigningKey's own static factory with scalar + enum
+     * args, so the whole graph is dumpable while the config API stays string-based.
+     */
+    public function keyringDefinition(): Definition
+    {
+        if ($this->signingKeys === []) {
+            throw new \LogicException(
+                'Vortos Auth: no JWT signing keys configured. Add ->hs256(...) or ->rs256FromPaths(...) in config/auth.php.'
+            );
+        }
+
+        $keyArgs = [];
+        foreach ($this->signingKeys as $key) {
+            $keyArgs[] = $key->isRsa()
+                ? (new Definition(SigningKey::class))
+                    ->setFactory([SigningKey::class, 'rs256'])
+                    ->setArguments([$key->kid, $key->privateKey, $key->publicKey, $key->status])
+                : (new Definition(SigningKey::class))
+                    ->setFactory([SigningKey::class, 'hs256'])
+                    ->setArguments([$key->kid, $key->secret, $key->status]);
+        }
+
+        return (new Definition(Keyring::class))->setArguments($keyArgs);
     }
 
     private function readPem(string $path, string $which): string

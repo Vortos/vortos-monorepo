@@ -9,6 +9,7 @@ use Doctrine\DBAL\Connection;
 use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Alerts\AlertDispatcher;
@@ -231,10 +232,12 @@ final class AlertsExtension extends Extension
         $pagingChannelDriver = (string) ($_ENV['ALERTS_PAGING_DRIVER'] ?? 'telegram');
         $chatChannelDriver = (string) ($_ENV['ALERTS_CHAT_DRIVER'] ?? 'telegram');
 
+        // B21: inline Definitions, not object instances — the prod HTTP container is dumped via
+        // PhpDumper, which cannot serialise a raw ChannelDefinition object argument.
         $container->register(ChannelRegistry::class, ChannelRegistry::class)
             ->setArgument('$channels', [
-                new ChannelDefinition('eng-chat', $chatChannelDriver),
-                new ChannelDefinition('oncall-page', $pagingChannelDriver),
+                new Definition(ChannelDefinition::class, ['eng-chat', $chatChannelDriver]),
+                new Definition(ChannelDefinition::class, ['oncall-page', $pagingChannelDriver]),
             ])
             ->setPublic(true); // app config may override with additional channels
 
@@ -250,15 +253,16 @@ final class AlertsExtension extends Extension
 
     private function registerEscalation(ContainerBuilder $container): void
     {
+        // B21: inline Definitions (Responder / DateTimeImmutable / EscalationTier), never raw objects.
         $container->register(OnCallRotation::class, OnCallRotation::class)
-            ->setArgument('$responders', [new Responder('default-oncall', 'Default On-Call', 'oncall-page')])
-            ->setArgument('$epoch', new DateTimeImmutable('@0'))
+            ->setArgument('$responders', [new Definition(Responder::class, ['default-oncall', 'Default On-Call', 'oncall-page'])])
+            ->setArgument('$epoch', new Definition(DateTimeImmutable::class, ['@0']))
             ->setPublic(true); // app config overrides with a real roster
 
         $container->register(EscalationPolicy::class, EscalationPolicy::class)
             ->setArgument('$tiers', [
-                new EscalationTier(0, 0),
-                new EscalationTier(1, 900),
+                new Definition(EscalationTier::class, [0, 0]),
+                new Definition(EscalationTier::class, [1, 900]),
             ])
             ->setPublic(true);
 

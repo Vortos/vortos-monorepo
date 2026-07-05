@@ -48,18 +48,10 @@ final class CanaryStrategy implements DeployStrategyInterface
             ]);
         }
 
-        $phases[] = new DeployPhase(PhaseKind::RollWorkers, [
-            new DeployStep(
-                StepAction::DrainWorker,
-                'Rolling drain and restart workers',
-                ['deadline_seconds' => $context->definition->workerDrainDeadlineSeconds, 'image_digest' => $digest, 'image_repository' => $repository],
-            ),
-            new DeployStep(
-                StepAction::StartWorker,
-                'Noop — workers launched during drain rollout',
-                ['image_digest' => $digest, 'image_repository' => $repository],
-            ),
-        ]);
+        // B20: gated on WorkerTopology — ride-color topologies (the ssh-compose default) emit none.
+        foreach (WorkerRolloutPhaseFactory::phasesFor($context) as $phase) {
+            $phases[] = $phase;
+        }
 
         $phases[] = new DeployPhase(PhaseKind::StageColor, [
             new DeployStep(

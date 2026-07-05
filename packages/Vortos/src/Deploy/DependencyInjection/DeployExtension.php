@@ -15,6 +15,7 @@ use Vortos\Deploy\Audit\DeployAuditRecorder;
 use Vortos\Deploy\Audit\DeployAuditSinkInterface;
 use Vortos\Deploy\Console\DeployCommand;
 use Vortos\Deploy\Console\DoctorCommand;
+use Vortos\Deploy\Console\MaterializeFileSecretsCommand;
 use Vortos\Deploy\Console\ProvisionCommand;
 use Vortos\Deploy\Console\PullAgentReconcileCommand;
 use Vortos\Deploy\Console\RollbackCommand;
@@ -36,13 +37,18 @@ use Vortos\Deploy\Preflight\Check\CapabilityDescriptorCheck;
 use Vortos\Deploy\Preflight\Check\CredentialCheck;
 use Vortos\Deploy\Preflight\Check\DriverSetCheck;
 use Vortos\Deploy\Preflight\Check\SchemaCompatibilityCheck;
+use Vortos\Deploy\Preflight\Check\FileSecretsCheck;
 use Vortos\Deploy\Preflight\Check\TargetArchCheck;
+use Vortos\Deploy\Preflight\Check\WorkerTopologyCheck;
 use Vortos\Deploy\Preflight\DeployDoctor;
 use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContextFactory;
 use Vortos\Deploy\Runner\DeployRunner;
 use Vortos\Deploy\Runner\RollbackRunner;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Cutover\EdgeConfigGenerator;
+use Vortos\Deploy\Runtime\FileSecretDecryptor;
+use Vortos\Deploy\Runtime\FileSecretMaterializer;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Credential\CredentialProviderInterface;
 use Vortos\Deploy\Credential\CredentialProviderRegistry;
@@ -126,6 +132,7 @@ use Vortos\Deploy\PullAgent\ManifestVerifierInterface;
 use Vortos\Deploy\PullAgent\PullAgentReconciler;
 use Vortos\Deploy\Rollback\RollbackGuard;
 use Vortos\Secrets\Provider\SecretsProviderInterface;
+use Vortos\Secrets\Provider\SecretsProviderRegistry;
 use Vortos\Deploy\Contract\ContractReadinessInterface;
 use Vortos\Deploy\Contract\ContractReadinessRegistry;
 use Vortos\Deploy\Contract\FlagGateReadiness;
@@ -405,6 +412,13 @@ final class DeployExtension extends Extension
             ->setPublic(false);
 
         $container->register(ComposeProjectFactory::class, ComposeProjectFactory::class)
+            ->setArgument('$spec', new Reference(RuntimeServiceSpec::class))
+            ->setPublic(false);
+
+        // Watch-list: the edge dial port is sourced from the same RuntimeServiceSpec as the compose
+        // expose port, so app-<color>:<port> can never drift from the container's real port.
+        $container->register(EdgeConfigGenerator::class, EdgeConfigGenerator::class)
+            ->setFactory([EdgeConfigGenerator::class, 'fromSpec'])
             ->setArgument('$spec', new Reference(RuntimeServiceSpec::class))
             ->setPublic(false);
 
@@ -805,6 +819,18 @@ final class DeployExtension extends Extension
             ->addTag(self::PREFLIGHT_CHECK_TAG)
             ->setPublic(false);
 
+        // B20: fail closed when an external-supervisor worker topology is declared for a
+        // deploy-in-image host that has no reachable supervisord.
+        $container->register(WorkerTopologyCheck::class, WorkerTopologyCheck::class)
+            ->addTag(self::PREFLIGHT_CHECK_TAG)
+            ->setPublic(false);
+
+        // G8: fail closed when a declared file-shaped secret is missing from the store.
+        $container->register(FileSecretsCheck::class, FileSecretsCheck::class)
+            ->setArgument('$providers', new Reference(SecretsProviderRegistry::class))
+            ->addTag(self::PREFLIGHT_CHECK_TAG)
+            ->setPublic(false);
+
         $schemaCheckDef = $container->register(SchemaCompatibilityCheck::class, SchemaCompatibilityCheck::class)
             ->setArgument('$phaseGate', new Reference(PhaseGate::class))
             ->addTag(self::PREFLIGHT_CHECK_TAG)
@@ -862,6 +888,19 @@ final class DeployExtension extends Extension
 
         $container->register(ProvisionCommand::class, ProvisionCommand::class)
             ->setArgument('$provisioner', new Reference(FirstDeployProvisioner::class))
+            ->addTag('console.command')
+            ->setPublic(false);
+
+        // G8: materialize declared file-shaped secrets to tmpfs for the cutover mounts. Runs in the
+        // deploy one-shot (which holds the age identity + store) before the cutover deploy.
+        $container->register(FileSecretDecryptor::class, FileSecretDecryptor::class)->setPublic(false);
+        $container->register(FileSecretMaterializer::class, FileSecretMaterializer::class)->setPublic(false);
+
+        $container->register(MaterializeFileSecretsCommand::class, MaterializeFileSecretsCommand::class)
+            ->setArgument('$resolver', new Reference(LayeredDefinitionResolver::class))
+            ->setArgument('$providers', new Reference(SecretsProviderRegistry::class))
+            ->setArgument('$decryptor', new Reference(FileSecretDecryptor::class))
+            ->setArgument('$materializer', new Reference(FileSecretMaterializer::class))
             ->addTag('console.command')
             ->setPublic(false);
     }

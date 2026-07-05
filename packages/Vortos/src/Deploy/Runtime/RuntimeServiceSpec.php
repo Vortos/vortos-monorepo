@@ -34,6 +34,7 @@ final readonly class RuntimeServiceSpec
      * @param list<string>          $envFiles      absolute paths to env files mounted into the color
      * @param array<string, string> $environment   extra app-service environment (e.g. SERVER_NAME)
      * @param list<string>          $networks      docker networks the color attaches to (external)
+     * @param list<FileSecret>      $fileSecrets   file-shaped secrets (G8) tmpfs-mounted RO into the color
      */
     public function __construct(
         public array $command = self::DEFAULT_COMMAND,
@@ -42,6 +43,7 @@ final readonly class RuntimeServiceSpec
         public array $workerCommand = self::DEFAULT_WORKER_COMMAND,
         public array $environment = ['SERVER_NAME' => ':8080'],
         public array $networks = ['vortos-net'],
+        public array $fileSecrets = [],
     ) {
         $this->assertStringList('command', $command, allowEmpty: false);
         $this->assertStringList('workerCommand', $workerCommand, allowEmpty: false);
@@ -70,6 +72,20 @@ final readonly class RuntimeServiceSpec
                 throw new \InvalidArgumentException('RuntimeServiceSpec.environment keys must be non-empty strings.');
             }
         }
+
+        $seenContainerPaths = [];
+        foreach ($fileSecrets as $fileSecret) {
+            if (!$fileSecret instanceof FileSecret) {
+                throw new \InvalidArgumentException('RuntimeServiceSpec.fileSecrets entries must be FileSecret instances.');
+            }
+            if (isset($seenContainerPaths[$fileSecret->containerPath])) {
+                throw new \InvalidArgumentException(sprintf(
+                    'RuntimeServiceSpec.fileSecrets has two secrets targeting the same container path "%s".',
+                    $fileSecret->containerPath,
+                ));
+            }
+            $seenContainerPaths[$fileSecret->containerPath] = true;
+        }
     }
 
     /** @return array<string, mixed> */
@@ -82,6 +98,7 @@ final readonly class RuntimeServiceSpec
             'worker_command' => $this->workerCommand,
             'environment' => $this->environment,
             'networks' => $this->networks,
+            'file_secrets' => array_map(static fn (FileSecret $s): array => $s->toArray(), $this->fileSecrets),
         ];
     }
 

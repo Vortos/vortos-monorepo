@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Tests\Unit\Plan;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Definition\DeploymentDefinition;
+use Vortos\Deploy\Definition\WorkerTopology;
 use Vortos\Deploy\Plan\CurrentDeployState;
 use Vortos\Deploy\Plan\DeployContext;
 use Vortos\Deploy\Plan\DeployPlanner;
@@ -38,9 +39,12 @@ final class DeployPlannerTest extends TestCase
         ActiveColor $color = ActiveColor::Blue,
         array $migrationIds = ['m001'],
         array $pendingContractMigrations = [],
+        WorkerTopology $workerTopology = WorkerTopology::ExternalSupervisor,
     ): DeployContext {
         return new DeployContext(
-            definition: DeploymentDefinition::create()->strategy($strategy)->build(),
+            // External-supervisor topology exercises the full phase set (incl. RollWorkers); the
+            // ride-color gating is covered in NotBlueGreenForWorkersTest/WorkerPhaseOrderingArchTest.
+            definition: DeploymentDefinition::create()->strategy($strategy)->workerTopology($workerTopology)->build(),
             desiredManifest: new BuildManifest(
                 buildId: 'build-1',
                 gitSha: 'abc1234',

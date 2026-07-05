@@ -51,6 +51,28 @@ final class ComposeFileTest extends TestCase
         $this->assertArrayHasKey('networks', $array);
     }
 
+    public function test_file_secrets_render_read_only_volumes_on_app_and_worker(): void
+    {
+        $spec = new RuntimeServiceSpec(
+            fileSecrets: [
+                new \Vortos\Deploy\Runtime\FileSecret('jwt', '/run/secrets/jwt.pem', '/run/vortos-secrets/jwt'),
+            ],
+        );
+
+        $array = (new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), $spec))->toArray();
+
+        $expected = ['/run/vortos-secrets/jwt:/run/secrets/jwt.pem:ro'];
+        self::assertSame($expected, $array['services']['app-blue']['volumes']);
+        self::assertSame($expected, $array['services']['worker-blue']['volumes']);
+    }
+
+    public function test_no_volumes_key_when_no_file_secrets(): void
+    {
+        $array = (new ComposeFile('p', ActiveColor::Blue, self::digestPinnedImage(), self::spec()))->toArray();
+
+        self::assertArrayNotHasKey('volumes', $array['services']['app-blue']);
+    }
+
     public function test_renders_real_command_never_a_stub(): void
     {
         $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec());

@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Tests\Unit\Cutover;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Cutover\EdgeConfigGenerator;
+use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 
 final class EdgeConfigGeneratorWeightedTest extends TestCase
 {
@@ -26,8 +27,8 @@ final class EdgeConfigGeneratorWeightedTest extends TestCase
         self::assertCount(2, $handler['upstreams']);
 
         $dials = array_column($handler['upstreams'], 'dial');
-        self::assertContains('app-blue:8081', $dials);
-        self::assertContains('app-green:8081', $dials);
+        self::assertContains('app-blue:8080', $dials);
+        self::assertContains('app-green:8080', $dials);
 
         // Weights sum should make sense
         $weights = array_column($handler['upstreams'], 'weight');
@@ -44,8 +45,8 @@ final class EdgeConfigGeneratorWeightedTest extends TestCase
             $byDial[$u['dial']] = $u['weight'];
         }
 
-        self::assertSame(5, $byDial['app-blue:8081'] ?? null);
-        self::assertSame(95, $byDial['app-green:8081'] ?? null);
+        self::assertSame(5, $byDial['app-blue:8080'] ?? null);
+        self::assertSame(95, $byDial['app-green:8080'] ?? null);
     }
 
     public function test_100_0_emits_single_upstream_backward_compat(): void
@@ -57,7 +58,7 @@ final class EdgeConfigGeneratorWeightedTest extends TestCase
         // Backward compat: single upstream, no load_balancing key
         self::assertArrayNotHasKey('load_balancing', $handler);
         self::assertCount(1, $handler['upstreams']);
-        self::assertSame('app-blue:8081', $handler['upstreams'][0]['dial']);
+        self::assertSame('app-blue:8080', $handler['upstreams'][0]['dial']);
     }
 
     public function test_0_100_emits_single_green_upstream(): void
@@ -68,7 +69,27 @@ final class EdgeConfigGeneratorWeightedTest extends TestCase
 
         self::assertArrayNotHasKey('load_balancing', $handler);
         self::assertCount(1, $handler['upstreams']);
-        self::assertSame('app-green:8081', $handler['upstreams'][0]['dial']);
+        self::assertSame('app-green:8080', $handler['upstreams'][0]['dial']);
+    }
+
+    public function test_dial_port_comes_from_the_runtime_spec(): void
+    {
+        // Watch-list: the dial port is the RuntimeServiceSpec container port, not a hardcoded 8081.
+        $generator = EdgeConfigGenerator::fromSpec(new RuntimeServiceSpec(containerPort: 9000));
+
+        $config = $generator->generateWeightedCaddyConfig('example.com', 60, 40);
+        $dials = array_column($config['apps']['http']['servers']['app']['routes'][0]['handle'][0]['upstreams'], 'dial');
+
+        self::assertContains('app-blue:9000', $dials);
+        self::assertContains('app-green:9000', $dials);
+    }
+
+    public function test_default_dial_port_matches_spec_default(): void
+    {
+        $config = $this->generator->generateCaddyConfig('example.com');
+        $dial = $config['apps']['http']['servers']['app']['routes'][0]['handle'][0]['upstreams'][0]['dial'];
+
+        self::assertSame('app-blue:' . RuntimeServiceSpec::DEFAULT_CONTAINER_PORT, $dial);
     }
 
     public function test_invalid_weight_throws(): void

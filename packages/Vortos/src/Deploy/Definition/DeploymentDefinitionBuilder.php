@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Definition;
 
+use Vortos\Deploy\Runtime\FileSecret;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Strategy\DeployStrategy;
 use Vortos\Release\Manifest\Arch;
@@ -24,6 +25,7 @@ final class DeploymentDefinitionBuilder
     private int $workerDrainDeadlineSeconds = 25;
     private string $edgeRouter = 'caddy';
     private string $canaryAnalyzer = 'null';
+    private WorkerTopology $workerTopology = WorkerTopology::RideColor;
 
     // Runtime service shape (B16): how the blue/green app + worker containers actually run. Defaults
     // match the shipped FrankenPHP stub; apps override via the setters below in config/deploy.php.
@@ -36,6 +38,8 @@ final class DeploymentDefinitionBuilder
     private array $envFiles = [RuntimeServiceSpec::DEFAULT_ENV_FILE];
     /** @var array<string, string> */
     private array $appEnvironment = ['SERVER_NAME' => ':8080'];
+    /** @var list<FileSecret> */
+    private array $fileSecrets = [];
 
     /** @var array<string, \Closure(self): self> */
     private array $envOverrides = [];
@@ -145,6 +149,27 @@ final class DeploymentDefinitionBuilder
         return $clone;
     }
 
+    /**
+     * How workers are rolled during deploy (B20). Accepts a {@see WorkerTopology} or its string value
+     * ('ride-color' | 'external-supervisor'). Defaults to ride-color: workers ride the compose color
+     * and no supervisorctl RollWorkers phase is emitted.
+     */
+    public function workerTopology(WorkerTopology|string $topology): self
+    {
+        $resolved = $topology instanceof WorkerTopology
+            ? $topology
+            : (WorkerTopology::tryFrom($topology) ?? throw new \InvalidArgumentException(sprintf(
+                'Unknown worker topology "%s". Valid: [%s].',
+                $topology,
+                implode(', ', array_map(static fn (WorkerTopology $t): string => $t->value, WorkerTopology::cases())),
+            )));
+
+        $clone = clone $this;
+        $clone->workerTopology = $resolved;
+
+        return $clone;
+    }
+
     /** @param list<string> $command the HTTP server argv (must exist in the image) */
     public function appCommand(array $command): self
     {
@@ -191,6 +216,24 @@ final class DeploymentDefinitionBuilder
     }
 
     /**
+     * Declare a file-shaped secret (G8): decrypted from the age store to a tmpfs host path by the
+     * deploy one-shot and bind-mounted read-only into the color at $containerPath. Prefer env-content
+     * secrets; use this only for genuinely file-shaped cases.
+     */
+    public function fileSecret(string $name, string $containerPath, ?string $hostPath = null, int $mode = 0400): self
+    {
+        $clone = clone $this;
+        $clone->fileSecrets[] = new FileSecret(
+            name: $name,
+            containerPath: $containerPath,
+            hostPath: $hostPath ?? ('/run/vortos-secrets/' . $name),
+            mode: $mode,
+        );
+
+        return $clone;
+    }
+
+    /**
      * The resolved runtime service shape. Consumed by the DI container to drive the cutover compose
      * generation ({@see \Vortos\Deploy\Compose\ComposeProjectFactory}). Env-agnostic: command/port
      * are image-level facts, so per-environment overrides don't change them.
@@ -203,6 +246,7 @@ final class DeploymentDefinitionBuilder
             envFiles: $this->envFiles,
             workerCommand: $this->workerCommand,
             environment: $this->appEnvironment,
+            fileSecrets: $this->fileSecrets,
         );
     }
 
@@ -260,6 +304,7 @@ final class DeploymentDefinitionBuilder
             edgeRouter: $this->edgeRouter,
             canaryAnalyzer: $this->canaryAnalyzer,
             runtimeService: $this->getRuntimeServiceSpec(),
+            workerTopology: $this->workerTopology,
         );
     }
 
@@ -297,6 +342,7 @@ final class DeploymentDefinitionBuilder
             'secrets' => $this->secrets,
             'strategy' => $strategy->value,
             'worker_drain_deadline_seconds' => $this->workerDrainDeadlineSeconds,
+            'worker_topology' => $this->workerTopology->value,
             'runtime_service' => $this->getRuntimeServiceSpec()->toArray(),
         ];
 

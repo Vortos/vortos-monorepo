@@ -46,6 +46,10 @@ final class PipelineDefinitionBuilder
     private string $deploymentBranch = 'main';
     private string $remoteDeployDir = '/opt/vortos';
     private string $appNetwork = 'vortos-net';
+    /** @var list<string> */
+    private array $runtimeEnvFiles = ['/opt/vortos/.env.prod'];
+    /** @var list<string> */
+    private array $runtimeFileSecretDirs = [];
     /** @var list<array{name: string, run: string}> */
     private array $bootstrapSteps = [];
     private bool $emitStaticAnalysis = true;
@@ -296,6 +300,35 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    /**
+     * Absolute env-file paths (on the target host) the blue/green color reads; each is bind-mounted
+     * read-only into the deploy one-shot so the nested cutover compose can resolve its `env_file:`
+     * (B19). Must match config/deploy.php's RuntimeServiceSpec envFiles.
+     *
+     * @param list<string> $paths
+     */
+    public function runtimeEnvFiles(array $paths): self
+    {
+        $clone = clone $this;
+        $clone->runtimeEnvFiles = array_values($paths);
+
+        return $clone;
+    }
+
+    /**
+     * Host tmpfs directories the deploy one-shot materialises file-shaped secrets into (G8). Must be
+     * under /run/ or /dev/shm/.
+     *
+     * @param list<string> $dirs
+     */
+    public function runtimeFileSecretDirs(array $dirs): self
+    {
+        $clone = clone $this;
+        $clone->runtimeFileSecretDirs = array_values($dirs);
+
+        return $clone;
+    }
+
     /** @param list<array{name: string, run: string}> $steps */
     public function bootstrapSteps(array $steps): self
     {
@@ -385,6 +418,8 @@ final class PipelineDefinitionBuilder
             deploymentBranch: $this->deploymentBranch,
             remoteDeployDir: $this->remoteDeployDir,
             appNetwork: $this->appNetwork,
+            runtimeEnvFiles: $this->runtimeEnvFiles,
+            runtimeFileSecretDirs: $this->runtimeFileSecretDirs,
             bootstrapSteps: $this->bootstrapSteps,
             emitStaticAnalysis: $this->emitStaticAnalysis,
             emitAgnosticism: $this->emitAgnosticism,

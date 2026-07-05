@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 return [
     [
+        'wrong'  => 'In a DI extension/compiler pass: ->setArgument(\'$tiers\', [new EscalationTier(0, 0)]) or $keyring = $config->buildKeyring(); ->setArguments([$keyring, ...]) — passing an instantiated domain object as a service argument',
+        'right'  => 'Pass an inline Definition instead: ->setArgument(\'$tiers\', [new Definition(EscalationTier::class, [0, 0])]); register the object as its own service (a factory Definition) and pass new Reference(...). Scalars, Reference, enums and Argument\\* value objects are also fine.',
+        'why'    => 'Prod+HTTP caches the container via Symfony PhpDumper, which cannot serialize a raw object instance as a service argument ("Unable to dump a service container if a parameter is an object..."). It only fails on a real prod HTTP boot, one offender at a time. The always-on ContainerDumpabilityPass (Foundation) now fails the compile listing every offender at once — heed it rather than working around it.',
+    ],
+    [
         'wrong'  => 'new Connection() or new \Doctrine\DBAL\Connection(...)',
         'right'  => 'ConnectionFactory::fromDsn($dsn) — or inject Connection from the DI container',
         'why'    => 'A second Connection instance creates a second transaction. The CommandBus transaction and the new connection are independent — your domain write and outbox write are no longer atomic.',

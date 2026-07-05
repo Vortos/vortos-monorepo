@@ -9,7 +9,7 @@ namespace Vortos\Http\Exception;
  *
  * A duplicate route name is a programming/wiring error, not a runtime condition — resolving it by
  * "last controller wins" is non-deterministic (the winner depends on unstable tagged-service
- * iteration order), which is how two packages both registering `vortos.health.ready` produced a
+ * iteration order), which is how two packages both registering vortos.health.ready produced a
  * route that resolved to different controllers in byte-identical containers. Failing fast at compile
  * makes the collision impossible to ship.
  */

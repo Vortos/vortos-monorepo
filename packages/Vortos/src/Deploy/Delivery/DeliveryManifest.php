@@ -30,7 +30,7 @@ final class DeliveryManifest
      * deploy-in-image one-shots read them as the image's runtime uid, which differs from the
      * delivering (deploy) uid, so an owner-only 0600 file is unreadable by the container. The env file
      * is not only read by the outer docker CLI (as the deploy uid via --env-file) but ALSO parsed at
-     * load time by the NESTED cutover `docker compose up` running inside the one-shot as the image uid
+     * load time by the NESTED cutover "docker compose up" running inside the one-shot as the image uid
      * — which fails "permission denied" on a 0600 file. 0640 grants owner+group read; the remote run
      * adds each file's group to the container via docker run --group-add, so only that group — never
      * the world — can read it. The store's bytes are age CIPHERTEXT (the KEK arrives via env, never on

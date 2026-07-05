@@ -145,6 +145,97 @@ final class OciOpsDaemonFirstTest extends TestCase
             self::assertSame([], $runner->calls, 'no daemon lookup for an unpinned ref');
         }
     }
+
+    // ── B23: Docker Hub "familiar" repository normalization ──────────────────────────────────────
+    // Docker Hub records RepoDigests under the familiar name (no "docker.io/" / "index.docker.io/"
+    // prefix, official images without "library/"). A fully-qualified $image->repository must still
+    // match so the auth-less one-shot short-circuits instead of falling through to a failing pull.
+
+    public function test_pull_short_circuits_when_hub_records_familiar_name(): void
+    {
+        $runner = new ProgrammableRunner();
+        // Deploy passes docker.io/sqoura/sqoura-backend; the daemon lists the familiar name.
+        $runner->on(
+            static fn (array $argv): bool => ($argv[1] ?? '') === 'image',
+            new CommandResult(0, sprintf('["sqoura/sqoura-backend@%s"]', self::DIGEST), '', 0.01),
+        );
+
+        $registry = new OciRegistry($runner, new NullImageSigner());
+        $registry->pull(new ImageReference('docker.io/sqoura/sqoura-backend', null, self::DIGEST));
+
+        self::assertCount(1, $runner->calls, 'only the local inspect runs — familiar name recognised');
+        foreach ($runner->calls as $call) {
+            self::assertNotSame('pull', $call[1] ?? null, 'no docker pull for a normalized-equal local image');
+            self::assertNotSame('login', $call[1] ?? null, 'no docker login for a normalized-equal local image');
+        }
+    }
+
+    public function test_pull_short_circuits_for_official_library_image(): void
+    {
+        $runner = new ProgrammableRunner();
+        $runner->on(
+            static fn (array $argv): bool => ($argv[1] ?? '') === 'image',
+            new CommandResult(0, sprintf('["redis@%s"]', self::DIGEST), '', 0.01),
+        );
+
+        $registry = new OciRegistry($runner, new NullImageSigner());
+        $registry->pull(new ImageReference('index.docker.io/library/redis', null, self::DIGEST));
+
+        self::assertCount(1, $runner->calls, 'index.docker.io/library/redis normalizes to redis');
+    }
+
+    public function test_pull_pulls_when_digest_differs_despite_normalized_repo_match(): void
+    {
+        $runner = new ProgrammableRunner();
+        $otherDigest = 'sha256:' . str_repeat('c', 64);
+        // Same (normalized) repo present locally, but a *different* digest — must NOT short-circuit.
+        $runner->on(
+            static fn (array $argv): bool => ($argv[1] ?? '') === 'image',
+            new CommandResult(0, sprintf('["sqoura/sqoura-backend@%s"]', $otherDigest), '', 0.01),
+        );
+
+        $registry = new OciRegistry($runner, new NullImageSigner());
+        $registry->pull(new ImageReference('docker.io/sqoura/sqoura-backend', null, self::DIGEST));
+
+        $pullCalls = array_filter($runner->calls, static fn (array $c): bool => ($c[1] ?? null) === 'pull');
+        self::assertCount(1, $pullCalls, 'a normalized repo match with a different digest still pulls');
+    }
+
+    public function test_digest_for_resolves_from_familiar_repo_digest(): void
+    {
+        $runner = new ProgrammableRunner();
+        $runner->on(
+            static fn (array $argv): bool => ($argv[1] ?? '') === 'image',
+            new CommandResult(0, sprintf('["sqoura/sqoura-backend@%s"]', self::DIGEST), '', 0.01),
+        );
+
+        $registry = new OciRegistry($runner, new NullImageSigner());
+        $digest = $registry->digestFor(new ImageReference('docker.io/sqoura/sqoura-backend', 'v1'));
+
+        self::assertSame(self::DIGEST, $digest, 'digestFor normalizes both sides of the repo comparison');
+    }
+
+    public function test_non_hub_registry_is_not_over_normalized(): void
+    {
+        $runner = new ProgrammableRunner();
+        // A ghcr image whose familiar-looking suffix ("acme/app") must NOT match a bare "acme/app"
+        // entry — only Docker Hub references normalize.
+        $runner->on(
+            static fn (array $argv): bool => ($argv[1] ?? '') === 'image',
+            new CommandResult(0, sprintf('["acme/app@%s"]', self::DIGEST), '', 0.01),
+        );
+        $runner->on(
+            static fn (array $argv): bool => $argv[0] === 'crane',
+            new CommandResult(0, self::DIGEST, '', 0.01),
+        );
+
+        $registry = new OciRegistry($runner, new NullImageSigner());
+        // ghcr.io/acme/app does not equal acme/app after normalization, so not local -> falls through.
+        $registry->pull(new ImageReference('ghcr.io/acme/app', null, self::DIGEST));
+
+        $pullCalls = array_filter($runner->calls, static fn (array $c): bool => ($c[1] ?? null) === 'pull');
+        self::assertCount(1, $pullCalls, 'a non-Hub reference must not match a normalized Hub-style entry');
+    }
 }
 
 /**

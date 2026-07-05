@@ -32,9 +32,78 @@ final class EdgeConfigGenerator
     /** @return array<string, mixed> */
     public function generateCaddyConfig(string $domain): array
     {
-        return [
+        return $this->assemble($domain, 'localhost:2019', $this->singleUpstreamHandler($this->dial('blue')));
+    }
+
+    /**
+     * Build the full edge config for a desired cutover route — the SINGLE source of truth for the
+     * cutover config shape. Always carries the host matcher + tls.automation for the route's domain
+     * (when set), so a Caddy /load PRESERVES the domain's certificate instead of clobbering it to
+     * the internal default (GAP-D). The admin listen address is threaded in so the pushed config
+     * echoes the edge's real admin bind — decoupled from the client's connect URL.
+     *
+     * @return array<string, mixed>
+     */
+    public function generateForRoute(DesiredRoute $desired, string $adminListen = 'localhost:2019'): array
+    {
+        return $this->assemble($desired->domain, $adminListen, $this->routeHandler($desired));
+    }
+
+    public function generateForRouteJson(DesiredRoute $desired, string $adminListen = 'localhost:2019'): string
+    {
+        return json_encode(
+            $this->generateForRoute($desired, $adminListen),
+            \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES,
+        );
+    }
+
+    /**
+     * The reverse-proxy handler for a desired route: a single upstream (the active color) at 100/0, or
+     * a weighted pair (active + complement color) for a canary ramp. The complement dial uses the same
+     * container port as the active upstream (both colors expose it), so it can never drift from a
+     * hardcoded value.
+     *
+     * @return array<string, mixed>
+     */
+    private function routeHandler(DesiredRoute $desired): array
+    {
+        $activeDial = sprintf('%s:%d', $desired->upstream->host, $desired->upstream->port);
+
+        if ($desired->weight >= 100 || $desired->weight <= 0) {
+            return $this->singleUpstreamHandler($activeDial);
+        }
+
+        $complementDial = sprintf('app-%s:%d', $desired->activeColor->opposite()->value, $desired->upstream->port);
+
+        return $this->weightedHandler(
+            $activeDial,
+            $desired->weight,
+            $complementDial,
+            100 - $desired->weight,
+        );
+    }
+
+    /**
+     * Assemble the full Caddy config document from a handler. When $domain is set the route gets a
+     * host matcher and the config gets a tls.automation policy for it; a null domain builds an
+     * internal / no-TLS edge.
+     *
+     * @param array<string, mixed> $handler
+     * @return array<string, mixed>
+     */
+    private function assemble(?string $domain, string $adminListen, array $handler): array
+    {
+        $route = ['handle' => [$handler]];
+        if ($domain !== null) {
+            $route = [
+                'match' => [['host' => [$domain]]],
+                'handle' => [$handler],
+            ];
+        }
+
+        $config = [
             'admin' => [
-                'listen' => 'localhost:2019',
+                'listen' => $adminListen,
                 'enforce_origin' => false,
             ],
             'apps' => [
@@ -42,36 +111,7 @@ final class EdgeConfigGenerator
                     'servers' => [
                         'app' => [
                             'listen' => [':443'],
-                            'routes' => [
-                                [
-                                    'match' => [
-                                        ['host' => [$domain]],
-                                    ],
-                                    'handle' => [
-                                        [
-                                            'handler' => 'reverse_proxy',
-                                            'upstreams' => [
-                                                ['dial' => $this->dial('blue')],
-                                            ],
-                                            'health_checks' => [
-                                                'active' => [
-                                                    'uri' => '/health/ready',
-                                                    'interval' => '10s',
-                                                    'timeout' => '5s',
-                                                ],
-                                            ],
-                                            'flush_interval' => -1,
-                                        ],
-                                    ],
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-                'tls' => [
-                    'automation' => [
-                        'policies' => [
-                            ['subjects' => [$domain]],
+                            'routes' => [$route],
                         ],
                     ],
                 ],
@@ -80,6 +120,64 @@ final class EdgeConfigGenerator
                 'module' => 'file_system',
                 'root' => '/data/caddy',
             ],
+        ];
+
+        if ($domain !== null) {
+            $config['apps']['tls'] = [
+                'automation' => [
+                    'policies' => [
+                        ['subjects' => [$domain]],
+                    ],
+                ],
+            ];
+        }
+
+        return $config;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function singleUpstreamHandler(string $dial): array
+    {
+        return [
+            'handler' => 'reverse_proxy',
+            'upstreams' => [
+                ['dial' => $dial],
+            ],
+            'health_checks' => [
+                'active' => [
+                    'uri' => '/health/ready',
+                    'interval' => '10s',
+                    'timeout' => '5s',
+                ],
+            ],
+            'flush_interval' => -1,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function weightedHandler(string $dialA, int $weightA, string $dialB, int $weightB): array
+    {
+        return [
+            'handler' => 'reverse_proxy',
+            'load_balancing' => [
+                'selection_policy' => ['policy' => 'weighted_round_robin'],
+            ],
+            'upstreams' => [
+                ['dial' => $dialA, 'weight' => $weightA],
+                ['dial' => $dialB, 'weight' => $weightB],
+            ],
+            'health_checks' => [
+                'active' => [
+                    'uri' => '/health/ready',
+                    'interval' => '10s',
+                    'timeout' => '5s',
+                ],
+            ],
+            'flush_interval' => -1,
         ];
     }
 
@@ -106,40 +204,18 @@ final class EdgeConfigGenerator
         }
 
         if ($blueWeight === 100 || $greenWeight === 0) {
-            return $this->generateCaddyConfig($domain);
+            return $this->assemble($domain, 'localhost:2019', $this->singleUpstreamHandler($this->dial('blue')));
         }
 
         if ($greenWeight === 100 || $blueWeight === 0) {
-            $cfg = $this->generateCaddyConfig($domain);
-            // Swap the single upstream to green
-            $cfg['apps']['http']['servers']['app']['routes'][0]['handle'][0]['upstreams'] = [
-                ['dial' => $this->dial('green')],
-            ];
-
-            return $cfg;
+            return $this->assemble($domain, 'localhost:2019', $this->singleUpstreamHandler($this->dial('green')));
         }
 
-        $base = $this->generateCaddyConfig($domain);
-        $base['apps']['http']['servers']['app']['routes'][0]['handle'][0] = [
-            'handler' => 'reverse_proxy',
-            'load_balancing' => [
-                'selection_policy' => ['policy' => 'weighted_round_robin'],
-            ],
-            'upstreams' => [
-                ['dial' => $this->dial('blue'), 'weight' => $blueWeight],
-                ['dial' => $this->dial('green'), 'weight' => $greenWeight],
-            ],
-            'health_checks' => [
-                'active' => [
-                    'uri' => '/health/ready',
-                    'interval' => '10s',
-                    'timeout' => '5s',
-                ],
-            ],
-            'flush_interval' => -1,
-        ];
-
-        return $base;
+        return $this->assemble(
+            $domain,
+            'localhost:2019',
+            $this->weightedHandler($this->dial('blue'), $blueWeight, $this->dial('green'), $greenWeight),
+        );
     }
 
     public function generateWeightedCaddyConfigJson(string $domain, int $blueWeight, int $greenWeight): string
@@ -152,29 +228,50 @@ final class EdgeConfigGenerator
 
     public function generateEdgeComposeYaml(string $domain): string
     {
+        // GAP-D (D5): the edge is stock caddy (no PHP), so it cannot query the control-plane edge
+        // state store itself. An init step runs the app image to reconstruct the active-color config
+        // from the store BEFORE Caddy starts, so a restarted/replaced/scaled edge self-heals its
+        // route. On first boot (no state yet) it falls back to the scaffolded bootstrap config so the
+        // edge can still serve HTTPS and accept the first cutover's /load.
         return <<<YAML
         services:
+          edge-init:
+            image: \${VORTOS_APP_IMAGE:?set VORTOS_APP_IMAGE to the deployed app image}
+            command: >-
+              php bin/console deploy:edge:hydrate-config
+              --env=\${DEPLOY_ENV:-production}
+              --out=/config/caddy.json
+              --admin-listen=\${CADDY_ADMIN_LISTEN:-localhost:2019}
+              --fallback=/bootstrap/caddy-config.json
+            env_file:
+              - /opt/vortos/.env.prod
+            volumes:
+              - edge_runtime:/config
+              - ./caddy-config.json:/bootstrap/caddy-config.json:ro
+            networks:
+              - vortos-net
+            restart: "no"
           edge:
             image: caddy:2-alpine
             container_name: vortos-edge
             restart: unless-stopped
+            depends_on:
+              edge-init:
+                condition: service_completed_successfully
             ports:
               - "80:80"
               - "443:443"
               - "443:443/udp"
             volumes:
-              - ./caddy-config.json:/etc/caddy/caddy.json:ro
               - caddy_data:/data
-              - caddy_config:/config
-              - upstream_config:/etc/caddy/upstream
-            command: caddy run --config /etc/caddy/caddy.json
+              - edge_runtime:/config
+            command: caddy run --config /config/caddy.json
             networks:
               - vortos-net
 
         volumes:
           caddy_data:
-          caddy_config:
-          upstream_config:
+          edge_runtime:
 
         networks:
           vortos-net:

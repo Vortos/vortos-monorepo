@@ -78,8 +78,21 @@ final class RemoteDeployScript
         // runtime env-file read-only at its identical absolute path so `docker compose` can resolve it.
         // Deduplicated and rooted-checked at the definition; the color genuinely needs this env to boot.
         $runtimeEnvMounts = '';
+        $envFileIndex = 0;
         foreach (array_values(array_unique($definition->runtimeEnvFiles)) as $envFile) {
             $runtimeEnvMounts .= sprintf('-v %s:%s:ro ', $envFile, $envFile);
+
+            // GAP-A: the blue-green cutover runs `docker compose up` for the color from INSIDE this
+            // one-shot, which parses `env_file:` at load time as the image's *non-root* uid (e.g.
+            // 1000). The provisioned env files are 0640 owned by the deploy user, so uid 1000 gets
+            // "permission denied" unless it is in the file's group. Read each env file's gid on the
+            // box and grant it to the one-shot with --group-add — least privilege: this exposes
+            // *group* read only, never world-read, and the store's gid is added separately above. A
+            // redundant numeric gid across files is harmless (supplementary groups are a set).
+            $gidVar = sprintf('VORTOS_ENVFILE_GID_%d', $envFileIndex);
+            $lines[] = sprintf('%s="$(stat -c \'%%g\' %s)"', $gidVar, $envFile);
+            $groupAdd .= sprintf('--group-add "$%s" ', $gidVar);
+            $envFileIndex++;
         }
 
         // G8: file-shaped secrets are materialised by the one-shot into tmpfs host dirs, which the

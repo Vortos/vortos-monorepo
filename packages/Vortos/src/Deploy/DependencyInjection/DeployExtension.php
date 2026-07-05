@@ -16,6 +16,7 @@ use Vortos\Deploy\Audit\DeployAuditSinkInterface;
 use Vortos\Deploy\Console\DeployCommand;
 use Vortos\Deploy\Console\DoctorCommand;
 use Vortos\Deploy\Console\MaterializeFileSecretsCommand;
+use Vortos\Deploy\Console\EdgeHydrateConfigCommand;
 use Vortos\Deploy\Console\ProvisionCommand;
 use Vortos\Deploy\Console\PullAgentReconcileCommand;
 use Vortos\Deploy\Console\RollbackCommand;
@@ -36,6 +37,8 @@ use Vortos\Deploy\Preflight\Check\CanaryAnalyzerReadyCheck;
 use Vortos\Deploy\Preflight\Check\CapabilityDescriptorCheck;
 use Vortos\Deploy\Preflight\Check\CredentialCheck;
 use Vortos\Deploy\Preflight\Check\DriverSetCheck;
+use Vortos\Deploy\Preflight\Check\EnvFileReadabilityCheck;
+use Vortos\Deploy\Preflight\Check\RootlessWorkerCheck;
 use Vortos\Deploy\Preflight\Check\SchemaCompatibilityCheck;
 use Vortos\Deploy\Preflight\Check\FileSecretsCheck;
 use Vortos\Deploy\Preflight\Check\TargetArchCheck;
@@ -47,6 +50,9 @@ use Vortos\Deploy\Runner\DeployRunner;
 use Vortos\Deploy\Runner\RollbackRunner;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
 use Vortos\Deploy\Cutover\EdgeConfigGenerator;
+use Vortos\Deploy\Cutover\State\EdgeStateStoreInterface;
+use Vortos\Deploy\Cutover\State\FileEdgeStateStore;
+use Vortos\Deploy\Cutover\State\RedisEdgeStateStore;
 use Vortos\Deploy\Runtime\FileSecretDecryptor;
 use Vortos\Deploy\Runtime\FileSecretMaterializer;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
@@ -96,7 +102,6 @@ use Vortos\Deploy\DependencyInjection\Compiler\CollectDeployTargetsPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectEdgeRoutersPass;
 use Vortos\Deploy\Driver\Caddy\CaddyAdminClient;
 use Vortos\Deploy\Driver\Caddy\CaddyCapability;
-use Vortos\Deploy\Driver\Caddy\CaddyConfigFragment;
 use Vortos\Deploy\Driver\Caddy\CaddyEdgeRouter;
 use Vortos\Deploy\Driver\Caddy\DrainObserver;
 use Vortos\Deploy\Driver\Caddy\MountedConfigWriter;
@@ -472,30 +477,50 @@ final class DeployExtension extends Extension
 
         // ── Block 9: Caddy driver ──
 
+        // GAP-D: the admin *bind* address (written verbatim into the pushed config's admin.listen, so
+        // the edge keeps binding it after a /load) is decoupled from the admin *connect* URL the
+        // deploy one-shot dials. In the deploy-in-image topology the edge is a separate container, so
+        // the edge binds e.g. ":2019" while the one-shot connects to "http://edge:2019".
         $caddyAdminListen = (string) ($_ENV['CADDY_ADMIN_LISTEN'] ?? 'localhost:2019');
-
-        $container->register(CaddyConfigFragment::class, CaddyConfigFragment::class)
-            ->setArgument('$adminListen', $caddyAdminListen)
-            ->setPublic(false);
+        $caddyAdminUrl = (string) ($_ENV['CADDY_ADMIN_URL'] ?? ('http://' . $caddyAdminListen));
 
         $container->register(CaddyAdminClient::class, CaddyAdminClient::class)
             ->setArgument('$httpClient', new Reference(ClientInterface::class))
             ->setArgument('$requestFactory', new Reference(RequestFactoryInterface::class))
-            ->setArgument('$adminBaseUrl', 'http://' . $caddyAdminListen)
+            ->setArgument('$adminBaseUrl', $caddyAdminUrl)
             ->setPublic(false);
 
-        $container->register(MountedConfigWriter::class, MountedConfigWriter::class)
+        // GAP-D: durable, cross-node edge routing intent. Redis is the default control-plane store
+        // (a fleet of stateless edge nodes all agree on the active color); a file driver is available
+        // for a single-node / infra-less edge. EDGE_STATE_STORE=file selects the file driver.
+        $container->register(RedisEdgeStateStore::class, RedisEdgeStateStore::class)
+            ->setArgument('$redis', new Reference(\Redis::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
+
+        $container->register(FileEdgeStateStore::class, FileEdgeStateStore::class)
+            ->setArgument('$baseDir', (string) ($_ENV['EDGE_STATE_DIR'] ?? '/opt/vortos/edge'))
+            ->setPublic(false);
+
+        $edgeStateStoreId = ((string) ($_ENV['EDGE_STATE_STORE'] ?? 'redis')) === 'file'
+            ? FileEdgeStateStore::class
+            : RedisEdgeStateStore::class;
+        $container->setAlias(EdgeStateStoreInterface::class, $edgeStateStoreId)->setPublic(false);
 
         $container->register(DrainObserver::class, DrainObserver::class)
             ->setArgument('$adminClient', new Reference(CaddyAdminClient::class))
             ->setPublic(false);
 
+        // Retained as a general SSH-transport config-delivery utility (no longer on the cutover path,
+        // which now persists routing intent via the EdgeStateStore). Still an sshTransport consumer.
+        $container->register(MountedConfigWriter::class, MountedConfigWriter::class)
+            ->setPublic(false);
+
         $container->register(CaddyEdgeRouter::class, CaddyEdgeRouter::class)
             ->setArgument('$adminClient', new Reference(CaddyAdminClient::class))
-            ->setArgument('$configFragment', new Reference(CaddyConfigFragment::class))
-            ->setArgument('$configWriter', new Reference(MountedConfigWriter::class))
+            ->setArgument('$configGenerator', new Reference(EdgeConfigGenerator::class))
+            ->setArgument('$stateStore', new Reference(EdgeStateStoreInterface::class))
             ->setArgument('$drainObserver', new Reference(DrainObserver::class))
+            ->setArgument('$adminListen', $caddyAdminListen)
             ->addTag(CollectEdgeRoutersPass::TAG)
             ->setPublic(false);
 
@@ -825,6 +850,18 @@ final class DeployExtension extends Extension
             ->addTag(self::PREFLIGHT_CHECK_TAG)
             ->setPublic(false);
 
+        // GAP-A: fail closed when a runtime env file is not readable by the deploy one-shot uid, so
+        // the nested cutover docker compose up cannot fail "permission denied" at cutover.
+        $container->register(EnvFileReadabilityCheck::class, EnvFileReadabilityCheck::class)
+            ->addTag(self::PREFLIGHT_CHECK_TAG)
+            ->setPublic(false);
+
+        // GAP-B: fail closed when the worker's supervisord config is rootful in the single-image
+        // (RideColor) model, where the image runs as a non-root user and can't drop privileges.
+        $container->register(RootlessWorkerCheck::class, RootlessWorkerCheck::class)
+            ->addTag(self::PREFLIGHT_CHECK_TAG)
+            ->setPublic(false);
+
         // G8: fail closed when a declared file-shaped secret is missing from the store.
         $container->register(FileSecretsCheck::class, FileSecretsCheck::class)
             ->setArgument('$providers', new Reference(SecretsProviderRegistry::class))
@@ -901,6 +938,14 @@ final class DeployExtension extends Extension
             ->setArgument('$providers', new Reference(SecretsProviderRegistry::class))
             ->setArgument('$decryptor', new Reference(FileSecretDecryptor::class))
             ->setArgument('$materializer', new Reference(FileSecretMaterializer::class))
+            ->addTag('console.command')
+            ->setPublic(false);
+
+        // GAP-D (D5): edge boot init step — reconstruct the Caddy config from the durable edge state
+        // store. Runs from the app image in the edge compose before Caddy starts (Caddy has no PHP).
+        $container->register(EdgeHydrateConfigCommand::class, EdgeHydrateConfigCommand::class)
+            ->setArgument('$stateStore', new Reference(EdgeStateStoreInterface::class))
+            ->setArgument('$generator', new Reference(EdgeConfigGenerator::class))
             ->addTag('console.command')
             ->setPublic(false);
     }

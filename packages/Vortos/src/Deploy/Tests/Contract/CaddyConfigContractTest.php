@@ -8,21 +8,21 @@ use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ColorEndpoint;
 use Vortos\Deploy\Cutover\DesiredRoute;
 use Vortos\Deploy\Cutover\EdgeConfigGenerator;
-use Vortos\Deploy\Driver\Caddy\CaddyConfigFragment;
 use Vortos\Deploy\Target\ActiveColor;
 
 final class CaddyConfigContractTest extends TestCase
 {
-    public function test_config_fragment_produces_valid_json_structure(): void
+    public function test_route_config_produces_valid_json_structure(): void
     {
-        $fragment = new CaddyConfigFragment();
+        $generator = new EdgeConfigGenerator();
         $desired = new DesiredRoute(
             env: 'production',
             activeColor: ActiveColor::Blue,
             upstream: new ColorEndpoint('app-blue', 8081),
+            domain: 'example.com',
         );
 
-        $config = $fragment->build($desired);
+        $config = $generator->generateForRoute($desired, 'edge:2019');
 
         $this->assertArrayHasKey('apps', $config);
         $this->assertArrayHasKey('http', $config['apps']);
@@ -34,23 +34,31 @@ final class CaddyConfigContractTest extends TestCase
 
         $route = $server['routes'][0];
         $this->assertArrayHasKey('handle', $route);
+        // A domain'd route carries a host matcher so it never clobbers other vhosts.
+        $this->assertSame(['example.com'], $route['match'][0]['host']);
 
         $handler = $route['handle'][0];
         $this->assertSame('reverse_proxy', $handler['handler']);
         $this->assertArrayHasKey('upstreams', $handler);
         $this->assertSame('app-blue:8081', $handler['upstreams'][0]['dial']);
+
+        // GAP-D: the cutover config must retain the domain's TLS automation policy.
+        $this->assertSame(['example.com'], $config['apps']['tls']['automation']['policies'][0]['subjects']);
+        // The admin bind must echo the edge's real listen address (decoupled from the connect URL).
+        $this->assertSame('edge:2019', $config['admin']['listen']);
     }
 
-    public function test_config_fragment_json_is_parseable(): void
+    public function test_route_config_json_is_parseable(): void
     {
-        $fragment = new CaddyConfigFragment();
+        $generator = new EdgeConfigGenerator();
         $desired = new DesiredRoute(
             env: 'production',
             activeColor: ActiveColor::Green,
             upstream: new ColorEndpoint('app-green', 8082),
+            domain: 'example.com',
         );
 
-        $json = $fragment->toJson($desired);
+        $json = $generator->generateForRouteJson($desired);
         $parsed = json_decode($json, true, 512, \JSON_THROW_ON_ERROR);
 
         $this->assertIsArray($parsed);

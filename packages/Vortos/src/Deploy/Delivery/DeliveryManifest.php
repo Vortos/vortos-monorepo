@@ -26,19 +26,22 @@ final class DeliveryManifest
      * The default artifact set for a Vortos deploy, resolved against the project dir. The config
      * trees are expanded to their concrete files. Optional trees that do not exist are simply skipped.
      *
-     * The secrets store is shipped 0640, not 0600 (B15): the deploy-in-image one-shots read it as the
-     * image's runtime uid, which differs from the delivering (deploy) uid, so an owner-only 0600 file
-     * is unreadable by the container. 0640 grants owner+group read; the remote run adds the store's
-     * group to the container via docker run --group-add, so only that group — never the world — can
-     * read it. The bytes are age CIPHERTEXT (the KEK arrives via env, never on disk), so group-read
-     * leaks no plaintext. .env.prod stays 0600: the docker CLI reads it as the deploy uid via
-     * --env-file, so the container uid never needs to.
+     * Both the secrets store AND .env.prod are shipped 0640, not 0600 (B15 + GAP-A): the
+     * deploy-in-image one-shots read them as the image's runtime uid, which differs from the
+     * delivering (deploy) uid, so an owner-only 0600 file is unreadable by the container. The env file
+     * is not only read by the outer docker CLI (as the deploy uid via --env-file) but ALSO parsed at
+     * load time by the NESTED cutover `docker compose up` running inside the one-shot as the image uid
+     * — which fails "permission denied" on a 0600 file. 0640 grants owner+group read; the remote run
+     * adds each file's group to the container via docker run --group-add, so only that group — never
+     * the world — can read it. The store's bytes are age CIPHERTEXT (the KEK arrives via env, never on
+     * disk); the env file is likewise readable only by the delivering group, and EnvFileReadabilityCheck
+     * fails deploy:doctor closed if a runtime env file is not readable by the one-shot uid.
      */
     public static function default(string $projectDir): self
     {
         $projectDir = rtrim($projectDir, '/');
         $artifacts = [
-            new DeliveryArtifact($projectDir . '/' . DeliveryDefaults::ENV_FILE, DeliveryDefaults::ENV_FILE, '0600', required: true),
+            new DeliveryArtifact($projectDir . '/' . DeliveryDefaults::ENV_FILE, DeliveryDefaults::ENV_FILE, '0640', required: true),
             new DeliveryArtifact($projectDir . '/' . DeliveryDefaults::COMPOSE_FILE, DeliveryDefaults::COMPOSE_FILE, '0644', required: true),
             new DeliveryArtifact($projectDir . '/' . DeliveryDefaults::SECRETS_FILE, DeliveryDefaults::SECRETS_FILE, '0640', required: false),
         ];

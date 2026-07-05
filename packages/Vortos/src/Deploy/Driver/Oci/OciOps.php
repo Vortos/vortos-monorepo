@@ -117,7 +117,7 @@ trait OciOps
                 continue;
             }
 
-            if (substr($repoDigest, 0, $at) !== $image->repository) {
+            if ($this->normalizeRepository(substr($repoDigest, 0, $at)) !== $this->normalizeRepository($image->repository)) {
                 continue;
             }
 
@@ -143,10 +143,54 @@ trait OciOps
         }
 
         if ($image->isDigestPinned()) {
-            return in_array($image->repository . '@' . $image->digest, $repoDigests, true);
+            // B23: Docker Hub records RepoDigests under the *familiar* name (no "docker.io/" /
+            // "index.docker.io/" prefix, official images without "library/"), so an exact string
+            // match against a fully-qualified $image->repository misses and the auth-less one-shot
+            // falls through to a real "docker pull" that fails ("pull access denied"). Normalize both
+            // sides before comparing so the already-present digest is recognised.
+            $wantRepo = $this->normalizeRepository($image->repository);
+            foreach ($repoDigests as $repoDigest) {
+                if (!is_string($repoDigest)) {
+                    continue;
+                }
+                $at = strrpos($repoDigest, '@');
+                if ($at === false) {
+                    continue;
+                }
+                if ($this->normalizeRepository(substr($repoDigest, 0, $at)) !== $wantRepo) {
+                    continue;
+                }
+                if (substr($repoDigest, $at + 1) === $image->digest) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         return $repoDigests !== [];
+    }
+
+    /**
+     * Reduces a repository reference to Docker's "familiar" form so a fully-qualified reference
+     * (e.g. "docker.io/sqoura/sqoura-backend") compares equal to the daemon's RepoDigests entry
+     * (e.g. "sqoura/sqoura-backend"). Strips the implicit Docker Hub registry host and the
+     * "library/" namespace used for official images.
+     */
+    private function normalizeRepository(string $repository): string
+    {
+        foreach (['index.docker.io/', 'docker.io/'] as $prefix) {
+            if (str_starts_with($repository, $prefix)) {
+                $repository = substr($repository, strlen($prefix));
+                break;
+            }
+        }
+
+        if (str_starts_with($repository, 'library/') && substr_count($repository, '/') === 1) {
+            $repository = substr($repository, strlen('library/'));
+        }
+
+        return $repository;
     }
 
     /**

@@ -162,6 +162,44 @@ final class RemoteDeployScriptTest extends TestCase
         );
     }
 
+    public function test_runtime_env_file_gid_is_group_added_so_the_one_shot_can_read_it(): void
+    {
+        // GAP-A: the nested `docker compose up` parses env_file: as the image's non-root uid. Each
+        // mounted runtime env file's gid must be group-added to the one-shot (like the secrets store)
+        // so it can group-read a 0640 file without world-read.
+        $script = $this->script($this->definition(true));
+
+        self::assertStringContainsString("VORTOS_ENVFILE_GID_0=\"\$(stat -c '%g' /opt/vortos/.env.prod)\"", $script);
+        self::assertStringContainsString('--group-add "$VORTOS_ENVFILE_GID_0"', $script);
+
+        // The gid must be read before the docker run that consumes $groupAdd.
+        $statPos = strpos($script, 'VORTOS_ENVFILE_GID_0=');
+        $runPos = strpos($script, '--group-add "$VORTOS_ENVFILE_GID_0"');
+        self::assertIsInt($statPos);
+        self::assertIsInt($runPos);
+        self::assertLessThan($runPos, $statPos);
+    }
+
+    public function test_each_unique_runtime_env_file_gets_its_own_group_added_gid(): void
+    {
+        $definition = new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: true,
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            runtimeEnvFiles: ['/opt/vortos/.env.prod', '/etc/app/secrets.env', '/opt/vortos/.env.prod'],
+        );
+
+        $script = $this->script($definition);
+
+        // Two unique env files → gid vars 0 and 1, no third for the duplicate.
+        self::assertStringContainsString("VORTOS_ENVFILE_GID_0=\"\$(stat -c '%g' /opt/vortos/.env.prod)\"", $script);
+        self::assertStringContainsString("VORTOS_ENVFILE_GID_1=\"\$(stat -c '%g' /etc/app/secrets.env)\"", $script);
+        self::assertStringNotContainsString('VORTOS_ENVFILE_GID_2', $script);
+    }
+
     public function test_relative_runtime_env_file_paths_are_rejected(): void
     {
         $this->expectException(\InvalidArgumentException::class);

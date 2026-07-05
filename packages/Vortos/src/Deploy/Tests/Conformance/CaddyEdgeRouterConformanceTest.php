@@ -7,12 +7,12 @@ namespace Vortos\Deploy\Tests\Conformance;
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\HttpFactory;
 use Throwable;
+use Vortos\Deploy\Cutover\EdgeConfigGenerator;
 use Vortos\Deploy\Cutover\EdgeRouterInterface;
+use Vortos\Deploy\Cutover\State\FileEdgeStateStore;
 use Vortos\Deploy\Driver\Caddy\CaddyAdminClient;
-use Vortos\Deploy\Driver\Caddy\CaddyConfigFragment;
 use Vortos\Deploy\Driver\Caddy\CaddyEdgeRouter;
 use Vortos\Deploy\Driver\Caddy\DrainObserver;
-use Vortos\Deploy\Driver\Caddy\MountedConfigWriter;
 use Vortos\Deploy\Testing\EdgeRouterConformanceTestCase;
 
 /**
@@ -51,14 +51,15 @@ final class CaddyEdgeRouterConformanceTest extends EdgeRouterConformanceTestCase
             $this->markTestSkipped('Caddy admin API not reachable at ' . $adminBaseUrl);
         }
 
-        $configWriter = new MountedConfigWriter(sys_get_temp_dir() . '/caddy-conformance-upstream.json');
+        $stateStore = new FileEdgeStateStore(sys_get_temp_dir() . '/caddy-conformance-edge-state');
         $adminListen = ltrim((string) preg_replace('#^https?://#', '', $adminBaseUrl), '/');
 
         return new CaddyEdgeRouter(
             $adminClient,
-            new CaddyConfigFragment($adminListen),
-            $configWriter,
+            new EdgeConfigGenerator(),
+            $stateStore,
             new DrainObserver($adminClient),
+            $adminListen,
         );
     }
 

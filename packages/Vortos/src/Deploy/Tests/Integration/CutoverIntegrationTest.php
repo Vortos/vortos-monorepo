@@ -17,10 +17,10 @@ use Vortos\Deploy\Cutover\LiveRoute;
 use Vortos\Deploy\Cutover\NullCutoverEventRecorder;
 use Vortos\Deploy\Cutover\ReconcileResult;
 use Vortos\Deploy\Driver\Caddy\CaddyAdminClient;
-use Vortos\Deploy\Driver\Caddy\CaddyConfigFragment;
+use Vortos\Deploy\Cutover\EdgeConfigGenerator;
+use Vortos\Deploy\Cutover\State\FileEdgeStateStore;
 use Vortos\Deploy\Driver\Caddy\CaddyEdgeRouter;
 use Vortos\Deploy\Driver\Caddy\DrainObserver;
-use Vortos\Deploy\Driver\Caddy\MountedConfigWriter;
 use Vortos\Deploy\Exception\CutoverFailedException;
 use Vortos\Deploy\Exception\CutoverRevertedException;
 use Vortos\Deploy\Target\ActiveColor;
@@ -78,9 +78,10 @@ final class CutoverIntegrationTest extends TestCase
 
         return new CaddyEdgeRouter(
             $this->adminClient,
-            new CaddyConfigFragment($adminListen),
-            new MountedConfigWriter(sys_get_temp_dir() . '/caddy-cutover-integration-upstream.json'),
+            new EdgeConfigGenerator(),
+            new FileEdgeStateStore(sys_get_temp_dir() . '/caddy-cutover-integration-edge-state'),
             new DrainObserver($this->adminClient),
+            $adminListen,
         );
     }
 

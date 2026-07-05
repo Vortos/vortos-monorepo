@@ -49,12 +49,15 @@ final class DeliveryManifestTest extends TestCase
         self::assertSame('0640', $store->mode);
     }
 
-    public function test_default_keeps_env_prod_owner_only_0600(): void
+    public function test_default_ships_env_prod_group_readable_0640(): void
     {
+        // GAP-A: the nested cutover `docker compose up` parses .env.prod as the image uid, so it must
+        // be owner+group readable (0640), not owner-only (0600) — the one-shot reads it via a group
+        // grant (docker run --group-add of the env file gid), exactly like the age store.
         $manifest = DeliveryManifest::default($this->tmp);
 
         $env = $this->artifact($manifest, '.env.prod');
         self::assertNotNull($env);
-        self::assertSame('0600', $env->mode);
+        self::assertSame('0640', $env->mode);
     }
 }

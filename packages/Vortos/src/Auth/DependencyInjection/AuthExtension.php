@@ -300,13 +300,25 @@ final class AuthExtension extends Extension
             // LockoutManager
             $lockoutConfig = $config->getLockoutConfig() ?? new \Vortos\Auth\Lockout\LockoutConfig();
 
+            // B21: pass an inline Definition, not the raw LockoutConfig object — the PhpDumper
+            // rejects instantiated objects as service arguments and the prod container fails to dump.
+            $lockoutConfigDef = (new Definition(\Vortos\Auth\Lockout\LockoutConfig::class))
+                ->setProperties([
+                    'maxAttempts'         => $lockoutConfig->maxAttempts,
+                    'lockDurationSeconds' => $lockoutConfig->lockDurationSeconds,
+                    'trackBy'             => $lockoutConfig->trackBy,
+                    'message'             => $lockoutConfig->message,
+                    'backoffBaseSeconds'  => $lockoutConfig->backoffBaseSeconds,
+                    'backoffMaxSeconds'   => $lockoutConfig->backoffMaxSeconds,
+                ]);
+
             $container->register(LockoutKeyNormalizer::class, LockoutKeyNormalizer::class)
                 ->setShared(true)->setPublic(false);
 
             $container->register(LockoutManager::class, LockoutManager::class)
                 ->setArguments([
                     new Reference(RedisLockoutStore::class),
-                    $lockoutConfig,
+                    $lockoutConfigDef,
                     new Reference(LockoutKeyNormalizer::class),
                     LockoutFailureMode::from($resolved['lockout_failure_mode']),
                     new Reference('vortos.logger.security', ContainerInterface::NULL_ON_INVALID_REFERENCE),

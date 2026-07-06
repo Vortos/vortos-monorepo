@@ -26,8 +26,18 @@ final readonly class HealthReport
         return $this->overallStatus->isHealthy();
     }
 
+    /** The mode name of an informational monitoring report (GAP-F); never a readiness gate. */
+    public const MONITOR_MODE = 'monitor';
+
     public function httpStatusCode(): int
     {
+        // GAP-F: the monitoring report is informational — it carries per-probe status in its body but
+        // must always return 200 so no orchestrator/edge mistakes a cert-near-expiry (or any monitoring
+        // breach) for unreadiness. Gate modes (live/ready/startup) keep 503-on-unhealthy.
+        if ($this->mode === self::MONITOR_MODE) {
+            return 200;
+        }
+
         return $this->isHealthy() ? 200 : 503;
     }
 

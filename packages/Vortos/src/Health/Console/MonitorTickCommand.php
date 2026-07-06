@@ -11,6 +11,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Health\Monitor\MonitorTick;
 use Vortos\Health\Probe\HealthProbeRegistry;
+use Vortos\Health\Probe\ProbeKind;
 
 /**
  * Cron/systemd-timer-driven scheduler tick (§3): emits the dead-man heartbeat (if
@@ -23,8 +24,14 @@ use Vortos\Health\Probe\HealthProbeRegistry;
 )]
 final class MonitorTickCommand extends Command
 {
-    /** @var list<string> */
-    private const DEFAULT_PROBE_NAMES = ['disk-capacity', 'memory-capacity', 'cpu-load', 'cert-expiry'];
+    /**
+     * Capacity probes are readiness-kind (they legitimately gate readiness) but are ALSO sampled by the
+     * off-host tick for trend detection. Monitoring-kind probes (e.g. cert-expiry) are auto-discovered
+     * via {@see ProbeKind::Monitoring}, so a new monitoring probe is sampled with zero wiring here.
+     *
+     * @var list<string>
+     */
+    private const CAPACITY_PROBE_NAMES = ['disk-capacity', 'memory-capacity', 'cpu-load'];
 
     /** @param list<string> $defaultMonitorIds */
     public function __construct(
@@ -54,7 +61,15 @@ final class MonitorTickCommand extends Command
         /** @var list<string> $probeNames */
         $probeNames = $input->getOption('probe');
         if ($probeNames === []) {
-            $probeNames = array_values(array_filter(self::DEFAULT_PROBE_NAMES, $this->probes->has(...)));
+            $monitoringNames = array_map(
+                static fn ($p): string => $p->name(),
+                $this->probes->probesOfKind(ProbeKind::Monitoring),
+            );
+
+            $probeNames = array_values(array_unique([
+                ...$monitoringNames,
+                ...array_filter(self::CAPACITY_PROBE_NAMES, $this->probes->has(...)),
+            ]));
         }
 
         $probes = array_map($this->probes->probe(...), $probeNames);

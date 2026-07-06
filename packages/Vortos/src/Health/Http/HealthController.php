@@ -47,6 +47,16 @@ final class HealthController
         return $this->respond($this->aggregator->startup(), $request);
     }
 
+    /**
+     * Informational monitoring surface (GAP-F): cert-expiry and other Monitoring-kind probes. Always
+     * returns 200 — it is NOT a readiness gate. Scrape the body for per-probe pass/warn/fail.
+     */
+    #[Route('/health/monitor', name: 'vortos.health.monitor', methods: ['GET'])]
+    public function monitor(Request $request): JsonResponse
+    {
+        return $this->respond($this->aggregator->monitor(), $request);
+    }
+
     private function respond(HealthReport $report, ?Request $request = null): JsonResponse
     {
         $detailed = $request !== null && $this->detailPolicy->allowsDetails($request);

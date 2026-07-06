@@ -7,6 +7,7 @@ namespace Vortos\Deploy\Tests\Unit\Definition;
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Definition\DeploymentDefinition;
 use Vortos\Deploy\Strategy\DeployStrategy;
+use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Release\Manifest\Arch;
 
 final class DeploymentDefinitionBuilderTest extends TestCase
@@ -25,6 +26,25 @@ final class DeploymentDefinitionBuilderTest extends TestCase
         self::assertSame(DeployStrategy::BlueGreen, $def->strategy);
         self::assertSame(Arch::Arm64, $def->arch);
         self::assertTrue($def->autoRollback);
+    }
+
+    public function test_posture_maps_built_in_credentials(): void
+    {
+        // GAP-H: the typed posture the pipeline consumes derives from the credential key.
+        self::assertSame(DeployPosture::SshKey, DeploymentDefinition::create()->build()->posture());
+        self::assertSame(
+            DeployPosture::SshCaOidc,
+            DeploymentDefinition::create()->credential('ssh-ca-oidc')->build()->posture(),
+        );
+        self::assertSame(
+            DeployPosture::PullAgent,
+            DeploymentDefinition::create()->credential('pull-agent')->build()->posture(),
+        );
+    }
+
+    public function test_posture_null_for_custom_credential(): void
+    {
+        self::assertNull(DeploymentDefinition::create()->credential('vault-signed')->build()->posture());
     }
 
     public function test_default_runtime_service_spec(): void

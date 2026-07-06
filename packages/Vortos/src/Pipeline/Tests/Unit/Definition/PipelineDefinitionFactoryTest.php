@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Pipeline\Tests\Unit\Definition;
 
 use PHPUnit\Framework\TestCase;
+use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Definition\PipelineDefinition;
 use Vortos\Pipeline\Definition\PipelineDefinitionBuilder;
 use Vortos\Pipeline\Definition\PipelineDefinitionFactory;
@@ -23,6 +24,7 @@ final class PipelineDefinitionFactoryTest extends TestCase
         'PIPELINE_BENCHMARK',
         'PIPELINE_EMIT_SBOM',
         'PIPELINE_OIDC',
+        'PIPELINE_DEPLOY_POSTURE',
         'PIPELINE_DEFAULT_TIMEOUT_MINUTES',
         'PIPELINE_IMAGE_REPOSITORY',
         'PIPELINE_NATIVE_RUNNER_LABEL',
@@ -140,14 +142,50 @@ final class PipelineDefinitionFactoryTest extends TestCase
         self::assertSame(60, $def->defaultTimeoutMinutes);
     }
 
-    public function test_oidc_auto_derives_when_unset(): void
+    public function test_oidc_defaults_false_without_posture_even_with_image_repository(): void
     {
         $_ENV['PIPELINE_IMAGE_REPOSITORY']    = 'ghcr.io/org/app';
         $_ENV['PIPELINE_NATIVE_RUNNER_LABEL'] = 'ubuntu-24.04-arm';
 
         $def = (new PipelineDefinitionFactory())($this->dir);
 
-        // No explicit oidc → derived true because an image repository is set.
+        // GAP-H: no posture ⇒ OIDC stays off regardless of imageRepository (was: derived true).
+        self::assertFalse($def->oidc);
+    }
+
+    public function test_oidc_derives_from_posture_env(): void
+    {
+        $_ENV['PIPELINE_IMAGE_REPOSITORY']    = 'ghcr.io/org/app';
+        $_ENV['PIPELINE_NATIVE_RUNNER_LABEL'] = 'ubuntu-24.04-arm';
+        $_ENV['PIPELINE_DEPLOY_POSTURE']      = 'ssh-ca-oidc';
+
+        $def = (new PipelineDefinitionFactory())($this->dir);
+
+        self::assertSame(DeployPosture::SshCaOidc, $def->posture);
+        self::assertTrue($def->oidc);
+    }
+
+    public function test_ssh_key_posture_keeps_oidc_off(): void
+    {
+        $_ENV['PIPELINE_IMAGE_REPOSITORY']    = 'ghcr.io/org/app';
+        $_ENV['PIPELINE_NATIVE_RUNNER_LABEL'] = 'ubuntu-24.04-arm';
+        $_ENV['PIPELINE_DEPLOY_POSTURE']      = 'ssh-key';
+
+        $def = (new PipelineDefinitionFactory())($this->dir);
+
+        self::assertSame(DeployPosture::SshKey, $def->posture);
+        self::assertFalse($def->oidc);
+    }
+
+    public function test_explicit_oidc_env_overrides_posture(): void
+    {
+        $_ENV['PIPELINE_IMAGE_REPOSITORY']    = 'ghcr.io/org/app';
+        $_ENV['PIPELINE_NATIVE_RUNNER_LABEL'] = 'ubuntu-24.04-arm';
+        $_ENV['PIPELINE_DEPLOY_POSTURE']      = 'ssh-key';
+        $_ENV['PIPELINE_OIDC']                = 'true';
+
+        $def = (new PipelineDefinitionFactory())($this->dir);
+
         self::assertTrue($def->oidc);
     }
 }

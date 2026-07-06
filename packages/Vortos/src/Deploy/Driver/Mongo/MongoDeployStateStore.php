@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Deploy\Driver\Mongo;
 
 use MongoDB\Collection;
+use Vortos\Deploy\Cutover\RateLimitStateStoreInterface;
 use Vortos\Deploy\PullAgent\FreshnessSnapshot;
 use Vortos\Deploy\PullAgent\ManifestFreshnessStoreInterface;
 use Vortos\Deploy\State\ContractSoakLedgerInterface;
@@ -23,7 +24,8 @@ final class MongoDeployStateStore implements
     DeployStateStoreInterface,
     CurrentReleaseStoreInterface,
     ContractSoakLedgerInterface,
-    ManifestFreshnessStoreInterface
+    ManifestFreshnessStoreInterface,
+    RateLimitStateStoreInterface
 {
     public function __construct(
         private readonly Collection $collection,
@@ -239,5 +241,42 @@ final class MongoDeployStateStore implements
     private function freshnessDocumentId(string $env): string
     {
         return 'pull_agent_freshness:' . $env;
+    }
+
+    public function loadLastReloadTimestamp(string $env): ?float
+    {
+        $doc = $this->collection->findOne(['_id' => $this->rateLimitDocumentId($env)]);
+
+        if ($doc === null) {
+            return null;
+        }
+
+        $data = (array) $doc;
+
+        return isset($data['last_reload_at']) ? (float) $data['last_reload_at'] : null;
+    }
+
+    public function saveLastReloadTimestamp(string $env, float $timestamp): void
+    {
+        // Monotonic upsert: only advance the last-reload timestamp forward, so concurrent edge nodes
+        // cannot rewind the reconcile rate-limit gate (mirrors the freshness anti-rollback guard).
+        $docId = $this->rateLimitDocumentId($env);
+
+        $this->collection->updateOne(
+            [
+                '_id' => $docId,
+                '$or' => [
+                    ['last_reload_at' => ['$lte' => $timestamp]],
+                    ['last_reload_at' => ['$exists' => false]],
+                ],
+            ],
+            ['$set' => ['_id' => $docId, 'last_reload_at' => $timestamp]],
+            ['upsert' => true],
+        );
+    }
+
+    private function rateLimitDocumentId(string $env): string
+    {
+        return 'rate_limit:' . $env;
     }
 }

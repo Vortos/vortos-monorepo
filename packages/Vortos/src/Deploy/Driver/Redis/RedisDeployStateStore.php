@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Driver\Redis;
 
+use Vortos\Deploy\Cutover\RateLimitStateStoreInterface;
 use Vortos\Deploy\PullAgent\FreshnessSnapshot;
 use Vortos\Deploy\PullAgent\ManifestFreshnessStoreInterface;
 use Vortos\Deploy\State\ContractSoakLedgerInterface;
@@ -22,12 +23,14 @@ final class RedisDeployStateStore implements
     DeployStateStoreInterface,
     CurrentReleaseStoreInterface,
     ContractSoakLedgerInterface,
-    ManifestFreshnessStoreInterface
+    ManifestFreshnessStoreInterface,
+    RateLimitStateStoreInterface
 {
     private const KEY_PREFIX = 'vortos:deploy:run:';
     private const CURRENT_RELEASE_PREFIX = 'vortos:deploy:current_release:';
     private const CONTRACT_SOAK_PREFIX = 'vortos:deploy:contract_soak:';
     private const FRESHNESS_PREFIX = 'vortos:deploy:pull_agent_freshness:';
+    private const RATE_LIMIT_PREFIX = 'vortos:deploy:rate_limit:';
 
     public function __construct(
         private readonly \Redis $redis,
@@ -227,6 +230,35 @@ final class RedisDeployStateStore implements
         $json = json_encode($snapshot->toArray(), \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES);
         $multi = $this->redis->multi();
         $multi->set($key, $json);
+        $multi->exec();
+    }
+
+    public function loadLastReloadTimestamp(string $env): ?float
+    {
+        $data = $this->redis->get(self::RATE_LIMIT_PREFIX . $env);
+
+        return $data === false ? null : (float) $data;
+    }
+
+    public function saveLastReloadTimestamp(string $env, float $timestamp): void
+    {
+        // Monotonic CAS: a fleet of stateless edge nodes may reconcile near-simultaneously; keep the
+        // most recent reload timestamp so the reconcile rate limiter's min-interval gate is honoured
+        // cluster-wide, never rewound by a slower node writing an older value.
+        $key = self::RATE_LIMIT_PREFIX . $env;
+
+        $this->redis->watch($key);
+        $existing = $this->redis->get($key);
+
+        if ($existing !== false && (float) $existing >= $timestamp) {
+            $this->redis->unwatch();
+
+            return;
+        }
+
+        $multi = $this->redis->multi();
+        // %.6f preserves microtime(true) microsecond granularity losslessly across the string round-trip.
+        $multi->set($key, sprintf('%.6f', $timestamp));
         $multi->exec();
     }
 }

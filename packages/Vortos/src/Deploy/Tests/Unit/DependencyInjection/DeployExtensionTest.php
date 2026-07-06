@@ -12,9 +12,18 @@ use Vortos\Deploy\DependencyInjection\Compiler\CollectContainerRegistriesPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectCredentialProvidersPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectDeployTargetsPass;
 use Vortos\Deploy\Console\PullAgentReconcileCommand;
+use Vortos\Deploy\Cutover\RateLimitStateStoreInterface;
 use Vortos\Deploy\DependencyInjection\DeployExtension;
+use Vortos\Deploy\Driver\LocalFile\FileDeployStateStore;
+use Vortos\Deploy\Driver\Mongo\MongoDeployStateStore;
+use Vortos\Deploy\Driver\Redis\RedisDeployStateStore;
+use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
+use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Execution\SshConnectionSettings;
 use Vortos\Deploy\Plan\DeployPlanner;
+use Vortos\Deploy\PullAgent\ManifestFreshnessStoreInterface;
+use Vortos\Deploy\State\ContractSoakLedgerInterface;
+use Vortos\Deploy\State\CurrentReleaseStoreInterface;
 use Vortos\Deploy\PullAgent\PullAgentReconciler;
 use Vortos\Deploy\Plan\PlanRenderer;
 use Vortos\Deploy\Registry\ContainerRegistryRegistry;
@@ -46,6 +55,81 @@ final class DeployExtensionTest extends TestCase
         self::assertTrue($container->hasDefinition(DeployPlanner::class));
         self::assertTrue($container->hasDefinition(PlanRenderer::class));
         self::assertTrue($container->hasDefinition(DeploymentDefinitionValidator::class));
+    }
+
+    /** @return list<string> the four control-plane store interfaces that must share one durable store */
+    private static function stateStoreInterfaces(): array
+    {
+        return [
+            CurrentReleaseStoreInterface::class,
+            ContractSoakLedgerInterface::class,
+            ManifestFreshnessStoreInterface::class,
+            RateLimitStateStoreInterface::class,
+        ];
+    }
+
+    private function loadWithStateStore(?string $kind): ContainerBuilder
+    {
+        $prev = $_ENV['DEPLOY_STATE_STORE'] ?? null;
+        if ($kind === null) {
+            unset($_ENV['DEPLOY_STATE_STORE']);
+        } else {
+            $_ENV['DEPLOY_STATE_STORE'] = $kind;
+        }
+
+        try {
+            $container = new ContainerBuilder();
+            (new DeployExtension())->load([], $container);
+
+            return $container;
+        } finally {
+            if ($prev === null) {
+                unset($_ENV['DEPLOY_STATE_STORE']);
+            } else {
+                $_ENV['DEPLOY_STATE_STORE'] = $prev;
+            }
+        }
+    }
+
+    public function test_deploy_state_store_defaults_to_redis(): void
+    {
+        $container = $this->loadWithStateStore(null);
+
+        foreach (self::stateStoreInterfaces() as $iface) {
+            self::assertSame(RedisDeployStateStore::class, (string) $container->getAlias($iface), $iface);
+        }
+        // The concrete consumers that took FileDeployStateStore directly now share the durable store.
+        self::assertSame(RedisDeployStateStore::class, (string) $container->getDefinition(StepExecutor::class)->getArgument('$stateStore'));
+        self::assertSame(RedisDeployStateStore::class, (string) $container->getDefinition(SshComposeTarget::class)->getArgument('$stateStore'));
+        self::assertSame(RedisDeployStateStore::class, (string) $container->getDefinition(SshComposeTarget::class)->getArgument('$releaseStore'));
+        self::assertTrue($container->hasDefinition(RedisDeployStateStore::class));
+    }
+
+    public function test_deploy_state_store_file_opt_out(): void
+    {
+        $container = $this->loadWithStateStore('file');
+
+        foreach (self::stateStoreInterfaces() as $iface) {
+            self::assertSame(FileDeployStateStore::class, (string) $container->getAlias($iface), $iface);
+        }
+        self::assertSame(FileDeployStateStore::class, (string) $container->getDefinition(StepExecutor::class)->getArgument('$stateStore'));
+    }
+
+    public function test_deploy_state_store_mongo_selector(): void
+    {
+        $container = $this->loadWithStateStore('mongo');
+
+        self::assertTrue($container->hasDefinition(MongoDeployStateStore::class), 'mongo driver registered only when selected');
+        foreach (self::stateStoreInterfaces() as $iface) {
+            self::assertSame(MongoDeployStateStore::class, (string) $container->getAlias($iface), $iface);
+        }
+    }
+
+    public function test_mongo_driver_not_registered_unless_selected(): void
+    {
+        $container = $this->loadWithStateStore('redis');
+
+        self::assertFalse($container->hasDefinition(MongoDeployStateStore::class));
     }
 
     public function test_registers_locators(): void

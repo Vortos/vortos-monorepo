@@ -92,6 +92,11 @@ final class PipelineDefinitionFactory
         if (($v = $this->strOrEnv($file, 'native_runner_label', 'PIPELINE_NATIVE_RUNNER_LABEL')) !== null) {
             $b = $b->nativeRunnerLabel($v);
         }
+        // GAP-H: deploy posture drives the OIDC default. Read it before oidc so an explicit oidc
+        // override (below) still wins.
+        if (($v = $this->strOrEnv($file, 'deploy_posture', 'PIPELINE_DEPLOY_POSTURE')) !== null) {
+            $b = $b->posture($v);
+        }
         if (($v = $this->boolOrEnv($file, 'oidc', 'PIPELINE_OIDC')) !== null) {
             $b = $b->oidc($v);
         }

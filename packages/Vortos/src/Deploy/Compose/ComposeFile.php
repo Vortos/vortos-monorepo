@@ -46,6 +46,10 @@ final readonly class ComposeFile
             'command' => $this->spec->workerCommand,
             'networks' => $this->spec->networks,
             'restart' => 'unless-stopped',
+            // GAP-G: override the base image's inherited HTTP HEALTHCHECK (FrankenPHP curl :2019/metrics)
+            // — the worker serves no HTTP, so without this it is reported 'unhealthy' forever. Resolves to
+            // a real supervisorctl check for a supervisord worker, or an explicit disable otherwise.
+            'healthcheck' => $this->spec->resolvedWorkerHealthcheck()->toArray(),
         ];
 
         if ($this->spec->envFiles !== []) {

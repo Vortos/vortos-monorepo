@@ -14,10 +14,11 @@ final class ProbeKindTest extends TestCase
         self::assertSame('liveness', ProbeKind::Liveness->value);
         self::assertSame('readiness', ProbeKind::Readiness->value);
         self::assertSame('startup', ProbeKind::Startup->value);
+        self::assertSame('monitoring', ProbeKind::Monitoring->value);
     }
 
     public function testCaseCount(): void
     {
-        self::assertCount(3, ProbeKind::cases());
+        self::assertCount(4, ProbeKind::cases());
     }
 }

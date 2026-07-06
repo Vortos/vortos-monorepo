@@ -35,6 +35,8 @@ final readonly class RuntimeServiceSpec
      * @param array<string, string> $environment   extra app-service environment (e.g. SERVER_NAME)
      * @param list<string>          $networks      docker networks the color attaches to (external)
      * @param list<FileSecret>      $fileSecrets   file-shaped secrets (G8) tmpfs-mounted RO into the color
+     * @param ?WorkerHealthcheck    $workerHealthcheck override for the worker service healthcheck (GAP-G);
+     *                    null ⇒ resolved by {@see resolvedWorkerHealthcheck()} (supervisord check or disable)
      */
     public function __construct(
         public array $command = self::DEFAULT_COMMAND,
@@ -44,6 +46,7 @@ final readonly class RuntimeServiceSpec
         public array $environment = ['SERVER_NAME' => ':8080'],
         public array $networks = ['vortos-net'],
         public array $fileSecrets = [],
+        public ?WorkerHealthcheck $workerHealthcheck = null,
     ) {
         $this->assertStringList('command', $command, allowEmpty: false);
         $this->assertStringList('workerCommand', $workerCommand, allowEmpty: false);
@@ -88,6 +91,33 @@ final readonly class RuntimeServiceSpec
         }
     }
 
+    /**
+     * The worker service healthcheck to emit (GAP-G) — the explicit app override if set, otherwise a
+     * real 'supervisorctl' check when the worker runs supervisord (the framework default), otherwise a
+     * disable. Either way the worker never inherits the base image's HTTP 'HEALTHCHECK'.
+     */
+    public function resolvedWorkerHealthcheck(): WorkerHealthcheck
+    {
+        if ($this->workerHealthcheck !== null) {
+            return $this->workerHealthcheck;
+        }
+
+        return $this->workerRunsSupervisord()
+            ? WorkerHealthcheck::supervisord()
+            : WorkerHealthcheck::disabled();
+    }
+
+    private function workerRunsSupervisord(): bool
+    {
+        foreach ($this->workerCommand as $arg) {
+            if (str_contains($arg, 'supervisord')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @return array<string, mixed> */
     public function toArray(): array
     {
@@ -99,6 +129,7 @@ final readonly class RuntimeServiceSpec
             'environment' => $this->environment,
             'networks' => $this->networks,
             'file_secrets' => array_map(static fn (FileSecret $s): array => $s->toArray(), $this->fileSecrets),
+            'worker_healthcheck' => $this->resolvedWorkerHealthcheck()->toArray(),
         ];
     }
 

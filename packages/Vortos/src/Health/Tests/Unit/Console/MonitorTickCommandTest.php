@@ -7,6 +7,7 @@ namespace Vortos\Health\Tests\Unit\Console;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use Symfony\Component\Console\Tester\CommandTester;
+use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Health\Console\MonitorTickCommand;
 use Vortos\Health\Monitor\HeartbeatPolicy;
 use Vortos\Health\Monitor\MonitorTick;
@@ -89,6 +90,27 @@ final class MonitorTickCommandTest extends TestCase
 
         self::assertStringContainsString('custom-probe', $tester->getDisplay());
         self::assertStringNotContainsString('disk-capacity', $tester->getDisplay());
+    }
+
+    public function testDefaultSetAutoDiscoversMonitoringProbes(): void
+    {
+        // GAP-F: the default probe set auto-includes every Monitoring-kind probe (e.g. cert-expiry)
+        // plus registered capacity probes — no hardcoded name list. A readiness probe is NOT sampled.
+        $locator = new ServiceLocator([
+            'cert-expiry' => static fn () => StubProbe::monitoring('cert-expiry'),
+            'disk-capacity' => static fn () => StubProbe::readiness('disk-capacity'),
+            'db' => static fn () => StubProbe::readiness('db'),
+        ]);
+        $registry = new HealthProbeRegistry($locator);
+
+        $tick = new MonitorTick(new FakeUptimeMonitor(), new HeartbeatPolicy());
+        $tester = new CommandTester(new MonitorTickCommand($tick, $registry));
+        $tester->execute([]);
+
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('cert-expiry', $display);   // monitoring-kind, auto-discovered
+        self::assertStringContainsString('disk-capacity', $display); // capacity, still sampled
+        self::assertStringNotContainsString('probe db', $display);   // readiness, NOT a monitor sample
     }
 
     public function testMissingDefaultProbesAreSkippedSilently(): void

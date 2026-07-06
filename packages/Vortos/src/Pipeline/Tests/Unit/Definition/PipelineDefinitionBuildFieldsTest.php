@@ -6,6 +6,7 @@ namespace Vortos\Pipeline\Tests\Unit\Definition;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Definition\PipelineDefinition;
 use Vortos\Pipeline\Definition\PipelineDefinitionBuilder;
 use Vortos\Pipeline\Model\BuildMode;
@@ -28,12 +29,57 @@ final class PipelineDefinitionBuildFieldsTest extends TestCase
         $this->assertFalse($def->hasBuildStage());
     }
 
-    public function test_oidc_auto_true_when_image_repository_set(): void
+    public function test_oidc_default_is_false_even_with_image_repository_when_posture_unset(): void
     {
+        // GAP-H: the OIDC default derives from the deploy posture, NOT from imageRepository. With no
+        // posture (custom/unknown credential), keyless OIDC must stay off so an ssh-key deploy is not
+        // silently handed an id-token deploy job it cannot satisfy.
         $def = new PipelineDefinition(imageRepository: 'ghcr.io/org/app', nativeRunnerLabel: 'ubuntu-24.04-arm');
 
-        $this->assertTrue($def->oidc);
+        $this->assertFalse($def->oidc);
         $this->assertTrue($def->hasBuildStage());
+    }
+
+    public function test_oidc_derives_from_posture(): void
+    {
+        // Keyless only for the ssh-ca-oidc posture.
+        $oidcPosture = new PipelineDefinition(
+            imageRepository: 'ghcr.io/org/app',
+            posture: DeployPosture::SshCaOidc,
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+        );
+        $this->assertTrue($oidcPosture->oidc);
+
+        // ssh-key (age-KEK deploy-in-image) and pull-agent must NOT emit a keyless OIDC job.
+        foreach ([DeployPosture::SshKey, DeployPosture::PullAgent] as $posture) {
+            $def = new PipelineDefinition(
+                imageRepository: 'ghcr.io/org/app',
+                posture: $posture,
+                nativeRunnerLabel: 'ubuntu-24.04-arm',
+            );
+            $this->assertFalse($def->oidc, $posture->value . ' must not enable OIDC');
+            $this->assertSame($posture->value, $def->toArray()['deploy_posture']);
+        }
+    }
+
+    public function test_explicit_oidc_overrides_posture(): void
+    {
+        // An explicit oidc() always wins over the posture-derived default (both directions).
+        $forcedOn = new PipelineDefinition(
+            imageRepository: 'ghcr.io/org/app',
+            oidc: true,
+            posture: DeployPosture::SshKey,
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+        );
+        $this->assertTrue($forcedOn->oidc);
+
+        $forcedOff = new PipelineDefinition(
+            imageRepository: 'ghcr.io/org/app',
+            oidc: false,
+            posture: DeployPosture::SshCaOidc,
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+        );
+        $this->assertFalse($forcedOff->oidc);
     }
 
     public function test_native_build_stage_requires_runner_label(): void
@@ -127,11 +173,26 @@ final class PipelineDefinitionBuildFieldsTest extends TestCase
         $this->assertSame('buildx-qemu', $array['build_mode']);
         $this->assertSame('linux/amd64', $array['target_arch']);
         $this->assertSame('ghcr.io/org/app', $array['image_repository']);
-        $this->assertTrue($array['oidc']);
+        // GAP-H: no posture ⇒ oidc off by default (was: true because imageRepository set).
+        $this->assertFalse($array['oidc']);
+        $this->assertArrayNotHasKey('deploy_posture', $array);
         $this->assertTrue($array['emit_sbom']);
         $this->assertSame('Dockerfile', $array['dockerfile_path']);
         // Non-native build ⇒ no runner label configured ⇒ key omitted.
         $this->assertArrayNotHasKey('native_runner_label', $array);
+    }
+
+    public function test_to_array_includes_deploy_posture_when_set(): void
+    {
+        $def = new PipelineDefinition(
+            imageRepository: 'ghcr.io/org/app',
+            posture: DeployPosture::SshCaOidc,
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+        );
+
+        $array = $def->toArray();
+        $this->assertSame('ssh-ca-oidc', $array['deploy_posture']);
+        $this->assertTrue($array['oidc']);
     }
 
     public function test_to_array_includes_native_runner_label_when_set(): void

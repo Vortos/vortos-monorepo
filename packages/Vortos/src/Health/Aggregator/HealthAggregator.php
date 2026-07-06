@@ -48,6 +48,18 @@ final class HealthAggregator
         return $report;
     }
 
+    /**
+     * Informational monitoring aggregation (GAP-F): runs the Monitoring-kind probes (e.g. cert-expiry)
+     * and reports their status WITHOUT gating anything. Excluded from live/ready/startup by construction
+     * ({@see probesOfKind}); the report always renders HTTP 200 ({@see HealthReport::httpStatusCode()}).
+     */
+    public function monitor(): HealthReport
+    {
+        $probes = $this->registry->probesOfKind(ProbeKind::Monitoring);
+
+        return $this->runProbes($probes, HealthReport::MONITOR_MODE);
+    }
+
     public function startup(): HealthReport
     {
         if ($this->startupGate->isStarted()) {

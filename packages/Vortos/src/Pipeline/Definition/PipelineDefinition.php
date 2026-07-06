@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Pipeline\Definition;
 
+use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Model\BuildMode;
 use Vortos\Pipeline\Model\ServiceContainer;
 use Vortos\Pipeline\Model\SplitPackage;
@@ -41,6 +42,11 @@ final readonly class PipelineDefinition
         public BuildMode $buildMode = BuildMode::Native,
         public ?string $nativeRunnerLabel = null,
         ?bool $oidc = null,
+        // ── Deploy posture (GAP-H) ──
+        // The credential posture the deploy job runs under. The OIDC default derives from THIS
+        // (keyless only for ssh-ca-oidc), not from whether an image repository is set. Null = unknown
+        // / custom credential ⇒ oidc defaults conservatively to false unless set explicitly.
+        public ?DeployPosture $posture = null,
         public ?string $baseImageDigest = null,
         public bool $emitSbom = true,
         public string $dockerfilePath = 'Dockerfile',
@@ -166,7 +172,11 @@ final readonly class PipelineDefinition
             );
         }
 
-        $this->oidc = $oidc ?? ($imageRepository !== null);
+        // GAP-H: the OIDC deploy posture derives from the deploy credential, not from imageRepository.
+        // Keyless OIDC is emitted only for the ssh-ca-oidc posture; ssh-key (age-KEK deploy-in-image)
+        // and pull-agent must never emit an id-token deploy job. An explicit oidc() always wins; when
+        // the posture is unknown (custom credential) the default stays conservative (false).
+        $this->oidc = $oidc ?? ($posture?->emitsOidc() ?? false);
     }
 
     public function hasBuildStage(): bool
@@ -227,6 +237,10 @@ final readonly class PipelineDefinition
 
         if ($this->baseImageDigest !== null) {
             $data['base_image_digest'] = $this->baseImageDigest;
+        }
+
+        if ($this->posture !== null) {
+            $data['deploy_posture'] = $this->posture->value;
         }
 
         ksort($data);

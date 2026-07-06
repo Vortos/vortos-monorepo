@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Definition;
 
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Strategy\DeployStrategy;
+use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Release\Manifest\Arch;
 
 final readonly class DeploymentDefinition
@@ -39,6 +40,17 @@ final readonly class DeploymentDefinition
     public static function create(): DeploymentDefinitionBuilder
     {
         return new DeploymentDefinitionBuilder();
+    }
+
+    /**
+     * The typed deploy posture for the built-in credentials (ssh-key / ssh-ca-oidc / pull-agent), or
+     * null when {@see $credential} is a custom provider registered outside the built-in set. Threaded
+     * into the pipeline so the emitted CI deploy job's OIDC posture derives from the real credential,
+     * never from whether an image repository happens to be set.
+     */
+    public function posture(): ?DeployPosture
+    {
+        return DeployPosture::tryFromCredential($this->credential);
     }
 
     /**

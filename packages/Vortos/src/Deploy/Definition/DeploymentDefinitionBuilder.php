@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Definition;
 
 use Vortos\Deploy\Runtime\FileSecret;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
+use Vortos\Deploy\Runtime\WorkerHealthcheck;
 use Vortos\Deploy\Strategy\DeployStrategy;
 use Vortos\Release\Manifest\Arch;
 
@@ -40,6 +41,7 @@ final class DeploymentDefinitionBuilder
     private array $appEnvironment = ['SERVER_NAME' => ':8080'];
     /** @var list<FileSecret> */
     private array $fileSecrets = [];
+    private ?WorkerHealthcheck $workerHealthcheck = null;
 
     /** @var array<string, \Closure(self): self> */
     private array $envOverrides = [];
@@ -234,6 +236,19 @@ final class DeploymentDefinitionBuilder
     }
 
     /**
+     * Override the worker service healthcheck (GAP-G). Optional — the framework default already
+     * overrides the base image's inherited HTTP healthcheck with a supervisorctl check (supervisord
+     * worker) or a disable (custom worker command). Use this to declare a bespoke worker liveness check.
+     */
+    public function workerHealthcheck(WorkerHealthcheck $healthcheck): self
+    {
+        $clone = clone $this;
+        $clone->workerHealthcheck = $healthcheck;
+
+        return $clone;
+    }
+
+    /**
      * The resolved runtime service shape. Consumed by the DI container to drive the cutover compose
      * generation ({@see \Vortos\Deploy\Compose\ComposeProjectFactory}). Env-agnostic: command/port
      * are image-level facts, so per-environment overrides don't change them.
@@ -247,6 +262,7 @@ final class DeploymentDefinitionBuilder
             workerCommand: $this->workerCommand,
             environment: $this->appEnvironment,
             fileSecrets: $this->fileSecrets,
+            workerHealthcheck: $this->workerHealthcheck,
         );
     }
 

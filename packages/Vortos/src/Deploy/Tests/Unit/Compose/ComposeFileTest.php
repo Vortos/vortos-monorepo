@@ -51,6 +51,32 @@ final class ComposeFileTest extends TestCase
         $this->assertArrayHasKey('networks', $array);
     }
 
+    public function test_worker_healthcheck_overrides_inherited_http_check(): void
+    {
+        // GAP-G: the worker service must always emit an explicit healthcheck so it never inherits the
+        // base image's HTTP HEALTHCHECK. Default supervisord worker ⇒ a supervisorctl-based check.
+        $array = (new ComposeFile('p', ActiveColor::Blue, self::digestPinnedImage(), self::spec()))->toArray();
+
+        $worker = $array['services']['worker-blue'];
+        $this->assertArrayHasKey('healthcheck', $worker);
+        $this->assertSame('CMD-SHELL', $worker['healthcheck']['test'][0]);
+        $this->assertStringContainsString('supervisorctl', $worker['healthcheck']['test'][1]);
+
+        // The app service is untouched — its FrankenPHP admin healthcheck is correct.
+        $this->assertArrayNotHasKey('healthcheck', $array['services']['app-blue']);
+    }
+
+    public function test_custom_worker_emits_disabled_healthcheck(): void
+    {
+        $spec = new RuntimeServiceSpec(
+            command: ['frankenphp', 'run'],
+            workerCommand: ['php', 'bin/console', 'messenger:consume'],
+        );
+        $array = (new ComposeFile('p', ActiveColor::Green, self::digestPinnedImage(), $spec))->toArray();
+
+        $this->assertSame(['disable' => true], $array['services']['worker-green']['healthcheck']);
+    }
+
     public function test_file_secrets_render_read_only_volumes_on_app_and_worker(): void
     {
         $spec = new RuntimeServiceSpec(

@@ -108,6 +108,42 @@ final class HealthControllerTest extends TestCase
         self::assertArrayHasKey('total_latency_ms', $data);
     }
 
+    public function testMonitorReturns200EvenWhenMonitoringProbeFails(): void
+    {
+        // GAP-F: /health/monitor is informational — a cert-near-expiry breach reports fail in the body
+        // but the endpoint must never 503 (an orchestrator could mistake that for unreadiness).
+        $ctrl = $this->controller([
+            'cert-expiry' => StubProbe::monitoring('cert-expiry')->withResult(
+                ProbeResult::fail('cert-expiry', ProbeKind::Monitoring, 1.0, 'cert_near_expiry_critical'),
+            ),
+        ]);
+        $request = Request::create('/health/monitor');
+        $response = $ctrl->monitor($request);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+
+        $data = json_decode($response->getContent(), true);
+        self::assertSame('fail', $data['status']);
+        self::assertSame('monitor', $data['mode']);
+        self::assertArrayHasKey('cert-expiry', $data['checks']);
+    }
+
+    public function testReadyStays200WhenOnlyMonitoringProbeFails(): void
+    {
+        // The cert probe is monitoring-kind, so it is invisible to the readiness gate.
+        $ctrl = $this->controller([
+            'cert-expiry' => StubProbe::monitoring('cert-expiry')->withResult(
+                ProbeResult::fail('cert-expiry', ProbeKind::Monitoring, 1.0, 'cert_near_expiry_critical'),
+            ),
+        ]);
+        $request = Request::create('/health/ready');
+        $response = $ctrl->ready($request);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('pass', json_decode($response->getContent(), true)['status']);
+    }
+
     public function testIndexRouteDelegatesToReady(): void
     {
         $ctrl = $this->controller(['db' => StubProbe::readiness('db')]);

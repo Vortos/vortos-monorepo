@@ -28,6 +28,7 @@ final class CertExpiryProbeConformanceTest extends HealthProbeConformanceTestCas
 
     protected function expectedKind(): ProbeKind
     {
-        return ProbeKind::Readiness;
+        // GAP-F: cert-expiry is monitoring-only — never a readiness gate.
+        return ProbeKind::Monitoring;
     }
 }

@@ -36,6 +36,7 @@ use Vortos\Deploy\Definition\LayeredDefinitionResolver;
 use Vortos\Deploy\Preflight\Check\CanaryAnalyzerReadyCheck;
 use Vortos\Deploy\Preflight\Check\CapabilityDescriptorCheck;
 use Vortos\Deploy\Preflight\Check\CredentialCheck;
+use Vortos\Deploy\Preflight\Check\DeployStateDurabilityCheck;
 use Vortos\Deploy\Preflight\Check\DriverSetCheck;
 use Vortos\Deploy\Preflight\Check\EnvFileReadabilityCheck;
 use Vortos\Deploy\Preflight\Check\RootlessWorkerCheck;
@@ -108,7 +109,9 @@ use Vortos\Deploy\Driver\Caddy\MountedConfigWriter;
 use Vortos\Deploy\Driver\Http\HttpReadinessGate;
 use Vortos\Deploy\Driver\Http\HttpSmokeRunner;
 use Vortos\Deploy\Driver\LocalFile\FileDeployStateStore;
+use Vortos\Deploy\Driver\Mongo\MongoDeployStateStore;
 use Vortos\Deploy\Driver\Oci\OciRegistry;
+use Vortos\Deploy\Driver\Redis\RedisDeployStateStore;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Execution\CommandRunnerInterface;
@@ -190,6 +193,38 @@ final class DeployExtension extends Extension
             'vortos.deploy.registry_exchange_endpoint',
             (string) ($_ENV['VORTOS_DEPLOY_REGISTRY_EXCHANGE_ENDPOINT'] ?? ''),
         );
+
+        // ── Durable deploy-state store selector (GAP-I) ──
+        // The deploy runs as a 'docker run --rm' one-shot in the deploy-in-image topology, so a
+        // container-local file store (%kernel.project_dir%/var/deploy-state) is destroyed after every
+        // run — erasing the current-release record, so blue-green never alternates color and rollback
+        // cannot see the live release. Redis is therefore the DEFAULT (symmetric with EDGE_STATE_STORE);
+        // DEPLOY_STATE_STORE=file opts back to the zero-dep file driver for a single-node / infra-less
+        // box, and =mongo selects the Mongo driver. All FOUR control-plane ports (current-release,
+        // contract-soak ledger, pull-agent freshness, reconcile rate-limit) share ONE durable store, so
+        // run/release/soak/freshness/rate-limit state can never diverge across the ephemeral one-shot.
+        $container->register(RedisDeployStateStore::class, RedisDeployStateStore::class)
+            ->setArgument('$redis', new Reference(\Redis::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag(CollectDeployStateStoresPass::TAG)
+            ->setPublic(false);
+
+        $deployStateStoreKind = strtolower((string) ($_ENV['DEPLOY_STATE_STORE'] ?? 'redis'));
+        $deployStateStoreId = match ($deployStateStoreKind) {
+            'file' => FileDeployStateStore::class,
+            'mongo' => MongoDeployStateStore::class,
+            default => RedisDeployStateStore::class,
+        };
+
+        if ($deployStateStoreId === MongoDeployStateStore::class) {
+            // Opt-in: only wire the Mongo driver when it is the selected store — its MongoDB\Collection
+            // dependency is app-provided. Lazy + NULL_ON_INVALID_REFERENCE keeps compilation safe when
+            // the collection is absent; the store then fails loud at first use (and the durability
+            // preflight check flags the misconfiguration before a deploy runs).
+            $container->register(MongoDeployStateStore::class, MongoDeployStateStore::class)
+                ->setArgument('$collection', new Reference(\MongoDB\Collection::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                ->addTag(CollectDeployStateStoresPass::TAG)
+                ->setPublic(false);
+        }
 
         // ── Block 22: Canary analyzer registry + StatisticalGuard + CanaryGate ──
 
@@ -535,15 +570,16 @@ final class DeployExtension extends Extension
 
         $container->setAlias(CutoverEventRecorderInterface::class, NullCutoverEventRecorder::class);
 
-        // ── Block 9: Current release store (alias to file state store) ──
+        // ── Block 9: Current release store (durable store selected above, GAP-I) ──
+        // All four control-plane ports share the ONE selected durable store so state never diverges.
 
-        $container->setAlias(CurrentReleaseStoreInterface::class, FileDeployStateStore::class);
-        $container->setAlias(ContractSoakLedgerInterface::class, FileDeployStateStore::class);
-        $container->setAlias(ManifestFreshnessStoreInterface::class, FileDeployStateStore::class);
+        $container->setAlias(CurrentReleaseStoreInterface::class, $deployStateStoreId);
+        $container->setAlias(ContractSoakLedgerInterface::class, $deployStateStoreId);
+        $container->setAlias(ManifestFreshnessStoreInterface::class, $deployStateStoreId);
 
         // ── Block 9: Reconcile rate limiter ──
 
-        $container->setAlias(RateLimitStateStoreInterface::class, FileDeployStateStore::class);
+        $container->setAlias(RateLimitStateStoreInterface::class, $deployStateStoreId);
 
         $container->register(ReconcileRateLimiter::class, ReconcileRateLimiter::class)
             ->setArgument('$stateStore', new Reference(RateLimitStateStoreInterface::class))
@@ -709,7 +745,7 @@ final class DeployExtension extends Extension
         // ── Block 7+8+9+10: StepExecutor + SshComposeTarget ──
 
         $stepExecutorDef = $container->register(StepExecutor::class, StepExecutor::class)
-            ->setArgument('$stateStore', new Reference(FileDeployStateStore::class))
+            ->setArgument('$stateStore', new Reference($deployStateStoreId))
             ->setArgument('$registry', new Reference(ContainerRegistryInterface::class))
             ->setArgument('$readinessGate', new Reference(ReadinessGateInterface::class))
             ->setArgument('$smokeRunner', new Reference(SmokeRunnerInterface::class))
@@ -740,8 +776,8 @@ final class DeployExtension extends Extension
             ->setArgument('$planner', new Reference(DeployPlanner::class))
             ->setArgument('$executor', new Reference(StepExecutor::class))
             ->setArgument('$registry', new Reference(ContainerRegistryInterface::class))
-            ->setArgument('$stateStore', new Reference(FileDeployStateStore::class))
-            ->setArgument('$releaseStore', new Reference(FileDeployStateStore::class))
+            ->setArgument('$stateStore', new Reference($deployStateStoreId))
+            ->setArgument('$releaseStore', new Reference($deployStateStoreId))
             ->addTag(CollectDeployTargetsPass::TAG)
             ->setPublic(false);
 
@@ -864,6 +900,16 @@ final class DeployExtension extends Extension
         // GAP-B: fail closed when the worker's supervisord config is rootful in the single-image
         // (RideColor) model, where the image runs as a non-root user and can't drop privileges.
         $container->register(RootlessWorkerCheck::class, RootlessWorkerCheck::class)
+            ->addTag(self::PREFLIGHT_CHECK_TAG)
+            ->setPublic(false);
+
+        // GAP-I: fail closed when the deploy-state store is not durable for the deploy topology
+        // (a file store in the --rm one-shot, or redis selected without a Redis connection).
+        $container->register(DeployStateDurabilityCheck::class, DeployStateDurabilityCheck::class)
+            ->setArgument('$stateStoreKind', $deployStateStoreKind)
+            ->setArgument('$pushDelivery', $deliveryMode === 'push')
+            ->setArgument('$hasRemoteHost', (string) ($_ENV['VORTOS_DEPLOY_HOST'] ?? '') !== '')
+            ->setArgument('$redisConfigured', ($_ENV['REDIS_DSN'] ?? $_ENV['REDIS_HOST'] ?? '') !== '')
             ->addTag(self::PREFLIGHT_CHECK_TAG)
             ->setPublic(false);
 

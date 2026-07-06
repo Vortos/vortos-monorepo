@@ -35,7 +35,12 @@ final class CertExpiryProbe implements HealthProbeInterface
 
     public function kind(): ProbeKind
     {
-        return ProbeKind::Readiness;
+        // GAP-F: cert-expiry is a MONITORING probe, not a readiness gate. In an edge-router blue-green
+        // topology the staged color runs on an internal network and cannot reach the public TLS
+        // endpoint (NAT hairpin), so a readiness-kind cert probe fails closed and rolls back a healthy
+        // color. Cert age is an alerting/observability concern — surfaced at /health/monitor and by the
+        // off-host monitor tick — never a "can this color serve traffic right now" signal.
+        return ProbeKind::Monitoring;
     }
 
     public function check(): ProbeResult

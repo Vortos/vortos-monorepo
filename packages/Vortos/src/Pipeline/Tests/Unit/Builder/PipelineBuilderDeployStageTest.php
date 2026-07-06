@@ -6,6 +6,7 @@ namespace Vortos\Pipeline\Tests\Unit\Builder;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ServiceLocator;
+use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Builder\PipelineBuilder;
 use Vortos\Pipeline\Builder\StageGate;
 use Vortos\Pipeline\Definition\PipelineDefinition;
@@ -51,6 +52,17 @@ final class PipelineBuilderDeployStageTest extends TestCase
         );
     }
 
+    /** Keyless OIDC posture (ssh-ca-oidc) — zero standing secrets. */
+    private function withOidcBuild(): PipelineDefinition
+    {
+        return new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            posture: DeployPosture::SshCaOidc,
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+        );
+    }
+
     /** @return list<CommandStep> */
     private function commandSteps(Stage $stage): array
     {
@@ -59,8 +71,8 @@ final class PipelineBuilderDeployStageTest extends TestCase
 
     public function test_oidc_deploy_requests_id_token_write(): void
     {
-        // imageRepository set => oidc defaults true.
-        $stage = $this->deployStage($this->withBuild());
+        // ssh-ca-oidc posture => keyless OIDC deploy job.
+        $stage = $this->deployStage($this->withOidcBuild());
 
         $perms = $stage->permissions->toArray();
         $this->assertSame('read', $perms['contents'] ?? null);
@@ -142,8 +154,8 @@ final class PipelineBuilderDeployStageTest extends TestCase
 
     public function test_oidc_default_deploy_references_no_standing_secret(): void
     {
-        // Default posture (oidc true): zero standing secrets — no age KEK, no mounted store.
-        $run = $this->remoteStep($this->withBuild())->run;
+        // ssh-ca-oidc posture (keyless): zero standing secrets — no age KEK, no mounted store.
+        $run = $this->remoteStep($this->withOidcBuild())->run;
 
         $this->assertStringNotContainsString('VORTOS_AGE_IDENTITY', $run);
         $this->assertStringNotContainsString('vortos-secrets.age', $run);

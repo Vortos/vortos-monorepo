@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Pipeline\Definition;
 
+use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Model\BuildMode;
 use Vortos\Pipeline\Model\ServiceContainer;
 use Vortos\Pipeline\Model\SplitPackage;
@@ -29,6 +30,7 @@ final class PipelineDefinitionBuilder
     private BuildMode $buildMode = BuildMode::Native;
     private ?string $nativeRunnerLabel = null;
     private ?bool $oidc = null;
+    private ?DeployPosture $posture = null;
     private ?string $baseImageDigest = null;
     private bool $emitSbom = true;
     private string $dockerfilePath = 'Dockerfile';
@@ -174,6 +176,22 @@ final class PipelineDefinitionBuilder
     {
         $clone = clone $this;
         $clone->oidc = $enabled;
+
+        return $clone;
+    }
+
+    /**
+     * The deploy credential posture (GAP-H). Accepts the {@see DeployPosture} enum or its string key
+     * (ssh-key / ssh-ca-oidc / pull-agent); a custom/unknown credential key coerces to null, leaving the
+     * OIDC default conservative (false) unless {@see oidc()} is set explicitly. Keep this aligned with
+     * config/deploy.php's `credential`.
+     */
+    public function posture(DeployPosture|string $posture): self
+    {
+        $clone = clone $this;
+        $clone->posture = $posture instanceof DeployPosture
+            ? $posture
+            : DeployPosture::tryFromCredential($posture);
 
         return $clone;
     }
@@ -403,6 +421,7 @@ final class PipelineDefinitionBuilder
             buildMode: $this->buildMode,
             nativeRunnerLabel: $this->nativeRunnerLabel,
             oidc: $this->oidc,
+            posture: $this->posture,
             baseImageDigest: $this->baseImageDigest,
             emitSbom: $this->emitSbom,
             dockerfilePath: $this->dockerfilePath,

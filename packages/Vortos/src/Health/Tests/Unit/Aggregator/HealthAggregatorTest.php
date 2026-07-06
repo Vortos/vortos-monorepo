@@ -412,6 +412,66 @@ final class HealthAggregatorTest extends TestCase
     // ---- helpers ----
 
     /** @param array<string, \Vortos\Health\Probe\HealthProbeInterface> $probes */
+    // ---- monitor() (GAP-F) ----
+
+    public function testReadyIgnoresMonitoringProbes(): void
+    {
+        // A failing monitoring probe (e.g. cert-expiry unreachable from the internal color) must NOT
+        // fail readiness — the whole point of GAP-F.
+        $agg = $this->aggregator([
+            'cert-expiry' => StubProbe::monitoring('cert-expiry')->withResult(
+                ProbeResult::fail('cert-expiry', ProbeKind::Monitoring, 1.0, 'cert_near_expiry_critical'),
+            ),
+        ]);
+
+        $ready = $agg->ready();
+
+        self::assertSame(ProbeStatus::Pass, $ready->overallStatus);
+        self::assertCount(0, $ready->results);
+    }
+
+    public function testLiveAndStartupIgnoreMonitoringProbes(): void
+    {
+        $agg = $this->aggregator([
+            'cert-expiry' => StubProbe::monitoring('cert-expiry')->withResult(
+                ProbeResult::fail('cert-expiry', ProbeKind::Monitoring, 1.0, 'cert_near_expiry_critical'),
+            ),
+        ]);
+
+        self::assertCount(0, $agg->live()->results);
+        self::assertCount(0, $agg->startup()->results);
+    }
+
+    public function testMonitorRunsOnlyMonitoringProbes(): void
+    {
+        $agg = $this->aggregator([
+            'cert-expiry' => StubProbe::monitoring('cert-expiry')->withResult(
+                ProbeResult::warn('cert-expiry', ProbeKind::Monitoring, 1.0, 'cert_near_expiry', []),
+            ),
+            'db' => StubProbe::readiness('db'),
+        ]);
+
+        $report = $agg->monitor();
+
+        self::assertSame(HealthReport::MONITOR_MODE, $report->mode);
+        self::assertCount(1, $report->results);
+        self::assertSame('cert-expiry', $report->results[0]->name);
+    }
+
+    public function testMonitorReportAlwaysReturnsHttp200EvenWhenFailing(): void
+    {
+        $agg = $this->aggregator([
+            'cert-expiry' => StubProbe::monitoring('cert-expiry')->withResult(
+                ProbeResult::fail('cert-expiry', ProbeKind::Monitoring, 1.0, 'cert_near_expiry_critical'),
+            ),
+        ]);
+
+        $report = $agg->monitor();
+
+        self::assertSame(ProbeStatus::Fail, $report->overallStatus);
+        self::assertSame(200, $report->httpStatusCode(), 'monitoring is informational, never a 503 gate');
+    }
+
     private function aggregator(
         array $probes,
         ?HealthBudget $budget = null,

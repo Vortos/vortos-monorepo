@@ -37,6 +37,11 @@ final class StubProbe implements HealthProbeInterface
         return new self($name, ProbeKind::Startup);
     }
 
+    public static function monitoring(string $name): self
+    {
+        return new self($name, ProbeKind::Monitoring);
+    }
+
     public function withResult(ProbeResult $result): self
     {
         $clone = clone $this;

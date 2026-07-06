@@ -6,9 +6,35 @@ namespace Vortos\Deploy\Tests\Unit\Runtime;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
+use Vortos\Deploy\Runtime\WorkerHealthcheck;
 
 final class RuntimeServiceSpecTest extends TestCase
 {
+    public function test_default_supervisord_worker_resolves_to_supervisorctl_healthcheck(): void
+    {
+        // GAP-G: the default worker command runs supervisord ⇒ a real supervisorctl healthcheck.
+        $hc = (new RuntimeServiceSpec())->resolvedWorkerHealthcheck();
+
+        $this->assertFalse($hc->disabled);
+        $this->assertStringContainsString('supervisorctl', $hc->test[1]);
+    }
+
+    public function test_custom_worker_resolves_to_disabled_healthcheck(): void
+    {
+        $hc = (new RuntimeServiceSpec(workerCommand: ['php', 'bin/console', 'messenger:consume']))
+            ->resolvedWorkerHealthcheck();
+
+        $this->assertTrue($hc->disabled);
+    }
+
+    public function test_explicit_worker_healthcheck_overrides_default(): void
+    {
+        $override = WorkerHealthcheck::command(['CMD', 'pgrep', 'consume']);
+        $spec = new RuntimeServiceSpec(workerHealthcheck: $override);
+
+        $this->assertSame($override, $spec->resolvedWorkerHealthcheck());
+    }
+
     public function test_defaults_match_the_shipped_frankenphp_stub(): void
     {
         $spec = new RuntimeServiceSpec();
@@ -38,6 +64,9 @@ final class RuntimeServiceSpecTest extends TestCase
             'environment' => ['SERVER_NAME' => ':9000'],
             'networks' => ['vortos-net'],
             'file_secrets' => [],
+            // GAP-G: custom (non-supervisord) worker command ⇒ healthcheck disabled (still overrides
+            // the base image's inherited HTTP HEALTHCHECK).
+            'worker_healthcheck' => ['disable' => true],
         ], $spec->toArray());
     }
 

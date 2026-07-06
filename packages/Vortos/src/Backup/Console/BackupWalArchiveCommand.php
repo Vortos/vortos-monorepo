@@ -11,6 +11,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Backup\Pitr\PostgresWalArchiver;
+use Vortos\Backup\Environment\DefaultEnvironment;
 
 /**
  * Ships one Postgres WAL segment to the backup store — the hook for the host
@@ -32,7 +33,7 @@ final class BackupWalArchiveCommand extends Command
     {
         $this
             ->addArgument('path', InputArgument::REQUIRED, 'Absolute path to the WAL segment (Postgres %p)')
-            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'prod');
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', DefaultEnvironment::NAME);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int

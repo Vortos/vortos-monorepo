@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Pipeline\Builder;
 
+use Vortos\Pipeline\Build\BaseImageDigestResolverInterface;
+use Vortos\Pipeline\Build\RegistryBaseImageDigestResolver;
 use Vortos\Pipeline\Definition\PipelineDefinition;
 use Vortos\Pipeline\Definition\QualityMode;
 use Vortos\Pipeline\Model\ActionStep;
@@ -28,10 +30,15 @@ use Vortos\Pipeline\Registry\RegistryLoginContext;
 
 final class PipelineBuilder
 {
+    private readonly BaseImageDigestResolverInterface $baseImageDigestResolver;
+
     public function __construct(
         private readonly StageGate $gate,
         private readonly ?CiRegistryLoginProviderRegistry $loginProviders = null,
-    ) {}
+        ?BaseImageDigestResolverInterface $baseImageDigestResolver = null,
+    ) {
+        $this->baseImageDigestResolver = $baseImageDigestResolver ?? new RegistryBaseImageDigestResolver();
+    }
 
     /**
      * @param list<SplitPackage> $splitPackages
@@ -275,7 +282,18 @@ final class PipelineBuilder
         ];
 
         if ($definition->baseImageDigest !== null) {
+            // Explicit pin is authoritative.
             $buildWith['build-args'] = 'BASE_IMAGE_DIGEST=' . $definition->baseImageDigest;
+        } else {
+            // R7-5: auto-resolve the base image digest at build time and pass it through env, so
+            // reproducibility is guaranteed without the app hand-maintaining a sha256. The resolver
+            // step runs before the build and only warns (non-fatal) if resolution is impossible.
+            $steps[] = new CommandStep(
+                'Resolve base image digest',
+                $this->baseImageDigestResolver->generate($definition->dockerfilePath),
+                id: 'basedigest',
+            );
+            $buildWith['build-args'] = 'BASE_IMAGE_DIGEST=${{ env.BASE_IMAGE_DIGEST }}';
         }
 
         $steps[] = new ActionStep(
@@ -291,13 +309,6 @@ final class PipelineBuilder
             $archScript->generate($digestRef, $definition->targetArch),
             id: 'archcheck',
         );
-
-        if ($definition->baseImageDigest === null) {
-            $steps[] = new CommandStep(
-                'Base image digest drift warning',
-                "echo \"::warning::No base image digest pinned — build reproducibility is not guaranteed. Pin via baseImageDigest in PipelineDefinition.\"",
-            );
-        }
 
         $steps[] = new CommandStep(
             'Expose digest',

@@ -10,6 +10,8 @@ use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Pipeline\Builder\KnownActionFactory;
 use Vortos\Pipeline\Builder\PipelineBuilder;
 use Vortos\Pipeline\Builder\StageGate;
+use Vortos\Pipeline\Build\BaseImageDigestResolverInterface;
+use Vortos\Pipeline\Build\RegistryBaseImageDigestResolver;
 use Vortos\Pipeline\Console\PipelineActionsVerifyCommand;
 use Vortos\Pipeline\Console\PipelineGenerateCommand;
 use Vortos\Pipeline\Console\PipelineVerifyCommand;
@@ -123,9 +125,15 @@ final class PipelineExtension extends Extension
         $container->register(StageGate::class, StageGate::class)
             ->setPublic(false);
 
+        $container->register(RegistryBaseImageDigestResolver::class, RegistryBaseImageDigestResolver::class)
+            ->setPublic(false);
+        $container->setAlias(BaseImageDigestResolverInterface::class, RegistryBaseImageDigestResolver::class)
+            ->setPublic(false);
+
         $container->register(PipelineBuilder::class, PipelineBuilder::class)
             ->setArgument('$gate', new Reference(StageGate::class))
             ->setArgument('$loginProviders', new Reference(CiRegistryLoginProviderRegistry::class))
+            ->setArgument('$baseImageDigestResolver', new Reference(BaseImageDigestResolverInterface::class))
             ->setPublic(false);
     }
 

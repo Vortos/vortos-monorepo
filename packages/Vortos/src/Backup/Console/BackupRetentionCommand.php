@@ -13,6 +13,7 @@ use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\RetentionPolicy;
 use Vortos\Backup\Port\BackupStoreRegistry;
 use Vortos\Backup\Service\RetentionEnforcer;
+use Vortos\Backup\Environment\DefaultEnvironment;
 
 /**
  * Applies the retention policy. **Dry-run is the default** — deletion is irreversible,
@@ -35,7 +36,7 @@ final class BackupRetentionCommand extends Command
     {
         $this
             ->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Database engine: postgres|mongo')
-            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'prod')
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', DefaultEnvironment::NAME)
             ->addOption('apply', null, InputOption::VALUE_NONE, 'Actually delete (default is a dry-run plan)');
     }
 

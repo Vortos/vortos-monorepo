@@ -10,6 +10,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Backup\Pitr\ContainerizedPitrRecipe;
+use Vortos\Backup\Environment\DefaultEnvironment;
 
 /**
  * Emits the containerized point-in-time-recovery (WAL shipping) recipe so a PHP-less Postgres
@@ -34,7 +35,7 @@ final class BackupPitrRecipeCommand extends Command
             ->addOption('wal-volume', null, InputOption::VALUE_REQUIRED, 'Shared WAL volume mount path', '/wal_archive')
             ->addOption('backend-service', null, InputOption::VALUE_REQUIRED, 'App/backend compose service (owns the workers)', 'backend')
             ->addOption('postgres-service', null, InputOption::VALUE_REQUIRED, 'Postgres compose service', 'postgres')
-            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Environment name', 'prod')
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Environment name', DefaultEnvironment::NAME)
             ->addOption('force', 'f', InputOption::VALUE_NONE, 'Overwrite existing files')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print artifacts without writing');
     }

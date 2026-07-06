@@ -12,6 +12,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
 use Vortos\Backup\Domain\Exception\IntegrityException;
+use Vortos\Backup\Environment\DefaultEnvironment;
 use Vortos\Backup\Port\BackupStoreRegistry;
 use Vortos\Backup\Service\IntegrityVerifier;
 
@@ -32,6 +33,7 @@ final class BackupVerifyCommand extends Command
     {
         $this
             ->addArgument('id', InputArgument::REQUIRED, 'Backup id to verify')
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment (for label consistency with backup:run)', DefaultEnvironment::NAME)
             ->addOption('json', null, InputOption::VALUE_NONE, 'Output as JSON');
     }
 

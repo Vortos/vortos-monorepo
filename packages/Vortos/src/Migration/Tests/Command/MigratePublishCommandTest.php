@@ -275,6 +275,119 @@ final class MigratePublishCommandTest extends TestCase
         $this->assertStringNotContainsString('legacy_outbox', $content);
     }
 
+    public function test_alter_style_provider_emits_add_column_against_earlier_creator(): void
+    {
+        // R7-1 / PUBLISH-1: an alter-style provider adding columns to a table created by an
+        // earlier provider must publish an ALTER … ADD migration (was silently dropped).
+        $this->makeCatalogCreator('Backup', '001_create_catalog.php');
+        $this->makeCatalogAlter('Backup', '002_add_encryption.php');
+
+        $tester = $this->runCommand();
+        $this->assertSame(0, $tester->getStatusCode());
+
+        $alter = $this->publishedContaining('encryption_provider');
+        $this->assertNotNull($alter, 'The alter migration with the encryption columns must exist.');
+        $this->assertStringContainsStringIgnoringCase('ALTER TABLE', $alter);
+        $this->assertStringContainsStringIgnoringCase('encryption_recipient', $alter);
+        $this->assertStringNotContainsStringIgnoringCase('CREATE TABLE IF NOT EXISTS vortos_backup_catalog', $alter);
+    }
+
+    public function test_module_filter_still_emits_correct_alter_against_excluded_creator(): void
+    {
+        // The creator lives in a module we DON'T publish; the base must still include it so the
+        // alter (in the targeted module) emits correct ADD COLUMN SQL.
+        $this->makeCatalogCreator('Persistence', '001_create_catalog.php');
+        $this->makeCatalogAlter('Backup', '002_add_encryption.php');
+
+        $tester = $this->runCommand(['--module' => ['Backup']]);
+        $this->assertSame(0, $tester->getStatusCode());
+
+        $published = glob($this->migrationsDir . '/Version*.php') ?: [];
+        $this->assertCount(1, $published, 'Only the Backup alter should be emitted.');
+
+        $alter = (string) file_get_contents($published[0]);
+        $this->assertStringContainsStringIgnoringCase('ALTER TABLE', $alter);
+        $this->assertStringContainsStringIgnoringCase('encryption_provider', $alter);
+    }
+
+    public function test_already_published_creator_still_seeds_base_for_new_alter(): void
+    {
+        $this->makeCatalogCreator('Backup', '001_create_catalog.php');
+        $this->runCommand(); // publishes the creator; manifest records it
+
+        $this->makeCatalogAlter('Backup', '002_add_encryption.php');
+        $tester = $this->runCommand(); // creator is skipped but must still seed the base
+        $this->assertSame(0, $tester->getStatusCode());
+
+        $alter = $this->publishedContaining('encryption_provider');
+        $this->assertNotNull($alter);
+        $this->assertStringContainsStringIgnoringCase('ALTER TABLE', $alter);
+    }
+
+    private function publishedContaining(string $needle): ?string
+    {
+        foreach (glob($this->migrationsDir . '/Version*.php') ?: [] as $file) {
+            $content = (string) file_get_contents($file);
+            if (stripos($content, $needle) !== false) {
+                return $content;
+            }
+        }
+
+        return null;
+    }
+
+    private function makeCatalogCreator(string $module, string $filename): void
+    {
+        $this->writeProvider($module, $filename, $module, 'backup.create_catalog', <<<'BODY'
+        $t = $schema->createTable($this->t('backup_catalog'));
+        $t->addColumn('id', 'string', ['length' => 36]);
+        $t->setPrimaryKey(['id']);
+BODY);
+    }
+
+    private function makeCatalogAlter(string $module, string $filename): void
+    {
+        $this->writeProvider($module, $filename, $module, 'backup.add_encryption', <<<'BODY'
+        if ($schema->hasTable($this->t('backup_catalog'))) {
+            $c = $schema->getTable($this->t('backup_catalog'));
+            if (!$c->hasColumn('encryption_provider')) {
+                $c->addColumn('encryption_provider', 'string', ['length' => 32, 'notnull' => false]);
+                $c->addColumn('encryption_recipient', 'string', ['length' => 64, 'notnull' => false]);
+            }
+        }
+BODY);
+    }
+
+    private function writeProvider(string $module, string $filename, string $providerModule, string $id, string $body): void
+    {
+        $dir = $this->tempDir . '/packages/Vortos/src/' . $module . '/Resources/migrations';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        file_put_contents($dir . '/' . $filename, <<<PHP
+<?php
+
+use Doctrine\DBAL\Schema\Schema;
+use Vortos\Migration\Schema\AbstractModuleSchemaProvider;
+
+return new class extends AbstractModuleSchemaProvider {
+    public function module(): string { return '{$providerModule}'; }
+    public function id(): string { return '{$id}'; }
+    public function description(): string { return '{$id}'; }
+    public function define(Schema \$schema): void
+    {
+{$body}
+    }
+};
+PHP);
+
+        if (!in_array($module, $this->registeredModules, true)) {
+            $this->registeredModules[] = $module;
+            $this->writeInstalledJson();
+        }
+    }
+
     private function runCommand(array $options = []): CommandTester
     {
         $scanner   = new ModuleStubScanner(new ModulePathResolver($this->tempDir), $this->tempDir);

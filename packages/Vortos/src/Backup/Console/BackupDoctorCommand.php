@@ -15,6 +15,7 @@ use Vortos\Backup\Domain\EngineResolver;
 use Vortos\Backup\Domain\Exception\BackupException;
 use Vortos\Backup\Doctor\BackupToolchainInspector;
 use Vortos\Backup\Doctor\ToolchainReport;
+use Vortos\Backup\Environment\DefaultEnvironment;
 use Vortos\Backup\Port\BackupStoreRegistry;
 
 /**
@@ -43,6 +44,7 @@ final class BackupDoctorCommand extends Command
     {
         $this
             ->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Database engine: postgres|mongo (defaults to VORTOS_BACKUP_ENGINE)')
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', DefaultEnvironment::NAME)
             ->addOption('json', null, InputOption::VALUE_NONE, 'Machine-readable output');
     }
 

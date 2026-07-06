@@ -11,6 +11,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Drill\DrillRunner;
+use Vortos\Backup\Environment\DefaultEnvironment;
 
 #[AsCommand(name: 'backup:drill', description: 'Run a restore drill (provision → restore → invariants → teardown).')]
 final class BackupDrillCommand extends Command
@@ -24,7 +25,7 @@ final class BackupDrillCommand extends Command
     {
         $this
             ->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Database engine: postgres|mongo', 'postgres')
-            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'prod')
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', DefaultEnvironment::NAME)
             ->addOption('shallow', null, InputOption::VALUE_NONE, 'Shallow decrypt-verify only (no full restore)');
     }
 

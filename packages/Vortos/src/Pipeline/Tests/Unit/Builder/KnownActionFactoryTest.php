@@ -59,4 +59,33 @@ final class KnownActionFactoryTest extends TestCase
         $this->assertSame('danharrin', $action->owner);
         $this->assertSame('monorepo-split-github-action', $action->repo);
     }
+
+    public function test_sbom_action_is_not_downgraded_below_v0_24(): void
+    {
+        // R7-5: reverses the accidental downgrade to v0.20.7 by an earlier emitter bump.
+        $action = KnownActionFactory::sbomAttest();
+        $this->assertSame('anchore', $action->owner);
+        $this->assertSame('sbom-action', $action->repo);
+        $this->assertTrue(
+            version_compare(ltrim($action->versionComment, 'v'), '0.24.0', '>='),
+            'sbom-action must be pinned at v0.24.0 or newer, got ' . $action->versionComment,
+        );
+    }
+
+    public function test_docker_actions_are_pinned_to_node24_majors(): void
+    {
+        // R7-5: docker/* v3 ran on the deprecated Node 20; v4 runs on Node 24.
+        foreach ([
+            KnownActionFactory::setupBuildx(),
+            KnownActionFactory::setupQemu(),
+            KnownActionFactory::dockerLogin(),
+        ] as $action) {
+            $major = (int) ltrim(explode('.', $action->versionComment)[0], 'v');
+            $this->assertGreaterThanOrEqual(
+                4,
+                $major,
+                sprintf('%s/%s must be pinned to a Node-24 major (v4+), got %s', $action->owner, $action->repo, $action->versionComment),
+            );
+        }
+    }
 }

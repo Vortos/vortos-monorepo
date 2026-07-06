@@ -10,6 +10,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Backup\DR\DrRunbookGenerator;
+use Vortos\Backup\Environment\DefaultEnvironment;
 
 #[AsCommand(name: 'backup:dr-runbook', description: 'Generate a DR runbook from live config + latest drill data.')]
 final class BackupDrRunbookCommand extends Command
@@ -23,7 +24,7 @@ final class BackupDrRunbookCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'prod')
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', DefaultEnvironment::NAME)
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Output file path (default: stdout)');
     }
 

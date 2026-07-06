@@ -13,6 +13,7 @@ use Vortos\Migration\Generator\MigrationClassGenerator;
 use Vortos\Migration\Schema\ModuleSchemaProviderInterface;
 use Vortos\Migration\Service\ModuleSchemaProviderScanner;
 use Vortos\Migration\Service\ModuleStubScanner;
+use Vortos\Migration\Service\SchemaDiffStatementFactory;
 
 /**
  * Converts Vortos module SQL stubs into Doctrine migration classes.
@@ -55,13 +56,18 @@ final class MigratePublishCommand extends Command
     private const MANIFEST_FILE      = 'migrations/.vortos-published.json';
     private const MIGRATION_NAMESPACE = 'App\\Migrations';
 
+    private readonly SchemaDiffStatementFactory $schemaDiffFactory;
+
     public function __construct(
         private readonly ModuleStubScanner $scanner,
         private readonly MigrationClassGenerator $generator,
         private readonly string $projectDir,
         private readonly ?ModuleSchemaProviderScanner $schemaScanner = null,
+        ?SchemaDiffStatementFactory $schemaDiffFactory = null,
     ) {
         parent::__construct();
+
+        $this->schemaDiffFactory = $schemaDiffFactory ?? new SchemaDiffStatementFactory();
     }
 
     protected function configure(): void
@@ -85,6 +91,13 @@ final class MigratePublishCommand extends Command
     {
         $dryRun  = (bool) $input->getOption('dry-run');
         $stubs   = $this->migrationSources();
+
+        // Precompute each schema provider's incremental SQL against the CUMULATIVE base of all
+        // providers in order — done on the FULL, unfiltered set so an alter-style provider always
+        // sees base tables owned by another module even under --module. The module filter and the
+        // already-published skip only decide which stubs are *emitted*, never which contribute to
+        // the base. Raw-SQL stubs are opaque and excluded here (emitted verbatim later).
+        $diffByRelative = $this->schemaDiffFactory->statementsFor($this->schemaProviderOrder($stubs));
 
         /** @var list<string> $moduleFilter */
         $moduleFilter = (array) $input->getOption('module');
@@ -151,10 +164,11 @@ final class MigratePublishCommand extends Command
             // deploy:doctor depends on). Failures are reported and the run continues.
             try {
                 $content = isset($stub['provider'])
-                    ? $this->generator->generateFromSchemaProvider(
+                    ? $this->generator->generateFromStatements(
                         $className,
                         self::MIGRATION_NAMESPACE,
-                        $stub['provider'],
+                        $stub['provider']->description(),
+                        $diffByRelative[$stub['relative']] ?? [],
                     )
                     : $this->generator->generateFromSql(
                         $className,
@@ -279,6 +293,25 @@ final class MigratePublishCommand extends Command
             $stubs,
             static fn (array $stub): bool => isset($wanted[strtolower($stub['module'])]),
         ));
+    }
+
+    /**
+     * Extract the schema providers (in the already-sorted stub order) for cumulative-base
+     * diffing. Raw-SQL stubs are excluded — they cannot participate in a Doctrine Schema.
+     *
+     * @param list<array{relative: string, provider?: ModuleSchemaProviderInterface}> $stubs
+     * @return list<array{relative: string, provider: ModuleSchemaProviderInterface}>
+     */
+    private function schemaProviderOrder(array $stubs): array
+    {
+        $ordered = [];
+        foreach ($stubs as $stub) {
+            if (isset($stub['provider'])) {
+                $ordered[] = ['relative' => $stub['relative'], 'provider' => $stub['provider']];
+            }
+        }
+
+        return $ordered;
     }
 
     /**

@@ -40,6 +40,7 @@ use Vortos\Deploy\Preflight\Check\DeployStateDurabilityCheck;
 use Vortos\Deploy\Preflight\Check\DriverSetCheck;
 use Vortos\Deploy\Preflight\Check\EnvFileReadabilityCheck;
 use Vortos\Deploy\Preflight\Check\RootlessWorkerCheck;
+use Vortos\Deploy\Preflight\Check\PendingMigrationPhaseCheck;
 use Vortos\Deploy\Preflight\Check\SchemaCompatibilityCheck;
 use Vortos\Deploy\Preflight\Check\FileSecretsCheck;
 use Vortos\Deploy\Preflight\Check\TargetArchCheck;
@@ -928,6 +929,15 @@ final class DeployExtension extends Extension
             '$manifestReadModel',
             new Reference(ManifestReadModelInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
         );
+
+        // R7-3: fail-closed doctor gate that flags pending destructive-but-un-annotated migrations
+        // before a deploy is attempted. Only registered when the migration phase reader is present.
+        if (interface_exists(MigrationPhaseReaderInterface::class)) {
+            $container->register(PendingMigrationPhaseCheck::class, PendingMigrationPhaseCheck::class)
+                ->setArgument('$phaseReader', new Reference(MigrationPhaseReaderInterface::class))
+                ->addTag(self::PREFLIGHT_CHECK_TAG)
+                ->setPublic(false);
+        }
 
         // ── Block 21: Migration drift as deploy precondition ──
 

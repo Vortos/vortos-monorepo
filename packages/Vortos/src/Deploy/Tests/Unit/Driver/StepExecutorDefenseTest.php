@@ -9,6 +9,7 @@ use Vortos\Deploy\Compose\ComposeProjectFactory;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Exception\ContractInSameDeployException;
+use Vortos\Deploy\Exception\DestructiveMigrationUnannotatedException;
 use Vortos\Deploy\Plan\DeployPhase;
 use Vortos\Deploy\Plan\DeployPlan;
 use Vortos\Deploy\Plan\DeployStep;
@@ -94,6 +95,41 @@ final class StepExecutorDefenseTest extends TestCase
         $run = $this->makeRun($plan->planHash->toString());
 
         $this->expectException(ContractInSameDeployException::class);
+
+        $executor->execute($plan, $run, $this->makeImage());
+    }
+
+    public function test_run_migrations_rejects_destructive_unannotated_with_precise_error(): void
+    {
+        // R7-3: a pending migration that is destructive but carries no #[DeployPhase] must be
+        // refused with the precise remediation, not the generic contract error.
+        $phaseReader = $this->createMock(MigrationPhaseReaderInterface::class);
+        $phaseReader->method('phasesFor')->willReturn([
+            'mExpand' => MigrationPhase::Expand,
+            'mDestructive' => MigrationPhase::Contract,
+        ]);
+        $phaseReader->method('isDestructiveAndUnannotated')->willReturnCallback(
+            static fn (string $id): bool => $id === 'mDestructive',
+        );
+
+        $executor = $this->createExecutor(phaseReader: $phaseReader);
+
+        $plan = new DeployPlan(
+            phases: [
+                new DeployPhase(PhaseKind::ExpandMigrate, [
+                    new DeployStep(
+                        StepAction::RunMigrations,
+                        'Run migrations',
+                        ['fingerprint' => 'sha256:xxx', 'pending_ids' => 'mExpand,mDestructive'],
+                    ),
+                ]),
+            ],
+            definitionHash: 'def-hash',
+        );
+
+        $run = $this->makeRun($plan->planHash->toString());
+
+        $this->expectException(DestructiveMigrationUnannotatedException::class);
 
         $executor->execute($plan, $run, $this->makeImage());
     }

@@ -34,18 +34,20 @@ final class KnownActionFactory
 
     public static function setupBuildx(): PinnedAction
     {
-        // Latest v3. Still Node 20 upstream (no Node 24 release yet) — surfaced as advisory by the verifier.
-        return new PinnedAction('docker', 'setup-buildx-action', '8d2750c68a42422c14e847fe6c8ac0403b4cbd6f', 'v3');
+        // v4.2.0 runs on Node 24 (v3 ran on the now-deprecated Node 20).
+        return new PinnedAction('docker', 'setup-buildx-action', 'bb05f3f5519dd87d3ba754cc423b652a5edd6d2c', 'v4.2.0');
     }
 
     public static function setupQemu(): PinnedAction
     {
-        return new PinnedAction('docker', 'setup-qemu-action', 'c7c53464625b32c7a7e944ae62b3e17d2b600130', 'v3');
+        // v4.2.0 runs on Node 24 (v3 ran on Node 20).
+        return new PinnedAction('docker', 'setup-qemu-action', '96fe6ef7f33517b61c61be40b68a1882f3264fb8', 'v4.2.0');
     }
 
     public static function dockerLogin(): PinnedAction
     {
-        return new PinnedAction('docker', 'login-action', 'c94ce9fb468520275223c153574b00df6fe4bcc9', 'v3');
+        // v4.4.0 runs on Node 24 (v3 ran on Node 20).
+        return new PinnedAction('docker', 'login-action', 'af1e73f918a031802d376d3c8bbc3fe56130a9b0', 'v4.4.0');
     }
 
     public static function buildPush(): PinnedAction
@@ -56,7 +58,8 @@ final class KnownActionFactory
 
     public static function sbomAttest(): PinnedAction
     {
-        return new PinnedAction('anchore', 'sbom-action', 'd8a2c0130026bf585de5c176ab8f7ce62d75bf04', 'v0.20.7');
+        // v0.24.0 (Node 24). Reverses the accidental downgrade to v0.20.7 by an earlier emitter bump.
+        return new PinnedAction('anchore', 'sbom-action', 'e22c389904149dbc22b58101806040fa8d37a610', 'v0.24.0');
     }
 
     /** @return list<PinnedAction> */

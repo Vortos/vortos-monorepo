@@ -13,6 +13,7 @@ use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Port\BackupStoreRegistry;
 use Vortos\Backup\Replication\SecondaryReplicator;
+use Vortos\Backup\Environment\DefaultEnvironment;
 
 #[AsCommand(name: 'backup:replicate', description: 'Reconcile: copy any artifact missing a secondary copy.')]
 final class BackupReplicateCommand extends Command
@@ -30,7 +31,7 @@ final class BackupReplicateCommand extends Command
     {
         $this
             ->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Database engine: postgres|mongo', 'postgres')
-            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'prod');
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', DefaultEnvironment::NAME);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int

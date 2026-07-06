@@ -13,6 +13,7 @@ use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\BackupRequest;
 use Vortos\Backup\Domain\EngineResolver;
 use Vortos\Backup\Service\BackupRunner;
+use Vortos\Backup\Environment\DefaultEnvironment;
 
 /**
  * Takes one backup. The verb is identical locally and in CI / host cron — the
@@ -34,7 +35,7 @@ final class BackupRunCommand extends Command
         $this
             ->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Database engine: postgres|mongo (defaults to VORTOS_BACKUP_ENGINE)')
             ->addOption('kind', null, InputOption::VALUE_REQUIRED, 'Backup kind: logical_full|physical_base|mongo_archive', 'logical_full')
-            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'prod')
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', DefaultEnvironment::NAME)
             ->addOption('from-replica', null, InputOption::VALUE_NONE, 'Source the dump from the read replica/secondary');
     }
 

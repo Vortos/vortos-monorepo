@@ -241,26 +241,34 @@ final class PipelineBuilderBuildStageTest extends TestCase
         $this->assertStringContainsString($digest, $buildStep->with['build-args']);
     }
 
-    public function test_base_image_digest_null_emits_drift_warning(): void
+    public function test_base_image_digest_null_auto_resolves_at_build_time(): void
     {
+        // R7-5: null digest now emits a resolver step + env-backed build-arg (was a bare warning).
         $pipeline = $this->buildPipeline(new PipelineDefinition(
             imageRepository: 'ghcr.io/org/app',
             nativeRunnerLabel: 'ubuntu-24.04-arm',
         ));
         $build = $this->findStage($pipeline, StageKind::Build);
-
         $this->assertNotNull($build);
-        $hasDriftWarning = false;
+
+        $hasResolver = false;
+        $buildStep = null;
         foreach ($build->steps as $step) {
-            if ($step instanceof CommandStep && str_contains($step->name, 'drift')) {
-                $hasDriftWarning = true;
-                break;
+            if ($step instanceof CommandStep && $step->id === 'basedigest') {
+                $hasResolver = true;
+            }
+            if ($step instanceof ActionStep && $step->id === 'build') {
+                $buildStep = $step;
             }
         }
-        $this->assertTrue($hasDriftWarning, 'Drift warning step must be present when baseImageDigest is null');
+
+        $this->assertTrue($hasResolver, 'A base-image-digest resolver step must be present when the digest is null.');
+        $this->assertNotNull($buildStep);
+        $this->assertArrayHasKey('build-args', $buildStep->with);
+        $this->assertStringContainsString('BASE_IMAGE_DIGEST=${{ env.BASE_IMAGE_DIGEST }}', $buildStep->with['build-args']);
     }
 
-    public function test_base_image_digest_set_no_drift_warning(): void
+    public function test_base_image_digest_set_no_resolver_step(): void
     {
         $digest = 'sha256:' . str_repeat('a', 64);
         $pipeline = $this->buildPipeline(new PipelineDefinition(
@@ -273,7 +281,7 @@ final class PipelineBuilderBuildStageTest extends TestCase
         $this->assertNotNull($build);
         foreach ($build->steps as $step) {
             if ($step instanceof CommandStep) {
-                $this->assertStringNotContainsString('drift', strtolower($step->name));
+                $this->assertNotSame('basedigest', $step->id, 'No resolver step when the digest is explicitly pinned.');
             }
         }
     }

@@ -12,6 +12,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
 use Vortos\Backup\Domain\BackupArtifact;
 use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Backup\Environment\DefaultEnvironment;
 
 #[AsCommand(name: 'backup:list', description: 'List cataloged backups for an engine + environment.')]
 final class BackupListCommand extends Command
@@ -25,7 +26,7 @@ final class BackupListCommand extends Command
     {
         $this
             ->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Database engine: postgres|mongo')
-            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'prod')
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', DefaultEnvironment::NAME)
             ->addOption('json', null, InputOption::VALUE_NONE, 'Output as JSON');
     }
 

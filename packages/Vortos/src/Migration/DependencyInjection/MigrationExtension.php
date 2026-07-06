@@ -291,6 +291,7 @@ final class MigrationExtension extends Extension
 
         $container->register(ModuleMigrationPhaseReader::class, ModuleMigrationPhaseReader::class)
             ->setArgument('$registry', new Reference(ModuleMigrationRegistryInterface::class))
+            ->setArgument('$artifactFactory', new Reference(MigrationArtifactFactoryInterface::class))
             ->setShared(true)
             ->setPublic(false);
         $container->setAlias(MigrationPhaseReaderInterface::class, ModuleMigrationPhaseReader::class)

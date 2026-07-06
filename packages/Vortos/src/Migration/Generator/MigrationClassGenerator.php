@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace Vortos\Migration\Generator;
 
 use Doctrine\DBAL\Platforms\AbstractPlatform;
-use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
-use Doctrine\DBAL\Schema\Schema;
 use Vortos\Migration\Schema\ModuleSchemaProviderInterface;
+use Vortos\Migration\Service\SchemaDiffStatementFactory;
 
 /**
  * Generates Doctrine AbstractMigration PHP class source from SQL content.
@@ -25,26 +24,48 @@ use Vortos\Migration\Schema\ModuleSchemaProviderInterface;
  */
 final class MigrationClassGenerator
 {
+    /**
+     * Generate a migration for a single schema provider with no cumulative base. Alter-style
+     * providers (which guard an ALTER on a table owned by another provider) need the cumulative
+     * base to see that table — for those, the publisher precomputes statements via
+     * SchemaDiffStatementFactory and calls generateFromStatements() instead. This single-provider
+     * path is diff-based too (empty base → after), so a plain CREATE provider renders identically
+     * to the old toSql() behaviour.
+     */
     public function generateFromSchemaProvider(
         string $className,
         string $namespace,
         ModuleSchemaProviderInterface $provider,
         ?AbstractPlatform $platform = null,
     ): string {
-        $schema = new Schema();
-        $provider->define($schema);
+        $factory    = new SchemaDiffStatementFactory($platform);
+        $byRelative = $factory->statementsFor([['relative' => 'single', 'provider' => $provider]]);
 
-        $platform ??= new PostgreSQLPlatform();
-
-        $statements = array_map(
-            $this->makeCreateStatementIdempotent(...),
-            $schema->toSql($platform),
+        return $this->generateFromStatements(
+            $className,
+            $namespace,
+            $provider->description(),
+            $byRelative['single'],
         );
+    }
 
+    /**
+     * Render a migration from a precomputed, idempotent list of SQL statements. Used by the
+     * publisher with SchemaDiffStatementFactory output so alter-style providers emit correct
+     * ALTER … ADD SQL against the cumulative schema.
+     *
+     * @param list<string> $statements
+     */
+    public function generateFromStatements(
+        string $className,
+        string $namespace,
+        string $description,
+        array $statements,
+    ): string {
         return $this->renderTemplate(
             $className,
             $namespace,
-            $this->escapeString($provider->description()),
+            $this->escapeString($description),
             $this->buildAddSqlCallsFromStatements($statements),
             down: null,
         );
@@ -188,14 +209,5 @@ PHP;
     private function escapeString(string $value): string
     {
         return str_replace(['\\', "'"], ['\\\\', "\\'"], $value);
-    }
-
-    private function makeCreateStatementIdempotent(string $statement): string
-    {
-        $statement = preg_replace('/^CREATE SCHEMA (?!IF NOT EXISTS )/i', 'CREATE SCHEMA IF NOT EXISTS ', $statement) ?? $statement;
-        $statement = preg_replace('/^CREATE TABLE (?!IF NOT EXISTS )/i', 'CREATE TABLE IF NOT EXISTS ', $statement) ?? $statement;
-        $statement = preg_replace('/^CREATE (UNIQUE )?INDEX (?!IF NOT EXISTS )/i', 'CREATE $1INDEX IF NOT EXISTS ', $statement) ?? $statement;
-
-        return $statement;
     }
 }

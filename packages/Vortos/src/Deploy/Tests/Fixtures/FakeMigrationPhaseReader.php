@@ -9,9 +9,14 @@ use Vortos\Migration\Schema\MigrationPhaseReaderInterface;
 
 final class FakeMigrationPhaseReader implements MigrationPhaseReaderInterface
 {
-    /** @param array<string, MigrationPhase> $phases keyed by migration id */
-    public function __construct(private readonly array $phases = [])
-    {
+    /**
+     * @param array<string, MigrationPhase> $phases keyed by migration id
+     * @param list<string> $destructiveUnannotated migration ids that are destructive & un-annotated
+     */
+    public function __construct(
+        private readonly array $phases = [],
+        private readonly array $destructiveUnannotated = [],
+    ) {
     }
 
     public function phaseOf(string $migrationId): MigrationPhase
@@ -27,5 +32,10 @@ final class FakeMigrationPhaseReader implements MigrationPhaseReaderInterface
         }
 
         return $out;
+    }
+
+    public function isDestructiveAndUnannotated(string $migrationId): bool
+    {
+        return in_array($migrationId, $this->destructiveUnannotated, true);
     }
 }

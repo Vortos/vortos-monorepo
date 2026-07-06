@@ -14,6 +14,7 @@ use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Port\BackupStoreRegistry;
 use Vortos\Backup\Restore\RestoreCoordinator;
 use Vortos\Backup\Restore\RestoreRequest;
+use Vortos\Backup\Environment\DefaultEnvironment;
 
 #[AsCommand(name: 'backup:restore', description: 'Restore a backup to a target database (operator-driven).')]
 final class BackupRestoreCommand extends Command
@@ -31,7 +32,7 @@ final class BackupRestoreCommand extends Command
     {
         $this
             ->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Database engine: postgres|mongo', 'postgres')
-            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'prod')
+            ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', DefaultEnvironment::NAME)
             ->addOption('artifact-id', null, InputOption::VALUE_REQUIRED, 'Specific artifact ID (default: latest)')
             ->addOption('destination', null, InputOption::VALUE_REQUIRED, 'Destination DSN')
             ->addOption('confirm', null, InputOption::VALUE_NONE, 'Required to actually run the restore');

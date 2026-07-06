@@ -14,6 +14,7 @@ use Vortos\Deploy\Compose\ComposeProjectFactory;
 use Vortos\Deploy\Cutover\CutoverCoordinator;
 use Vortos\Deploy\Cutover\DesiredRoute;
 use Vortos\Deploy\Exception\ContractInSameDeployException;
+use Vortos\Deploy\Exception\DestructiveMigrationUnannotatedException;
 use Vortos\Deploy\Exception\CutoverRevertedException;
 use Vortos\Deploy\Exception\DeployAbortedException;
 use Vortos\Deploy\Execution\CommandRunnerInterface;
@@ -367,11 +368,24 @@ final class StepExecutor
             if ($pendingIds !== []) {
                 $phases = $this->phaseReader->phasesFor($pendingIds);
                 $contractIds = [];
+                $destructiveUnannotated = [];
 
                 foreach ($phases as $id => $phase) {
+                    // A destructive migration with no #[DeployPhase] classifies as Contract
+                    // (fail-closed); surface it with the precise remediation rather than the
+                    // generic contract message so the operator knows to annotate it.
+                    if ($this->phaseReader->isDestructiveAndUnannotated($id)) {
+                        $destructiveUnannotated[] = $id;
+                        continue;
+                    }
+
                     if ($phase === MigrationPhase::Contract) {
                         $contractIds[] = $id;
                     }
+                }
+
+                if ($destructiveUnannotated !== []) {
+                    throw new DestructiveMigrationUnannotatedException($destructiveUnannotated);
                 }
 
                 if ($contractIds !== []) {

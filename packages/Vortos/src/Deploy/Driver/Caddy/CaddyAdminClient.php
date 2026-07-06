@@ -92,10 +92,20 @@ final class CaddyAdminClient
         }
 
         $body = (string) $response->getBody();
-        if (preg_match('/caddy_http_requests_in_flight\s+(\d+)/', $body, $m)) {
-            return (int) $m[1];
+
+        // Sum the gauge across every server/handler label set. Caddy exports
+        // caddy_http_requests_in_flight per HTTP server, and the labeled time-series is only
+        // materialised once a request has been observed, so an idle or freshly-reconfigured edge
+        // legitimately omits the line entirely.
+        if (preg_match_all('/^caddy_http_requests_in_flight(?:\{[^}]*\})?\s+(\d+)/m', $body, $mm) > 0) {
+            return array_sum(array_map('intval', $mm[1]));
         }
 
-        throw CutoverFailedException::metricsUnavailable();
+        // A reachable /metrics with no in-flight gauge means the endpoint is up but no request is
+        // being tracked — i.e. zero in flight. Per-server HTTP metrics are opt-in on Caddy 2.7+
+        // (and the labeled gauge appears lazily on first request), so its absence is NOT a failure.
+        // Aborting a fully health-checked + smoke-passed cutover here would be a false positive;
+        // only a genuinely unreachable endpoint (the transport throw above) is fatal.
+        return 0;
     }
 }

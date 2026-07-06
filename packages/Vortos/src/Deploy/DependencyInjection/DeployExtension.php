@@ -484,6 +484,10 @@ final class DeployExtension extends Extension
         $caddyAdminListen = (string) ($_ENV['CADDY_ADMIN_LISTEN'] ?? 'localhost:2019');
         $caddyAdminUrl = (string) ($_ENV['CADDY_ADMIN_URL'] ?? ('http://' . $caddyAdminListen));
 
+        // GAP-D: the public TLS domain the edge serves. Threaded into the cutover so the pushed Caddy
+        // config keeps the host matcher + tls.automation and a /load preserves the domain's cert.
+        $caddyDomain = (string) ($_ENV['CADDY_DOMAIN'] ?? '');
+
         $container->register(CaddyAdminClient::class, CaddyAdminClient::class)
             ->setArgument('$httpClient', new Reference(ClientInterface::class))
             ->setArgument('$requestFactory', new Reference(RequestFactoryInterface::class))
@@ -714,6 +718,7 @@ final class DeployExtension extends Extension
             ->setArgument('$cutoverCoordinator', new Reference(CutoverCoordinator::class))
             ->setArgument('$workerCoordinator', new Reference(WorkerRolloutCoordinator::class))
             ->setArgument('$canaryGate', new Reference(CanaryGate::class))
+            ->setArgument('$edgeDomain', $caddyDomain)
             ->setPublic(false);
 
         // Optional collaborators — injected if present, null otherwise (constructor defaults

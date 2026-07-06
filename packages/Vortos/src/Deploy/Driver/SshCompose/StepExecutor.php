@@ -60,6 +60,13 @@ final class StepExecutor
         private readonly ?WorkerRolloutCoordinator $workerCoordinator = null,
         private readonly ?WorkerProcessRegistry $workerRegistry = null,
         private readonly ?CanaryGate $canaryGate = null,
+        /**
+         * The public TLS domain the edge serves (e.g. api.example.com). Threaded into the cutover's
+         * DesiredRoute so the pushed Caddy config carries the host matcher + tls.automation for it and
+         * a /load PRESERVES the domain's certificate instead of clobbering it to Caddy's internal
+         * default (GAP-D). Empty/null builds an internal / no-TLS edge.
+         */
+        private readonly ?string $edgeDomain = null,
     ) {}
 
     public function execute(DeployPlan $plan, DeployRun $run, ImageReference $image): void
@@ -315,6 +322,7 @@ final class StepExecutor
             activeColor: $toColor,
             upstream: $endpoint,
             drainDeadlineSeconds: $drainDeadline,
+            domain: ($this->edgeDomain !== null && $this->edgeDomain !== '') ? $this->edgeDomain : null,
         );
 
         try {
@@ -326,7 +334,10 @@ final class StepExecutor
                 previousEndpoint: $previousEndpoint,
             );
         } catch (CutoverRevertedException $e) {
-            throw DeployAbortedException::healthGateFailed($toColor->value, 0);
+            // The edge cutover verify failed and the coordinator reverted to the previous color.
+            // Surface the REAL revert reason — not a bogus "health gate failed after 0 attempts",
+            // which conflates a cutover/edge failure with the earlier readiness gate.
+            throw DeployAbortedException::cutoverReverted($toColor->value, $e->getMessage());
         }
 
         return sprintf(

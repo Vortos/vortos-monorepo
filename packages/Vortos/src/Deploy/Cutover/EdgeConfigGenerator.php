@@ -112,6 +112,10 @@ final class EdgeConfigGenerator
                         'app' => [
                             'listen' => [':443'],
                             'routes' => [$route],
+                            // Enable per-server HTTP metrics (opt-in on Caddy 2.7+) so the drain
+                            // observer can read caddy_http_requests_in_flight and so the edge is
+                            // scrapeable. Empty object == enabled; encoded as "metrics":{}.
+                            'metrics' => new \stdClass(),
                         ],
                     ],
                 ],

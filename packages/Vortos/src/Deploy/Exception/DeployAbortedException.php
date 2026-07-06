@@ -24,6 +24,15 @@ final class DeployAbortedException extends DeployException
         ));
     }
 
+    public static function cutoverReverted(string $color, string $reason = ''): self
+    {
+        return new self(sprintf(
+            'Edge cutover to color %s failed and was reverted to the previous color%s.',
+            $color,
+            $reason !== '' ? ": {$reason}" : '',
+        ));
+    }
+
     public static function digestNotPinned(string $ref): self
     {
         return new self(sprintf(

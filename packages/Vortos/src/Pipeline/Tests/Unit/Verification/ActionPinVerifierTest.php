@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Vortos\Pipeline\Model\PinnedAction;
 use Vortos\Pipeline\Verification\ActionPinVerifier;
 use Vortos\Pipeline\Verification\ActionRefResolverInterface;
+use Vortos\Pipeline\Verification\ActionRuntimeResolverInterface;
 
 /**
  * B7 (offline logic): the verifier fails closed on a SHA that does not resolve, and passes a SHA
@@ -88,5 +89,106 @@ final class ActionPinVerifierTest extends TestCase
         self::assertFalse($results[0]['version_matches']);
         self::assertStringContainsString('newer release', (string) $results[0]['note']);
         self::assertTrue($verifier->allExist($results));
+    }
+
+    public function test_removed_runtime_fails_closed(): void
+    {
+        $verifier = $this->verifierWithRuntime('node16');
+        $results = $verifier->verify([$this->action()]);
+
+        self::assertSame('removed', $results[0]['runtime_status']);
+        self::assertSame('node16', $results[0]['runtime']);
+        self::assertFalse($verifier->allRuntimesSupported($results));
+    }
+
+    public function test_deprecated_runtime_is_advisory_not_fatal(): void
+    {
+        $verifier = $this->verifierWithRuntime('node20');
+        $results = $verifier->verify([$this->action()]);
+
+        self::assertSame('deprecated', $results[0]['runtime_status']);
+        self::assertTrue($verifier->allRuntimesSupported($results), 'node20 still runs (auto-upgraded); advisory, not fatal.');
+        self::assertTrue($verifier->hasDeprecatedRuntimes($results));
+    }
+
+    public function test_current_node_runtime_passes(): void
+    {
+        $verifier = $this->verifierWithRuntime('node24');
+        $results = $verifier->verify([$this->action()]);
+
+        self::assertSame('current', $results[0]['runtime_status']);
+        self::assertTrue($verifier->allRuntimesSupported($results));
+        self::assertFalse($verifier->hasDeprecatedRuntimes($results));
+    }
+
+    public function test_docker_runtime_is_supported(): void
+    {
+        $verifier = $this->verifierWithRuntime('docker');
+        $results = $verifier->verify([$this->action()]);
+
+        self::assertSame('current', $results[0]['runtime_status']);
+        self::assertTrue($verifier->allRuntimesSupported($results));
+    }
+
+    public function test_runtime_is_unknown_when_no_resolver_supplied(): void
+    {
+        $verifier = new ActionPinVerifier($this->echoResolver());
+        $results = $verifier->verify([$this->action()]);
+
+        self::assertSame('unknown', $results[0]['runtime_status']);
+        self::assertNull($results[0]['runtime']);
+        self::assertTrue($verifier->allRuntimesSupported($results));
+    }
+
+    public function test_runtime_not_probed_for_a_nonexistent_sha(): void
+    {
+        $refResolver = new class implements ActionRefResolverInterface {
+            public function resolve(string $owner, string $repo, string $ref): ?string
+            {
+                return null; // nothing resolves
+            }
+        };
+        $runtimeResolver = new class implements ActionRuntimeResolverInterface {
+            public function runtime(string $owner, string $repo, string $ref): ?string
+            {
+                throw new \LogicException('runtime must not be probed for a pin that does not exist');
+            }
+        };
+
+        $verifier = new ActionPinVerifier($refResolver, $runtimeResolver);
+        $results = $verifier->verify([$this->action()]);
+
+        self::assertFalse($results[0]['exists']);
+        self::assertSame('unknown', $results[0]['runtime_status']);
+    }
+
+    private function action(): PinnedAction
+    {
+        return new PinnedAction('actions', 'checkout', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'v5');
+    }
+
+    private function echoResolver(): ActionRefResolverInterface
+    {
+        // Every ref resolves to itself → the pin's SHA "exists".
+        return new class implements ActionRefResolverInterface {
+            public function resolve(string $owner, string $repo, string $ref): ?string
+            {
+                return $ref;
+            }
+        };
+    }
+
+    private function verifierWithRuntime(string $using): ActionPinVerifier
+    {
+        $runtimeResolver = new class ($using) implements ActionRuntimeResolverInterface {
+            public function __construct(private string $using) {}
+
+            public function runtime(string $owner, string $repo, string $ref): ?string
+            {
+                return $this->using;
+            }
+        };
+
+        return new ActionPinVerifier($this->echoResolver(), $runtimeResolver);
     }
 }

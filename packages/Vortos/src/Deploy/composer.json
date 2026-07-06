@@ -30,7 +30,8 @@
         "vortos/vortos-health": "Required for deploy health-gating before cutover",
         "vortos/vortos-deploy-k8s": "Kubernetes deploy target (drop-in driver)",
         "vortos/vortos-deploy-ecs": "AWS ECS deploy target (drop-in driver)",
-        "vortos/vortos-feature-flags": "Optional: backs FlagGateReadiness with real exposure telemetry so 'zero old-code references' is proven, not timed. Guarded by interface_exists()."
+        "vortos/vortos-feature-flags": "Optional: backs FlagGateReadiness with real exposure telemetry so 'zero old-code references' is proven, not timed. Guarded by interface_exists().",
+        "vortos/vortos-backup": "Optional: adds the backup toolchain preflight (BackupToolchainCheck) to deploy:doctor so a missing/too-old pg_dump is caught before cutover. Guarded by class_exists()."
     },
     "extra": {
         "vortos": {

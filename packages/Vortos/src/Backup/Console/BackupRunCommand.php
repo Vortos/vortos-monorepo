@@ -11,7 +11,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\BackupRequest;
-use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Backup\Domain\EngineResolver;
 use Vortos\Backup\Service\BackupRunner;
 
 /**
@@ -22,15 +22,17 @@ use Vortos\Backup\Service\BackupRunner;
 #[AsCommand(name: 'backup:run', description: 'Run a database backup (dump → store → verify → catalog).')]
 final class BackupRunCommand extends Command
 {
-    public function __construct(private readonly BackupRunner $runner)
-    {
+    public function __construct(
+        private readonly BackupRunner $runner,
+        private readonly EngineResolver $engineResolver,
+    ) {
         parent::__construct();
     }
 
     protected function configure(): void
     {
         $this
-            ->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Database engine: postgres|mongo')
+            ->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Database engine: postgres|mongo (defaults to VORTOS_BACKUP_ENGINE)')
             ->addOption('kind', null, InputOption::VALUE_REQUIRED, 'Backup kind: logical_full|physical_base|mongo_archive', 'logical_full')
             ->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'prod')
             ->addOption('from-replica', null, InputOption::VALUE_NONE, 'Source the dump from the read replica/secondary');
@@ -38,7 +40,7 @@ final class BackupRunCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $engine = DatabaseEngine::fromString((string) $input->getOption('engine'));
+        $engine = $this->engineResolver->resolve($this->optionalEngine($input->getOption('engine')));
         $kind = BackupKind::from((string) $input->getOption('kind'));
         $env = (string) $input->getOption('env');
 
@@ -65,5 +67,10 @@ final class BackupRunCommand extends Command
         ));
 
         return self::SUCCESS;
+    }
+
+    private function optionalEngine(mixed $value): ?string
+    {
+        return is_string($value) && $value !== '' ? $value : null;
     }
 }

@@ -938,6 +938,18 @@ final class DeployExtension extends Extension
                 ->setPublic(false);
         }
 
+        // ── STAGE-F-1: backup toolchain as a deploy precondition (only when vortos-backup is present) ──
+
+        if (class_exists(\Vortos\Backup\Doctor\BackupToolchainInspector::class)) {
+            $container->register(\Vortos\Backup\Doctor\BackupToolchainInspector::class, \Vortos\Backup\Doctor\BackupToolchainInspector::class)
+                ->setPublic(false);
+            $container->register(\Vortos\Deploy\Preflight\Check\BackupToolchainCheck::class, \Vortos\Deploy\Preflight\Check\BackupToolchainCheck::class)
+                ->setArgument('$inspector', new Reference(\Vortos\Backup\Doctor\BackupToolchainInspector::class))
+                ->setArgument('$configuredEngine', $_ENV['VORTOS_BACKUP_ENGINE'] ?? null)
+                ->addTag(self::PREFLIGHT_CHECK_TAG)
+                ->setPublic(false);
+        }
+
         // ── Block 12: Fail-closed doctor (collects all tagged checks) ──
 
         $container->register(DeployDoctor::class, DeployDoctor::class)

@@ -35,43 +35,56 @@ use Vortos\ObjectStore\ValueObject\TemporaryUploadUrlOptions;
 
 final class S3CompatibleObjectStore implements ObjectStoreInterface
 {
+    /** The S3/R2 hard floor for every multipart part except the last. */
+    private const MIN_PART_SIZE = 5_242_880;
+
+    /** The S3/R2 hard ceiling on parts per multipart upload. */
+    private const MAX_PARTS = 10_000;
+
     public function __construct(
         private readonly S3Client $client,
         private readonly string $bucket,
         private readonly string $provider = 'generic_s3',
+        private readonly int $multipartPartSizeBytes = 16_777_216,
     ) {
         if ($bucket === '') {
             throw new \InvalidArgumentException('Object store bucket cannot be empty for the S3 driver.');
         }
+        if ($multipartPartSizeBytes < self::MIN_PART_SIZE) {
+            throw new \InvalidArgumentException('S3 multipart part size must be at least 5 MiB.');
+        }
     }
 
+    /**
+     * Store an object.
+     *
+     * A **string** body has a known length, so it is sent as a single `PutObject` — this
+     * preserves the plain-MD5 ETag the many small-object callers rely on.
+     *
+     * A **stream** body may be non-seekable and of unknown length (a live `pg_dump` pipe is
+     * both, and — verified — reports `getSize() == 0`, not `null`). A one-shot `PutObject`
+     * cannot serve it: to sign the payload the SDK does `tell()`/`seek()` on the body and throws
+     * "Unable to determine stream position" on a pipe. So stream bodies are read **forward-only**
+     * here: the first part is buffered (never seeking the source); if the whole stream fits in one
+     * part it is sent as a single length-known `PutObject`; otherwise it escalates to a multipart
+     * upload, reading and shipping one full-sized part at a time (bounded memory, no
+     * buffer-to-disk). A failed multipart upload is aborted so no billable orphan parts survive.
+     */
     public function put(ObjectKey|string $key, mixed $body, ?PutObjectOptions $options = null): StoredObject
     {
         $key = ObjectKey::from($key);
         $body = ObjectBody::from($body);
         $options ??= PutObjectOptions::default();
 
-        $request = [
-            'Bucket' => $this->bucket,
-            'Key' => $key->value(),
-            'Body' => $body->raw(),
-        ];
+        return $body->isStream()
+            ? $this->putStream($key, $body, $options)
+            : $this->putSinglePart($key, $body, $options);
+    }
 
-        if ($options->contentType() !== null) {
-            $request['ContentType'] = $options->contentType()->value();
-        }
-
-        if ($options->metadata() !== []) {
-            $request['Metadata'] = $options->metadata();
-        }
-
-        if ($options->cacheControl() !== null) {
-            $request['CacheControl'] = $options->cacheControl();
-        }
-
-        if ($options->contentDisposition() !== null) {
-            $request['ContentDisposition'] = $options->contentDisposition();
-        }
+    private function putSinglePart(ObjectKey $key, ObjectBody $body, PutObjectOptions $options): StoredObject
+    {
+        $request = ['Bucket' => $this->bucket, 'Key' => $key->value(), 'Body' => $body->raw()]
+            + $this->objectAttributes($options);
 
         try {
             $result = $this->client->putObject($request);
@@ -85,6 +98,180 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
             size: $body->size() ?? 0,
             versionId: isset($result['VersionId']) ? (string) $result['VersionId'] : null,
         );
+    }
+
+    private function putStream(ObjectKey $key, ObjectBody $body, PutObjectOptions $options): StoredObject
+    {
+        $stream = $body->raw();
+        if (!\is_resource($stream)) {
+            throw new ObjectStoreException(sprintf('%s: stream body is not a valid resource.', $this->provider));
+        }
+
+        // Buffer the first part without ever seeking the source. A stream that fits in one part is
+        // a single length-known PutObject — no multipart overhead, and no tell()/seek() on a pipe.
+        $firstPart = $this->readPart($stream, $this->multipartPartSizeBytes);
+
+        if (feof($stream)) {
+            return $this->putSinglePart(
+                $key,
+                ObjectBody::from($firstPart, \strlen($firstPart)),
+                $options,
+            );
+        }
+
+        return $this->putMultipart($key, $options, $stream, $firstPart);
+    }
+
+    /**
+     * Forward-only multipart upload of a stream. The source is never rewound; each part is read to
+     * a full {@see self::$multipartPartSizeBytes} (except the last), which is required because a
+     * single `fread` on a pipe usually returns far less than requested — undersized non-final parts
+     * would fail `CompleteMultipartUpload` with `EntityTooSmall`.
+     *
+     * @param resource $stream
+     */
+    private function putMultipart(ObjectKey $key, PutObjectOptions $options, mixed $stream, string $firstPart): StoredObject
+    {
+        try {
+            $create = $this->client->createMultipartUpload(
+                ['Bucket' => $this->bucket, 'Key' => $key->value()] + $this->objectAttributes($options),
+            );
+        } catch (AwsException $e) {
+            $this->mapException($e, $key);
+        }
+
+        $uploadId = (string) $create['UploadId'];
+        $parts = [];
+        $bytes = 0;
+        $chunk = $firstPart;
+        $partNumber = 1;
+
+        try {
+            do {
+                if ($partNumber > self::MAX_PARTS) {
+                    throw new ObjectStoreException(sprintf(
+                        '%s multipart upload for "%s" exceeded the %d-part limit.',
+                        $this->provider,
+                        $key->value(),
+                        self::MAX_PARTS,
+                    ));
+                }
+
+                $uploaded = $this->client->uploadPart([
+                    'Bucket' => $this->bucket,
+                    'Key' => $key->value(),
+                    'UploadId' => $uploadId,
+                    'PartNumber' => $partNumber,
+                    'Body' => $chunk,
+                ]);
+
+                $parts[] = ['PartNumber' => $partNumber, 'ETag' => (string) $uploaded['ETag']];
+                $bytes += \strlen($chunk);
+                ++$partNumber;
+
+                if (feof($stream)) {
+                    break;
+                }
+
+                $chunk = $this->readPart($stream, $this->multipartPartSizeBytes);
+            } while ($chunk !== '');
+
+            $complete = $this->client->completeMultipartUpload([
+                'Bucket' => $this->bucket,
+                'Key' => $key->value(),
+                'UploadId' => $uploadId,
+                'MultipartUpload' => ['Parts' => $parts],
+            ]);
+        } catch (\Throwable $e) {
+            $this->abortMultipart($key, $uploadId);
+
+            if ($e instanceof AwsException) {
+                $this->mapException($e, $key);
+            }
+
+            throw $e instanceof ObjectStoreException
+                ? $e
+                : new ObjectStoreException(
+                    sprintf('%s multipart upload failed for "%s": %s', $this->provider, $key->value(), $e->getMessage()),
+                    previous: $e,
+                );
+        }
+
+        return new StoredObject(
+            key: $key,
+            etag: $this->normalizeEtag($complete['ETag'] ?? null),
+            size: $bytes,
+            versionId: isset($complete['VersionId']) ? (string) $complete['VersionId'] : null,
+        );
+    }
+
+    /**
+     * Read up to $target bytes, accumulating across short reads (a pipe rarely fills a whole part
+     * in one `fread`). Returns fewer bytes only at end-of-stream. Never seeks.
+     *
+     * @param resource $stream
+     */
+    private function readPart(mixed $stream, int $target): string
+    {
+        $buffer = '';
+
+        while (\strlen($buffer) < $target && !feof($stream)) {
+            $read = fread($stream, $target - \strlen($buffer));
+            if ($read === false) {
+                throw new ObjectStoreException(sprintf('%s: failed reading the upload stream.', $this->provider));
+            }
+            if ($read === '') {
+                break; // blocking sources return '' only at EOF
+            }
+            $buffer .= $read;
+        }
+
+        return $buffer;
+    }
+
+    /**
+     * The PutObject/CreateMultipartUpload attributes shared by every upload path. Never carries the
+     * body, so it is safe to spread into any request shape.
+     *
+     * @return array<string, mixed>
+     */
+    private function objectAttributes(PutObjectOptions $options): array
+    {
+        $attributes = [];
+
+        if ($options->contentType() !== null) {
+            $attributes['ContentType'] = $options->contentType()->value();
+        }
+        if ($options->metadata() !== []) {
+            $attributes['Metadata'] = $options->metadata();
+        }
+        if ($options->cacheControl() !== null) {
+            $attributes['CacheControl'] = $options->cacheControl();
+        }
+        if ($options->contentDisposition() !== null) {
+            $attributes['ContentDisposition'] = $options->contentDisposition();
+        }
+
+        return $attributes;
+    }
+
+    private function abortMultipart(ObjectKey $key, string $uploadId): void
+    {
+        if ($uploadId === '') {
+            return;
+        }
+
+        try {
+            $this->client->abortMultipartUpload([
+                'Bucket' => $this->bucket,
+                'Key' => $key->value(),
+                'UploadId' => $uploadId,
+            ]);
+        } catch (\Throwable) {
+            // Best effort: the upload is already failing and will be surfaced; a failed abort must
+            // never mask the original error. Any orphaned parts are swept by the bucket lifecycle
+            // rule the deploy provisions for incomplete multipart uploads.
+        }
     }
 
     public function get(ObjectKey|string $key, ?GetObjectOptions $options = null): ObjectBody

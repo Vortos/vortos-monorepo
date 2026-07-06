@@ -110,6 +110,7 @@ final class BackupExtension extends Extension
         $objectLockMode = (string) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_MODE'] ?? 'compliance');
         $rpoSeconds = (int) ($_ENV['VORTOS_BACKUP_RPO_SECONDS'] ?? 300);
         $rtoSeconds = (int) ($_ENV['VORTOS_BACKUP_RTO_SECONDS'] ?? 1800);
+        $defaultEngine = (string) ($_ENV['VORTOS_BACKUP_ENGINE'] ?? '');
 
         // ── Driver locators + registries ──
         $container->register(CollectBackupTargetsPass::LOCATOR_ID)
@@ -203,6 +204,13 @@ final class BackupExtension extends Extension
             ->setArgument('$logger', new Reference(LoggerInterface::class))
             ->setPublic(false);
         $container->setAlias(BackupEventSinkInterface::class, CompositeBackupEventSink::class)->setPublic(false);
+
+        // ── Engine resolution (fail-closed default) + toolchain doctor (STAGE-F-1) ──
+        $container->register(\Vortos\Backup\Domain\EngineResolver::class, \Vortos\Backup\Domain\EngineResolver::class)
+            ->setArgument('$configuredDefault', $defaultEngine !== '' ? $defaultEngine : null)
+            ->setPublic(false);
+        $container->register(\Vortos\Backup\Doctor\BackupToolchainInspector::class, \Vortos\Backup\Doctor\BackupToolchainInspector::class)
+            ->setPublic(false);
 
         // ── Core services ──
         $container->register(SystemClock::class, SystemClock::class)->setPublic(false);
@@ -352,6 +360,14 @@ final class BackupExtension extends Extension
         // ── Console ──
         $container->register(BackupRunCommand::class, BackupRunCommand::class)
             ->setArgument('$runner', new Reference(BackupRunner::class))
+            ->setArgument('$engineResolver', new Reference(\Vortos\Backup\Domain\EngineResolver::class))
+            ->addTag('console.command')->setPublic(false);
+        $container->register(\Vortos\Backup\Console\BackupDoctorCommand::class, \Vortos\Backup\Console\BackupDoctorCommand::class)
+            ->setArgument('$engineResolver', new Reference(\Vortos\Backup\Domain\EngineResolver::class))
+            ->setArgument('$inspector', new Reference(\Vortos\Backup\Doctor\BackupToolchainInspector::class))
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$storeKey', $storeKey)
+            ->setArgument('$connection', new Reference(Connection::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag('console.command')->setPublic(false);
         $container->register(BackupListCommand::class, BackupListCommand::class)
             ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))

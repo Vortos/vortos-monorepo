@@ -159,6 +159,7 @@ final class ObjectStoreExtension extends Extension
                     new Reference(\Aws\S3\S3Client::class),
                     $config['bucket']['name'],
                     $config['provider'],
+                    $config['multipart']['part_size_bytes'],
                 ])
                 ->setShared(true)
                 ->setPublic(false);

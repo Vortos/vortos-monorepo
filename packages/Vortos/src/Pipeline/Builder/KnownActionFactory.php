@@ -10,47 +10,53 @@ final class KnownActionFactory
 {
     public static function checkout(): PinnedAction
     {
-        return new PinnedAction('actions', 'checkout', 'b4ffde65f46336ab88eb53be808477a3936bae11', 'v4');
+        // v5 runs on Node 24 (v4 ran on the now-deprecated Node 20).
+        return new PinnedAction('actions', 'checkout', '93cb6efe18208431cddfb8368fd83d5badbf9bfd', 'v5');
     }
 
     public static function setupPhp(): PinnedAction
     {
-        return new PinnedAction('shivammathur', 'setup-php', 'c541c155eee45413f5b09a52248675b1a2575231', 'v2');
+        // v2 (current) runs on Node 24 as of this SHA.
+        return new PinnedAction('shivammathur', 'setup-php', 'f3e473d116dcccaddc5834248c87452386958240', 'v2');
     }
 
     public static function setupNode(): PinnedAction
     {
-        return new PinnedAction('actions', 'setup-node', '8f152de45cc393bb48ce5d89d36b731f54556e65', 'v4');
+        // v5 runs on Node 24 (v4 ran on Node 20).
+        return new PinnedAction('actions', 'setup-node', 'a0853c24544627f65ddf259abe73b1d18a591444', 'v5');
     }
 
     public static function monorepoSplit(): PinnedAction
     {
+        // Docker-runtime action (no Node runtime); latest release.
         return new PinnedAction('danharrin', 'monorepo-split-github-action', '14e42e2437f674b8987c1f50ca3689116aea1893', 'v2.4.5');
     }
 
     public static function setupBuildx(): PinnedAction
     {
-        return new PinnedAction('docker', 'setup-buildx-action', '988b5a0280414f521da01fcc63a27aeeb4b104db', 'v3');
+        // Latest v3. Still Node 20 upstream (no Node 24 release yet) — surfaced as advisory by the verifier.
+        return new PinnedAction('docker', 'setup-buildx-action', '8d2750c68a42422c14e847fe6c8ac0403b4cbd6f', 'v3');
     }
 
     public static function setupQemu(): PinnedAction
     {
-        return new PinnedAction('docker', 'setup-qemu-action', '49b3bc8e6bdd4a60e6116a5414239cba5943d3cf', 'v3');
+        return new PinnedAction('docker', 'setup-qemu-action', 'c7c53464625b32c7a7e944ae62b3e17d2b600130', 'v3');
     }
 
     public static function dockerLogin(): PinnedAction
     {
-        return new PinnedAction('docker', 'login-action', '9780b0c442fbb1117ed29e0efdff1e18412f7567', 'v3');
+        return new PinnedAction('docker', 'login-action', 'c94ce9fb468520275223c153574b00df6fe4bcc9', 'v3');
     }
 
     public static function buildPush(): PinnedAction
     {
-        return new PinnedAction('docker', 'build-push-action', 'ca052bb54ab0790a636c9b5f226502c73d547a25', 'v5');
+        // v6 is the current major.
+        return new PinnedAction('docker', 'build-push-action', '10e90e3645eae34f1e60eeb005ba3a3d33f178e8', 'v6');
     }
 
     public static function sbomAttest(): PinnedAction
     {
-        return new PinnedAction('anchore', 'sbom-action', 'e22c389904149dbc22b58101806040fa8d37a610', 'v0.24.0');
+        return new PinnedAction('anchore', 'sbom-action', 'd8a2c0130026bf585de5c176ab8f7ce62d75bf04', 'v0.20.7');
     }
 
     /** @return list<PinnedAction> */

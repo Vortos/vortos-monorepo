@@ -157,6 +157,7 @@ final class PipelineExtension extends Extension
 
         $container->register(ActionPinVerifier::class, ActionPinVerifier::class)
             ->setArgument('$resolver', new Reference(GitHubApiActionRefResolver::class))
+            ->setArgument('$runtimeResolver', new Reference(GitHubApiActionRefResolver::class))
             ->setPublic(false);
 
         $container->register(PipelineActionsVerifyCommand::class, PipelineActionsVerifyCommand::class)

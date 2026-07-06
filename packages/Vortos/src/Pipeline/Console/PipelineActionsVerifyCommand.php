@@ -37,11 +37,19 @@ final class PipelineActionsVerifyCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $results = $this->verifier->verify(KnownActionFactory::all());
-        $ok = $this->verifier->allExist($results);
+        $exist = $this->verifier->allExist($results);
+        $runtimesOk = $this->verifier->allRuntimesSupported($results);
+        $ok = $exist && $runtimesOk;
 
         if ($input->getOption('json')) {
             $output->writeln((string) json_encode(
-                ['ok' => $ok, 'pins' => $results],
+                [
+                    'ok' => $ok,
+                    'all_exist' => $exist,
+                    'all_runtimes_supported' => $runtimesOk,
+                    'has_deprecated_runtimes' => $this->verifier->hasDeprecatedRuntimes($results),
+                    'pins' => $results,
+                ],
                 JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
             ));
 
@@ -49,21 +57,45 @@ final class PipelineActionsVerifyCommand extends Command
         }
 
         foreach ($results as $result) {
-            if ($result['exists']) {
-                $line = sprintf('<info>✓</info> %s', $result['ref']);
-                if ($result['note'] !== null) {
-                    $line .= sprintf(' <comment>(%s)</comment>', $result['note']);
-                }
-            } else {
-                $line = sprintf('<error>✗ %s — %s</error>', $result['ref'], $result['note'] ?? 'does not exist');
-            }
+            $line = $this->renderPin($result);
             $output->writeln($line);
         }
 
-        $output->writeln($ok
-            ? '<info>All pinned actions resolve.</info>'
-            : '<error>One or more pinned actions do not exist — regenerate the pins.</error>');
+        if (!$exist) {
+            $output->writeln('<error>One or more pinned actions do not exist — regenerate the pins.</error>');
+        }
+        if (!$runtimesOk) {
+            $output->writeln('<error>One or more pinned actions run on a removed runtime — bump them.</error>');
+        }
+        if ($runtimesOk && $this->verifier->hasDeprecatedRuntimes($results)) {
+            $output->writeln('<comment>Some actions run on a deprecated runtime (node20); no newer major is available upstream yet.</comment>');
+        }
+        if ($ok) {
+            $output->writeln('<info>All pinned actions resolve and run on a supported runtime.</info>');
+        }
 
         return $ok ? self::SUCCESS : self::FAILURE;
+    }
+
+    /** @param array{ref: string, exists: bool, runtime: ?string, runtime_status: string, note: ?string} $result */
+    private function renderPin(array $result): string
+    {
+        if (!$result['exists']) {
+            return sprintf('<error>✗ %s — %s</error>', $result['ref'], $result['note'] ?? 'does not exist');
+        }
+
+        $runtime = $result['runtime'] !== null ? sprintf(' [%s]', $result['runtime']) : '';
+
+        $line = match ($result['runtime_status']) {
+            'removed' => sprintf('<error>✗ %s%s — runtime removed by GitHub</error>', $result['ref'], $runtime),
+            'deprecated' => sprintf('<comment>! %s%s — deprecated runtime</comment>', $result['ref'], $runtime),
+            default => sprintf('<info>✓</info> %s%s', $result['ref'], $runtime),
+        };
+
+        if ($result['note'] !== null && $result['runtime_status'] !== 'removed') {
+            $line .= sprintf(' <comment>(%s)</comment>', $result['note']);
+        }
+
+        return $line;
     }
 }

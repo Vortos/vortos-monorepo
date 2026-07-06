@@ -173,10 +173,7 @@ final class S3ServerSideMultipartUploadManager implements ServerSideMultipartUpl
             $batch = [];
 
             while (count($batch) < $plan['concurrency'] && !feof($stream)) {
-                $chunk = fread($stream, $plan['partSizeBytes']);
-                if ($chunk === false) {
-                    throw new ObjectStoreException('Failed to read server-side multipart upload stream.');
-                }
+                $chunk = $this->readFullPart($stream, $plan['partSizeBytes']);
 
                 if ($chunk === '') {
                     continue;
@@ -297,6 +294,31 @@ final class S3ServerSideMultipartUploadManager implements ServerSideMultipartUpl
             ]);
         } catch (\Throwable) {
         }
+    }
+
+    /**
+     * Read up to $target bytes, accumulating across short reads. A single `fread` on a pipe usually
+     * returns far less than requested; without this, every non-final part would be undersized and
+     * `CompleteMultipartUpload` would fail with `EntityTooSmall`. Returns fewer bytes only at EOF.
+     *
+     * @param resource $stream
+     */
+    private function readFullPart(mixed $stream, int $target): string
+    {
+        $buffer = '';
+
+        while (strlen($buffer) < $target && !feof($stream)) {
+            $read = fread($stream, $target - strlen($buffer));
+            if ($read === false) {
+                throw new ObjectStoreException('Failed to read server-side multipart upload stream.');
+            }
+            if ($read === '') {
+                break; // blocking sources return '' only at EOF
+            }
+            $buffer .= $read;
+        }
+
+        return $buffer;
     }
 
     /** @return resource */

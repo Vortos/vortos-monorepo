@@ -7,6 +7,7 @@ namespace Vortos\Metrics\OpenTelemetry;
 use OpenTelemetry\Contrib\Otlp\MetricExporter;
 use OpenTelemetry\Contrib\Otlp\OtlpHttpTransportFactory;
 use OpenTelemetry\SDK\Common\Attribute\Attributes;
+use OpenTelemetry\SDK\Metrics\Data\Temporality;
 use OpenTelemetry\SDK\Metrics\MeterProvider;
 use OpenTelemetry\SDK\Metrics\MetricReader\ExportingReader;
 use OpenTelemetry\SDK\Resource\ResourceInfo;
@@ -58,7 +59,12 @@ final class OpenTelemetryMetricsFactory
             retryDelay: 0,
             maxRetries: 0,
         );
-        $exporter = new MetricExporter($transport);
+        // Force CUMULATIVE temporality. Without this the exporter falls back to per-instrument
+        // temporality (delta for counters/histograms), which Prometheus-compatible OTLP backends —
+        // Grafana Cloud / Mimir, and the Prometheus OTLP receiver — reject with HTTP 400
+        // "invalid temporality and type combination". Cumulative is the correct, portable default
+        // (also accepted by New Relic and Datadog); delta-preferring backends remain a future opt-in.
+        $exporter = new MetricExporter($transport, Temporality::CUMULATIVE);
         $reader = new ExportingReader($exporter);
         $resource = ResourceInfoFactory::defaultResource()->merge(ResourceInfo::create(Attributes::create([
             'service.name' => $config['service_name'],

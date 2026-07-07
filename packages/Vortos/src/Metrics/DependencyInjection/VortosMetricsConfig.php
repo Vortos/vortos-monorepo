@@ -6,6 +6,7 @@ namespace Vortos\Metrics\DependencyInjection;
 
 use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
+use Vortos\Metrics\Config\MetricTemporality;
 use Vortos\Metrics\Definition\MetricDefinition;
 use Vortos\Observability\Config\ObservabilityModule;
 
@@ -81,6 +82,7 @@ final class VortosMetricsConfig
     /** @var array<string, string> */
     private array $otlpHeaders = [];
     private int $otlpTimeoutMs = 200;
+    private MetricTemporality $otlpTemporality = MetricTemporality::Cumulative;
 
     public function __construct()
     {
@@ -301,6 +303,20 @@ final class VortosMetricsConfig
         return $this->otlp('https://otlp.' . $site . '/v1/metrics', ['DD-API-KEY' => $apiKey], $timeoutMs);
     }
 
+    /**
+     * Select the OTLP metric aggregation temporality.
+     *
+     * Default is {@see MetricTemporality::Cumulative} — the portable, Prometheus-compatible
+     * choice required by Grafana Cloud / Mimir and self-healing under FrankenPHP worker mode.
+     * Only switch to {@see MetricTemporality::Delta} for a delta-native backend or a collector
+     * that converts delta→cumulative.
+     */
+    public function metricsTemporality(MetricTemporality $temporality): static
+    {
+        $this->otlpTemporality = $temporality;
+        return $this;
+    }
+
     /** @internal Used by MetricsExtension */
     public function toArray(): array
     {
@@ -326,6 +342,7 @@ final class VortosMetricsConfig
             'otlp_endpoint'              => $this->otlpEndpoint,
             'otlp_headers'               => $this->otlpHeaders,
             'otlp_timeout_ms'            => $this->otlpTimeoutMs,
+            'otlp_temporality'           => $this->otlpTemporality,
         ];
     }
 }

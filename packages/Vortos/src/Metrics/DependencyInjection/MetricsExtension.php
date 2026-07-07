@@ -282,6 +282,7 @@ final class MetricsExtension extends Extension
                     'headers' => $resolved['otlp_headers'],
                     'timeout_ms' => $resolved['otlp_timeout_ms'],
                     'namespace' => $resolved['namespace'],
+                    'temporality' => $resolved['otlp_temporality']->value,
                 ],
                 new Reference(MetricDefinitionRegistry::class),
                 new Reference('vortos.logger.metrics', ContainerInterface::NULL_ON_INVALID_REFERENCE),

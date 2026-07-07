@@ -19,6 +19,7 @@ final class HealthDetailPolicy
         private readonly string $appEnv = 'prod',
         private readonly bool $appDebug = false,
         private readonly bool $exposeRawErrors = false,
+        private readonly bool $exposeDegradedNames = true,
     ) {}
 
     public static function fromEnvironment(): self
@@ -29,6 +30,7 @@ final class HealthDetailPolicy
             (string) ($_ENV['APP_ENV'] ?? 'prod'),
             self::envBool($_ENV['APP_DEBUG'] ?? false),
             self::envBool($_ENV['HEALTH_EXPOSE_ERRORS'] ?? false),
+            self::envBool($_ENV['VORTOS_HEALTH_PUBLIC_DEGRADED_NAMES'] ?? true),
         );
     }
 
@@ -46,6 +48,34 @@ final class HealthDetailPolicy
     public function allowsRawErrors(): bool
     {
         return $this->exposeRawErrors || $this->isDebugEnvironment();
+    }
+
+    /**
+     * R8-5: whether the anonymous readiness body may list the names of non-passing checks. On by
+     * default (names are non-sensitive); set VORTOS_HEALTH_PUBLIC_DEGRADED_NAMES=false to suppress.
+     */
+    public function allowsPublicDegradedNames(): bool
+    {
+        return $this->exposeDegradedNames;
+    }
+
+    /**
+     * R8-5: whether a health token is configured at all. The authenticated /health/detail endpoint
+     * uses this to distinguish "not configured" (feature unavailable) from "wrong token".
+     */
+    public function hasToken(): bool
+    {
+        return $this->token !== null && $this->token !== '';
+    }
+
+    /**
+     * R8-5: constant-time check of the presented X-Health-Token against the configured one, independent
+     * of the HEALTH_DETAILS policy — so an operator with the token can always reach full detail, even
+     * when the anonymous policy is "never". Returns false when no token is configured.
+     */
+    public function matchesToken(Request $request): bool
+    {
+        return $this->hasValidToken($request);
     }
 
     private function hasValidToken(Request $request): bool

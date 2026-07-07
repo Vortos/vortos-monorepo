@@ -18,6 +18,47 @@ final class MigrationClassGeneratorTest extends TestCase
         $this->generator = new MigrationClassGenerator();
     }
 
+    // ── R8-10: #[DeployPhase] on generated migrations ────────────────────────
+
+    public function test_additive_sql_is_annotated_expand(): void
+    {
+        $output = $this->generator->generateFromSql(
+            'Version1',
+            'App\\Migrations',
+            'Create outbox',
+            'CREATE TABLE outbox (id UUID PRIMARY KEY)',
+        );
+
+        $this->assertStringContainsString('use Vortos\\Migration\\Attribute\\DeployPhase;', $output);
+        $this->assertStringContainsString('use Vortos\\Migration\\Schema\\MigrationPhase;', $output);
+        $this->assertStringContainsString('#[DeployPhase(MigrationPhase::Expand)]', $output);
+    }
+
+    public function test_destructive_sql_is_annotated_contract(): void
+    {
+        $output = $this->generator->generateFromSql(
+            'Version2',
+            'App\\Migrations',
+            'Drop legacy column',
+            'ALTER TABLE users DROP COLUMN legacy',
+        );
+
+        $this->assertStringContainsString('#[DeployPhase(MigrationPhase::Contract)]', $output);
+    }
+
+    public function test_generated_expand_migration_is_valid_php(): void
+    {
+        $output = $this->generator->generateFromSql('Version3', 'App\\Migrations', 'x', 'CREATE TABLE t (id INT)');
+
+        // Round-trips through the PHP linter: a syntactically valid class with the attribute.
+        $tmp = tempnam(sys_get_temp_dir(), 'mig') . '.php';
+        file_put_contents($tmp, $output);
+        exec('php -l ' . escapeshellarg($tmp) . ' 2>&1', $out, $code);
+        @unlink($tmp);
+
+        $this->assertSame(0, $code, implode("\n", $out));
+    }
+
     // ── generateFromSql ─────────────────────────────────────────────────────
 
     public function test_generated_class_contains_correct_namespace(): void

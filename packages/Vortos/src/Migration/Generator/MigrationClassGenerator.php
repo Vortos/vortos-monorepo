@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Vortos\Migration\Generator;
 
 use Doctrine\DBAL\Platforms\AbstractPlatform;
+use Vortos\Migration\Safety\DestructiveSqlDetector;
+use Vortos\Migration\Schema\MigrationPhase;
 use Vortos\Migration\Schema\ModuleSchemaProviderInterface;
 use Vortos\Migration\Service\SchemaDiffStatementFactory;
 
@@ -24,6 +26,13 @@ use Vortos\Migration\Service\SchemaDiffStatementFactory;
  */
 final class MigrationClassGenerator
 {
+    private readonly DestructiveSqlDetector $destructiveDetector;
+
+    public function __construct(?DestructiveSqlDetector $destructiveDetector = null)
+    {
+        $this->destructiveDetector = $destructiveDetector ?? new DestructiveSqlDetector();
+    }
+
     /**
      * Generate a migration for a single schema provider with no cumulative base. Alter-style
      * providers (which guard an ALTER on a table owned by another provider) need the cumulative
@@ -68,6 +77,7 @@ final class MigrationClassGenerator
             $this->escapeString($description),
             $this->buildAddSqlCallsFromStatements($statements),
             down: null,
+            phase: $this->phaseForStatements($statements),
         );
     }
 
@@ -80,7 +90,14 @@ final class MigrationClassGenerator
         $addSqlCalls      = $this->buildAddSqlCalls($upSql);
         $escapedDesc      = $this->escapeString($description);
 
-        return $this->renderTemplate($className, $namespace, $escapedDesc, $addSqlCalls, down: null);
+        return $this->renderTemplate(
+            $className,
+            $namespace,
+            $escapedDesc,
+            $addSqlCalls,
+            down: null,
+            phase: $this->destructiveDetector->isDestructive($upSql) ? MigrationPhase::Contract : MigrationPhase::Expand,
+        );
     }
 
     public function generateEmpty(
@@ -91,7 +108,7 @@ final class MigrationClassGenerator
         $escapedDesc = $this->escapeString($description);
         $body        = "        // Write your migration SQL here using \$this->addSql()\n";
 
-        return $this->renderTemplate($className, $namespace, $escapedDesc, $body, down: 'manual');
+        return $this->renderTemplate($className, $namespace, $escapedDesc, $body, down: 'manual', phase: MigrationPhase::Expand);
     }
 
     public function generateAggregate(
@@ -116,7 +133,21 @@ PHP;
 
         $downBody = "        \$this->addSql('DROP TABLE IF EXISTS {$escapedTable}');\n";
 
-        return $this->renderTemplate($className, $namespace, $escapedDesc, $upBody, down: $downBody);
+        // CREATE TABLE IF NOT EXISTS is purely additive.
+        return $this->renderTemplate($className, $namespace, $escapedDesc, $upBody, down: $downBody, phase: MigrationPhase::Expand);
+    }
+
+    /**
+     * Classify a generated migration's deploy phase from its statements. Any destructive DDL ⇒
+     * Contract (ship behind the soak/flag gate); otherwise Expand (additive, safe to apply eagerly).
+     *
+     * @param list<string> $statements
+     */
+    private function phaseForStatements(array $statements): MigrationPhase
+    {
+        return $this->destructiveDetector->anyDestructive($statements)
+            ? MigrationPhase::Contract
+            : MigrationPhase::Expand;
     }
 
     public function buildClassName(string $timestamp, int $sequence = 0): string
@@ -167,6 +198,7 @@ PHP;
         string $escapedDesc,
         string $upBody,
         ?string $down,
+        MigrationPhase $phase = MigrationPhase::Expand,
     ): string {
         if ($down === 'manual') {
             $downBody = "        // Reverse the up() migration using \$this->addSql()\n";
@@ -178,6 +210,8 @@ PHP;
                         "        );\n";
         }
 
+        $phaseCase = ucfirst($phase->value);
+
         return <<<PHP
 <?php
 
@@ -187,7 +221,10 @@ namespace {$namespace};
 
 use Doctrine\DBAL\Schema\Schema;
 use Doctrine\Migrations\AbstractMigration;
+use Vortos\Migration\Attribute\DeployPhase;
+use Vortos\Migration\Schema\MigrationPhase;
 
+#[DeployPhase(MigrationPhase::{$phaseCase})]
 final class {$className} extends AbstractMigration
 {
     public function getDescription(): string

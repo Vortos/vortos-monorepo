@@ -90,6 +90,30 @@ final class DeployCommandTest extends TestCase
         $this->assertSame(1, $target->releaseCalls);
     }
 
+    public function test_json_refused_writes_machine_json_to_stdout_and_reason_to_stderr(): void
+    {
+        $target = new RecordingDeployTarget();
+        $tester = new CommandTester(new DeployCommand($this->runner($target, doctorClear: false)));
+
+        $exit = $tester->execute(
+            ['--env' => 'production', '--yes' => true, '--json' => true],
+            ['capture_stderr_separately' => true],
+        );
+
+        $this->assertSame(1, $exit);
+
+        // stdout is pure, parseable JSON (no human noise mixed in).
+        $stdout = $tester->getDisplay();
+        $decoded = json_decode(trim($stdout), true, 512, \JSON_THROW_ON_ERROR);
+        $this->assertIsArray($decoded);
+        $this->assertSame('refused', $decoded['status']);
+
+        // stderr carries the failing gate + reason so CI logs are self-explanatory (R8-3).
+        $stderr = $tester->getErrorOutput();
+        $this->assertStringContainsString('REFUSED: stub — blocked', $stderr);
+        $this->assertStringContainsString('Deploy refused for production', $stderr);
+    }
+
     private function runner(RecordingDeployTarget $target, bool $doctorClear): DeployRunner
     {
         $targets = new DeployTargetRegistry(new InMemoryServiceLocator(['fake-target' => $target]));

@@ -88,11 +88,57 @@ final class DeployRunnerTest extends TestCase
         $runner->run(DeployRequest::live('production', assumeYes: true));
     }
 
+    public function test_auto_publish_runs_before_doctor_when_opted_in(): void
+    {
+        $target = new RecordingDeployTarget();
+        $publisher = new RecordingAutoPublisher();
+        $runner = $this->runner($target, doctorClear: true, autoPublisher: $publisher);
+
+        $runner->run(new DeployRequest('production', assumeYes: true, autoPublishMigrations: true));
+
+        $this->assertSame(1, $publisher->calls, 'opt-in auto-publish must run once');
+    }
+
+    public function test_auto_publish_is_not_run_by_default(): void
+    {
+        $target = new RecordingDeployTarget();
+        $publisher = new RecordingAutoPublisher();
+        $runner = $this->runner($target, doctorClear: true, autoPublisher: $publisher);
+
+        $runner->run(DeployRequest::live('production', assumeYes: true));
+
+        $this->assertSame(0, $publisher->calls, 'default posture never mutates the migration tree');
+    }
+
+    public function test_auto_publish_never_runs_on_dry_run(): void
+    {
+        $target = new RecordingDeployTarget();
+        $publisher = new RecordingAutoPublisher();
+        $runner = $this->runner($target, doctorClear: true, autoPublisher: $publisher);
+
+        $runner->run(new DeployRequest('production', mode: \Vortos\Deploy\Runner\DeployExecutionMode::DryRun, autoPublishMigrations: true));
+
+        $this->assertSame(0, $publisher->calls, 'a dry-run must mutate nothing, including the migration tree');
+    }
+
+    public function test_auto_publish_failure_refuses_the_deploy(): void
+    {
+        $target = new RecordingDeployTarget();
+        $publisher = new RecordingAutoPublisher(fail: true);
+        $runner = $this->runner($target, doctorClear: true, autoPublisher: $publisher);
+
+        $this->expectException(\RuntimeException::class);
+        $runner->run(new DeployRequest('production', assumeYes: true, autoPublishMigrations: true));
+
+        $this->assertSame(0, $target->releaseCalls, 'a failed auto-publish must never reach release');
+    }
+
     private function runner(
         RecordingDeployTarget $target,
         bool $doctorClear,
         bool $latestManifest = true,
         bool $autoRollback = true,
+        ?RecordingAutoPublisher $autoPublisher = null,
     ): DeployRunner {
         $targets = new DeployTargetRegistry(
             new \Vortos\Deploy\Tests\Fixtures\InMemoryServiceLocator(['fake-target' => $target]),
@@ -129,6 +175,7 @@ final class DeployRunnerTest extends TestCase
             new PlanRenderer(),
             $this->doctor($doctorClear),
             $rollbackRunner,
+            autoPublisher: $autoPublisher,
         );
     }
 
@@ -158,5 +205,26 @@ final class DeployRunnerTest extends TestCase
         };
 
         return new DeployDoctor([$check]);
+    }
+}
+
+/**
+ * Recording fake for the R8-1 auto-publish seam.
+ */
+final class RecordingAutoPublisher implements \Vortos\Deploy\Runtime\MigrationAutoPublisherInterface
+{
+    public int $calls = 0;
+
+    public function __construct(private readonly bool $fail = false) {}
+
+    public function publish(): int
+    {
+        $this->calls++;
+
+        if ($this->fail) {
+            throw new \RuntimeException('auto-publish failed');
+        }
+
+        return 1;
     }
 }

@@ -26,6 +26,13 @@ final class DeployPlanner
         return new DeployPlan(
             phases: $phases,
             definitionHash: $context->definition->definitionHash,
+            imagePrunePolicy: $context->definition->pruneImages
+                ? new ImagePrunePolicy(
+                    enabled: true,
+                    keep: $context->definition->pruneImagesKeep,
+                    builderCacheMaxAge: $context->definition->builderCacheMaxAge,
+                )
+                : ImagePrunePolicy::disabled(),
         );
     }
 }

@@ -45,6 +45,7 @@ final class DeployCommand extends Command
         $this->addOption('image-digest', null, InputOption::VALUE_REQUIRED, 'Pin the deployed image to this sha256 digest (promote-by-digest)');
         $this->addOption('image-repository', null, InputOption::VALUE_REQUIRED, 'Fully-qualified image repository to deploy (overrides the recorded manifest, e.g. ghcr.io/acme/app)');
         $this->addOption('actor', null, InputOption::VALUE_REQUIRED, 'Actor id recorded in the deploy audit trail');
+        $this->addOption('auto-publish', null, InputOption::VALUE_NONE, 'Publish any un-published module migration stubs before the doctor gate (opt-in; live deploys only)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -89,13 +90,17 @@ final class DeployCommand extends Command
             imageRepository: \is_string($imageRepository) ? $imageRepository : null,
             actorId: $actorId,
             actorIdentitySource: ActorIdentitySource::Local,
+            autoPublishMigrations: (bool) $input->getOption('auto-publish'),
         );
 
         try {
             $outcome = $this->runner->run($request);
         } catch (\Throwable $e) {
             if ($json) {
+                // R8-3: machine JSON on stdout, human reason on stderr — so a CI log shows *why*
+                // without a manual non-JSON re-run.
                 $output->writeln(json_encode(['env' => $env, 'status' => 'error', 'error' => $e->getMessage()], \JSON_THROW_ON_ERROR));
+                $this->errorOutput($output)->writeln(sprintf('Deploy failed for %s: %s', $env, $e->getMessage()));
             } else {
                 $output->writeln(sprintf('<error>Deploy failed: %s</error>', $e->getMessage()));
             }
@@ -106,12 +111,52 @@ final class DeployCommand extends Command
         if ($json) {
             $output->writeln($outcome->toJson());
 
+            // R8-3: on a refused/rolled-back deploy, echo the failing gate(s) to stderr. The JSON on
+            // stdout is untouched (CI parsers keep working); operators get the reason in the log.
+            $this->emitFailureSummaryToStderr($outcome, $output);
+
             return $outcome->exitCode();
         }
 
         $this->renderHuman($outcome, $output);
 
         return $outcome->exitCode();
+    }
+
+    /**
+     * R8-3: in --json mode, surface the failing gate(s) / rollback reason to stderr so CI logs are
+     * self-explanatory. Never writes to stdout (that stream stays pure machine JSON).
+     */
+    private function emitFailureSummaryToStderr(DeployOutcome $outcome, OutputInterface $output): void
+    {
+        if ($outcome->status === DeployOutcomeStatus::Refused && $outcome->report !== null) {
+            $stderr = $this->errorOutput($output);
+            foreach ($outcome->report->failures() as $failure) {
+                $stderr->writeln(sprintf('REFUSED: %s — %s', $failure->id, $failure->summary));
+            }
+            $stderr->writeln(sprintf(
+                'Deploy refused for %s: %d failing check(s). Nothing was deployed.',
+                $outcome->env,
+                $outcome->report->countByStatus(PreflightStatus::Fail),
+            ));
+
+            return;
+        }
+
+        if ($outcome->status === DeployOutcomeStatus::RolledBack) {
+            $this->errorOutput($output)->writeln(sprintf(
+                'ROLLED BACK: %s — %s',
+                $outcome->env,
+                $outcome->rollbackReason ?? 'release failed',
+            ));
+        }
+    }
+
+    private function errorOutput(OutputInterface $output): OutputInterface
+    {
+        return $output instanceof \Symfony\Component\Console\Output\ConsoleOutputInterface
+            ? $output->getErrorOutput()
+            : $output;
     }
 
     private function confirmProd(string $env, InputInterface $input, OutputInterface $output): bool

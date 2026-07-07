@@ -56,6 +56,19 @@ final class RemoteDeployScriptTest extends TestCase
         self::assertStringContainsString('ghcr.io/acme/app@${{ needs.build.outputs.image }} php bin/console', $script);
     }
 
+    public function test_migrate_analyze_gate_runs_before_provision_applies_migrations(): void
+    {
+        // R8-9 (B3): the destructive-DDL gate must run before any migration is applied (provision).
+        $script = $this->script($this->definition(true));
+
+        $analyzePos = strpos($script, 'vortos:migrate:analyze --json');
+        $provisionPos = strpos($script, 'vortos:deploy:provision');
+
+        self::assertIsInt($analyzePos, 'analyze gate must be emitted');
+        self::assertIsInt($provisionPos);
+        self::assertLessThan($provisionPos, $analyzePos, 'analyze must precede the migration-applying provision');
+    }
+
     public function test_provisions_before_recording_manifest_then_doctor_then_deploy(): void
     {
         // G9: provision (which runs vortos:migrate) must precede record-manifest — the ledger table

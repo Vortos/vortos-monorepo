@@ -30,13 +30,11 @@ final class CronFragmentGenerator
         foreach ($schedules as $schedule) {
             $user = $this->runAsUser === '' ? '' : $this->runAsUser . ' ';
             $lines[] = sprintf(
-                '%s %s%s backup:run --engine=%s --kind=%s --env=%s  # %s',
+                '%s %s%s %s  # %s',
                 $schedule->cron,
                 $user,
                 $this->binaryPath,
-                $schedule->engine->value,
-                $schedule->kind->value,
-                $schedule->environment,
+                $this->commandFor($schedule),
                 $schedule->name,
             );
         }
@@ -44,5 +42,32 @@ final class CronFragmentGenerator
         $lines[] = self::END;
 
         return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * The full console command (verb + args) for a schedule. R8-6: retention/drill no longer collapse
+     * to backup:run — each type emits its own verb. Only Backup carries --kind (a restore-point kind);
+     * retention and drill are engine+env scoped.
+     */
+    private function commandFor(BackupSchedule $schedule): string
+    {
+        return match ($schedule->type) {
+            BackupScheduleType::Backup => sprintf(
+                'backup:run --engine=%s --kind=%s --env=%s',
+                $schedule->engine->value,
+                $schedule->kind->value,
+                $schedule->environment,
+            ),
+            BackupScheduleType::Retention => sprintf(
+                'backup:retention --engine=%s --env=%s --apply',
+                $schedule->engine->value,
+                $schedule->environment,
+            ),
+            BackupScheduleType::Drill => sprintf(
+                'backup:drill --engine=%s --env=%s',
+                $schedule->engine->value,
+                $schedule->environment,
+            ),
+        };
     }
 }

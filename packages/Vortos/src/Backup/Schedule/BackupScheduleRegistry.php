@@ -10,8 +10,10 @@ use InvalidArgumentException;
  * The set of declared backup schedules. The app registers its schedules (e.g. a
  * nightly logical dump + a weekly base backup) and {@see CronFragmentGenerator}
  * renders them into a host fragment.
+ *
+ * @implements \IteratorAggregate<int, BackupSchedule>
  */
-final class BackupScheduleRegistry
+final class BackupScheduleRegistry implements \IteratorAggregate
 {
     /** @var array<string, BackupSchedule> */
     private array $schedules = [];
@@ -39,5 +41,10 @@ final class BackupScheduleRegistry
         usort($all, static fn (BackupSchedule $a, BackupSchedule $b): int => $a->name <=> $b->name);
 
         return $all;
+    }
+
+    public function getIterator(): \Traversable
+    {
+        return new \ArrayIterator($this->all());
     }
 }

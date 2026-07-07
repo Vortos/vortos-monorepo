@@ -16,6 +16,11 @@ final readonly class DeployPlan
         public string $definitionHash,
         public ?string $signature = null,
         public ?string $signedBy = null,
+        /**
+         * R8-4: post-cutover reclamation hint. Deliberately excluded from {@see toCanonicalJson()} and
+         * the plan hash — it is a live-only cleanup, not part of the plan's identity or dry-run preview.
+         */
+        public ?ImagePrunePolicy $imagePrunePolicy = null,
     ) {
         $this->planHash = PlanHash::fromPlanJson($this->toCanonicalJson());
     }

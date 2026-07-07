@@ -94,7 +94,11 @@ final class CacheWarmupCommand extends Command
         $output->writeln('');
 
         if ($count === 0 && $failed === 0) {
-            $output->writeln('<comment>No cache warmers registered. Tag your warmers with vortos.cache_warmer.</comment>');
+            // R8-12 (C1): "no warmers" is a valid configuration — do not print it on every invocation
+            // (cache:clear/entrypoints chain warmup). Surface it only in verbose mode.
+            if ($output->isVerbose()) {
+                $output->writeln('<comment>No cache warmers registered. Tag your warmers with vortos.cache_warmer.</comment>');
+            }
         } else {
             $output->writeln(sprintf('<info>Done. %d warmer(s) ran successfully.</info>', $count));
         }

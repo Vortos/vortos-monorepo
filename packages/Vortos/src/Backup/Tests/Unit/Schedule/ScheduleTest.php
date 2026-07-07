@@ -54,6 +54,21 @@ final class ScheduleTest extends TestCase
         $this->assertStringContainsString('0 3 * * 0 /usr/local/bin/vortos backup:run --engine=postgres --kind=physical_base', $fragment);
     }
 
+    public function test_fragment_emits_the_correct_verb_per_schedule_type(): void
+    {
+        // R8-6 (A6): retention and drill no longer collapse to backup:run.
+        $registry = new BackupScheduleRegistry([
+            new BackupSchedule('nightly', DatabaseEngine::Postgres, BackupKind::LogicalFull, 'production', '0 */6 * * *', \Vortos\Backup\Schedule\BackupScheduleType::Backup),
+            new BackupSchedule('retain', DatabaseEngine::Postgres, BackupKind::LogicalFull, 'production', '0 3 * * *', \Vortos\Backup\Schedule\BackupScheduleType::Retention),
+            new BackupSchedule('drill', DatabaseEngine::Postgres, BackupKind::LogicalFull, 'production', '0 4 * * 0', \Vortos\Backup\Schedule\BackupScheduleType::Drill),
+        ]);
+        $fragment = (new CronFragmentGenerator('/usr/local/bin/vortos'))->generate($registry->all());
+
+        $this->assertStringContainsString('backup:run --engine=postgres --kind=logical_full --env=production', $fragment);
+        $this->assertStringContainsString('backup:retention --engine=postgres --env=production --apply', $fragment);
+        $this->assertStringContainsString('backup:drill --engine=postgres --env=production', $fragment);
+    }
+
     public function test_fragment_is_regenerable_identically(): void
     {
         $registry = new BackupScheduleRegistry([

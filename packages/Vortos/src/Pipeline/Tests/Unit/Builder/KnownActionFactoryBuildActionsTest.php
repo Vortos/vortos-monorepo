@@ -41,6 +41,14 @@ final class KnownActionFactoryBuildActionsTest extends TestCase
         $this->assertMatchesRegularExpression('/^[0-9a-f]{40}$/', $action->sha);
     }
 
+    public function test_build_push_is_off_node20(): void
+    {
+        // R8-7 / B1: the v6 line never left node20; v7 is the only Node-24-native line.
+        $action = KnownActionFactory::buildPush();
+        $this->assertStringStartsWith('v7', $action->versionComment);
+        $this->assertSame('53b7df96c91f9c12dcc8a07bcb9ccacbed38856a', $action->sha);
+    }
+
     public function test_sbom_attest_is_sha_pinned(): void
     {
         $action = KnownActionFactory::sbomAttest();

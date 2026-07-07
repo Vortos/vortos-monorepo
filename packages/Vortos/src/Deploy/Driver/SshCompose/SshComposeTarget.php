@@ -169,6 +169,12 @@ final class SshComposeTarget implements DeployTargetInterface
             throw $e;
         }
 
+        // R8-4: reclaim superseded images AFTER the release is durably recorded complete. Best-effort:
+        // the deploy is already green, so a prune failure must never surface as a deploy failure.
+        if ($plan->imagePrunePolicy !== null && $plan->imagePrunePolicy->enabled) {
+            $this->executor->reclaimImages($image, $plan->imagePrunePolicy);
+        }
+
         return new TargetStatus(
             color: ActiveColor::from((string) ($this->extractPromotedColor($run) ?? ActiveColor::None->value)),
             imageDigest: $run->desiredDigest,

@@ -146,6 +146,16 @@ final class MigrationExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
+        // R8-1: single source of truth for "would publish emit anything?" — used by the publish
+        // command and by the deploy preflight gate (UnpublishedStubCheck). Public so the deploy
+        // check can reference it across packages.
+        $container->register(\Vortos\Migration\Service\UnpublishedStubDetector::class, \Vortos\Migration\Service\UnpublishedStubDetector::class)
+            ->setArgument('$scanner', new Reference(ModuleStubScanner::class))
+            ->setArgument('$projectDir', $projectDir)
+            ->setArgument('$schemaScanner', new Reference(ModuleSchemaProviderScanner::class))
+            ->setShared(true)
+            ->setPublic(true);
+
         $container->register(ModuleMigrationRegistry::class, ModuleMigrationRegistry::class)
             ->setArgument('$schemaScanner', new Reference(ModuleSchemaProviderScanner::class))
             ->setArgument('$projectDir', $projectDir)
@@ -234,6 +244,7 @@ final class MigrationExtension extends Extension
             ->setArgument('$driftDetector', new Reference(MigrationDriftDetector::class))
             ->setArgument('$driftFormatter', new Reference(MigrationDriftFormatter::class))
             ->setArgument('$schemaScanner', new Reference(ModuleSchemaProviderScanner::class))
+            ->setArgument('$stubDetector', new Reference(\Vortos\Migration\Service\UnpublishedStubDetector::class))
             ->setPublic(true)
             ->addTag('console.command');
 

@@ -29,6 +29,13 @@ final readonly class DeploymentDefinition
         public bool $autoRollback,
         public string $definitionHash,
         public int $workerDrainDeadlineSeconds = 25,
+        public bool $autoPublishMigrations = false,
+        /** R8-2: null → defer to VORTOS_BACKUP_TOOLCHAIN_EXTERNAL; true/false → config wins. */
+        public ?bool $backupToolchainExternal = null,
+        /** R8-4: reclaim superseded release images + build cache after a successful cutover. */
+        public bool $pruneImages = true,
+        public int $pruneImagesKeep = 2,
+        public string $builderCacheMaxAge = '168h',
         public string $edgeRouter = 'caddy',
         public string $canaryAnalyzer = 'null',
         ?RuntimeServiceSpec $runtimeService = null,
@@ -103,7 +110,12 @@ final readonly class DeploymentDefinition
         $data = [
             'arch' => $this->arch->value,
             'auto_rollback' => $this->autoRollback,
+            'auto_publish_migrations' => $this->autoPublishMigrations,
+            'backup_toolchain_external' => $this->backupToolchainExternal,
+            'builder_cache_max_age' => $this->builderCacheMaxAge,
             'ci' => $this->ci,
+            'prune_images' => $this->pruneImages,
+            'prune_images_keep' => $this->pruneImagesKeep,
             'credential' => $this->credential,
             'host' => $this->host,
             'monitoring' => $this->monitoring,

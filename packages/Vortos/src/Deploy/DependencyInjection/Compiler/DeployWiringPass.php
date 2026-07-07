@@ -105,6 +105,19 @@ final class DeployWiringPass implements CompilerPassInterface
             if ($container->hasDefinition(\Vortos\Deploy\Execution\SshConnectionActivator::class)) {
                 $runnerDef->setArgument('$connectionActivator', new Reference(\Vortos\Deploy\Execution\SshConnectionActivator::class));
             }
+
+            // R8-1: opt-in migration auto-publish — only wired when vortos-migration's publish command
+            // and stub detector are present in the container.
+            if ($container->hasDefinition(\Vortos\Migration\Command\MigratePublishCommand::class)
+                && $container->hasDefinition(\Vortos\Migration\Service\UnpublishedStubDetector::class)
+            ) {
+                $container->register(\Vortos\Deploy\Runtime\MigrationAutoPublisher::class, \Vortos\Deploy\Runtime\MigrationAutoPublisher::class)
+                    ->setArgument('$publishCommand', new Reference(\Vortos\Migration\Command\MigratePublishCommand::class))
+                    ->setArgument('$detector', new Reference(\Vortos\Migration\Service\UnpublishedStubDetector::class))
+                    ->setPublic(false);
+
+                $runnerDef->setArgument('$autoPublisher', new Reference(\Vortos\Deploy\Runtime\MigrationAutoPublisher::class));
+            }
         }
     }
 }

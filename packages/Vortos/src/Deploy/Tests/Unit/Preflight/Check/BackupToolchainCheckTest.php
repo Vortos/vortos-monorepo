@@ -62,6 +62,56 @@ final class BackupToolchainCheckTest extends TestCase
         $this->assertStringContainsString('no known backup engine', $finding->summary);
     }
 
+    public function test_external_toolchain_passes_informationally_even_when_binaries_missing(): void
+    {
+        // R8-2: engine configured, toolchain external. The deploy image is lean by design; a missing
+        // pg_dump HERE is not a failure — it runs on the backup role. Pass, informationally.
+        $missing = static fn (string $b): ?array => null;
+        $check = new BackupToolchainCheck($this->inspector($missing), 'postgres', toolchainExternal: true);
+
+        $finding = $check->check($this->context());
+
+        $this->assertSame(PreflightStatus::Pass, $finding->status);
+        $this->assertStringContainsString('external', $finding->summary);
+    }
+
+    public function test_external_toolchain_still_validates_the_engine_name(): void
+    {
+        // Fail-closed even in external mode: a bogus engine name is still a hard error.
+        $check = new BackupToolchainCheck($this->inspector($this->presentProbe()), 'cassandra', toolchainExternal: true);
+
+        $finding = $check->check($this->context());
+
+        $this->assertSame(PreflightStatus::Fail, $finding->status);
+        $this->assertStringContainsString('no known backup engine', $finding->summary);
+    }
+
+    public function test_external_flag_false_keeps_the_in_image_assertion(): void
+    {
+        $probe = static fn (string $b): ?array => $b === 'pg_dump' ? null : ['path' => "/usr/bin/{$b}", 'major' => 18];
+        $check = new BackupToolchainCheck($this->inspector($probe), 'postgres', toolchainExternal: false);
+
+        $this->assertSame(PreflightStatus::Fail, $check->check($this->context())->status);
+    }
+
+    public function test_config_external_wins_over_env_default(): void
+    {
+        // config/deploy.php ->backupToolchainExternal(true) wins even though the env-derived default
+        // ($toolchainExternal) is false and the binary is missing.
+        $missing = static fn (string $b): ?array => null;
+        $check = new BackupToolchainCheck($this->inspector($missing), 'postgres', toolchainExternal: false);
+
+        $definition = \Vortos\Deploy\Definition\DeploymentDefinition::create()
+            ->host('fake-target')->registry('fake-registry')->credential('fake-credential')
+            ->backupToolchainExternal(true)
+            ->build();
+
+        $finding = $check->check($this->context(definition: $definition));
+
+        $this->assertSame(PreflightStatus::Pass, $finding->status);
+        $this->assertStringContainsString('external', $finding->summary);
+    }
+
     private function presentProbe(): \Closure
     {
         return static fn (string $b): ?array => ['path' => "/usr/bin/{$b}", 'major' => 18];

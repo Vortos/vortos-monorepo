@@ -223,7 +223,19 @@ final class BackupExtension extends Extension
             ->setArgument('$lockDir', $lockDir)
             ->setPublic(false);
 
-        $container->register(RetentionPolicy::class, RetentionPolicy::class)->setPublic(false);
+        // ── R8-6: config/backup.php loader — source of the retention policy, the typed lifecycle
+        //    schedules, and (via the worker) the containerized runtime. Deferred to runtime so the
+        //    real project dir/env are available and a malformed config fails loudly at boot. ──
+        $kernelEnv = $container->hasParameter('kernel.env') ? (string) $container->getParameter('kernel.env') : 'prod';
+        $container->register(\Vortos\Backup\Config\BackupConfigLoader::class, \Vortos\Backup\Config\BackupConfigLoader::class)
+            ->setArgument('$projectDir', $projectDir)
+            ->setArgument('$env', $kernelEnv)
+            ->setPublic(false);
+
+        // Retention policy: config/backup.php when present (with cadence-derived hourly), else default.
+        $container->register(RetentionPolicy::class, RetentionPolicy::class)
+            ->setFactory([new Reference(\Vortos\Backup\Config\BackupConfigLoader::class), 'retentionPolicy'])
+            ->setPublic(false);
 
         // ── Object Lock Policy (if configured) ──
         $lockPolicy = null;
@@ -352,10 +364,62 @@ final class BackupExtension extends Extension
             ->setPublic(false);
 
         // ── Schedule ──
+        // R8-6: the registry is now populated from config/backup.php (typed backup/retention/drill
+        // schedules), via the loader factory. Empty when no config file is present.
         $container->register(BackupScheduleRegistry::class, BackupScheduleRegistry::class)
-            ->setArgument(0, [])
+            ->setFactory([new Reference(\Vortos\Backup\Config\BackupConfigLoader::class), 'scheduleRegistry'])
             ->setPublic(false);
         $container->register(CronFragmentGenerator::class, CronFragmentGenerator::class)->setPublic(false);
+
+        // ── R8-6: containerized backup worker (A8) — the framework-owned runtime that fires the whole
+        //    declared lifecycle on its crons, replacing host cron on a lean deploy. ──
+        $container->register(\Vortos\Backup\Runtime\ScheduleStateStoreInterface::class, \Vortos\Backup\Runtime\FileScheduleStateStore::class)
+            ->setArgument('$path', $projectDir . '/var/backup-schedule-state.json')
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\Runtime\CronDueEvaluator::class, \Vortos\Backup\Runtime\CronDueEvaluator::class)
+            ->setPublic(false);
+
+        $lifecycleRunner = $container->register(\Vortos\Backup\Runtime\BackupLifecycleRunner::class, \Vortos\Backup\Runtime\BackupLifecycleRunner::class)
+            ->setArgument('$backupRunner', new Reference(BackupRunner::class))
+            ->setArgument('$retentionEnforcer', new Reference(RetentionEnforcer::class))
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$retentionPolicy', new Reference(RetentionPolicy::class))
+            ->setArgument('$storeKey', $storeKey)
+            ->setArgument('$drillRunner', new Reference(DrillRunner::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setPublic(false);
+        $container->setAlias(\Vortos\Backup\Runtime\BackupLifecycleRunnerInterface::class, \Vortos\Backup\Runtime\BackupLifecycleRunner::class)->setPublic(false);
+
+        $container->register(\Vortos\Backup\Runtime\BackupWorker::class, \Vortos\Backup\Runtime\BackupWorker::class)
+            ->setArgument('$schedules', new Reference(BackupScheduleRegistry::class))
+            ->setArgument('$runner', new Reference(\Vortos\Backup\Runtime\BackupLifecycleRunnerInterface::class))
+            ->setArgument('$state', new Reference(\Vortos\Backup\Runtime\ScheduleStateStoreInterface::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
+            ->setArgument('$evaluator', new Reference(\Vortos\Backup\Runtime\CronDueEvaluator::class))
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\Console\BackupWorkerCommand::class, \Vortos\Backup\Console\BackupWorkerCommand::class)
+            ->setArgument('$worker', new Reference(\Vortos\Backup\Runtime\BackupWorker::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->addTag('console.command')->setPublic(false);
+
+        // R8-6 (A8): emit the backup worker as a supervisord program so vortos-docker manages it like
+        // any other worker — but ONLY when the app opts in (VORTOS_BACKUP_WORKER_SUPERVISED=true, set
+        // on the backup-role image), so it is never forced onto the lean app/worker colors that lack
+        // the DB client. Guarded by class_exists so vortos-backup does not hard-depend on vortos-docker.
+        if (self::envFlag($_ENV['VORTOS_BACKUP_WORKER_SUPERVISED'] ?? null)
+            && class_exists(\Vortos\Docker\Worker\WorkerProcessDefinition::class)
+        ) {
+            $container->register('vortos.backup.worker_process', \Vortos\Docker\Worker\WorkerProcessDefinition::class)
+                ->setArgument('$name', 'backup-worker')
+                ->setArgument('$command', 'php bin/console vortos:backup:worker')
+                ->setArgument('$description', 'Vortos containerized backup lifecycle (backup/retention/drill)')
+                ->setArgument('$stopwaitsecs', 300)
+                ->setArgument('$drainDeadline', 25)
+                ->addTag(\Vortos\Docker\DependencyInjection\DockerExtension::WORKER_TAG)
+                ->setPublic(false);
+        }
 
         // ── Console ──
         $container->register(BackupRunCommand::class, BackupRunCommand::class)
@@ -417,5 +481,14 @@ final class BackupExtension extends Extension
             ->setArgument('$recipe', new Reference(\Vortos\Backup\Pitr\ContainerizedPitrRecipe::class))
             ->setArgument('$projectDir', $projectDir)
             ->addTag('console.command')->setPublic(false);
+    }
+
+    private static function envFlag(mixed $value): bool
+    {
+        if ($value === null || $value === '') {
+            return false;
+        }
+
+        return filter_var($value, \FILTER_VALIDATE_BOOL);
     }
 }

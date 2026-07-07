@@ -948,6 +948,15 @@ final class DeployExtension extends Extension
                 ->setPublic(false);
         }
 
+        // ── R8-1: un-published module migration stubs as a deploy precondition ──
+
+        if (class_exists(\Vortos\Migration\Service\UnpublishedStubDetector::class)) {
+            $container->register(\Vortos\Deploy\Preflight\Check\UnpublishedStubCheck::class, \Vortos\Deploy\Preflight\Check\UnpublishedStubCheck::class)
+                ->setArgument('$detector', new Reference(\Vortos\Migration\Service\UnpublishedStubDetector::class))
+                ->addTag(self::PREFLIGHT_CHECK_TAG)
+                ->setPublic(false);
+        }
+
         // ── STAGE-F-1: backup toolchain as a deploy precondition (only when vortos-backup is present) ──
 
         if (class_exists(\Vortos\Backup\Doctor\BackupToolchainInspector::class)) {
@@ -956,6 +965,10 @@ final class DeployExtension extends Extension
             $container->register(\Vortos\Deploy\Preflight\Check\BackupToolchainCheck::class, \Vortos\Deploy\Preflight\Check\BackupToolchainCheck::class)
                 ->setArgument('$inspector', new Reference(\Vortos\Backup\Doctor\BackupToolchainInspector::class))
                 ->setArgument('$configuredEngine', $_ENV['VORTOS_BACKUP_ENGINE'] ?? null)
+                // R8-2: decouple "an engine is configured" from "the toolchain must live in the deploy
+                // image". When the toolchain runs on a dedicated backup role (the lean-color pattern),
+                // set VORTOS_BACKUP_TOOLCHAIN_EXTERNAL=true so the deploy image is not the assertion site.
+                ->setArgument('$toolchainExternal', self::envFlag($_ENV['VORTOS_BACKUP_TOOLCHAIN_EXTERNAL'] ?? null))
                 ->addTag(self::PREFLIGHT_CHECK_TAG)
                 ->setPublic(false);
         }
@@ -1052,4 +1065,17 @@ final class DeployExtension extends Extension
     }
 
     private const PREFLIGHT_CHECK_TAG = 'vortos.deploy.preflight_check';
+
+    /**
+     * Interpret an env var as a boolean flag. Unset/empty/null → false; otherwise the usual truthy
+     * strings ("1", "true", "yes", "on") → true.
+     */
+    private static function envFlag(mixed $value): bool
+    {
+        if ($value === null || $value === '') {
+            return false;
+        }
+
+        return filter_var($value, \FILTER_VALIDATE_BOOL);
+    }
 }

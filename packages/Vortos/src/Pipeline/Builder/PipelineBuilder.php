@@ -515,6 +515,11 @@ final class PipelineBuilder
                 'coverage' => 'none',
             ]),
             new CommandStep('Install dependencies', 'composer install --no-interaction --prefer-dist --ignore-platform-reqs'),
+            // R8-9 (B3): destructive/undeclared-DDL gate before the deploy doctor and the deploy itself.
+            new CommandStep(
+                'Analyze pending migrations (destructive-DDL gate)',
+                'php bin/console vortos:migrate:analyze --json',
+            ),
             new CommandStep(
                 'Run deploy doctor',
                 'php bin/console deploy:doctor --env=${{ matrix.environment }} --json',

@@ -23,6 +23,11 @@ final class DeploymentDefinitionBuilder
     private string $strategyKey = 'blue-green';
     private string $archValue = 'linux/arm64';
     private bool $autoRollback = true;
+    private bool $autoPublishMigrations = false;
+    private ?bool $backupToolchainExternal = null;
+    private bool $pruneImages = true;
+    private int $pruneImagesKeep = 2;
+    private string $builderCacheMaxAge = '168h';
     private int $workerDrainDeadlineSeconds = 25;
     private string $edgeRouter = 'caddy';
     private string $canaryAnalyzer = 'null';
@@ -123,6 +128,44 @@ final class DeploymentDefinitionBuilder
     {
         $clone = clone $this;
         $clone->autoRollback = $autoRollback;
+
+        return $clone;
+    }
+
+    /**
+     * R8-1: when true, a live 'deploy' publishes any un-published module migration stubs before the
+     * doctor gate. Off by default — the default posture is the fail-closed UnpublishedStubCheck.
+     */
+    public function autoPublishMigrations(bool $autoPublishMigrations): self
+    {
+        $clone = clone $this;
+        $clone->autoPublishMigrations = $autoPublishMigrations;
+
+        return $clone;
+    }
+
+    /**
+     * R8-2: declare whether the backup toolchain (pg_dump/…) lives on a dedicated backup role image
+     * rather than the lean deploy image. When set, this wins over VORTOS_BACKUP_TOOLCHAIN_EXTERNAL.
+     */
+    public function backupToolchainExternal(bool $external): self
+    {
+        $clone = clone $this;
+        $clone->backupToolchainExternal = $external;
+
+        return $clone;
+    }
+
+    /**
+     * R8-4: reclaim superseded release images + build cache on the target after a successful cutover.
+     * Keeps the active release and previous-for-rollback ($keep, min 2). Pass $enabled=false to disable.
+     */
+    public function pruneImages(bool $enabled = true, int $keep = 2, string $builderCacheMaxAge = '168h'): self
+    {
+        $clone = clone $this;
+        $clone->pruneImages = $enabled;
+        $clone->pruneImagesKeep = max(2, $keep);
+        $clone->builderCacheMaxAge = $builderCacheMaxAge;
 
         return $clone;
     }
@@ -315,6 +358,11 @@ final class DeploymentDefinitionBuilder
             strategy: $strategy,
             arch: $arch,
             autoRollback: $this->autoRollback,
+            autoPublishMigrations: $this->autoPublishMigrations,
+            backupToolchainExternal: $this->backupToolchainExternal,
+            pruneImages: $this->pruneImages,
+            pruneImagesKeep: $this->pruneImagesKeep,
+            builderCacheMaxAge: $this->builderCacheMaxAge,
             definitionHash: 'sha256:' . $hash,
             workerDrainDeadlineSeconds: $this->workerDrainDeadlineSeconds,
             edgeRouter: $this->edgeRouter,
@@ -349,7 +397,12 @@ final class DeploymentDefinitionBuilder
         $data = [
             'arch' => $arch->value,
             'auto_rollback' => $this->autoRollback,
+            'auto_publish_migrations' => $this->autoPublishMigrations,
+            'backup_toolchain_external' => $this->backupToolchainExternal,
+            'builder_cache_max_age' => $this->builderCacheMaxAge,
             'ci' => $this->ci,
+            'prune_images' => $this->pruneImages,
+            'prune_images_keep' => $this->pruneImagesKeep,
             'credential' => $this->credential,
             'host' => $this->host,
             'monitoring' => $this->monitoring,

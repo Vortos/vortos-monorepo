@@ -184,6 +184,93 @@ final class HealthControllerTest extends TestCase
         }
     }
 
+    public function testDetailEndpointRequiresTokenReturns401(): void
+    {
+        // R8-5: no/invalid token → 401 (not a health status), and no per-check data leaks.
+        $policy = new HealthDetailPolicy(policy: HealthDetailPolicy::NEVER, token: 'sekret', appEnv: 'prod');
+        $ctrl = $this->controller(['db' => StubProbe::readiness('db')], $policy);
+
+        $response = $ctrl->detail(Request::create('/health/detail'));
+
+        self::assertSame(401, $response->getStatusCode());
+        self::assertStringContainsString('Bearer', (string) $response->headers->get('WWW-Authenticate'));
+        $data = json_decode($response->getContent(), true);
+        self::assertArrayNotHasKey('checks', $data);
+        self::assertArrayHasKey('error', $data);
+    }
+
+    public function testDetailEndpointWithValidTokenReturnsBreakdownEvenWhenPolicyNever(): void
+    {
+        // R8-5: the token reaches full detail regardless of HEALTH_DETAILS=never.
+        $policy = new HealthDetailPolicy(policy: HealthDetailPolicy::NEVER, token: 'sekret', appEnv: 'prod');
+        $ctrl = $this->controller(['db' => StubProbe::readiness('db')], $policy);
+
+        $request = Request::create('/health/detail');
+        $request->headers->set('X-Health-Token', 'sekret');
+        $response = $ctrl->detail($request);
+
+        self::assertSame(200, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        self::assertArrayHasKey('checks', $data);
+        self::assertArrayHasKey('db', $data['checks']);
+    }
+
+    public function testDetailEndpointReports401WhenNoTokenConfigured(): void
+    {
+        $policy = new HealthDetailPolicy(policy: HealthDetailPolicy::NEVER, token: null, appEnv: 'prod');
+        $ctrl = $this->controller(['db' => StubProbe::readiness('db')], $policy);
+
+        $response = $ctrl->detail(Request::create('/health/detail'));
+
+        self::assertSame(401, $response->getStatusCode());
+        self::assertStringContainsString('not configured', json_decode($response->getContent(), true)['error']);
+    }
+
+    public function testAnonymousReadyListsDegradedCheckNamesButNoMessages(): void
+    {
+        // R8-5: a failing readiness surfaces the non-passing check NAME to anonymous callers, never a
+        // message/value/error string.
+        $policy = new HealthDetailPolicy(policy: HealthDetailPolicy::NEVER, appEnv: 'prod');
+        $ctrl = $this->controller([
+            'db' => StubProbe::readiness('db')->withResult(
+                ProbeResult::fail('db', ProbeKind::Readiness, 1.0, 'super-secret-dsn-unreachable'),
+            ),
+        ], $policy);
+
+        $response = $ctrl->ready(Request::create('/health/ready'));
+        $body = $response->getContent();
+        $data = json_decode($body, true);
+
+        self::assertSame(503, $response->getStatusCode());
+        self::assertSame(['db'], $data['degraded']);
+        self::assertArrayNotHasKey('checks', $data);
+        self::assertStringNotContainsString('super-secret-dsn', $body);
+    }
+
+    public function testDegradedNamesSuppressedWhenConfiguredOff(): void
+    {
+        $policy = new HealthDetailPolicy(policy: HealthDetailPolicy::NEVER, appEnv: 'prod', exposeDegradedNames: false);
+        $ctrl = $this->controller([
+            'db' => StubProbe::readiness('db')->withResult(
+                ProbeResult::fail('db', ProbeKind::Readiness, 1.0, 'unreachable'),
+            ),
+        ], $policy);
+
+        $data = json_decode($ctrl->ready(Request::create('/health/ready'))->getContent(), true);
+
+        self::assertArrayNotHasKey('degraded', $data);
+    }
+
+    public function testHealthyReadyHasNoDegradedKey(): void
+    {
+        $policy = new HealthDetailPolicy(policy: HealthDetailPolicy::NEVER, appEnv: 'prod');
+        $ctrl = $this->controller(['db' => StubProbe::readiness('db')], $policy);
+
+        $data = json_decode($ctrl->ready(Request::create('/health/ready'))->getContent(), true);
+
+        self::assertArrayNotHasKey('degraded', $data);
+    }
+
     /** @param array<string, HealthProbeInterface> $probes */
     private function controller(array $probes, ?HealthDetailPolicy $policy = null): HealthController
     {

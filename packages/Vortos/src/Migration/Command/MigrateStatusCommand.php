@@ -18,6 +18,7 @@ use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 use Vortos\Migration\Service\ModuleMigrationRegistryInterface;
 use Vortos\Migration\Service\ModuleSchemaProviderScanner;
 use Vortos\Migration\Service\ModuleStubScanner;
+use Vortos\Migration\Service\UnpublishedStubDetector;
 
 /**
  * Displays migration status: which are run, which are pending.
@@ -42,8 +43,6 @@ use Vortos\Migration\Service\ModuleStubScanner;
 )]
 final class MigrateStatusCommand extends Command
 {
-    private const MANIFEST_FILE = 'migrations/.vortos-published.json';
-
     public function __construct(
         private readonly DependencyFactoryProviderInterface $factoryProvider,
         private readonly ModuleStubScanner $scanner,
@@ -52,8 +51,16 @@ final class MigrateStatusCommand extends Command
         private readonly ?MigrationDriftDetectorInterface $driftDetector = null,
         private readonly ?MigrationDriftFormatterInterface $driftFormatter = null,
         private readonly ?ModuleSchemaProviderScanner $schemaScanner = null,
+        private readonly ?UnpublishedStubDetector $stubDetector = null,
     ) {
         parent::__construct();
+    }
+
+    private function detector(): UnpublishedStubDetector
+    {
+        // Single source of truth (R8-1). Fall back to constructing one when not injected so the
+        // command keeps working under minimal wiring.
+        return $this->stubDetector ?? new UnpublishedStubDetector($this->scanner, $this->projectDir, $this->schemaScanner);
     }
 
     protected function configure(): void
@@ -219,59 +226,10 @@ final class MigrateStatusCommand extends Command
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * @return list<array{module: string, filename: string, relative: string}>
      */
     private function unpublishedStubs(): array
     {
-        $manifest = $this->loadManifest();
-        $stubs = [];
-        $schemaCounterparts = [];
-
-        foreach ($this->schemaScanner?->scan() ?? [] as $schemaProvider) {
-            $stubs[] = $schemaProvider;
-            $schemaCounterparts[$this->replaceExtension($schemaProvider['relative'], 'sql')] = true;
-        }
-
-        foreach ($this->scanner->scan() as $sqlStub) {
-            if (isset($schemaCounterparts[$sqlStub['relative']])) {
-                continue;
-            }
-
-            $stubs[] = $sqlStub;
-        }
-
-        return array_values(array_filter($stubs, fn(array $s) => !$this->isPublished($s['relative'], $manifest)));
-    }
-
-    /**
-     * @param array<string, mixed> $manifest
-     */
-    private function isPublished(string $relative, array $manifest): bool
-    {
-        if (isset($manifest[$relative])) {
-            return true;
-        }
-
-        return isset($manifest[$this->replaceExtension($relative, 'sql')])
-            || isset($manifest[$this->replaceExtension($relative, 'php')]);
-    }
-
-    private function replaceExtension(string $path, string $extension): string
-    {
-        return preg_replace('/\.[^.\/]+$/', '.' . $extension, $path) ?? $path;
-    }
-
-    /** @return array<string, mixed> */
-    private function loadManifest(): array
-    {
-        $path = $this->projectDir . '/' . self::MANIFEST_FILE;
-
-        if (!file_exists($path)) {
-            return [];
-        }
-
-        $data = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
-
-        return $data['published'] ?? [];
+        return $this->detector()->detect()->unpublished;
     }
 }

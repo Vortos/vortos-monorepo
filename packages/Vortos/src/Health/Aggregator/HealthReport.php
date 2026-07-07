@@ -67,14 +67,49 @@ final readonly class HealthReport
     }
 
     /**
-     * @return array{status: string, mode: string, timestamp: string}
+     * @param bool $includeDegradedNames R8-5: when the report is not passing, list the NAMES of the
+     *   non-passing checks. Names are capability identifiers (e.g. "disk-capacity"), never messages,
+     *   values, DSNs, or errors — so an operator can diagnose a warn/fail over HTTP without shelling
+     *   in, and an anonymous caller still learns nothing sensitive. Suppressible for the most paranoid
+     *   deployments (VORTOS_HEALTH_PUBLIC_DEGRADED_NAMES=false).
+     *
+     * @return array{status: string, mode: string, timestamp: string, degraded?: list<string>}
      */
-    public function toPublicArray(): array
+    public function toPublicArray(bool $includeDegradedNames = true): array
     {
-        return [
+        $data = [
             'status' => $this->overallStatus->value,
             'mode' => $this->mode,
             'timestamp' => $this->timestamp->format(\DateTimeInterface::ATOM),
         ];
+
+        if ($includeDegradedNames) {
+            $degraded = $this->degradedCheckNames();
+            if ($degraded !== []) {
+                $data['degraded'] = $degraded;
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Names of checks that are not passing (warn or fail), skipped checks excluded. Sorted, unique.
+     *
+     * @return list<string>
+     */
+    public function degradedCheckNames(): array
+    {
+        $names = [];
+        foreach ($this->results as $result) {
+            if (!$result->skipped && $result->status !== ProbeStatus::Pass) {
+                $names[$result->name] = true;
+            }
+        }
+
+        $names = array_keys($names);
+        sort($names);
+
+        return $names;
     }
 }

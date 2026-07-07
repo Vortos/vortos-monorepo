@@ -22,6 +22,9 @@ final readonly class BackupSchedule
         public BackupKind $kind,
         public string $environment,
         public string $cron,
+        // R8-6 (A6): which lifecycle verb this schedule drives. Defaults to Backup so pre-R8-6
+        // call sites (which only ever meant `backup:run`) keep their exact meaning.
+        public BackupScheduleType $type = BackupScheduleType::Backup,
     ) {
         if ($name === '' || preg_match('/^[a-z][a-z0-9_-]*$/', $name) !== 1) {
             throw new InvalidArgumentException("Backup schedule name must be lower-kebab/snake: '{$name}'.");

@@ -52,8 +52,10 @@ final class KnownActionFactory
 
     public static function buildPush(): PinnedAction
     {
-        // v6 is the current major.
-        return new PinnedAction('docker', 'build-push-action', '10e90e3645eae34f1e60eeb005ba3a3d33f178e8', 'v6');
+        // v7.3.0 runs on Node 24 natively. The whole v6 line still targets node20 (the moving `v6`
+        // tag never moved off it), so GitHub force-runs it on Node 24 with a deprecation warning —
+        // bumping to v7 is the only way off Node 20 for this action. (R8-7 / B1)
+        return new PinnedAction('docker', 'build-push-action', '53b7df96c91f9c12dcc8a07bcb9ccacbed38856a', 'v7.3.0');
     }
 
     public static function sbomAttest(): PinnedAction

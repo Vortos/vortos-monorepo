@@ -18,6 +18,12 @@ final readonly class DeployRequest
         public ?string $imageRepository = null,
         public string $actorId = 'unknown',
         public ActorIdentitySource $actorIdentitySource = ActorIdentitySource::Local,
+        /**
+         * R8-1: when true, run 'vortos:migrate:publish' in the project tree before the doctor gate so
+         * newly-shipped module stubs become app migrations. Opt-in (off by default); only ever runs in
+         * Live mode. The default fail-closed posture is the UnpublishedStubCheck refusing the deploy.
+         */
+        public bool $autoPublishMigrations = false,
     ) {
         if ($env === '') {
             throw new \InvalidArgumentException('Deploy request env must not be empty.');

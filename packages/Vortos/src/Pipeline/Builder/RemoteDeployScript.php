@@ -133,6 +133,12 @@ final class RemoteDeployScript
             $lines[] = sprintf('mkdir -p %s && chmod 700 %s', $dir, $dir);
         }
 
+        // R8-9 (B3): hard CI gate on destructive/undeclared DDL BEFORE any migration is applied.
+        // Runs before provision (which applies expand migrations). analyze initializes its own
+        // migration metadata storage, so it is safe on a fresh DB; a finding is non-zero and
+        // `set -euo pipefail` aborts the deploy before it mutates the target.
+        $lines[] = $dockerRun . 'vortos:migrate:analyze --json';
+
         // G9: provision runs BEFORE record-manifest. record-manifest writes the release-ledger row,
         // whose schema is created by `vortos:migrate` inside provision — on a fresh DB the ledger
         // table would not exist yet if record-manifest ran first.

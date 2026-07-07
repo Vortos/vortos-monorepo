@@ -39,6 +39,7 @@ final class DeployRunner
         private readonly RollbackRunner $rollbackRunner,
         private readonly ?DeployAuditRecorder $auditRecorder = null,
         private readonly ?SshConnectionActivator $connectionActivator = null,
+        private readonly ?\Vortos\Deploy\Runtime\MigrationAutoPublisherInterface $autoPublisher = null,
     ) {}
 
     public function run(DeployRequest $request): DeployOutcome
@@ -49,6 +50,15 @@ final class DeployRunner
         $context = $this->contextFactory->build($env);
         $definition = $context->definition;
         $manifest = $context->desiredManifest;
+
+        // R8-1: opt-in auto-publish runs BEFORE the doctor gate, and only for a live deploy — a
+        // dry-run must mutate nothing, including the migration tree. Enabled by the CLI flag OR the
+        // config/deploy.php default. On failure the deploy is refused (the exception propagates to
+        // the caller), never proceeding half-published.
+        $autoPublish = $request->autoPublishMigrations || $definition->autoPublishMigrations;
+        if ($autoPublish && !$request->isDryRun() && $this->autoPublisher !== null) {
+            $this->autoPublisher->publish();
+        }
 
         $this->auditRecorder?->attempted(
             $env,

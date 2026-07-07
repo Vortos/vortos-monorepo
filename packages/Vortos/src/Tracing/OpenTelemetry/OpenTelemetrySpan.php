@@ -52,7 +52,9 @@ final class OpenTelemetrySpan implements SpanInterface
 
     public function addAttribute(string $key, mixed $value): void
     {
-        $this->span->setAttribute($key, $value);
+        // Enum values (e.g. TracingModule::Cache) must be reduced to scalars or the OTel SDK drops
+        // them with a "non-primitive attribute dropped" warning. See AttributeNormalizer.
+        $this->span->setAttribute($key, AttributeNormalizer::normalize($value));
     }
 
     public function recordException(Throwable $e): void

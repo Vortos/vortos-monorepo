@@ -55,7 +55,9 @@ final class OpenTelemetryTracer implements TracingInterface, ResetInterface
 
     public function startSpan(string $name, array $attributes = []): SpanInterface
     {
-        $otelSpan = $this->tracer->spanBuilder($name)->setAttributes($attributes)->startSpan();
+        $otelSpan = $this->tracer->spanBuilder($name)
+            ->setAttributes(AttributeNormalizer::normalizeAll($attributes))
+            ->startSpan();
         $scope = $otelSpan->activate();
         $scopeId = spl_object_id($scope);
         $this->scopes[$scopeId] = $scope;

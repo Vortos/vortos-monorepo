@@ -22,6 +22,27 @@ use Vortos\Metrics\Instrument\OpenTelemetryCounter;
 use Vortos\Metrics\Instrument\OpenTelemetryGauge;
 use Vortos\Metrics\Instrument\OpenTelemetryHistogram;
 
+/**
+ * OTLP push adapter.
+ *
+ * ## Worker-mode lifecycle (critical)
+ *
+ * This adapter is a long-lived container singleton. In FrankenPHP worker mode the same
+ * {@see MeterProviderInterface} instance serves thousands of requests. Delivery happens
+ * per request via {@see self::flush()} ({@see \OpenTelemetry\SDK\Metrics\MeterProvider::forceFlush()}),
+ * wired to `kernel.terminate` by {@see \Vortos\Metrics\Adapter\OpenTelemetryFlushListener}.
+ *
+ * The provider must **never** be shut down while the worker is still serving:
+ * {@see \OpenTelemetry\SDK\Metrics\MetricReader\ExportingReader} latches a `closed` flag
+ * on shutdown, after which every subsequent `forceFlush()` short-circuits and silently
+ * exports nothing — black-holing all metrics for the remaining life of the worker.
+ *
+ * For that reason this class does NOT register a `register_shutdown_function` self-close:
+ * under a worker SAPI that callback can bind to the first request's shutdown and close the
+ * provider after a single flush. {@see self::shutdown()} remains for explicit teardown
+ * (tests, a real process-exit hook), but is never auto-invoked mid-life. No data is lost by
+ * omitting an exit-time drain: every request already flushes on terminate.
+ */
 final class OpenTelemetryMetrics implements MetricsInterface, FlushableMetricsInterface, ShutdownMetricsInterface
 {
     /** @var array<string, OTelCounterInterface> */
@@ -40,7 +61,8 @@ final class OpenTelemetryMetrics implements MetricsInterface, FlushableMetricsIn
         private readonly string $namespace = 'vortos',
         private readonly ?LoggerInterface $logger = null,
     ) {
-        register_shutdown_function($this->shutdown(...));
+        // Intentionally NO register_shutdown_function(shutdown(...)): see class docblock.
+        // Closing the provider mid-life permanently black-holes exports in worker mode.
     }
 
     public function counter(string $name, array $labels = []): CounterInterface
@@ -92,7 +114,16 @@ final class OpenTelemetryMetrics implements MetricsInterface, FlushableMetricsIn
     public function flush(): void
     {
         try {
-            $this->meterProvider->forceFlush();
+            // forceFlush() returns false when the export was suppressed rather than thrown:
+            // a closed provider (ExportingReader latched shut) or a rejected/failed export.
+            // A closed provider means every future flush is a silent no-op, so surface it
+            // loudly — this is the failure mode that hid a total metrics outage in worker mode.
+            if ($this->meterProvider->forceFlush() === false) {
+                $this->logger?->error('metrics.otlp.flush_suppressed', [
+                    'reason' => 'forceFlush returned false; export was suppressed '
+                        . '(provider closed or backend rejected the batch)',
+                ]);
+            }
         } catch (\Throwable $e) {
             $this->logger?->warning('metrics.otlp.flush_failed', [
                 'exception' => $e::class,

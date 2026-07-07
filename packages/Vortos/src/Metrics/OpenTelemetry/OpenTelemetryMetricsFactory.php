@@ -26,7 +26,8 @@ final class OpenTelemetryMetricsFactory
      *     endpoint: string,
      *     headers: array<string, string>,
      *     timeout_ms: int,
-     *     namespace: string
+     *     namespace: string,
+     *     temporality: string
      * } $config
      */
     public static function create(
@@ -59,12 +60,14 @@ final class OpenTelemetryMetricsFactory
             retryDelay: 0,
             maxRetries: 0,
         );
-        // Force CUMULATIVE temporality. Without this the exporter falls back to per-instrument
-        // temporality (delta for counters/histograms), which Prometheus-compatible OTLP backends —
-        // Grafana Cloud / Mimir, and the Prometheus OTLP receiver — reject with HTTP 400
-        // "invalid temporality and type combination". Cumulative is the correct, portable default
-        // (also accepted by New Relic and Datadog); delta-preferring backends remain a future opt-in.
-        $exporter = new MetricExporter($transport, Temporality::CUMULATIVE);
+        // Pin the aggregation temporality explicitly. Without this the exporter falls back to
+        // per-instrument temporality (delta for counters/histograms), which Prometheus-compatible
+        // OTLP backends — Grafana Cloud / Mimir, and the Prometheus OTLP receiver — reject with
+        // HTTP 400 "invalid temporality and type combination". Cumulative is the correct, portable
+        // default (also accepted by New Relic and Datadog) and is self-healing under a per-request
+        // flush worker model; delta is an opt-in for delta-native backends. Configurable via
+        // VortosMetricsConfig::metricsTemporality().
+        $exporter = new MetricExporter($transport, self::temporalityToken($config['temporality']));
         $reader = new ExportingReader($exporter);
         $resource = ResourceInfoFactory::defaultResource()->merge(ResourceInfo::create(Attributes::create([
             'service.name' => $config['service_name'],
@@ -83,6 +86,22 @@ final class OpenTelemetryMetricsFactory
             $config['namespace'],
             $logger,
         );
+    }
+
+    /**
+     * Maps a {@see \Vortos\Metrics\Config\MetricTemporality} value to the SDK temporality token
+     * consumed by {@see MetricExporter}. Unknown values fall back to the safe, portable
+     * cumulative default rather than throwing — a bad config value must never disable delivery.
+     *
+     * @internal
+     * @return Temporality::DELTA|Temporality::CUMULATIVE
+     */
+    public static function temporalityToken(string $temporality): string
+    {
+        return match ($temporality) {
+            'delta' => Temporality::DELTA,
+            default => Temporality::CUMULATIVE,
+        };
     }
 
     /**

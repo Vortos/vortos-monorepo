@@ -7,6 +7,7 @@ namespace Vortos\Metrics\Tests;
 use PHPUnit\Framework\TestCase;
 use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
+use Vortos\Metrics\Config\MetricTemporality;
 use Vortos\Metrics\DependencyInjection\VortosMetricsConfig;
 use Vortos\Observability\Config\ObservabilityModule;
 
@@ -129,6 +130,22 @@ final class VortosMetricsConfigTest extends TestCase
         $this->assertSame('http://otel-collector:4318/v1/metrics', $array['otlp_endpoint']);
         $this->assertSame(['api-key' => 'secret'], $array['otlp_headers']);
         $this->assertSame(1000, $array['otlp_timeout_ms']);
+    }
+
+    public function test_otlp_temporality_defaults_to_cumulative(): void
+    {
+        $array = (new VortosMetricsConfig())->toArray();
+
+        $this->assertSame(MetricTemporality::Cumulative, $array['otlp_temporality']);
+    }
+
+    public function test_metrics_temporality_can_opt_in_to_delta(): void
+    {
+        $config = (new VortosMetricsConfig())
+            ->adapter(MetricsAdapter::OpenTelemetry)
+            ->metricsTemporality(MetricTemporality::Delta);
+
+        $this->assertSame(MetricTemporality::Delta, $config->toArray()['otlp_temporality']);
     }
 
     public function test_vendor_otlp_helpers_only_set_endpoint_and_headers(): void

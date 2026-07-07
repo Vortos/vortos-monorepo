@@ -29,6 +29,7 @@ use Vortos\Messaging\Retry\RetryDelayCalculator;
 use Vortos\Messaging\Runtime\ConsumerRunner;
 use Vortos\Messaging\Serializer\SerializerLocator;
 use Vortos\Messaging\ValueObject\ReceivedMessage;
+use Vortos\Metrics\Contract\FlushableMetricsInterface;
 
 // Pure POPO payload
 final readonly class RunnerTestPayload
@@ -74,6 +75,41 @@ final class SingleMessageConsumer implements ConsumerInterface
     {
         $this->rejected = true;
     }
+}
+
+/**
+ * Fake ConsumerInterface: delivers a fixed list of messages, optionally sleeping between each,
+ * then returns (loop ends).
+ */
+final class MultiMessageConsumer implements ConsumerInterface
+{
+    public int $acknowledged = 0;
+
+    /** @param list<ReceivedMessage> $messages */
+    public function __construct(private array $messages, private int $sleepUsBetween = 0) {}
+
+    public function consume(string $consumerName, callable $handler): void
+    {
+        $first = true;
+        foreach ($this->messages as $message) {
+            if (!$first && $this->sleepUsBetween > 0) {
+                usleep($this->sleepUsBetween);
+            }
+            $first = false;
+            $handler($message);
+        }
+    }
+
+    public function stop(): void {}
+    public function acknowledge(ReceivedMessage $message): void { $this->acknowledged++; }
+    public function reject(ReceivedMessage $message, bool $requeue = false): void {}
+}
+
+/** Counts flush() invocations. */
+final class CountingFlusher implements FlushableMetricsInterface
+{
+    public int $flushes = 0;
+    public function flush(): void { $this->flushes++; }
 }
 
 final class ConsumerRunnerTest extends TestCase
@@ -123,12 +159,14 @@ final class ConsumerRunnerTest extends TestCase
     private function makeRunner(
         HandlerRegistry $registry,
         ConsumerRegistry $consumers,
-        SingleMessageConsumer $consumer,
+        ConsumerInterface $consumer,
         array $handlers = [],
         SerializerInterface $serializer = null,
         int $idempotencyTtl = 86400,
         ?array $wireEventMap = null,
         array $upcasterMap = [],
+        ?FlushableMetricsInterface $metricsFlusher = null,
+        int $telemetryFlushIntervalMs = 5000,
     ): ConsumerRunner {
         $cache = new class implements AtomicCacheInterface {
             public function get($key, $default = null): mixed { return $default; }
@@ -168,6 +206,8 @@ final class ConsumerRunnerTest extends TestCase
             defaultIdempotencyTtl: $idempotencyTtl,
             wireEventMap:         $wireEventMap ?? [self::WIRE_NAME => RunnerTestPayload::class],
             upcasterMap:          $upcasterMap,
+            metricsFlusher:       $metricsFlusher,
+            telemetryFlushIntervalMs: $telemetryFlushIntervalMs,
         );
     }
 
@@ -490,5 +530,75 @@ final class ConsumerRunnerTest extends TestCase
 
         $this->assertInstanceOf(\DateTimeImmutable::class, $received->occurredAt);
         $this->assertSame('2026-01-15', $received->occurredAt->format('Y-m-d'));
+    }
+
+    public function test_telemetry_is_drained_once_when_the_loop_ends(): void
+    {
+        // A worker whose ConsoleEvents::TERMINATE never fires (daemon) must still deliver metrics:
+        // the loop's final drain force-flushes exactly once even under a large interval.
+        $flusher  = new CountingFlusher();
+        $consumer = new SingleMessageConsumer($this->makeMessage($this->baseHeaders()));
+
+        $this->makeRunner(
+            new HandlerRegistry([]),
+            new ConsumerRegistry([]),
+            $consumer,
+            metricsFlusher: $flusher,
+            telemetryFlushIntervalMs: 60000,
+        )->run('c');
+
+        $this->assertSame(1, $flusher->flushes, 'loop end must force a final telemetry drain');
+    }
+
+    public function test_telemetry_flush_is_throttled_and_not_per_message(): void
+    {
+        // Five messages processed back-to-back within one interval must NOT trigger five exports —
+        // only the single final drain. Protects high-throughput consumers from an export storm.
+        $flusher  = new CountingFlusher();
+        $messages = array_fill(0, 5, $this->makeMessage($this->baseHeaders()));
+        $consumer = new MultiMessageConsumer($messages);
+
+        $this->makeRunner(
+            new HandlerRegistry([]),
+            new ConsumerRegistry([]),
+            $consumer,
+            metricsFlusher: $flusher,
+            telemetryFlushIntervalMs: 60000,
+        )->run('c');
+
+        $this->assertSame(5, $consumer->acknowledged);
+        $this->assertSame(1, $flusher->flushes, 'in-interval messages must not each trigger a flush');
+    }
+
+    public function test_telemetry_is_flushed_periodically_once_the_interval_elapses(): void
+    {
+        // With a tiny interval and a real gap between two messages, the second message crosses the
+        // interval boundary and drains mid-loop; the final drain adds one more.
+        $flusher  = new CountingFlusher();
+        $messages = [
+            $this->makeMessage($this->baseHeaders()),
+            $this->makeMessage($this->baseHeaders()),
+        ];
+        $consumer = new MultiMessageConsumer($messages, sleepUsBetween: 400_000);
+
+        $this->makeRunner(
+            new HandlerRegistry([]),
+            new ConsumerRegistry([]),
+            $consumer,
+            metricsFlusher: $flusher,
+            telemetryFlushIntervalMs: 250,
+        )->run('c');
+
+        $this->assertGreaterThanOrEqual(2, $flusher->flushes, 'a mid-loop periodic flush plus the final drain');
+    }
+
+    public function test_absent_flusher_is_a_safe_noop(): void
+    {
+        $consumer = new SingleMessageConsumer($this->makeMessage($this->baseHeaders()));
+
+        $this->makeRunner(new HandlerRegistry([]), new ConsumerRegistry([]), $consumer, metricsFlusher: null)
+            ->run('c');
+
+        $this->assertTrue($consumer->acknowledged);
     }
 }

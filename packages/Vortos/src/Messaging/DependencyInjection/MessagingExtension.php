@@ -67,6 +67,7 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
+use Vortos\Metrics\Contract\MetricsInterface;
 use Symfony\Component\Messenger\MessageBus;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
@@ -373,10 +374,26 @@ final class MessagingExtension extends Extension
             ->setArgument('$eventBus', new Reference(EventBusInterface::class))
             ->setArgument('$wireEventMap', '%vortos.wire_event_map%')
             ->setArgument('$upcasterMap', '%vortos.upcaster_map%')
+            // Periodic in-loop telemetry drain for long-lived consumer workers. The MetricsInterface
+            // alias (ModuleAwareMetrics) always implements FlushableMetricsInterface and no-ops for
+            // pull-based/NoOp adapters; NULL when the metrics package is absent.
+            ->setArgument('$metricsFlusher', new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$telemetryFlushIntervalMs', $this->telemetryFlushIntervalMs())
             ->setPublic(false);
 
         $container->setAlias(ConsumerRunnerInterface::class, ConsumerRunner::class)
             ->setPublic(false);
+    }
+
+    /**
+     * How often a long-lived consumer worker drains push-based telemetry, in milliseconds.
+     * Override with VORTOS_TELEMETRY_FLUSH_INTERVAL_MS; clamped to [250ms, 60s].
+     */
+    private function telemetryFlushIntervalMs(): int
+    {
+        $configured = (int) ($_ENV['VORTOS_TELEMETRY_FLUSH_INTERVAL_MS'] ?? 5000);
+
+        return max(250, min(60000, $configured));
     }
 
     private function registerEventBus(ContainerBuilder $container): void

@@ -21,6 +21,7 @@ class Runner
 {
     private ?Container $container = null;
     private ?SymfonyResponse $response = null;
+    private ?Request $request = null;
     private ?\Throwable $bootError = null;
     private readonly string $containerPath;
     private array $parameters = [];
@@ -42,7 +43,7 @@ class Runner
 
     public function run(): SymfonyResponse
     {
-        $request = $this->getRequest();
+        $request = $this->request = $this->getRequest();
 
         // Prod: a failed boot is permanent until redeploy — skip recompilation on every request.
         // Dev: always retry so fixing the code recovers without restarting the worker.
@@ -105,6 +106,13 @@ class Runner
 
     public function cleanUp(): void
     {
+        // Fire kernel.terminate (terminable middleware: metrics/StatsD/log flush) AFTER the response
+        // has been sent and BEFORE services are reset, so per-request state is still intact. In
+        // FrankenPHP worker mode this is the ONLY thing that calls Kernel::terminate() — run() only
+        // calls handle(). Without this, every terminable middleware (including the OTLP metrics flush)
+        // would silently never run, and reset() below would drop the request's recorded telemetry.
+        $this->terminateKernel();
+
         if ($this->container !== null && $this->container->has(ServicesResetter::class)) {
             $this->container->get(ServicesResetter::class)->reset();
         }
@@ -114,12 +122,39 @@ class Runner
         }
 
         // In worker mode, keep the container alive between requests
-        // Only reset the response
+        // Only reset the per-request request/response
         $this->response = null;
+        $this->request  = null;
 
         // Only reset container in non-worker mode
         if (!function_exists('frankenphp_handle_request')) {
             $this->container = null;
+        }
+    }
+
+    /**
+     * Invokes Vortos\Http\Kernel::terminate() for the request just served, running all terminable
+     * middleware. Guarded to the http context and a booted kernel; a failure here is logged and
+     * swallowed so a flush error can never break the worker loop or skip the reset that follows.
+     */
+    private function terminateKernel(): void
+    {
+        if ($this->context !== 'http'
+            || $this->container === null
+            || $this->request === null
+            || $this->response === null
+            || !$this->container->has('vortos')
+        ) {
+            return;
+        }
+
+        try {
+            $this->container->get('vortos')->terminate($this->request, $this->response);
+        } catch (\Throwable $e) {
+            $this->getLogger()?->error('http.terminate_failed', [
+                'exception' => $e::class,
+                'message'   => $e->getMessage(),
+            ]);
         }
     }
 

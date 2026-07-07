@@ -36,6 +36,7 @@ use Vortos\Messaging\Retry\RetryPolicy;
 use Vortos\Messaging\Serializer\SerializerLocator;
 use Vortos\Messaging\Upcasting\UpcasterChain;
 use Vortos\Messaging\ValueObject\ReceivedMessage;
+use Vortos\Metrics\Contract\FlushableMetricsInterface;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Observability\Telemetry\FrameworkMetric;
@@ -97,27 +98,80 @@ final class ConsumerRunner implements ConsumerRunnerInterface
         private array $wireEventMap = [],
         /** @var array<string, array<int, class-string>> wire name → [fromVersion => upcaster class] */
         private array $upcasterMap = [],
+        // Push-based telemetry (OTLP/StatsD) is only delivered when flush() runs. HTTP requests
+        // flush on kernel.terminate, but a consumer worker runs a single long-lived command whose
+        // ConsoleEvents::TERMINATE fires only at process exit — so without an in-loop flush a daemon
+        // consumer would accumulate metrics in memory and never export them. This throttled flush
+        // drains telemetry periodically while the loop runs. No-op for pull-based (Prometheus) and
+        // NoOp adapters via ModuleAwareMetrics::flush().
+        private ?FlushableMetricsInterface $metricsFlusher = null,
+        private int $telemetryFlushIntervalMs = 5000,
     ) {
         $this->upcasterChain = new UpcasterChain($this->upcasterMap);
+        $this->telemetryFlushIntervalMs = max(250, $this->telemetryFlushIntervalMs);
     }
 
     private UpcasterChain $upcasterChain;
+    private int $lastTelemetryFlushNs = 0;
 
     public function run(string $consumerName, int $maxMessages = 0): void
     {
         $this->activeConsumer = $this->consumerLocator->get($consumerName);
         $processed = 0;
+        // Start the interval clock now so the first flush honours the full interval rather than
+        // firing after the very first message.
+        $this->lastTelemetryFlushNs = hrtime(true);
 
-        $this->activeConsumer->consume(
-            $consumerName,
-            function (ReceivedMessage $message) use ($consumerName, &$processed, $maxMessages): void {
-                $this->handleMessage($consumerName, $message, $this->activeConsumer);
-                $processed++;
-                if ($maxMessages > 0 && $processed >= $maxMessages) {
-                    $this->activeConsumer->stop();
+        try {
+            $this->activeConsumer->consume(
+                $consumerName,
+                function (ReceivedMessage $message) use ($consumerName, &$processed, $maxMessages): void {
+                    $this->handleMessage($consumerName, $message, $this->activeConsumer);
+                    $processed++;
+                    $this->flushTelemetry();
+                    if ($maxMessages > 0 && $processed >= $maxMessages) {
+                        $this->activeConsumer->stop();
+                    }
                 }
-            }
-        );
+            );
+        } finally {
+            // Final drain when the loop ends (drain/stop/max-messages/exception), so the last
+            // interval's metrics are delivered even if the process exits before ConsoleEvents::TERMINATE.
+            $this->flushTelemetry(force: true);
+        }
+    }
+
+    /**
+     * Drains push-based telemetry, at most once per configured interval.
+     *
+     * Called after every processed message; the throttle keeps a high-throughput consumer from
+     * issuing one OTLP export per message while still delivering metrics continuously. A closed
+     * or failed export is surfaced by the adapter's own flush(), never thrown here — telemetry
+     * delivery must not be able to crash the consumer loop.
+     */
+    private function flushTelemetry(bool $force = false): void
+    {
+        if ($this->metricsFlusher === null) {
+            return;
+        }
+
+        $now = hrtime(true);
+        if (!$force
+            && ($now - $this->lastTelemetryFlushNs) < $this->telemetryFlushIntervalMs * 1_000_000
+        ) {
+            return;
+        }
+
+        $this->lastTelemetryFlushNs = $now;
+
+        try {
+            $this->metricsFlusher->flush();
+        } catch (\Throwable $e) {
+            $this->logger->warning('Telemetry flush failed during consume loop', [
+                'exception' => $e::class,
+                'message'   => $e->getMessage(),
+            ]);
+        }
     }
 
     /** Stops the consumer loop. Called by signal handlers on SIGTERM/SIGINT. */

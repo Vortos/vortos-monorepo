@@ -82,22 +82,11 @@ final class FlushScheduler
 
         register_shutdown_function([$this, 'flushAll']);
 
-        if (!function_exists('pcntl_signal') || !function_exists('pcntl_alarm')) {
-            return;
-        }
-
-        if (function_exists('pcntl_async_signals')) {
-            pcntl_async_signals(true);
-        }
-
-        $interval = $this->minInterval();
-
-        pcntl_signal(SIGALRM, function () use ($interval): void {
-            $this->flushDue();
-            pcntl_alarm($interval);
-        });
-
-        pcntl_alarm($interval);
+        // NOTE: the periodic SIGALRM flush (pcntl_async_signals + pcntl_alarm) was removed.
+        // It is unsafe under FrankenPHP's multi-threaded (ZTS) worker: the async signal handler
+        // runs in an arbitrary worker thread mid-VM-op and corrupts memory → SIGSEGV. The
+        // buffer-fill, request/command-end (FlushBootListener), and shutdown-function triggers
+        // already guarantee bounded flush latency, including FrankenPHP worker mode.
     }
 
     private function minInterval(): int

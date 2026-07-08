@@ -20,6 +20,20 @@ final class RegisterExceptionHandlerPass implements CompilerPassInterface
 {
     public function process(ContainerBuilder $container): void
     {
+        // Preserve the terminable-middleware wiring contributed by RegisterTerminablePass
+        // (priority 90, runs before this pass). The full Kernel-definition replacement below
+        // would otherwise drop it, leaving $terminableMiddleware at its empty default — which
+        // silently disables every terminable middleware (OTLP metrics flush, log flush): nothing
+        // runs on kernel.terminate and no metrics are ever exported.
+        $terminableMiddleware = [];
+        if ($container->hasDefinition(Kernel::class)) {
+            try {
+                $terminableMiddleware = $container->getDefinition(Kernel::class)->getArgument('$terminableMiddleware');
+            } catch (\OutOfBoundsException) {
+                $terminableMiddleware = [];
+            }
+        }
+
         $tagged = $container->findTaggedServiceIds('vortos.exception_handler');
 
         $handlers = [];
@@ -52,6 +66,7 @@ final class RegisterExceptionHandlerPass implements CompilerPassInterface
             ->setArgument('$pipeline', new Reference(Pipeline::class))
             ->setArgument('$requestStack', new Reference(RequestStack::class))
             ->setArgument('$exceptionHandlers', $references)
+            ->setArgument('$terminableMiddleware', $terminableMiddleware)
             ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerBuilder::NULL_ON_INVALID_REFERENCE))
             ->setShared(true)
             ->setPublic(true);

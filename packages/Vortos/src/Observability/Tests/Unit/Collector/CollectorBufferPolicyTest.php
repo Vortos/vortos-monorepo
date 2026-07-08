@@ -47,4 +47,34 @@ final class CollectorBufferPolicyTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         new CollectorBufferPolicy(cardinalityDenyList: ['ok', '']);
     }
+
+    public function test_host_container_metrics_off_by_default(): void
+    {
+        $policy = new CollectorBufferPolicy();
+
+        self::assertFalse($policy->hostMetrics);
+        self::assertFalse($policy->containerMetrics);
+        self::assertSame('tcp://docker-socket-proxy:2375', $policy->containerStatsEndpoint);
+        self::assertSame('1.44', $policy->dockerApiVersion);
+    }
+
+    public function test_rejects_empty_container_stats_endpoint_when_enabled(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new CollectorBufferPolicy(containerMetrics: true, containerStatsEndpoint: '');
+    }
+
+    public function test_rejects_empty_docker_api_version_when_enabled(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new CollectorBufferPolicy(containerMetrics: true, dockerApiVersion: '');
+    }
+
+    public function test_empty_container_endpoint_allowed_when_disabled(): void
+    {
+        // Only validated when the receiver is actually enabled.
+        $policy = new CollectorBufferPolicy(containerMetrics: false, containerStatsEndpoint: '');
+
+        self::assertFalse($policy->containerMetrics);
+    }
 }

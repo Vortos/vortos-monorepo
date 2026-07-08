@@ -39,6 +39,9 @@ final class GenerateCollectorConfigCommand extends Command
             ->addOption('sink', null, InputOption::VALUE_REQUIRED, 'Metrics sink driver key (e.g. grafana, null)', $this->defaultSink)
             ->addOption('storage-dir', null, InputOption::VALUE_REQUIRED, 'Collector persistent-queue directory', '/var/lib/otelcol/storage')
             ->addOption('memory-limit-mib', null, InputOption::VALUE_REQUIRED, 'Collector memory_limiter hard cap (MiB)', '256')
+            ->addOption('host-metrics', null, InputOption::VALUE_NONE, 'Scrape host CPU/memory/load/disk/network (adds the hostmetrics receiver + a /hostfs mount)')
+            ->addOption('container-metrics', null, InputOption::VALUE_NONE, 'Scrape per-container CPU/memory via the docker_stats receiver')
+            ->addOption('container-stats-endpoint', null, InputOption::VALUE_REQUIRED, 'Docker API endpoint for docker_stats', CollectorBufferPolicy::DEFAULT_CONTAINER_STATS_ENDPOINT)
             ->addOption('force', 'f', InputOption::VALUE_NONE, 'Overwrite existing files')
             ->addOption('bind', null, InputOption::VALUE_REQUIRED, 'OTLP receiver bind host: 127.0.0.1 (sidecar) or 0.0.0.0 (shared collector on a private network)')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Preview without writing');
@@ -59,6 +62,9 @@ final class GenerateCollectorConfigCommand extends Command
             $policy = new CollectorBufferPolicy(
                 storageDir: (string) $input->getOption('storage-dir'),
                 memoryLimitMib: max(32, (int) $input->getOption('memory-limit-mib')),
+                hostMetrics: (bool) $input->getOption('host-metrics'),
+                containerMetrics: (bool) $input->getOption('container-metrics'),
+                containerStatsEndpoint: (string) $input->getOption('container-stats-endpoint'),
             );
             // --bind (or OBSERVABILITY_COLLECTOR_BIND) selects the receiver interface: loopback
             // for a sidecar sharing the app netns, or 0.0.0.0 for a shared collector on a private

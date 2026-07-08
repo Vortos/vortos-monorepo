@@ -91,6 +91,16 @@ final class CollectorConfigPublisher
     {
         $storageDir = $policy->storageDir;
 
+        $collectorVolumes = [
+            './observability/collector/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro',
+            'vortos-otelcol-storage:' . $storageDir,
+        ];
+        // hostmetrics reads the host's /proc, /sys, filesystems via root_path=/hostfs — bind the host
+        // root read-only. (docker_stats needs no mount: it dials the socket-proxy over the network.)
+        if ($policy->hostMetrics) {
+            $collectorVolumes[] = '/:/hostfs:ro';
+        }
+
         $fragment = [
             'services' => [
                 // One-shot: make the persistent-queue volume writable by the collector uid, then exit.
@@ -114,10 +124,7 @@ final class CollectorConfigPublisher
                     'depends_on' => [
                         'otel-collector-init' => ['condition' => 'service_completed_successfully'],
                     ],
-                    'volumes' => [
-                        './observability/collector/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro',
-                        'vortos-otelcol-storage:' . $storageDir,
-                    ],
+                    'volumes' => $collectorVolumes,
                     'ports' => ['127.0.0.1:4317:4317', '127.0.0.1:4318:4318'],
                 ],
             ],

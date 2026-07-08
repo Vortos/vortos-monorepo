@@ -121,4 +121,78 @@ final class CollectorConfigBuilderTest extends TestCase
         self::assertArrayNotHasKey('attributes/cardinality', $config['processors']);
         self::assertNotContains('attributes/cardinality', $config['service']['pipelines']['metrics']['processors']);
     }
+
+    // ── Host + container metrics (opt-in) ──────────────────────────────────────────
+
+    private function buildWith(CollectorBufferPolicy $policy): array
+    {
+        return (new CollectorConfigBuilder())->build(new GrafanaOtlpMetricsSink('h'), $policy)->toArray();
+    }
+
+    public function test_no_host_or_container_receivers_by_default(): void
+    {
+        $config = $this->build();
+
+        self::assertArrayNotHasKey('hostmetrics', $config['receivers']);
+        self::assertArrayNotHasKey('docker_stats', $config['receivers']);
+        self::assertArrayNotHasKey('transform/promote', $config['processors']);
+        self::assertSame(['otlp'], $config['service']['pipelines']['metrics']['receivers']);
+    }
+
+    public function test_host_metrics_adds_receiver_and_wires_metrics_pipeline_only(): void
+    {
+        $config = $this->buildWith(new CollectorBufferPolicy(hostMetrics: true));
+
+        self::assertArrayHasKey('hostmetrics', $config['receivers']);
+        self::assertSame('/hostfs', $config['receivers']['hostmetrics']['root_path']);
+        self::assertContains('hostmetrics', $config['service']['pipelines']['metrics']['receivers']);
+        // traces/logs stay OTLP-only.
+        self::assertSame(['otlp'], $config['service']['pipelines']['traces']['receivers']);
+    }
+
+    public function test_container_metrics_adds_docker_stats_with_string_api_version(): void
+    {
+        $config = $this->buildWith(new CollectorBufferPolicy(containerMetrics: true));
+
+        self::assertArrayHasKey('docker_stats', $config['receivers']);
+        self::assertSame('tcp://docker-socket-proxy:2375', $config['receivers']['docker_stats']['endpoint']);
+        self::assertSame('1.44', $config['receivers']['docker_stats']['api_version']);
+        self::assertContains('docker_stats', $config['service']['pipelines']['metrics']['receivers']);
+    }
+
+    public function test_promote_processor_added_and_ordered_before_cardinality(): void
+    {
+        $config = $this->buildWith(new CollectorBufferPolicy(hostMetrics: true, containerMetrics: true));
+
+        self::assertArrayHasKey('transform/promote', $config['processors']);
+        $chain = $config['service']['pipelines']['metrics']['processors'];
+        self::assertSame('memory_limiter', $chain[0]);
+        self::assertLessThan(
+            array_search('attributes/cardinality', $chain, true),
+            array_search('transform/promote', $chain, true),
+        );
+        self::assertSame('batch', $chain[array_key_last($chain)]);
+    }
+
+    public function test_host_container_flags_ignored_when_sink_has_no_metrics(): void
+    {
+        // The null sink emits no pipelines — scrapers would be unused, so they must not be declared.
+        $config = (new CollectorConfigBuilder())
+            ->build(new NullMetricsSink(), new CollectorBufferPolicy(hostMetrics: true, containerMetrics: true))
+            ->toArray();
+
+        self::assertArrayNotHasKey('hostmetrics', $config['receivers']);
+        self::assertArrayNotHasKey('docker_stats', $config['receivers']);
+        self::assertSame([], $config['service']['pipelines']);
+    }
+
+    public function test_api_version_renders_as_quoted_string_in_yaml(): void
+    {
+        $yaml = (new CollectorConfigBuilder())
+            ->build(new GrafanaOtlpMetricsSink('h'), new CollectorBufferPolicy(containerMetrics: true))
+            ->toYaml();
+
+        // Must stay a string; an unquoted 1.44 would parse as a float and the receiver rejects it.
+        self::assertStringContainsString('api_version: "1.44"', $yaml);
+    }
 }

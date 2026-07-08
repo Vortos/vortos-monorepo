@@ -42,6 +42,28 @@ final class CollectorConfigBuilder
         $exporter = $sink->exporterConfig();
         $exporterKey = $exporter->type . '/' . $sink->name();
 
+        // Host/container scrapers only make sense when the sink actually carries metrics
+        // (the null sink emits no pipelines) — gate them so we never declare an unused receiver.
+        $hasMetrics = in_array(TelemetrySignal::Metrics, $sink->signals(), true);
+        $emitHost = $policy->hostMetrics && $hasMetrics;
+        $emitContainer = $policy->containerMetrics && $hasMetrics;
+        $promote = $emitHost || $emitContainer;
+
+        $receivers = [
+            'otlp' => [
+                'protocols' => [
+                    'grpc' => ['endpoint' => $receiverHost . ':4317'],
+                    'http' => ['endpoint' => $receiverHost . ':4318'],
+                ],
+            ],
+        ];
+        if ($emitHost) {
+            $receivers['hostmetrics'] = $this->hostMetricsReceiver();
+        }
+        if ($emitContainer) {
+            $receivers['docker_stats'] = $this->dockerStatsReceiver($policy);
+        }
+
         $config = [
             'extensions' => [
                 self::STORAGE_EXTENSION => [
@@ -49,21 +71,14 @@ final class CollectorConfigBuilder
                     'timeout' => '10s',
                 ],
             ],
-            'receivers' => [
-                'otlp' => [
-                    'protocols' => [
-                        'grpc' => ['endpoint' => $receiverHost . ':4317'],
-                        'http' => ['endpoint' => $receiverHost . ':4318'],
-                    ],
-                ],
-            ],
-            'processors' => $this->processors($policy),
+            'receivers' => $receivers,
+            'processors' => $this->processors($policy, $promote),
             'exporters' => [
                 $exporterKey => $this->exporterSettings($exporter->settings),
             ],
             'service' => [
                 'extensions' => [self::STORAGE_EXTENSION],
-                'pipelines' => $this->pipelines($sink, $exporterKey, $policy),
+                'pipelines' => $this->pipelines($sink, $exporterKey, $policy, $emitHost, $emitContainer, $promote),
             ],
         ];
 
@@ -73,7 +88,7 @@ final class CollectorConfigBuilder
     /**
      * @return array<string, mixed>
      */
-    private function processors(CollectorBufferPolicy $policy): array
+    private function processors(CollectorBufferPolicy $policy, bool $promote): array
     {
         $processors = [
             // memory_limiter MUST be first in every pipeline; bounds collector RAM.
@@ -89,6 +104,10 @@ final class CollectorConfigBuilder
             ],
         ];
 
+        if ($promote) {
+            $processors[self::PROMOTE_PROCESSOR] = $this->promoteProcessor();
+        }
+
         if ($policy->cardinalityDenyList !== []) {
             $actions = [];
             $denied = $policy->cardinalityDenyList;
@@ -101,6 +120,88 @@ final class CollectorConfigBuilder
 
         return $processors;
     }
+
+    private const PROMOTE_PROCESSOR = 'transform/promote';
+
+    /**
+     * hostmetrics receiver: host CPU/load/memory/disk/network/paging/filesystem. Reads the host's
+     * world-readable /proc etc. via the /hostfs bind mount (root_path), so it works even as the
+     * collector's non-root uid. Filesystem excludes drop pseudo/overlay mounts that would otherwise
+     * flood cardinality and error on a containerized view.
+     *
+     * @return array<string, mixed>
+     */
+    private function hostMetricsReceiver(): array
+    {
+        return [
+            'root_path' => self::HOSTFS_ROOT,
+            'collection_interval' => self::SCRAPE_INTERVAL,
+            'scrapers' => [
+                'cpu' => ['metrics' => ['system.cpu.utilization' => ['enabled' => true]]],
+                'load' => [],
+                'memory' => ['metrics' => ['system.memory.utilization' => ['enabled' => true]]],
+                'disk' => [],
+                'network' => [],
+                'paging' => [],
+                'filesystem' => [
+                    'exclude_mount_points' => [
+                        'match_type' => 'regexp',
+                        'mount_points' => ['/hostfs/(dev|proc|sys|run|var/lib/docker|var/lib/containers).*'],
+                    ],
+                    'exclude_fs_types' => [
+                        'match_type' => 'strict',
+                        'fs_types' => ['overlay', 'tmpfs', 'devtmpfs', 'squashfs', 'autofs', 'mqueue', 'nsfs', 'proc', 'sysfs', 'tracefs', 'cgroup', 'cgroup2'],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * docker_stats receiver: per-container CPU/memory. Talks the Docker API over the endpoint in the
+     * policy (defaults to the least-privilege socket-proxy — no raw docker.sock mount). api_version is
+     * pinned because the receiver default (1.25) is refused by modern daemons.
+     *
+     * @return array<string, mixed>
+     */
+    private function dockerStatsReceiver(CollectorBufferPolicy $policy): array
+    {
+        return [
+            'endpoint' => $policy->containerStatsEndpoint,
+            'api_version' => $policy->dockerApiVersion,
+            'collection_interval' => self::SCRAPE_INTERVAL,
+            'metrics' => [
+                'container.cpu.utilization' => ['enabled' => true],
+                'container.memory.percent' => ['enabled' => true],
+            ],
+        ];
+    }
+
+    /**
+     * Promote resource attributes onto datapoints so they become queryable Prometheus labels:
+     * docker_stats keeps container.name/image on the resource (not the datapoint), and hostmetrics
+     * keeps host.name — without this the backend can't break metrics down per-container/host.
+     *
+     * @return array<string, mixed>
+     */
+    private function promoteProcessor(): array
+    {
+        return [
+            'metric_statements' => [
+                [
+                    'context' => 'datapoint',
+                    'statements' => [
+                        'set(attributes["container_name"], resource.attributes["container.name"]) where resource.attributes["container.name"] != nil',
+                        'set(attributes["image"], resource.attributes["container.image.name"]) where resource.attributes["container.image.name"] != nil',
+                        'set(attributes["host"], resource.attributes["host.name"]) where resource.attributes["host.name"] != nil',
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    private const HOSTFS_ROOT = '/hostfs';
+    private const SCRAPE_INTERVAL = '30s';
 
     /**
      * @param array<string, scalar|array<string, scalar|null>|null> $settings
@@ -126,21 +227,41 @@ final class CollectorConfigBuilder
     /**
      * @return array<string, array{receivers:list<string>, processors:list<string>, exporters:list<string>}>
      */
-    private function pipelines(MetricsSinkInterface $sink, string $exporterKey, CollectorBufferPolicy $policy): array
-    {
+    private function pipelines(
+        MetricsSinkInterface $sink,
+        string $exporterKey,
+        CollectorBufferPolicy $policy,
+        bool $emitHost,
+        bool $emitContainer,
+        bool $promote,
+    ): array {
+        // Metrics processor chain: memory_limiter first, then label promotion (before cardinality
+        // deletion so a promoted label can still be dropped if denied), then cardinality, then batch.
         $processorChain = ['memory_limiter'];
+        if ($promote) {
+            $processorChain[] = self::PROMOTE_PROCESSOR;
+        }
         if ($policy->cardinalityDenyList !== []) {
             $processorChain[] = 'attributes/cardinality';
         }
         $processorChain[] = 'batch';
 
+        $metricsReceivers = ['otlp'];
+        if ($emitHost) {
+            $metricsReceivers[] = 'hostmetrics';
+        }
+        if ($emitContainer) {
+            $metricsReceivers[] = 'docker_stats';
+        }
+
         $pipelines = [];
         foreach ($sink->signals() as $signal) {
+            $isMetrics = $signal === TelemetrySignal::Metrics;
             $pipelines[$signal->value] = [
-                'receivers' => ['otlp'],
-                'processors' => $signal === TelemetrySignal::Metrics
+                'receivers' => $isMetrics ? $metricsReceivers : ['otlp'],
+                'processors' => $isMetrics
                     ? $processorChain
-                    // cardinality deletion is metric-specific; traces/logs only batch.
+                    // cardinality deletion + promotion are metric-specific; traces/logs only batch.
                     : ['memory_limiter', 'batch'],
                 'exporters' => [$exporterKey],
             ];

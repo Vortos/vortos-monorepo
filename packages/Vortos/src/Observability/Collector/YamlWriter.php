@@ -124,6 +124,12 @@ final class YamlWriter
             return '"' . str_replace(['\\', '"'], ['\\\\', '\"'], $value) . '"';
         }
 
+        // A bareword string that would parse back as a number, bool, or null MUST be quoted to
+        // preserve its string type — e.g. docker_stats `api_version: "1.44"` must not become a float.
+        if (is_numeric($value) || in_array(strtolower($value), ['true', 'false', 'null', 'yes', 'no', 'on', 'off', '~'], true)) {
+            return '"' . $value . '"';
+        }
+
         return $value;
     }
 

@@ -66,12 +66,35 @@ final class CollectorConfigPublisherTest extends TestCase
         // Init sidecar chowns the volume, runs as root, and is a one-shot.
         self::assertStringContainsString('otel-collector-init:', $compose);
         self::assertStringContainsString('user: 0:0', $compose);
-        self::assertStringContainsString('restart: no', $compose);
+        // Quoted deliberately: bare `no` is YAML-1.1 boolean false — the writer keeps it a string.
+        self::assertStringContainsString('restart: "no"', $compose);
         self::assertStringContainsString('chown -R 10001:10001', $compose);
 
         // Collector pins its uid and waits for the init sidecar to finish.
         self::assertStringContainsString('user: 10001:10001', $compose);
         self::assertStringContainsString('service_completed_successfully', $compose);
+    }
+
+    public function test_host_metrics_adds_hostfs_mount_to_collector_service(): void
+    {
+        $this->publisher()->publish($this->projectDir, 'grafana', new CollectorBufferPolicy(hostMetrics: true));
+
+        $compose = (string) file_get_contents(
+            $this->projectDir . '/observability/collector/docker-compose.collector.yaml',
+        );
+
+        self::assertStringContainsString('/:/hostfs:ro', $compose);
+    }
+
+    public function test_no_hostfs_mount_without_host_metrics(): void
+    {
+        $this->publisher()->publish($this->projectDir, 'grafana', new CollectorBufferPolicy());
+
+        $compose = (string) file_get_contents(
+            $this->projectDir . '/observability/collector/docker-compose.collector.yaml',
+        );
+
+        self::assertStringNotContainsString('/hostfs', $compose);
     }
 
     public function test_idempotent_second_publish_skips_unchanged(): void

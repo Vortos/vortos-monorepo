@@ -98,4 +98,21 @@ final class CaddyConfigContractTest extends TestCase
         $this->assertStringContainsString('vortos-net', $yaml);
         $this->assertStringNotContainsString('2019:', $yaml);
     }
+
+    public function test_edge_compose_boots_from_durable_persisted_config(): void
+    {
+        $generator = new EdgeConfigGenerator();
+        $yaml = $generator->generateEdgeComposeYaml('example.com');
+
+        // The edge must boot from a config file (config-as-code), not admin-API-only in-memory state.
+        $this->assertStringContainsString('caddy run --config /config/caddy.json', $yaml);
+
+        // /config is a HOST bind-mount (survives a Docker daemon restart + is writable by the cutover
+        // over SSH), not the old ephemeral named volume that was lost on restart.
+        $this->assertStringContainsString('${EDGE_CONFIG_DIR:-/opt/vortos/edge/config}:/config', $yaml);
+        $this->assertStringNotContainsString('edge_runtime', $yaml);
+
+        // TLS/ACME material stays on a durable named volume so a cold boot never re-issues certs.
+        $this->assertStringContainsString('caddy_data:/data', $yaml);
+    }
 }

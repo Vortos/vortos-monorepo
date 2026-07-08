@@ -28,6 +28,15 @@ final class CaddyEdgeRouter implements EdgeRouterInterface
         private readonly EdgeStateStoreInterface $stateStore,
         private readonly DrainObserver $drainObserver,
         private readonly string $adminListen = 'localhost:2019',
+        /**
+         * Writes the fully-rendered cutover config to the edge's on-disk boot file — the file Caddy
+         * boots from via "caddy run --config". This is what makes a cold restart (Docker daemon
+         * restart, node reboot, fresh node) self-heal to the CURRENT route with no orchestration: the
+         * admin /load switches live traffic in memory, and this persists that exact config so a Caddy
+         * process restart reloads it verbatim instead of coming up empty or on a stale color. Null in
+         * local/dev (no edge filesystem to write); wired with an SSH transport in push-mode deploys.
+         */
+        private readonly ?MountedConfigWriter $bootConfigWriter = null,
     ) {}
 
     public function capabilities(): CapabilityDescriptor
@@ -56,10 +65,21 @@ final class CaddyEdgeRouter implements EdgeRouterInterface
 
         $this->adminClient->load($config);
 
-        // Persist the routing intent so an edge restart / new node reconstructs the active-color route
-        // from the store (replaces the unreachable /etc/caddy/ write). The live switch above already
-        // happened via the Admin API; this is durability, not the switch.
+        // Persist the routing intent so a new / horizontally-scaled edge node reconstructs the
+        // active-color route from the shared control-plane store (Redis by default). The live switch
+        // above already happened via the Admin API; this is durability, not the switch.
         $this->stateStore->save(EdgeState::fromRoute($desired));
+
+        // Persist the EXACT rendered config to the edge's on-disk boot file — the same file Caddy
+        // boots from ("caddy run --config"). Without this the boot file only reflects the last
+        // "docker compose up" (edge-init runs solely on the compose depends_on gate, never on a bare
+        // Docker daemon restart), so a daemon restart would resurrect a stale route or, on a
+        // push-only edge, come up empty — the exact outage this closes. With it, a cold restart
+        // reloads the current route verbatim, no admin re-push and no redeploy required.
+        $this->bootConfigWriter?->write(json_encode(
+            $config,
+            \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_PRETTY_PRINT,
+        ));
 
         $drainResult = $this->drainObserver->awaitDrain($desired->drainDeadlineSeconds);
 

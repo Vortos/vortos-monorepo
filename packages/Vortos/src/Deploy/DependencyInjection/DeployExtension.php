@@ -550,9 +550,13 @@ final class DeployExtension extends Extension
             ->setArgument('$adminClient', new Reference(CaddyAdminClient::class))
             ->setPublic(false);
 
-        // Retained as a general SSH-transport config-delivery utility (no longer on the cutover path,
-        // which now persists routing intent via the EdgeStateStore). Still an sshTransport consumer.
+        // Writes the rendered Caddy config to the edge's on-disk boot file (the file Caddy boots from
+        // via "caddy run --config"). The path MUST match the host side of the edge compose's /config
+        // bind-mount (EDGE_CONFIG_DIR/caddy.json) so the cutover write and the container's boot config
+        // are the same file — this is what makes a Docker daemon restart / reboot self-heal to the
+        // CURRENT route. Gets an SSH transport in push mode below; injected into CaddyEdgeRouter there.
         $container->register(MountedConfigWriter::class, MountedConfigWriter::class)
+            ->setArgument('$mountedPath', (string) ($_ENV['EDGE_CONFIG_PATH'] ?? '/opt/vortos/edge/config/caddy.json'))
             ->setPublic(false);
 
         $container->register(CaddyEdgeRouter::class, CaddyEdgeRouter::class)
@@ -833,6 +837,13 @@ final class DeployExtension extends Extension
                 $container->getDefinition($consumer)
                     ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
             }
+
+            // Only in a push-mode deploy (a real remote edge filesystem) does the cutover persist its
+            // rendered config to the edge's boot file. Local/dev keeps $bootConfigWriter null and is
+            // unchanged. This is the durability half of the daemon-restart fix: state store → new/scaled
+            // nodes; boot file → cold restart of the existing node.
+            $container->getDefinition(CaddyEdgeRouter::class)
+                ->setArgument('$bootConfigWriter', new Reference(MountedConfigWriter::class));
 
             // Caddy admin API stays bound to the VPS loopback; reach it through an SSH
             // local port-forward so it is never publicly exposed.

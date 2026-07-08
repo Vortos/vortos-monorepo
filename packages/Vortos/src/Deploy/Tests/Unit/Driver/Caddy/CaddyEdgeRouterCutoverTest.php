@@ -18,6 +18,7 @@ use Vortos\Deploy\Cutover\State\EdgeStateStoreInterface;
 use Vortos\Deploy\Driver\Caddy\CaddyAdminClient;
 use Vortos\Deploy\Driver\Caddy\CaddyEdgeRouter;
 use Vortos\Deploy\Driver\Caddy\DrainObserver;
+use Vortos\Deploy\Driver\Caddy\MountedConfigWriter;
 use Vortos\Deploy\Target\ActiveColor;
 
 /**
@@ -61,6 +62,50 @@ final class CaddyEdgeRouterCutoverTest extends TestCase
         self::assertSame(ActiveColor::Blue, $store->saved->activeColor);
         self::assertSame('api.example.com', $store->saved->domain);
         self::assertSame('production', $store->saved->env);
+    }
+
+    /**
+     * The cutover must persist the EXACT rendered config to the edge's on-disk boot file, so a bare
+     * Docker daemon restart (which never re-runs edge-init) reloads the CURRENT route from disk instead
+     * of coming up empty or on a stale color. This is the durability half of the daemon-restart fix.
+     */
+    public function test_cutover_persists_rendered_config_to_boot_file(): void
+    {
+        $http = new FakeCaddyHttpClient();
+        $adminClient = new CaddyAdminClient($http, new HttpFactory(), 'http://edge:2019');
+
+        $bootFile = sys_get_temp_dir() . '/vortos-edge-boot-' . bin2hex(random_bytes(6)) . '/caddy.json';
+        $writer = new MountedConfigWriter($bootFile);
+
+        $router = new CaddyEdgeRouter(
+            $adminClient,
+            new EdgeConfigGenerator(),
+            new RecordingEdgeStateStore(),
+            new DrainObserver($adminClient),
+            'edge:2019',
+            $writer,
+        );
+
+        $router->cutover(new DesiredRoute(
+            env: 'production',
+            activeColor: ActiveColor::Blue,
+            upstream: new ColorEndpoint('app-blue', 8080),
+            drainDeadlineSeconds: 1,
+            domain: 'api.example.com',
+        ));
+
+        self::assertFileExists($bootFile);
+        $persisted = json_decode((string) file_get_contents($bootFile), true, 512, \JSON_THROW_ON_ERROR);
+
+        // The boot file must equal what was pushed live: same upstream dial, same admin bind, and it
+        // must retain the domain's tls.automation so a cold boot keeps serving the cert.
+        self::assertSame('app-blue:8080', $persisted['apps']['http']['servers']['app']['routes'][0]['handle'][0]['upstreams'][0]['dial']);
+        self::assertSame('edge:2019', $persisted['admin']['listen']);
+        self::assertSame(['api.example.com'], $persisted['apps']['tls']['automation']['policies'][0]['subjects']);
+        self::assertSame(json_decode($http->lastLoaded ?? '', true), $persisted);
+
+        @unlink($bootFile);
+        @rmdir(\dirname($bootFile));
     }
 }
 

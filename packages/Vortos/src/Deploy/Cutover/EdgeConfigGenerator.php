@@ -232,11 +232,20 @@ final class EdgeConfigGenerator
 
     public function generateEdgeComposeYaml(string $domain): string
     {
-        // GAP-D (D5): the edge is stock caddy (no PHP), so it cannot query the control-plane edge
-        // state store itself. An init step runs the app image to reconstruct the active-color config
-        // from the store BEFORE Caddy starts, so a restarted/replaced/scaled edge self-heals its
-        // route. On first boot (no state yet) it falls back to the scaffolded bootstrap config so the
-        // edge can still serve HTTPS and accept the first cutover's /load.
+        // The edge's boot config lives on a HOST bind-mount (EDGE_CONFIG_DIR, default
+        // /opt/vortos/edge/config), NOT an ephemeral named volume. Two writers keep it durable and
+        // current, so the edge boots the CURRENT route from disk after ANY restart — including a bare
+        // Docker daemon restart, which restarts the caddy container directly per its restart policy
+        // and never re-runs edge-init (depends_on gates "compose up" only):
+        //   • edge-init (this app image; caddy has no PHP) renders the config from the durable state
+        //     store on "compose up", and on genuine first boot falls back to the scaffolded bootstrap
+        //     so the edge can serve HTTPS and accept the first cutover's /load.
+        //   • every cutover writes the exact rendered config straight to EDGE_CONFIG_DIR/caddy.json
+        //     over SSH (CaddyEdgeRouter + MountedConfigWriter), so the on-disk file always matches the
+        //     live route without waiting for edge-init to re-run.
+        // The bind-mount is the DIRECTORY (not a single file) so the atomic temp+rename write survives
+        // the inode swap. TLS/ACME material stays on the durable caddy_data volume so a cold boot never
+        // re-issues certificates.
         return <<<YAML
         services:
           edge-init:
@@ -250,7 +259,7 @@ final class EdgeConfigGenerator
             env_file:
               - /opt/vortos/.env.prod
             volumes:
-              - edge_runtime:/config
+              - \${EDGE_CONFIG_DIR:-/opt/vortos/edge/config}:/config
               - ./caddy-config.json:/bootstrap/caddy-config.json:ro
             networks:
               - vortos-net
@@ -268,14 +277,13 @@ final class EdgeConfigGenerator
               - "443:443/udp"
             volumes:
               - caddy_data:/data
-              - edge_runtime:/config
+              - \${EDGE_CONFIG_DIR:-/opt/vortos/edge/config}:/config
             command: caddy run --config /config/caddy.json
             networks:
               - vortos-net
 
         volumes:
           caddy_data:
-          edge_runtime:
 
         networks:
           vortos-net:

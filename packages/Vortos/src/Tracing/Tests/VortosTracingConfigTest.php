@@ -74,6 +74,20 @@ final class VortosTracingConfigTest extends TestCase
         $this->assertSame('https://otel.example.test/v1/traces', $otel['endpoint']);
         $this->assertSame(['x-api-key' => 'secret'], $otel['headers']);
         $this->assertSame(500, $otel['timeout_ms']);
+        $this->assertSame(256, $otel['span_attribute_count_limit']);
+        $this->assertSame(256, $otel['span_event_count_limit']);
+        $this->assertSame(256, $otel['span_link_count_limit']);
+    }
+
+    public function test_span_limits_are_overridable(): void
+    {
+        $config = (new VortosTracingConfig())->spanLimits(attributes: 512, links: 64);
+
+        $otel = $config->getOpenTelemetryConfig();
+
+        $this->assertSame(512, $otel['span_attribute_count_limit']);
+        $this->assertSame(256, $otel['span_event_count_limit']);
+        $this->assertSame(64, $otel['span_link_count_limit']);
     }
 
     public function test_otlp_endpoint_must_be_absolute_http_url(): void

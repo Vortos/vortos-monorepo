@@ -62,7 +62,7 @@ final class SinkEndpointTest extends TestCase
 
     public function test_to_array_round_trip_fields(): void
     {
-        $endpoint = SinkEndpoint::create('h', OtlpProtocol::HttpProtobuf, 4318, true, 'MY_HEADERS');
+        $endpoint = SinkEndpoint::create('h', OtlpProtocol::HttpProtobuf, 4318, true, 'MY_HEADERS', '/otlp');
 
         self::assertSame([
             'host' => 'h',
@@ -70,6 +70,38 @@ final class SinkEndpointTest extends TestCase
             'protocol' => 'http/protobuf',
             'tlsEnabled' => true,
             'headersEnvRef' => 'MY_HEADERS',
+            'basePath' => '/otlp',
         ], $endpoint->toArray());
+    }
+
+    public function test_dsn_appends_base_path(): void
+    {
+        $endpoint = SinkEndpoint::create('gw.grafana.net', OtlpProtocol::HttpProtobuf, 443, true, null, '/otlp');
+
+        self::assertSame('https://gw.grafana.net:443/otlp', $endpoint->dsn());
+    }
+
+    #[DataProvider('basePathVariants')]
+    public function test_base_path_is_normalized(?string $input, ?string $expected): void
+    {
+        $endpoint = SinkEndpoint::create('h', OtlpProtocol::HttpProtobuf, 4318, true, null, $input);
+
+        self::assertSame($expected, $endpoint->basePath);
+    }
+
+    /** @return array<string, array{?string, ?string}> */
+    public static function basePathVariants(): array
+    {
+        return [
+            'null stays null' => [null, null],
+            'empty to null' => ['', null],
+            'whitespace to null' => ['   ', null],
+            'slashes only to null' => ['/', null],
+            'bare word gets slash' => ['otlp', '/otlp'],
+            'leading slash kept' => ['/otlp', '/otlp'],
+            'trailing slash stripped' => ['otlp/', '/otlp'],
+            'both slashes normalized' => ['/otlp/', '/otlp'],
+            'nested path preserved' => ['api/otlp', '/api/otlp'],
+        ];
     }
 }

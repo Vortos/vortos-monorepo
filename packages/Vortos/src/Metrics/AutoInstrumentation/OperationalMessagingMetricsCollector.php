@@ -31,14 +31,21 @@ final class OperationalMessagingMetricsCollector implements MetricsCollectorInte
     /** @var array<string, array<string, string>> */
     private array $previousDlqAgeLabels = [];
 
+    private readonly string $outboxTable;
+    private readonly string $deadLetterTable;
+
     public function __construct(
         private readonly Connection $connection,
         private readonly FrameworkTelemetry $telemetry,
-        private readonly string $outboxTable = 'vortos_outbox',
-        private readonly string $deadLetterTable = 'vortos_failed_messages',
+        string $outboxTable = 'vortos_outbox',
+        string $deadLetterTable = 'vortos_failed_messages',
     ) {
-        $this->assertSafeIdentifier($outboxTable);
-        $this->assertSafeIdentifier($deadLetterTable);
+        // Validate on the raw operator-supplied value, then store the quoted
+        // form used for interpolation. Quoting lets schema-qualified names
+        // (e.g. "public.messenger_messages") and reserved words work, while
+        // the per-segment allowlist keeps interpolation injection-safe.
+        $this->outboxTable = $this->quoteQualifiedIdentifier($outboxTable);
+        $this->deadLetterTable = $this->quoteQualifiedIdentifier($deadLetterTable);
     }
 
     public function collect(): void
@@ -215,10 +222,33 @@ final class OperationalMessagingMetricsCollector implements MetricsCollectorInte
         return hash('xxh128', json_encode($labels, JSON_THROW_ON_ERROR));
     }
 
-    private function assertSafeIdentifier(string $identifier): void
+    /**
+     * Validate and ANSI-quote a bare or schema-qualified table identifier.
+     *
+     * Accepts "table", "schema.table", and deeper qualification such as
+     * "database.schema.table". Every dot-separated segment must be a bare SQL
+     * identifier (letters, digits, underscore; not starting with a digit);
+     * anything else — whitespace, quotes, semicolons, dots-in-a-row — is
+     * rejected before it can reach a query. Each validated segment is then
+     * double-quoted so schema qualification and reserved words interpolate
+     * correctly and safely.
+     */
+    private function quoteQualifiedIdentifier(string $identifier): string
     {
-        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $identifier)) {
-            throw new \InvalidArgumentException('Operational metrics table names must be safe SQL identifiers.');
+        $segments = explode('.', $identifier);
+        $quoted = [];
+
+        foreach ($segments as $segment) {
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $segment)) {
+                throw new \InvalidArgumentException(
+                    'Operational metrics table names must be bare or schema-qualified SQL identifiers '
+                    . '(e.g. "vortos_outbox" or "public.vortos_outbox").',
+                );
+            }
+
+            $quoted[] = '"' . $segment . '"';
         }
+
+        return implode('.', $quoted);
     }
 }

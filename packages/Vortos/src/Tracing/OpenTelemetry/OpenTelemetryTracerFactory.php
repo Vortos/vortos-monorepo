@@ -9,7 +9,7 @@ use Vortos\Tracing\Contract\TracingInterface;
 final class OpenTelemetryTracerFactory
 {
     /**
-     * @param array{service_name: string, service_version: string, deployment_environment: string, endpoint: string, protocol: string, headers: array<string, string>, timeout_ms: int} $config
+     * @param array{service_name: string, service_version: string, deployment_environment: string, endpoint: string, protocol: string, headers: array<string, string>, timeout_ms: int, span_attribute_count_limit?: int, span_event_count_limit?: int, span_link_count_limit?: int} $config
      */
     public static function create(array $config): TracingInterface
     {
@@ -19,6 +19,7 @@ final class OpenTelemetryTracerFactory
             'OpenTelemetry\API\Trace\Propagation\TraceContextPropagator',
             'OpenTelemetry\Contrib\Otlp\OtlpHttpTransportFactory',
             'OpenTelemetry\SDK\Trace\TracerProvider',
+            'OpenTelemetry\SDK\Trace\SpanLimitsBuilder',
             'OpenTelemetry\SDK\Trace\SpanProcessor\BatchSpanProcessorBuilder',
             'OpenTelemetry\Contrib\Otlp\SpanExporter',
             'OpenTelemetry\SDK\Common\Attribute\Attributes',
@@ -35,6 +36,7 @@ final class OpenTelemetryTracerFactory
 
         $transportFactoryClass = 'OpenTelemetry\Contrib\Otlp\OtlpHttpTransportFactory';
         $tracerProviderClass = 'OpenTelemetry\SDK\Trace\TracerProvider';
+        $spanLimitsBuilderClass = 'OpenTelemetry\SDK\Trace\SpanLimitsBuilder';
         $spanProcessorBuilderClass = 'OpenTelemetry\SDK\Trace\SpanProcessor\BatchSpanProcessorBuilder';
         $spanExporterClass = 'OpenTelemetry\Contrib\Otlp\SpanExporter';
         $attributesClass = 'OpenTelemetry\SDK\Common\Attribute\Attributes';
@@ -57,7 +59,18 @@ final class OpenTelemetryTracerFactory
             'service.version' => $config['service_version'],
             'deployment.environment.name' => $config['deployment_environment'],
         ])));
-        $provider = new $tracerProviderClass($processor, null, $resource);
+
+        // Explicit per-span limits. Without these the SDK caps every span at
+        // 128 attributes/events/links and silently drops the overflow while
+        // logging "Dropped span attributes, links or events" — noisy under an
+        // AlwaysOn sampler. Raising the caps stops the drops and the spam.
+        $spanLimits = (new $spanLimitsBuilderClass())
+            ->setAttributeCountLimit($config['span_attribute_count_limit'] ?? 256)
+            ->setEventCountLimit($config['span_event_count_limit'] ?? 256)
+            ->setLinkCountLimit($config['span_link_count_limit'] ?? 256)
+            ->build();
+
+        $provider = new $tracerProviderClass($processor, null, $resource, $spanLimits);
         $tracer = $provider->getTracer($config['service_name'], $config['service_version']);
 
         return new OpenTelemetryTracer(

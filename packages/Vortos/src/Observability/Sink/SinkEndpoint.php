@@ -25,6 +25,7 @@ final readonly class SinkEndpoint
         public OtlpProtocol $protocol,
         public bool $tlsEnabled,
         public ?string $headersEnvRef,
+        public ?string $basePath,
     ) {}
 
     public static function create(
@@ -33,6 +34,7 @@ final readonly class SinkEndpoint
         ?int $port = null,
         bool $tlsEnabled = true,
         ?string $headersEnvRef = null,
+        ?string $basePath = null,
     ): self {
         $host = trim($host);
         if ($host === '') {
@@ -48,21 +50,30 @@ final readonly class SinkEndpoint
             throw new InvalidArgumentException('Sink endpoint headersEnvRef, when set, must be a non-empty env var name.');
         }
 
-        return new self($host, $port, $protocol, $tlsEnabled, $headersEnvRef);
+        // Normalize the optional base path to a single leading slash, no trailing slash
+        // (e.g. `otlp`, `/otlp`, `otlp/` all become `/otlp`). Some OTLP gateways —
+        // notably Grafana Cloud's HTTP endpoint — require a base path onto which the
+        // exporter appends `/v1/{signal}`. An empty/whitespace value normalizes to null.
+        if ($basePath !== null) {
+            $basePath = trim(trim($basePath), '/');
+            $basePath = $basePath === '' ? null : '/' . $basePath;
+        }
+
+        return new self($host, $port, $protocol, $tlsEnabled, $headersEnvRef, $basePath);
     }
 
-    /** The `scheme://host:port` the collector exporter targets. */
+    /** The `scheme://host:port[/base-path]` the collector exporter targets. */
     public function dsn(): string
     {
         $scheme = $this->protocol === OtlpProtocol::Grpc
             ? ($this->tlsEnabled ? 'https' : 'http')
             : ($this->tlsEnabled ? 'https' : 'http');
 
-        return sprintf('%s://%s:%d', $scheme, $this->host, $this->port);
+        return sprintf('%s://%s:%d%s', $scheme, $this->host, $this->port, $this->basePath ?? '');
     }
 
     /**
-     * @return array{host:string, port:int, protocol:string, tlsEnabled:bool, headersEnvRef:string|null}
+     * @return array{host:string, port:int, protocol:string, tlsEnabled:bool, headersEnvRef:string|null, basePath:string|null}
      */
     public function toArray(): array
     {
@@ -72,6 +83,7 @@ final readonly class SinkEndpoint
             'protocol' => $this->protocol->value,
             'tlsEnabled' => $this->tlsEnabled,
             'headersEnvRef' => $this->headersEnvRef,
+            'basePath' => $this->basePath,
         ];
     }
 }

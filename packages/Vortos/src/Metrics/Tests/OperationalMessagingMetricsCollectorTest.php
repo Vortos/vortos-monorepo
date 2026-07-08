@@ -113,6 +113,44 @@ final class OperationalMessagingMetricsCollectorTest extends TestCase
             'vortos_outbox; DROP TABLE users',
         );
     }
+
+    public function test_accepts_schema_qualified_table_identifiers_and_quotes_them(): void
+    {
+        $connection = $this->createMock(Connection::class);
+        $metrics = new RecordingMetrics();
+
+        $capturedSql = [];
+        $connection->expects($this->exactly(4))
+            ->method('fetchAllAssociative')
+            ->willReturnCallback(function (string $sql) use (&$capturedSql): array {
+                $capturedSql[] = $sql;
+
+                return [];
+            });
+
+        $collector = new OperationalMessagingMetricsCollector(
+            $connection,
+            new FrameworkTelemetry($metrics),
+            'public.messenger_messages',
+            'reporting.failed_messages',
+        );
+        $collector->collect();
+
+        $joined = implode("\n", $capturedSql);
+        $this->assertStringContainsString('"public"."messenger_messages"', $joined);
+        $this->assertStringContainsString('"reporting"."failed_messages"', $joined);
+    }
+
+    public function test_rejects_qualified_identifiers_with_unsafe_segments(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new OperationalMessagingMetricsCollector(
+            $this->createMock(Connection::class),
+            new FrameworkTelemetry(new RecordingMetrics()),
+            'public."messenger; DROP TABLE users"',
+        );
+    }
 }
 
 final class RecordingMetrics implements MetricsInterface

@@ -147,10 +147,18 @@ final class ObservabilityExtension extends Extension
         $protocol = OtlpProtocol::tryFrom((string) ($_ENV['OBSERVABILITY_GRAFANA_OTLP_PROTOCOL'] ?? 'http/protobuf'))
             ?? OtlpProtocol::HttpProtobuf;
 
+        // Grafana Cloud's HTTP OTLP gateway requires a `/otlp` base path (the exporter
+        // appends `/v1/{signal}`); gRPC ingest uses none. Default per protocol, but let
+        // an operator override for a self-hosted LGTM stack via OBSERVABILITY_GRAFANA_OTLP_PATH.
+        $basePath = array_key_exists('OBSERVABILITY_GRAFANA_OTLP_PATH', $_ENV)
+            ? ((string) $_ENV['OBSERVABILITY_GRAFANA_OTLP_PATH'])
+            : ($protocol === OtlpProtocol::HttpProtobuf ? '/otlp' : null);
+
         $container->register(GrafanaOtlpMetricsSink::class, GrafanaOtlpMetricsSink::class)
             ->setArgument('$host', (string) ($_ENV['OBSERVABILITY_GRAFANA_OTLP_HOST'] ?? 'otlp-gateway.example.invalid'))
             ->setArgument('$protocol', $protocol)
             ->setArgument('$tlsEnabled', (bool) ($_ENV['OBSERVABILITY_GRAFANA_OTLP_TLS'] ?? true))
+            ->setArgument('$basePath', $basePath)
             ->addTag(CollectMetricsSinksPass::TAG)
             ->setPublic(false);
 

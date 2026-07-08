@@ -32,6 +32,10 @@ final class GrafanaOtlpMetricsSink implements MetricsSinkInterface
         private readonly ?int $port = null,
         private readonly bool $tlsEnabled = true,
         private readonly ?string $headersEnvRef = 'OBSERVABILITY_GRAFANA_OTLP_HEADERS',
+        // Grafana Cloud's HTTP OTLP gateway serves the ingest under a `/otlp` base path
+        // onto which the exporter appends `/v1/{signal}`. gRPC ingest uses no path.
+        // Left null the DSN is bare host:port (correct for a self-hosted LGTM stack).
+        private readonly ?string $basePath = null,
     ) {}
 
     public function name(): string
@@ -52,6 +56,7 @@ final class GrafanaOtlpMetricsSink implements MetricsSinkInterface
             port: $this->port,
             tlsEnabled: $this->tlsEnabled,
             headersEnvRef: $this->headersEnvRef,
+            basePath: $this->basePath,
         );
     }
 

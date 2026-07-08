@@ -24,6 +24,16 @@ final class VortosTracingConfig
     /** @var array<string, string> */
     private array $otlpHeaders = [];
 
+    // Per-span cardinality caps. The OTel SDK defaults each of these to 128;
+    // rich framework auto-instrumentation routinely exceeds that on hot spans,
+    // and every overflow is silently dropped and logged ("Dropped span
+    // attributes, links or events") — noisy under an AlwaysOn sampler. We raise
+    // the framework default to 256 while still honouring the standard
+    // OTEL_SPAN_* env vars when operators set them explicitly.
+    private int $spanAttributeCountLimit = 256;
+    private int $spanEventCountLimit = 256;
+    private int $spanLinkCountLimit = 256;
+
     public function __construct()
     {
         $this->serviceName = $_ENV['OTEL_SERVICE_NAME'] ?? $_ENV['APP_NAME'] ?? 'app';
@@ -32,6 +42,39 @@ final class VortosTracingConfig
         $this->otlpEndpoint = $_ENV['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT']
             ?? $_ENV['OTEL_EXPORTER_OTLP_ENDPOINT']
             ?? $this->otlpEndpoint;
+        $this->spanAttributeCountLimit = $this->envInt('OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT', $this->spanAttributeCountLimit);
+        $this->spanEventCountLimit = $this->envInt('OTEL_SPAN_EVENT_COUNT_LIMIT', $this->spanEventCountLimit);
+        $this->spanLinkCountLimit = $this->envInt('OTEL_SPAN_LINK_COUNT_LIMIT', $this->spanLinkCountLimit);
+    }
+
+    private function envInt(string $key, int $default): int
+    {
+        $value = $_ENV[$key] ?? null;
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return $default;
+        }
+
+        return max(1, (int) $value);
+    }
+
+    /**
+     * Override the per-span attribute/event/link count limits.
+     *
+     * Any argument left null keeps its current value (env-derived or default).
+     */
+    public function spanLimits(?int $attributes = null, ?int $events = null, ?int $links = null): static
+    {
+        if ($attributes !== null) {
+            $this->spanAttributeCountLimit = max(1, $attributes);
+        }
+        if ($events !== null) {
+            $this->spanEventCountLimit = max(1, $events);
+        }
+        if ($links !== null) {
+            $this->spanLinkCountLimit = max(1, $links);
+        }
+
+        return $this;
     }
 
     public function adapter(TracingAdapter $adapter): static
@@ -135,7 +178,7 @@ final class VortosTracingConfig
         return $this->trustRemoteContext;
     }
 
-    /** @return array{service_name: string, service_version: string, deployment_environment: string, endpoint: string, protocol: string, headers: array<string, string>, timeout_ms: int} */
+    /** @return array{service_name: string, service_version: string, deployment_environment: string, endpoint: string, protocol: string, headers: array<string, string>, timeout_ms: int, span_attribute_count_limit: int, span_event_count_limit: int, span_link_count_limit: int} */
     public function getOpenTelemetryConfig(): array
     {
         return [
@@ -146,6 +189,9 @@ final class VortosTracingConfig
             'protocol' => $this->otlpProtocol,
             'headers' => $this->otlpHeaders,
             'timeout_ms' => $this->otlpTimeoutMs,
+            'span_attribute_count_limit' => $this->spanAttributeCountLimit,
+            'span_event_count_limit' => $this->spanEventCountLimit,
+            'span_link_count_limit' => $this->spanLinkCountLimit,
         ];
     }
 }

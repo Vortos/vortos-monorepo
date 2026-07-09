@@ -59,6 +59,22 @@ final class CaddyfileAdapterTest extends TestCase
         self::assertSame('-', $runner->lastArgv[$i + 1] ?? null, '`--config` must be followed by `-` (read STDIN)');
     }
 
+    public function testEmptyObjectsSurviveReencodeAsJsonObjects(): void
+    {
+        // caddy's `encode gzip` adapts to {"encodings":{"gzip":{}}}. The empty {} must NOT be corrupted
+        // into [] — caddy's /load rejects that with "cannot unmarshal array into caddygzip.Gzip". A
+        // genuine empty JSON array (e.g. an empty routes list) must stay [].
+        $adapted = '{"apps":{"http":{"servers":{"srv0":{"routes":[{"handle":[{"handler":"encode","encodings":{"gzip":{}}}]}],"empties":[]}}}}}';
+        $adapter = new CaddyfileAdapter('caddy:2-alpine', null, $this->runner(0, $adapted));
+
+        $result = $adapter->adapt(new EdgeBaseConfig('/x/Caddyfile', "example.com {\n}\n", EdgeConfigFormat::Caddyfile));
+        $reencoded = json_encode($result, \JSON_THROW_ON_ERROR);
+
+        self::assertStringContainsString('"gzip":{}', $reencoded, 'empty object must re-encode as {}');
+        self::assertStringNotContainsString('"gzip":[]', $reencoded);
+        self::assertStringContainsString('"empties":[]', $reencoded, 'genuine empty array must stay []');
+    }
+
     public function testJsonBaseSkipsAdapt(): void
     {
         // A fake runner that would fail if invoked — proves JSON base never shells out.
@@ -68,8 +84,12 @@ final class CaddyfileAdapterTest extends TestCase
         $base = new EdgeBaseConfig('/x/caddy.json', '{"apps":{"http":{"servers":{}}}}', EdgeConfigFormat::Json);
         $result = $adapter->adapt($base);
 
-        self::assertSame(['apps' => ['http' => ['servers' => []]]], $result);
-        self::assertSame([], $runner->lastArgv);
+        self::assertSame([], $runner->lastArgv, 'JSON base must not shell out to adapt');
+        // servers:{} is an empty OBJECT and must round-trip as {}, not be corrupted to [].
+        self::assertSame(
+            '{"apps":{"http":{"servers":{}}}}',
+            json_encode($result, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES),
+        );
     }
 
     public function testAdaptFailureIsSecretFree(): void

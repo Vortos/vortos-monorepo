@@ -92,17 +92,46 @@ final class CaddyfileAdapter implements EdgeConfigAdapterInterface
     private function decode(string $json, string $path): array
     {
         try {
-            $decoded = json_decode($json, true, 512, \JSON_THROW_ON_ERROR);
+            // Decode objects as \stdClass (NOT assoc arrays) so an EMPTY JSON object is preserved. An
+            // empty object decoded with JSON_OBJECT_AS_ARRAY becomes an empty PHP array [], which
+            // re-encodes as a JSON array [] — caddy then rejects it (e.g. an encode-gzip directive adapts to
+            // {"gzip":{}}; corrupted to {"gzip":[]} it fails "cannot unmarshal array into caddygzip.Gzip"
+            // at /load). normalizeNode() then turns non-empty objects into the assoc arrays the merge
+            // walks, while leaving empty objects as \stdClass leaves (which json_encode re-emits as {}).
+            $decoded = json_decode($json, false, 512, \JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
             throw EdgeBaseConfigException::invalidJson($path, $e->getMessage());
         }
 
-        if (!is_array($decoded)) {
+        if (!$decoded instanceof \stdClass) {
             throw EdgeBaseConfigException::invalidJson($path, 'top-level value is not an object');
         }
 
-        /** @var array<string, mixed> $decoded */
-        return $decoded;
+        $normalized = $this->normalizeNode($decoded);
+
+        /** @var array<string, mixed> $normalized */
+        return is_array($normalized) ? $normalized : [];
+    }
+
+    /**
+     * Recursively convert a decoded JSON tree so the array-based merge can walk maps as PHP arrays
+     * WITHOUT losing the object/array distinction on re-encode: non-empty objects become associative
+     * arrays; empty objects stay \stdClass (re-encode as {}); arrays stay arrays. Empty objects are
+     * always leaves the merge never descends into, so \stdClass leaves are inert to the merge.
+     */
+    private function normalizeNode(mixed $node): mixed
+    {
+        if ($node instanceof \stdClass) {
+            $map = (array) $node;
+
+            return $map === [] ? new \stdClass() : array_map($this->normalizeNode(...), $map);
+        }
+
+        if (is_array($node)) {
+            return array_map($this->normalizeNode(...), $node);
+        }
+
+        return $node;
     }
 
     private function requireLocalRunner(): CommandRunnerInterface

@@ -104,17 +104,31 @@ final class RemoteDeployScript
             $fileSecretMounts .= sprintf('-v %s:%s ', $dir, $dir);
         }
 
+        // Edge boot-file durability (deploy-in-image topology): the blue-green cutover persists the
+        // edge's rendered config to the host EDGE_CONFIG_DIR from INSIDE this on-box one-shot (there is
+        // no VORTOS_DEPLOY_HOST, so MountedConfigWriter does a LOCAL atomic write). Bind-mount that dir
+        // read-write at its identical path so the write lands on the host — the SAME dir the edge
+        // container bind-mounts as /config, so a cold restart self-heals to the current route. The path
+        // is read from the delivered env so it tracks the operator's EDGE_CONFIG_DIR; when unset the
+        // ${..:+} expansion emits nothing and the feature stays off (backward compatible).
+        $lines[] = sprintf(
+            'VORTOS_EDGE_CONFIG_DIR="$(sed -n \'s/^EDGE_CONFIG_DIR=//p\' %s/.env.prod 2>/dev/null | tail -n1 || true)"',
+            $deployDir,
+        );
+        $edgeConfigMount = '${VORTOS_EDGE_CONFIG_DIR:+-v "$VORTOS_EDGE_CONFIG_DIR:$VORTOS_EDGE_CONFIG_DIR" }';
+
         // B16: the blue-green cutover shells `docker compose`/`docker pull` from inside the one-shot.
         // It reaches Docker ONLY through the least-privilege docker-socket-proxy (never the raw
         // socket), via DOCKER_HOST on the shared app network.
         $dockerRun = sprintf(
-            'docker run --rm --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 --env-file %s/.env.prod %s%s%s%s%s php bin/console ',
+            'docker run --rm --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 --env-file %s/.env.prod %s%s%s%s%s%s php bin/console ',
             $network,
             $deployDir,
             $groupAdd,
             $runtimeEnvMounts,
             $fileSecretMounts,
             $secretsFlags,
+            $edgeConfigMount,
             $imageRef,
         );
 

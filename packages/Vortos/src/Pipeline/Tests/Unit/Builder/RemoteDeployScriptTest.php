@@ -48,6 +48,20 @@ final class RemoteDeployScriptTest extends TestCase
         self::assertStringContainsString('--env-file /opt/vortos/.env.prod', $script);
     }
 
+    public function test_bind_mounts_edge_config_dir_for_boot_file_persistence(): void
+    {
+        $script = $this->script($this->definition(true));
+
+        // The cutover persists the edge boot config from inside the on-box one-shot; that needs the host
+        // EDGE_CONFIG_DIR bind-mounted read-write so the local write lands on the box. Path is read from
+        // the delivered env and the ${..:+} expansion keeps it off when EDGE_CONFIG_DIR is unset.
+        self::assertStringContainsString(
+            "VORTOS_EDGE_CONFIG_DIR=\"\$(sed -n 's/^EDGE_CONFIG_DIR=//p' /opt/vortos/.env.prod 2>/dev/null | tail -n1 || true)\"",
+            $script,
+        );
+        self::assertStringContainsString('${VORTOS_EDGE_CONFIG_DIR:+-v "$VORTOS_EDGE_CONFIG_DIR:$VORTOS_EDGE_CONFIG_DIR" }', $script);
+    }
+
     public function test_pulls_and_runs_the_pinned_image(): void
     {
         $script = $this->script($this->definition(true));

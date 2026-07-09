@@ -939,17 +939,12 @@ final class DeployExtension extends Extension
                     ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
             }
 
-            // Only in a push-mode deploy (a real remote edge filesystem) does the cutover persist its
-            // rendered config to the edge's boot file. Local/dev keeps $bootConfigWriter null and is
-            // unchanged. This is the durability half of the daemon-restart fix: state store → new/scaled
-            // nodes; boot file → cold restart of the existing node.
-            $container->getDefinition(CaddyEdgeRouter::class)
-                ->setArgument('$bootConfigWriter', new Reference(MountedConfigWriter::class));
-
-            // Drift detection can now compare the on-disk boot file too (push mode has a real edge
-            // filesystem); the reader is the same writer the cutover persists through.
-            $container->getDefinition(EdgeDriftDetector::class)
-                ->setArgument('$bootConfigReader', new Reference(MountedConfigWriter::class));
+            // NOTE: boot-file persistence (CaddyEdgeRouter.$bootConfigWriter) + drift boot-file reads are
+            // wired in the push-mode block BELOW, not here — they must work in BOTH the remote-SSH
+            // topology (writes over this transport) AND the deploy-in-image on-box one-shot (which has no
+            // VORTOS_DEPLOY_HOST, so MountedConfigWriter falls back to a local atomic write to the
+            // bind-mounted EDGE_CONFIG_PATH). Gating them on VORTOS_DEPLOY_HOST silently disabled restart
+            // durability for the whole deploy-in-image topology.
 
             // Idempotent edge-service reconcile: delivers + ups the edge compose on the box every
             // deploy, recreate-only-on-change. Push-mode only (delivers over SSH); injected into the
@@ -970,6 +965,21 @@ final class DeployExtension extends Extension
             // local port-forward so it is never publicly exposed.
             $container->getDefinition(CaddyAdminClient::class)
                 ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
+        }
+
+        // ── Edge boot-file durability: wired for ALL push-mode deploys, both topologies ──
+        // The cutover persists its rendered config to the edge's on-disk boot file so a cold
+        // container/daemon restart self-heals to the CURRENT route. This must be active in the
+        // deploy-in-image on-box one-shot too — there is no VORTOS_DEPLOY_HOST there, so
+        // MountedConfigWriter has a null SSH transport and does a local atomic write to
+        // EDGE_CONFIG_PATH (which the deploy one-shot bind-mounts from the host; see
+        // RemoteDeployScript). When a remote host IS configured the same writer got an SSH transport
+        // above and writes the box over SSH. Local/dev (non-push) keeps $bootConfigWriter null.
+        if ($deliveryMode === 'push') {
+            $container->getDefinition(CaddyEdgeRouter::class)
+                ->setArgument('$bootConfigWriter', new Reference(MountedConfigWriter::class));
+            $container->getDefinition(EdgeDriftDetector::class)
+                ->setArgument('$bootConfigReader', new Reference(MountedConfigWriter::class));
         }
 
         // ── Block 12: Definition resolver. The base builder is produced by the factory, which

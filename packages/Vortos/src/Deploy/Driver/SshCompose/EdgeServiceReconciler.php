@@ -37,7 +37,14 @@ final class EdgeServiceReconciler
         private readonly ?string $baseConfigPath = null,
     ) {}
 
-    public function reconcile(?string $domain): ReconcileEdgeOutcome
+    /**
+     * @param string|null $appImage the deployed app image reference (the edge-init service that
+     *   hydrates the boot config runs on the app image; the generated compose interpolates it from
+     *   $VORTOS_APP_IMAGE, which Docker Compose reads from the process environment / the compose-dir
+     *   `.env`, NOT from a service `env_file`). It is REQUIRED whenever the edge is actually (re)upped;
+     *   without it the compose interpolation fails closed and the deploy aborts before the cutover.
+     */
+    public function reconcile(?string $domain, ?string $appImage = null): ReconcileEdgeOutcome
     {
         $composeYaml = $this->generator->generateEdgeComposeYaml((string) ($domain ?? ''));
 
@@ -45,6 +52,9 @@ final class EdgeServiceReconciler
         // edge even if the compose is identical. Resolver is fail-closed, so a configured-but-broken
         // path surfaces here (before we touch the box).
         $base = $this->resolver->resolve($this->baseConfigPath);
+        // NOTE: the app image is deliberately NOT part of the desired-state hash — edge-init only
+        // hydrates the boot config (any recent app image does), so a routine app release must not bounce
+        // the edge. It is threaded in only for the `up` that a compose/base-config change already forces.
         $desiredHash = hash('sha256', implode("\0", [
             $composeYaml,
             $this->adaptImage,
@@ -56,10 +66,23 @@ final class EdgeServiceReconciler
             return ReconcileEdgeOutcome::unchanged($desiredHash);
         }
 
+        // Fail closed with a named cause rather than letting Compose emit its cryptic
+        // "set VORTOS_APP_IMAGE" interpolation error from inside the `up`.
+        if ($appImage === null || $appImage === '') {
+            throw new \RuntimeException(
+                'Edge reconcile requires the deployed app image (VORTOS_APP_IMAGE) to hydrate the '
+                . 'edge boot config, but none was provided.',
+            );
+        }
+
         $composePath = $this->edgeDir . '/' . $this->composeFileName;
         $this->deliver($composeYaml, $composePath);
 
+        // Prefix `env VORTOS_APP_IMAGE=<ref>` so Compose interpolates the edge-init image from the
+        // process environment. `env` is a standard binary, so this is transport-portable (works whether
+        // the SSH transport execs argv directly or via a shell) and stateless (no `.env` file to keep).
         $this->transport->run(new RemoteCommand([
+            'env', 'VORTOS_APP_IMAGE=' . $appImage,
             'docker', 'compose', '-f', $composePath, '-p', $this->projectName, 'up', '-d', '--remove-orphans',
         ]))->throwOnFailure('edge compose up');
 

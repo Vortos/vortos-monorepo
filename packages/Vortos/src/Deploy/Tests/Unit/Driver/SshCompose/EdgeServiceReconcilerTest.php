@@ -46,7 +46,7 @@ final class EdgeServiceReconcilerTest extends TestCase
     {
         $transport = new RecordingTransport(catStdout: '', catExit: 1);
 
-        $outcome = $this->reconciler($transport)->reconcile('api.example.com');
+        $outcome = $this->reconciler($transport)->reconcile('api.example.com', 'repo/app@sha256:abc');
 
         self::assertTrue($outcome->converged);
         // A "docker compose ... up -d" must have run.
@@ -54,14 +54,39 @@ final class EdgeServiceReconcilerTest extends TestCase
         self::assertNotEmpty(array_filter($ran, static fn (string $c): bool => str_contains($c, 'compose') && str_contains($c, 'up')));
     }
 
+    public function testUpInjectsAppImageEnv(): void
+    {
+        $transport = new RecordingTransport(catStdout: '', catExit: 1);
+
+        $this->reconciler($transport)->reconcile('api.example.com', 'repo/app@sha256:abc');
+
+        // The compose `up` must carry VORTOS_APP_IMAGE via an `env` prefix so edge-init can interpolate it.
+        $up = array_values(array_filter(
+            $transport->ran,
+            static fn (RemoteCommand $c): bool => in_array('up', $c->argv, true),
+        ));
+        self::assertNotEmpty($up);
+        self::assertSame('env', $up[0]->argv[0]);
+        self::assertContains('VORTOS_APP_IMAGE=repo/app@sha256:abc', $up[0]->argv);
+    }
+
+    public function testFailsClosedWhenAppImageMissing(): void
+    {
+        $transport = new RecordingTransport(catStdout: '', catExit: 1);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('VORTOS_APP_IMAGE');
+        $this->reconciler($transport)->reconcile('api.example.com', null);
+    }
+
     public function testSkipsWhenMarkerMatches(): void
     {
         // First run to learn the desired hash, then feed it back as the marker.
         $first = new RecordingTransport(catStdout: '', catExit: 1);
-        $hash = $this->reconciler($first)->reconcile('api.example.com')->hash;
+        $hash = $this->reconciler($first)->reconcile('api.example.com', 'repo/app@sha256:abc')->hash;
 
         $second = new RecordingTransport(catStdout: $hash, catExit: 0);
-        $outcome = $this->reconciler($second)->reconcile('api.example.com');
+        $outcome = $this->reconciler($second)->reconcile('api.example.com', 'repo/app@sha256:abc');
 
         self::assertFalse($outcome->converged);
         $ran = array_map(static fn (RemoteCommand $c): string => implode(' ', $c->argv), $second->ran);
@@ -73,7 +98,7 @@ final class EdgeServiceReconcilerTest extends TestCase
         $transport = new RecordingTransport(catStdout: '', catExit: 1, failUp: true);
 
         $this->expectException(CommandFailedException::class);
-        $this->reconciler($transport)->reconcile('api.example.com');
+        $this->reconciler($transport)->reconcile('api.example.com', 'repo/app@sha256:abc');
     }
 }
 

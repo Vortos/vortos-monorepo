@@ -112,7 +112,7 @@ final class StepExecutor
             StepAction::DrainWorker => $this->handleDrainWorker($step, $image),
             StepAction::StartWorker => $this->handleStartWorker($step, $image),
             StepAction::WeightedRoute => $this->handleWeightedRoute($step, $image),
-            StepAction::ReconcileEdge => $this->handleReconcileEdge($step),
+            StepAction::ReconcileEdge => $this->handleReconcileEdge($step, $image),
             StepAction::WaitDrain, StepAction::Noop => 'no-op',
         };
 
@@ -445,7 +445,7 @@ final class StepExecutor
         );
     }
 
-    private function handleReconcileEdge(DeployStep $step): string
+    private function handleReconcileEdge(DeployStep $step, ImageReference $image): string
     {
         if ($this->edgeReconciler === null) {
             return 'edge reconcile skipped (no edge reconciler wired — local/dev or pull install)';
@@ -453,7 +453,8 @@ final class StepExecutor
 
         // A configured-but-broken base config or a failed compose up throws, aborting the deploy
         // BEFORE the cutover — the edge is converged first so the later /load has a service to hit.
-        $outcome = $this->edgeReconciler->reconcile($this->edgeDomain);
+        // The deployed image ref is threaded through as $VORTOS_APP_IMAGE for the edge-init service.
+        $outcome = $this->edgeReconciler->reconcile($this->edgeDomain, $image->toString());
 
         return $outcome->detail();
     }

@@ -54,6 +54,43 @@ final readonly class MergeOutcome
     }
 
     /**
+     * Decode a caddy JSON config into the SAME representation the merge/canonicalize pipeline uses:
+     * non-empty objects become associative arrays, but EMPTY objects are preserved as \stdClass so they
+     * re-canonicalize as {} (not []). This is what lets a hash of the re-read on-disk boot file match
+     * the hash recorded at cutover — {@see canonicalize} distinguishes {} from [], so decoding the boot
+     * file with JSON_OBJECT_AS_ARRAY (which turns an empty object into an empty array) would report a
+     * phantom drift for any config with an empty-object handler (e.g. an encode-gzip -> {"gzip":{}}).
+     *
+     * @return array<string, mixed>
+     * @throws \JsonException
+     */
+    public static function decode(string $json): array
+    {
+        $decoded = json_decode($json, false, 512, \JSON_THROW_ON_ERROR);
+        $normalized = self::normalizeNode($decoded);
+
+        /** @var array<string, mixed> $out */
+        $out = is_array($normalized) ? $normalized : [];
+
+        return $out;
+    }
+
+    private static function normalizeNode(mixed $node): mixed
+    {
+        if ($node instanceof \stdClass) {
+            $map = (array) $node;
+
+            return $map === [] ? new \stdClass() : array_map(self::normalizeNode(...), $map);
+        }
+
+        if (is_array($node)) {
+            return array_map(self::normalizeNode(...), $node);
+        }
+
+        return $node;
+    }
+
+    /**
      * @param array<array-key, mixed> $value
      * @return array<array-key, mixed>
      */

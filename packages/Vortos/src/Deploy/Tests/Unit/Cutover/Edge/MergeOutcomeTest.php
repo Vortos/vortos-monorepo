@@ -40,4 +40,30 @@ final class MergeOutcomeTest extends TestCase
 
         self::assertSame(hash('sha256', MergeOutcome::canonicalize($config)), $outcome->sha256);
     }
+
+    public function testDecodePreservesEmptyObjectsSoBootHashMatchesRecordedHash(): void
+    {
+        // The recorded hash is of a merged config whose empty-object handler (encode-gzip) is a
+        // \stdClass {}. The boot file on disk encodes it as {}. Re-reading the boot file via
+        // MergeOutcome::decode must yield the SAME canonical hash — a json_decode(true) would turn {}
+        // into [] and canonicalize differently, causing a phantom "boot file does not match" drift.
+        $config = [
+            'apps' => ['http' => ['servers' => ['app' => [
+                'routes' => [['handle' => [
+                    ['handler' => 'reverse_proxy', 'upstreams' => [['dial' => 'app-green:8080']]],
+                    ['handler' => 'encode', 'encodings' => ['gzip' => new \stdClass()]],
+                ]]],
+                'empties' => [], // a genuine empty array must stay []
+            ]]]],
+        ];
+        $recordedHash = hash('sha256', MergeOutcome::canonicalize($config));
+
+        $bootJson = json_encode($config, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_PRETTY_PRINT);
+        $bootHash = hash('sha256', MergeOutcome::canonicalize(MergeOutcome::decode($bootJson)));
+
+        // Sanity: the empty object is on disk as an object, not an array.
+        self::assertMatchesRegularExpression('/"gzip":\s*\{\}/', $bootJson);
+        self::assertStringNotContainsString('"gzip":[]', $bootJson);
+        self::assertSame($recordedHash, $bootHash);
+    }
 }

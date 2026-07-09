@@ -79,16 +79,14 @@ final class EdgeDriftDetector
         }
 
         try {
-            $decoded = json_decode($json, true, 512, \JSON_THROW_ON_ERROR);
+            // Decode with empty-object preservation (NOT JSON_OBJECT_AS_ARRAY) so this hash matches the
+            // one recorded at cutover — canonicalize() distinguishes {} from [], so an empty-object
+            // handler (e.g. encode-gzip) must not round-trip to [] here. See MergeOutcome::decode.
+            $decoded = MergeOutcome::decode($json);
         } catch (\JsonException) {
             return null;
         }
 
-        if (!is_array($decoded)) {
-            return null;
-        }
-
-        /** @var array<string, mixed> $decoded */
         return hash('sha256', MergeOutcome::canonicalize($decoded));
     }
 

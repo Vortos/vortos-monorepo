@@ -51,10 +51,15 @@ final class CaddyfileAdapter implements EdgeConfigAdapterInterface
             return $this->parseJson($base);
         }
 
+        // The "--config -" flag makes caddy adapt read the Caddyfile from STDIN. Without it, caddy
+        // ignores the piped stdin, looks for a Caddyfile in the container's CWD, finds none, and fails
+        // with "input file required ... use --config flag" — so the adapt (and thus the whole edge
+        // base-config gate + cutover) never worked against a real caddy binary. The -i flag above keeps
+        // STDIN open for the pipe.
         $argv = [
             'docker', 'run', '--rm', '-i', '--network', 'none',
             $this->adaptImage,
-            'caddy', 'adapt', '--adapter', 'caddyfile',
+            'caddy', 'adapt', '--adapter', 'caddyfile', '--config', '-',
         ];
 
         $result = $this->sshTransport !== null

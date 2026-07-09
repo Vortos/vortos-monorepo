@@ -51,6 +51,12 @@ final class CaddyfileAdapterTest extends TestCase
         self::assertContains('adapt', $runner->lastArgv);
         self::assertContains('none', $runner->lastArgv, 'container must run with --network none');
         self::assertSame("example.com {\n}\n", $runner->lastStdin);
+
+        // Regression: caddy adapt only reads the piped STDIN when told to via `--config -`. Without it
+        // caddy fails "input file required", which broke the whole adapt path against a real binary.
+        self::assertContains('--config', $runner->lastArgv, 'adapt must pass --config so caddy reads input');
+        $i = array_search('--config', $runner->lastArgv, true);
+        self::assertSame('-', $runner->lastArgv[$i + 1] ?? null, '`--config` must be followed by `-` (read STDIN)');
     }
 
     public function testJsonBaseSkipsAdapt(): void

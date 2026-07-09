@@ -130,6 +130,7 @@ use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
 use Vortos\Deploy\Driver\SshCompose\EdgeServiceReconciler;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Execution\CommandRunnerInterface;
+use Vortos\Deploy\Execution\LocalTransport;
 use Vortos\Deploy\Execution\DeployConnectionContext;
 use Vortos\Deploy\Execution\LazySshTransport;
 use Vortos\Deploy\Execution\ProcessCommandRunner;
@@ -946,20 +947,9 @@ final class DeployExtension extends Extension
             // bind-mounted EDGE_CONFIG_PATH). Gating them on VORTOS_DEPLOY_HOST silently disabled restart
             // durability for the whole deploy-in-image topology.
 
-            // Idempotent edge-service reconcile: delivers + ups the edge compose on the box every
-            // deploy, recreate-only-on-change. Push-mode only (delivers over SSH); injected into the
-            // step executor so the ReconcileEdge phase converges the edge before staging/cutover.
-            $container->register(EdgeServiceReconciler::class, EdgeServiceReconciler::class)
-                ->setArgument('$transport', new Reference(SshTransportInterface::class))
-                ->setArgument('$generator', new Reference(EdgeConfigGenerator::class))
-                ->setArgument('$resolver', new Reference(EdgeBaseConfigResolver::class))
-                ->setArgument('$edgeDir', (string) ($_ENV['EDGE_DIR'] ?? '/opt/vortos/edge'))
-                ->setArgument('$adaptImage', $edgeAdaptImage)
-                ->setArgument('$baseConfigPath', $edgeBaseConfig)
-                ->setPublic(false);
-
-            $container->getDefinition(StepExecutor::class)
-                ->setArgument('$edgeReconciler', new Reference(EdgeServiceReconciler::class));
+            // NOTE: the edge-service reconciler (ReconcileEdge) is registered in the push-mode block
+            // BELOW, not here — like the boot-file writer it must also work in the deploy-in-image
+            // on-box one-shot, where it delivers files + runs docker LOCALLY (no SSH).
 
             // Caddy admin API stays bound to the VPS loopback; reach it through an SSH
             // local port-forward so it is never publicly exposed.
@@ -980,6 +970,32 @@ final class DeployExtension extends Extension
                 ->setArgument('$bootConfigWriter', new Reference(MountedConfigWriter::class));
             $container->getDefinition(EdgeDriftDetector::class)
                 ->setArgument('$bootConfigReader', new Reference(MountedConfigWriter::class));
+
+            // ── ReconcileEdge in BOTH topologies ──
+            // Converge the edge compose (recreate-only-on-change) on every deploy so the edge CONTAINER
+            // itself (image/ports/volumes) tracks the framework definition without a manual re-up.
+            // Remote-SSH deploys deliver over the SSH transport; the deploy-in-image on-box one-shot has
+            // no VORTOS_DEPLOY_HOST, so it uses the LocalTransport: local file delivery to the
+            // bind-mounted EDGE_DIR + a docker compose up through the DOCKER_HOST socket-proxy the
+            // one-shot already targets. Either way the ReconcileEdge phase converges before staging.
+            $hasRemoteHost = (string) ($_ENV['VORTOS_DEPLOY_HOST'] ?? '') !== '';
+            if (!$hasRemoteHost) {
+                $container->register(LocalTransport::class, LocalTransport::class)
+                    ->setArgument('$runner', new Reference(CommandRunnerInterface::class))
+                    ->setPublic(false);
+            }
+
+            $container->register(EdgeServiceReconciler::class, EdgeServiceReconciler::class)
+                ->setArgument('$transport', new Reference($hasRemoteHost ? SshTransportInterface::class : LocalTransport::class))
+                ->setArgument('$generator', new Reference(EdgeConfigGenerator::class))
+                ->setArgument('$resolver', new Reference(EdgeBaseConfigResolver::class))
+                ->setArgument('$edgeDir', (string) ($_ENV['EDGE_DIR'] ?? '/opt/vortos/edge'))
+                ->setArgument('$adaptImage', $edgeAdaptImage)
+                ->setArgument('$baseConfigPath', $edgeBaseConfig)
+                ->setPublic(false);
+
+            $container->getDefinition(StepExecutor::class)
+                ->setArgument('$edgeReconciler', new Reference(EdgeServiceReconciler::class));
         }
 
         // ── Block 12: Definition resolver. The base builder is produced by the factory, which

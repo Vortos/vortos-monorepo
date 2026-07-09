@@ -18,5 +18,6 @@ enum StepAction: string
     case UpdateState = 'update-state';
     case WaitDrain = 'wait-drain';
     case WeightedRoute = 'weighted-route';
+    case ReconcileEdge = 'reconcile-edge';
     case Noop = 'noop';
 }

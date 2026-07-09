@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Driver\Caddy;
 
+use Vortos\Deploy\Cutover\Edge\BootConfigReaderInterface;
 use Vortos\Deploy\Execution\RemoteCommand;
 use Vortos\Deploy\Execution\SshTransportInterface;
 
-final class MountedConfigWriter
+final class MountedConfigWriter implements BootConfigReaderInterface
 {
     public function __construct(
         private readonly string $mountedPath = '/etc/caddy/upstream.json',

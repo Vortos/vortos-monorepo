@@ -69,6 +69,12 @@ final class StepExecutor
          * default (GAP-D). Empty/null builds an internal / no-TLS edge.
          */
         private readonly ?string $edgeDomain = null,
+        /**
+         * Converges the edge service (compose) on the target as part of the deploy, idempotently
+         * (recreate only on change). Null in local/dev and pull installs — the reconcile step then
+         * reports a skip. Push-mode only, since it delivers + ups compose on the box over SSH.
+         */
+        private readonly ?EdgeServiceReconciler $edgeReconciler = null,
     ) {}
 
     public function execute(DeployPlan $plan, DeployRun $run, ImageReference $image): void
@@ -106,6 +112,7 @@ final class StepExecutor
             StepAction::DrainWorker => $this->handleDrainWorker($step, $image),
             StepAction::StartWorker => $this->handleStartWorker($step, $image),
             StepAction::WeightedRoute => $this->handleWeightedRoute($step, $image),
+            StepAction::ReconcileEdge => $this->handleReconcileEdge($step),
             StepAction::WaitDrain, StepAction::Noop => 'no-op',
         };
 
@@ -436,6 +443,19 @@ final class StepExecutor
             $result->forciblyClosed,
             $result->durationMs,
         );
+    }
+
+    private function handleReconcileEdge(DeployStep $step): string
+    {
+        if ($this->edgeReconciler === null) {
+            return 'edge reconcile skipped (no edge reconciler wired — local/dev or pull install)';
+        }
+
+        // A configured-but-broken base config or a failed compose up throws, aborting the deploy
+        // BEFORE the cutover — the edge is converged first so the later /load has a service to hit.
+        $outcome = $this->edgeReconciler->reconcile($this->edgeDomain);
+
+        return $outcome->detail();
     }
 
     private function handleUpdateState(DeployStep $step): string

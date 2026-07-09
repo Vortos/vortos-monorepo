@@ -50,6 +50,17 @@ final class BlueGreenStrategy implements DeployStrategyInterface
             $phases[] = $phase;
         }
 
+        // Converge the edge service (compose + base config) before staging/cutover, idempotently —
+        // recreate only on change. This is what makes "edit base config -> deploy -> edge updates" flow
+        // end-to-end; without it the edge compose was only ever produced by the one-off edge:init.
+        $phases[] = new DeployPhase(PhaseKind::ReconcileEdge, [
+            new DeployStep(
+                StepAction::ReconcileEdge,
+                'Reconcile the edge service (recreate only on change)',
+                ['env' => $context->desiredManifest->environment],
+            ),
+        ]);
+
         $phases[] = new DeployPhase(PhaseKind::StageColor, [
             new DeployStep(
                 StepAction::PullImage,

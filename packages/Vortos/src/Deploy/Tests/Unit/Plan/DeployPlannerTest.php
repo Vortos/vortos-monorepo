@@ -73,6 +73,7 @@ final class DeployPlannerTest extends TestCase
         $expected = [
             PhaseKind::ExpandMigrate,
             PhaseKind::RollWorkers,
+            PhaseKind::ReconcileEdge,
             PhaseKind::StageColor,
             PhaseKind::HealthGate,
             PhaseKind::Smoke,

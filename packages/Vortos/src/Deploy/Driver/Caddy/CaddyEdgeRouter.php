@@ -6,9 +6,13 @@ namespace Vortos\Deploy\Driver\Caddy;
 
 use Vortos\Deploy\Cutover\CutoverResult;
 use Vortos\Deploy\Cutover\DesiredRoute;
+use Vortos\Deploy\Cutover\Edge\AssembledEdgeConfig;
+use Vortos\Deploy\Cutover\Edge\EdgeConfigAssembler;
 use Vortos\Deploy\Cutover\EdgeConfigGenerator;
 use Vortos\Deploy\Cutover\EdgeRouterInterface;
 use Vortos\Deploy\Cutover\LiveRoute;
+use Vortos\Deploy\Cutover\Lock\EdgeCutoverLockInterface;
+use Vortos\Deploy\Cutover\Lock\NullEdgeCutoverLock;
 use Vortos\Deploy\Cutover\ReconcileResult;
 use Vortos\Deploy\Cutover\State\EdgeState;
 use Vortos\Deploy\Cutover\State\EdgeStateStoreInterface;
@@ -37,6 +41,20 @@ final class CaddyEdgeRouter implements EdgeRouterInterface
          * local/dev (no edge filesystem to write); wired with an SSH transport in push-mode deploys.
          */
         private readonly ?MountedConfigWriter $bootConfigWriter = null,
+        /**
+         * The precedence collaborator. When present AND an operator base config is configured, the
+         * cutover config comes from the adapt-merge pipeline (operator's Caddyfile + framework-owned
+         * upstream, behind the config firewall) instead of the from-scratch generator. Null / no base
+         * config → the existing generated path, byte-for-byte (backward compatible).
+         */
+        private readonly ?EdgeConfigAssembler $configAssembler = null,
+        /**
+         * Serialises the cutover critical section for the environment so two overlapping deploys
+         * cannot tear the live config or the boot file. Defaults to a no-op lock (single infra-less
+         * node, deploys serialised by CI).
+         */
+        private readonly ?EdgeCutoverLockInterface $cutoverLock = null,
+        private readonly int $cutoverLockTtlSeconds = 120,
     ) {}
 
     public function capabilities(): CapabilityDescriptor
@@ -46,58 +64,91 @@ final class CaddyEdgeRouter implements EdgeRouterInterface
 
     public function cutover(DesiredRoute $desired): CutoverResult
     {
+        $lock = $this->cutoverLock ?? new NullEdgeCutoverLock();
+        $token = $lock->acquire($desired->env, $this->cutoverLockTtlSeconds);
+        if ($token === null) {
+            throw CutoverFailedException::reloadFailed(
+                'another cutover is in progress for this environment (edge lock held)',
+            );
+        }
+
+        try {
+            return $this->doCutover($desired);
+        } finally {
+            $lock->release($desired->env, $token);
+        }
+    }
+
+    private function doCutover(DesiredRoute $desired): CutoverResult
+    {
         $startTime = microtime(true);
 
-        // Single source of truth for the edge config shape: always includes the host matcher +
-        // tls.automation for the route's domain (when set), so a /load PRESERVES the domain's cert
-        // instead of clobbering it (GAP-D). The complement dial for a canary ramp is derived from the
-        // route's container port, never a hardcoded value.
-        $config = $this->configGenerator->generateForRoute($desired, $this->adminListen);
+        // Precedence: operator base config present → adapt-merge behind the config firewall; absent →
+        // the from-scratch generator (backward compatible). Both are the single source of truth for
+        // the cutover config shape and carry the host matcher + tls.automation for the domain.
+        $assembled = $this->assemble($desired);
+        $config = $assembled->config;
 
-        // Guard: a domain'd route must carry its tls.automation subject, or a cutover would silently
-        // drop the certificate. Fail closed before touching the live edge.
-        if ($desired->domain !== null && !$this->configRetainsTls($config, $desired->domain)) {
+        // TLS guard: the from-scratch generator always writes an explicit tls.automation subject, so a
+        // strict check is right there. The adapt-merge path may legitimately rely on a catch-all
+        // policy or automatic HTTPS, which the config firewall already validated — so only the
+        // generated path is checked here (a false negative would clobber a valid operator config).
+        if ($desired->domain !== null
+            && !$assembled->usedBaseConfig
+            && !$this->configRetainsTls($config, $desired->domain)
+        ) {
             throw CutoverFailedException::verifyMismatch(
                 $desired->domain,
                 'generated cutover config is missing the domain tls.automation policy',
             );
         }
 
+        // Snapshot the live config BEFORE switching, so a failed verify can roll the edge back to the
+        // last-known-good instead of leaving live traffic on an unverified config. Best-effort: a
+        // fresh edge with no current config simply has no rollback target.
+        $lastKnownGood = $this->snapshotLiveConfig();
+
         $this->adminClient->load($config);
-
-        // Persist the routing intent so a new / horizontally-scaled edge node reconstructs the
-        // active-color route from the shared control-plane store (Redis by default). The live switch
-        // above already happened via the Admin API; this is durability, not the switch.
-        $this->stateStore->save(EdgeState::fromRoute($desired));
-
-        // Persist the EXACT rendered config to the edge's on-disk boot file — the same file Caddy
-        // boots from ("caddy run --config"). Without this the boot file only reflects the last
-        // "docker compose up" (edge-init runs solely on the compose depends_on gate, never on a bare
-        // Docker daemon restart), so a daemon restart would resurrect a stale route or, on a
-        // push-only edge, come up empty — the exact outage this closes. With it, a cold restart
-        // reloads the current route verbatim, no admin re-push and no redeploy required.
-        $this->bootConfigWriter?->write(json_encode(
-            $config,
-            \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_PRETTY_PRINT,
-        ));
 
         $drainResult = $this->drainObserver->awaitDrain($desired->drainDeadlineSeconds);
 
         if (!$drainResult->metricsReachable) {
+            $this->rollback($lastKnownGood);
             throw CutoverFailedException::metricsUnreachable(
                 'drain verification failed — metrics became unreachable during drain window',
             );
         }
 
-        $verified = $this->verifyLiveUpstream($desired);
-        $durationMs = (int) ((microtime(true) - $startTime) * 1000);
-
-        if (!$verified) {
+        if (!$this->verifyLiveUpstream($desired)) {
+            $this->rollback($lastKnownGood);
             throw CutoverFailedException::verifyMismatch(
                 $desired->upstream->host . ':' . $desired->upstream->port,
                 'current config does not match',
             );
         }
+
+        // Only after the live switch is PROVEN do we persist durability state, so the boot file and
+        // the control-plane store never record a route that failed to take. Order: routing intent
+        // (edge-node reconstruction) then the exact rendered boot file (the file Caddy boots from on a
+        // bare Docker daemon restart, which never re-runs edge-init).
+        $this->stateStore->save(EdgeState::fromRoute($desired)->withConfigHash($assembled->finalSha256()));
+
+        $bootJson = json_encode($config, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_PRETTY_PRINT);
+        if ($this->bootConfigWriter !== null) {
+            try {
+                $this->bootConfigWriter->write($bootJson);
+            } catch (\Throwable $e) {
+                // Live is on the new config but the durable boot file failed to update: a restart
+                // would resurrect the old route (live≠disk). Roll live back to match disk and fail
+                // closed rather than leave the two diverged.
+                $this->rollback($lastKnownGood);
+                throw CutoverFailedException::reloadFailed(
+                    'boot file write failed after live switch; rolled back to keep live and disk in sync: ' . $e->getMessage(),
+                );
+            }
+        }
+
+        $durationMs = (int) ((microtime(true) - $startTime) * 1000);
 
         $this->lastLiveRoute = new LiveRoute(
             activeColor: $desired->activeColor,
@@ -115,6 +166,50 @@ final class CaddyEdgeRouter implements EdgeRouterInterface
             verifiedLiveUpstream: true,
             detail: sprintf('cutover to %s verified', $desired->activeColor->value),
         );
+    }
+
+    /**
+     * Resolve the cutover config for a route via the precedence collaborator when wired, else the
+     * from-scratch generator (preserves behavior for callers/tests that construct the router without
+     * an assembler).
+     */
+    private function assemble(DesiredRoute $desired): AssembledEdgeConfig
+    {
+        if ($this->configAssembler !== null) {
+            return $this->configAssembler->assembleForRoute($desired);
+        }
+
+        return new AssembledEdgeConfig(
+            config: $this->configGenerator->generateForRoute($desired, $this->adminListen),
+            usedBaseConfig: false,
+        );
+    }
+
+    /** @return array<string, mixed>|null the live config to roll back to, or null if none/unreadable */
+    private function snapshotLiveConfig(): ?array
+    {
+        try {
+            $config = $this->adminClient->currentConfig();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $config === [] ? null : $config;
+    }
+
+    /** @param array<string, mixed>|null $lastKnownGood */
+    private function rollback(?array $lastKnownGood): void
+    {
+        if ($lastKnownGood === null) {
+            return;
+        }
+
+        try {
+            $this->adminClient->load($lastKnownGood);
+        } catch (\Throwable) {
+            // The rollback load failed too; nothing more we can safely do here. The caller still
+            // throws, so the deploy aborts and surfaces the original failure.
+        }
     }
 
     public function liveRoute(): ?LiveRoute

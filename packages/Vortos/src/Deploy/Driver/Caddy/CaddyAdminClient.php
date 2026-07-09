@@ -6,10 +6,11 @@ namespace Vortos\Deploy\Driver\Caddy;
 
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
+use Vortos\Deploy\Cutover\Edge\LiveConfigReaderInterface;
 use Vortos\Deploy\Exception\CutoverFailedException;
 use Vortos\Deploy\Execution\SshTransportInterface;
 
-final class CaddyAdminClient
+final class CaddyAdminClient implements LiveConfigReaderInterface
 {
     private ?string $resolvedBaseUrl = null;
 

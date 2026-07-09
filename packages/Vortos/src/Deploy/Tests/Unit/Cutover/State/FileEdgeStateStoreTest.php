@@ -83,9 +83,9 @@ final class FileEdgeStateStoreTest extends TestCase
 
         self::assertIsArray($decoded);
         self::assertSame(
-            ['env', 'active_color', 'upstream_host', 'upstream_port', 'weight', 'domain', 'version', 'updated_at'],
+            ['env', 'active_color', 'upstream_host', 'upstream_port', 'weight', 'domain', 'version', 'updated_at', 'config_hash'],
             array_keys($decoded),
-            'only routing metadata is persisted — no secret material',
+            'only routing metadata + a config hash is persisted — no secret material',
         );
     }
 

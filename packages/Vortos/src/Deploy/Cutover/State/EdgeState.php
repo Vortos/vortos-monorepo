@@ -29,6 +29,13 @@ final readonly class EdgeState
         public ?string $domain = null,
         public int $version = 0,
         public ?string $updatedAt = null,
+        /**
+         * SHA-256 of the exact edge config that was loaded and written to the boot file at this
+         * cutover — the drift anchor. A drift check re-hashes the on-box boot file and the live admin
+         * config and compares them to this; a mismatch means a manual admin push, a stale boot file,
+         * or an adapt-version skew. Carries no secret (a hash) so it stays safe in the shared store.
+         */
+        public ?string $configHash = null,
     ) {
         if ($env === '') {
             throw new \InvalidArgumentException('EdgeState.env must not be empty.');
@@ -82,6 +89,22 @@ final readonly class EdgeState
             domain: $this->domain,
             version: $version,
             updatedAt: $updatedAt,
+            configHash: $this->configHash,
+        );
+    }
+
+    public function withConfigHash(?string $configHash): self
+    {
+        return new self(
+            env: $this->env,
+            activeColor: $this->activeColor,
+            upstreamHost: $this->upstreamHost,
+            upstreamPort: $this->upstreamPort,
+            weight: $this->weight,
+            domain: $this->domain,
+            version: $this->version,
+            updatedAt: $this->updatedAt,
+            configHash: $configHash,
         );
     }
 
@@ -97,6 +120,7 @@ final readonly class EdgeState
             'domain' => $this->domain,
             'version' => $this->version,
             'updated_at' => $this->updatedAt,
+            'config_hash' => $this->configHash,
         ];
     }
 
@@ -112,6 +136,7 @@ final readonly class EdgeState
             domain: isset($data['domain']) && $data['domain'] !== null ? (string) $data['domain'] : null,
             version: (int) ($data['version'] ?? 0),
             updatedAt: isset($data['updated_at']) && $data['updated_at'] !== null ? (string) $data['updated_at'] : null,
+            configHash: isset($data['config_hash']) && $data['config_hash'] !== null ? (string) $data['config_hash'] : null,
         );
     }
 }

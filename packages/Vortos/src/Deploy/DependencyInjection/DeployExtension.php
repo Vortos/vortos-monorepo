@@ -16,6 +16,7 @@ use Vortos\Deploy\Audit\DeployAuditSinkInterface;
 use Vortos\Deploy\Console\DeployCommand;
 use Vortos\Deploy\Console\DoctorCommand;
 use Vortos\Deploy\Console\MaterializeFileSecretsCommand;
+use Vortos\Deploy\Console\EdgeDriftCommand;
 use Vortos\Deploy\Console\EdgeHydrateConfigCommand;
 use Vortos\Deploy\Console\ProvisionCommand;
 use Vortos\Deploy\Console\PullAgentReconcileCommand;
@@ -46,12 +47,21 @@ use Vortos\Deploy\Preflight\Check\FileSecretsCheck;
 use Vortos\Deploy\Preflight\Check\TargetArchCheck;
 use Vortos\Deploy\Preflight\Check\WorkerTopologyCheck;
 use Vortos\Deploy\Preflight\DeployDoctor;
+use Vortos\Deploy\Preflight\Check\EdgeBaseConfigCheck;
 use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContextFactory;
 use Vortos\Deploy\Runner\DeployRunner;
 use Vortos\Deploy\Runner\RollbackRunner;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
+use Vortos\Deploy\Cutover\Edge\AppProxyIdentifier;
+use Vortos\Deploy\Cutover\Edge\ConfigInvariantValidator;
+use Vortos\Deploy\Cutover\Edge\EdgeBaseConfigResolver;
+use Vortos\Deploy\Cutover\Edge\EdgeConfigAssembler;
+use Vortos\Deploy\Cutover\Edge\EdgeConfigMerger;
 use Vortos\Deploy\Cutover\EdgeConfigGenerator;
+use Vortos\Deploy\Cutover\Lock\EdgeCutoverLockInterface;
+use Vortos\Deploy\Cutover\Lock\NullEdgeCutoverLock;
+use Vortos\Deploy\Cutover\Lock\RedisEdgeCutoverLock;
 use Vortos\Deploy\Cutover\State\EdgeStateStoreInterface;
 use Vortos\Deploy\Cutover\State\FileEdgeStateStore;
 use Vortos\Deploy\Cutover\State\RedisEdgeStateStore;
@@ -73,6 +83,8 @@ use Vortos\Deploy\Credential\SshCertificateAuthorityInterface;
 use Vortos\Deploy\Credential\SshKeyCredentialProvider;
 use Vortos\Deploy\Cutover\CutoverCoordinator;
 use Vortos\Deploy\Cutover\CutoverEventRecorderInterface;
+use Vortos\Deploy\Cutover\Drift\EdgeDriftDetector;
+use Vortos\Deploy\Preflight\Check\EdgeDriftCheck;
 use Vortos\Deploy\Cutover\EdgeReconciler;
 use Vortos\Deploy\Cutover\EdgeRouterInterface;
 use Vortos\Deploy\Cutover\EdgeRouterRegistry;
@@ -105,6 +117,7 @@ use Vortos\Deploy\DependencyInjection\Compiler\CollectEdgeRoutersPass;
 use Vortos\Deploy\Driver\Caddy\CaddyAdminClient;
 use Vortos\Deploy\Driver\Caddy\CaddyCapability;
 use Vortos\Deploy\Driver\Caddy\CaddyEdgeRouter;
+use Vortos\Deploy\Driver\Caddy\CaddyfileAdapter;
 use Vortos\Deploy\Driver\Caddy\DrainObserver;
 use Vortos\Deploy\Driver\Caddy\MountedConfigWriter;
 use Vortos\Deploy\Driver\Http\HttpReadinessGate;
@@ -114,6 +127,7 @@ use Vortos\Deploy\Driver\Mongo\MongoDeployStateStore;
 use Vortos\Deploy\Driver\Oci\OciRegistry;
 use Vortos\Deploy\Driver\Redis\RedisDeployStateStore;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
+use Vortos\Deploy\Driver\SshCompose\EdgeServiceReconciler;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Execution\CommandRunnerInterface;
 use Vortos\Deploy\Execution\DeployConnectionContext;
@@ -559,13 +573,100 @@ final class DeployExtension extends Extension
             ->setArgument('$mountedPath', (string) ($_ENV['EDGE_CONFIG_PATH'] ?? '/opt/vortos/edge/config/caddy.json'))
             ->setPublic(false);
 
+        // ── Edge Adapt-Merge: operator base config (static) + framework-owned upstream (dynamic) ──
+        //
+        // Precedence: when EDGE_BASE_CONFIG names a readable operator Caddyfile, the cutover config is
+        // the operator's file adapted to JSON, structurally patched with the live blue/green upstream,
+        // and run through the config firewall; when unset it is the from-scratch generated config
+        // (backward compatible). app_domain defaults to CADDY_DOMAIN; the adapt image is digest-pinned
+        // in prod via EDGE_ADAPT_IMAGE so preflight adapts with the same parser prod loads.
+        $edgeBaseConfig = ((string) ($_ENV['EDGE_BASE_CONFIG'] ?? '')) ?: null;
+        $edgeAdaptImage = (string) ($_ENV['EDGE_ADAPT_IMAGE'] ?? 'caddy:2-alpine');
+
+        $container->register(EdgeBaseConfigResolver::class, EdgeBaseConfigResolver::class)
+            ->setArgument('$projectRoot', '%kernel.project_dir%')
+            ->setPublic(false);
+
+        // The adapt runs in a throwaway caddy container. In push mode it runs ON THE BOX over SSH
+        // (docker + the caddy image live there, and the edge may be down at preflight); the base-config
+        // bytes are read locally and piped to stdin. Local/dev uses the local command runner.
+        $container->register(CaddyfileAdapter::class, CaddyfileAdapter::class)
+            ->setArgument('$adaptImage', $edgeAdaptImage)
+            ->setArgument('$localRunner', new Reference(CommandRunnerInterface::class))
+            ->setPublic(false);
+
+        $container->register(AppProxyIdentifier::class, AppProxyIdentifier::class)
+            ->setPublic(false);
+
+        $container->register(EdgeConfigMerger::class, EdgeConfigMerger::class)
+            ->setArgument('$identifier', new Reference(AppProxyIdentifier::class))
+            ->setPublic(false);
+
+        // The config firewall: force-pins the admin listen to the framework value so a hand-written
+        // Caddyfile can never expose or rebind the admin API.
+        $container->register(ConfigInvariantValidator::class, ConfigInvariantValidator::class)
+            ->setArgument('$adminListen', $caddyAdminListen)
+            ->setPublic(false);
+
+        $container->register(EdgeConfigAssembler::class, EdgeConfigAssembler::class)
+            ->setArgument('$resolver', new Reference(EdgeBaseConfigResolver::class))
+            ->setArgument('$adapter', new Reference(CaddyfileAdapter::class))
+            ->setArgument('$merger', new Reference(EdgeConfigMerger::class))
+            ->setArgument('$validator', new Reference(ConfigInvariantValidator::class))
+            ->setArgument('$generator', new Reference(EdgeConfigGenerator::class))
+            ->setArgument('$adminListen', $caddyAdminListen)
+            ->setArgument('$baseConfigPath', $edgeBaseConfig)
+            ->setPublic(false);
+
+        // Cutover mutex. Default no-op (single node, deploys serialised by CI); opt into the Redis
+        // mutex with EDGE_CUTOVER_LOCK=redis for a multi-writer control plane. When opted-in and Redis
+        // is down, acquire fails so the cutover fails closed rather than running unguarded.
+        $container->register(NullEdgeCutoverLock::class, NullEdgeCutoverLock::class)->setPublic(false);
+        $container->register(RedisEdgeCutoverLock::class, RedisEdgeCutoverLock::class)
+            ->setArgument('$redis', new Reference(\Redis::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setPublic(false);
+        $cutoverLockId = ((string) ($_ENV['EDGE_CUTOVER_LOCK'] ?? 'null')) === 'redis'
+            ? RedisEdgeCutoverLock::class
+            : NullEdgeCutoverLock::class;
+        $container->setAlias(EdgeCutoverLockInterface::class, $cutoverLockId)->setPublic(false);
+
         $container->register(CaddyEdgeRouter::class, CaddyEdgeRouter::class)
             ->setArgument('$adminClient', new Reference(CaddyAdminClient::class))
             ->setArgument('$configGenerator', new Reference(EdgeConfigGenerator::class))
             ->setArgument('$stateStore', new Reference(EdgeStateStoreInterface::class))
             ->setArgument('$drainObserver', new Reference(DrainObserver::class))
             ->setArgument('$adminListen', $caddyAdminListen)
+            ->setArgument('$configAssembler', new Reference(EdgeConfigAssembler::class))
+            ->setArgument('$cutoverLock', new Reference(EdgeCutoverLockInterface::class))
             ->addTag(CollectEdgeRoutersPass::TAG)
+            ->setPublic(false);
+
+        // Preflight gate: adapt+merge+firewall the operator base config BEFORE the deploy touches
+        // anything, so a broken/ambiguous/unsafe Caddyfile is refused while prod is untouched.
+        $container->register(EdgeBaseConfigCheck::class, EdgeBaseConfigCheck::class)
+            ->setArgument('$assembler', new Reference(EdgeConfigAssembler::class))
+            ->setArgument('$appDomain', $caddyDomain)
+            ->addTag(self::PREFLIGHT_CHECK_TAG)
+            ->setPublic(false);
+
+        // Drift detection: is the live edge still serving the recorded intent? The boot-file reader is
+        // the same MountedConfigWriter the cutover writes through (injected in the push block, null
+        // otherwise). Surfaced as a doctor gate and as the deploy:edge:drift command (which alerts).
+        $container->register(EdgeDriftDetector::class, EdgeDriftDetector::class)
+            ->setArgument('$stateStore', new Reference(EdgeStateStoreInterface::class))
+            ->setArgument('$liveConfig', new Reference(CaddyAdminClient::class))
+            ->setPublic(false);
+
+        $container->register(EdgeDriftCheck::class, EdgeDriftCheck::class)
+            ->setArgument('$detector', new Reference(EdgeDriftDetector::class))
+            ->addTag(self::PREFLIGHT_CHECK_TAG)
+            ->setPublic(false);
+
+        $container->register(EdgeDriftCommand::class, EdgeDriftCommand::class)
+            ->setArgument('$detector', new Reference(EdgeDriftDetector::class))
+            ->setArgument('$stateStore', new Reference(EdgeStateStoreInterface::class))
+            ->setArgument('$eventRecorder', new Reference(CutoverEventRecorderInterface::class))
+            ->addTag('console.command')
             ->setPublic(false);
 
         // ── Block 9: Cutover event recorder (no-op default, Block 16 wires real) ──
@@ -833,7 +934,7 @@ final class DeployExtension extends Extension
                 ->setArgument('$transport', new Reference(SshTransportInterface::class))
                 ->setPublic(false);
 
-            foreach ([StepExecutor::class, MountedConfigWriter::class, SupervisorWorkerController::class] as $consumer) {
+            foreach ([StepExecutor::class, MountedConfigWriter::class, SupervisorWorkerController::class, CaddyfileAdapter::class] as $consumer) {
                 $container->getDefinition($consumer)
                     ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
             }
@@ -844,6 +945,26 @@ final class DeployExtension extends Extension
             // nodes; boot file → cold restart of the existing node.
             $container->getDefinition(CaddyEdgeRouter::class)
                 ->setArgument('$bootConfigWriter', new Reference(MountedConfigWriter::class));
+
+            // Drift detection can now compare the on-disk boot file too (push mode has a real edge
+            // filesystem); the reader is the same writer the cutover persists through.
+            $container->getDefinition(EdgeDriftDetector::class)
+                ->setArgument('$bootConfigReader', new Reference(MountedConfigWriter::class));
+
+            // Idempotent edge-service reconcile: delivers + ups the edge compose on the box every
+            // deploy, recreate-only-on-change. Push-mode only (delivers over SSH); injected into the
+            // step executor so the ReconcileEdge phase converges the edge before staging/cutover.
+            $container->register(EdgeServiceReconciler::class, EdgeServiceReconciler::class)
+                ->setArgument('$transport', new Reference(SshTransportInterface::class))
+                ->setArgument('$generator', new Reference(EdgeConfigGenerator::class))
+                ->setArgument('$resolver', new Reference(EdgeBaseConfigResolver::class))
+                ->setArgument('$edgeDir', (string) ($_ENV['EDGE_DIR'] ?? '/opt/vortos/edge'))
+                ->setArgument('$adaptImage', $edgeAdaptImage)
+                ->setArgument('$baseConfigPath', $edgeBaseConfig)
+                ->setPublic(false);
+
+            $container->getDefinition(StepExecutor::class)
+                ->setArgument('$edgeReconciler', new Reference(EdgeServiceReconciler::class));
 
             // Caddy admin API stays bound to the VPS loopback; reach it through an SSH
             // local port-forward so it is never publicly exposed.

@@ -60,7 +60,7 @@ final class EdgeServiceReconcilerTest extends TestCase
 
         $this->reconciler($transport)->reconcile('api.example.com', 'repo/app@sha256:abc');
 
-        // The compose `up` must carry VORTOS_APP_IMAGE via an `env` prefix so edge-init can interpolate it.
+        // The compose up must carry VORTOS_APP_IMAGE via an env prefix so edge-init can interpolate it.
         $up = array_values(array_filter(
             $transport->ran,
             static fn (RemoteCommand $c): bool => in_array('up', $c->argv, true),

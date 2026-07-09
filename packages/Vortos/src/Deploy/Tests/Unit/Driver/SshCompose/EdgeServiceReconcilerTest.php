@@ -68,6 +68,10 @@ final class EdgeServiceReconcilerTest extends TestCase
         self::assertNotEmpty($up);
         self::assertSame('env', $up[0]->argv[0]);
         self::assertContains('VORTOS_APP_IMAGE=repo/app@sha256:abc', $up[0]->argv);
+
+        // Must NOT pass --remove-orphans: the edge compose project can be shared with unrelated
+        // services (db/redis/kafka on a single box); --remove-orphans would tear them down.
+        self::assertNotContains('--remove-orphans', $up[0]->argv);
     }
 
     public function testFailsClosedWhenAppImageMissing(): void

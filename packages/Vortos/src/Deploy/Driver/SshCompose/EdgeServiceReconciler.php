@@ -81,9 +81,15 @@ final class EdgeServiceReconciler
         // Prefix an "env VORTOS_APP_IMAGE=<ref>" so Compose interpolates the edge-init image from the
         // process environment. env(1) is a standard binary, so this is transport-portable (works whether
         // the SSH transport execs argv directly or via a shell) and stateless (no dot-env file to keep).
+        //
+        // NO --remove-orphans: the edge compose project may be SHARED with unrelated services (a
+        // single-box install commonly runs the edge and the durable stack — db/redis/kafka — under the
+        // same Compose project). --remove-orphans would tear those "orphans" (everything not in the edge
+        // file) down. The reconciler only owns the edge services it declares; it must never remove
+        // containers it did not create.
         $this->transport->run(new RemoteCommand([
             'env', 'VORTOS_APP_IMAGE=' . $appImage,
-            'docker', 'compose', '-f', $composePath, '-p', $this->projectName, 'up', '-d', '--remove-orphans',
+            'docker', 'compose', '-f', $composePath, '-p', $this->projectName, 'up', '-d',
         ]))->throwOnFailure('edge compose up');
 
         // Record the converged hash only AFTER a successful up, so a failed converge is retried next

@@ -256,12 +256,19 @@ final class CollectorConfigBuilder
 
         $pipelines = [];
         foreach ($sink->signals() as $signal) {
+            // Logs are NOT emitted here: an `otlp`-receiver logs pipeline has nothing feeding it
+            // (the app writes stderr, it does not push OTLP logs), so it would be a permanently
+            // dead pipeline. The log pipeline is a filelog-based one grafted on by
+            // LogPipelineBuilder::merge() only when log aggregation is enabled.
+            if ($signal === TelemetrySignal::Logs) {
+                continue;
+            }
             $isMetrics = $signal === TelemetrySignal::Metrics;
             $pipelines[$signal->value] = [
                 'receivers' => $isMetrics ? $metricsReceivers : ['otlp'],
                 'processors' => $isMetrics
                     ? $processorChain
-                    // cardinality deletion + promotion are metric-specific; traces/logs only batch.
+                    // cardinality deletion + promotion are metric-specific; traces only batch.
                     : ['memory_limiter', 'batch'],
                 'exporters' => [$exporterKey],
             ];

@@ -62,14 +62,20 @@ final readonly class SinkEndpoint
         return new self($host, $port, $protocol, $tlsEnabled, $headersEnvRef, $basePath);
     }
 
-    /** The `scheme://host:port[/base-path]` the collector exporter targets. */
+    /** The `scheme://host[:port][/base-path]` the collector exporter targets. */
     public function dsn(): string
     {
-        $scheme = $this->protocol === OtlpProtocol::Grpc
-            ? ($this->tlsEnabled ? 'https' : 'http')
-            : ($this->tlsEnabled ? 'https' : 'http');
+        $scheme = $this->tlsEnabled ? 'https' : 'http';
 
-        return sprintf('%s://%s:%d%s', $scheme, $this->host, $this->port, $this->basePath ?? '');
+        // Omit the port when it is the scheme default (443 for https, 80 for http): a public
+        // OTLP gateway is addressed as `https://host/otlp`, and pinning `:443` is redundant
+        // noise that also diverges from the canonical endpoint operators expect.
+        $defaultPort = $this->tlsEnabled ? 443 : 80;
+        $authority = $this->port === $defaultPort
+            ? $this->host
+            : sprintf('%s:%d', $this->host, $this->port);
+
+        return sprintf('%s://%s%s', $scheme, $authority, $this->basePath ?? '');
     }
 
     /**

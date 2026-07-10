@@ -54,10 +54,11 @@ final class CollectorConfigPublisherTest extends TestCase
 
     public function test_compose_fragment_chowns_storage_volume_before_collector_starts(): void
     {
-        // B13: the persistent-queue named volume is root-owned on first create, but the collector
-        // runs as uid 10001 and crash-loops on `permission denied`. The generated compose must ship
-        // an init sidecar that chowns the volume, and the collector must wait for it.
-        $this->publisher()->publish($this->projectDir, 'grafana', new CollectorBufferPolicy());
+        // B13: the persistent-queue named volume is root-owned on first create, but a nonroot
+        // collector crash-loops on `permission denied`. The generated compose must ship an init
+        // sidecar that chowns the volume, and the collector must wait for it.
+        // With log aggregation DISABLED the collector runs as the nonroot uid 10001.
+        $this->publisher()->publish($this->projectDir, 'grafana', new CollectorBufferPolicy(), false, false, CollectorConfigBuilder::DEFAULT_RECEIVER_HOST, false);
 
         $compose = (string) file_get_contents(
             $this->projectDir . '/observability/collector/docker-compose.collector.yaml',
@@ -73,6 +74,42 @@ final class CollectorConfigPublisherTest extends TestCase
         // Collector pins its uid and waits for the init sidecar to finish.
         self::assertStringContainsString('user: 10001:10001', $compose);
         self::assertStringContainsString('service_completed_successfully', $compose);
+    }
+
+    public function test_log_aggregation_default_runs_collector_as_root_and_mounts_container_logs(): void
+    {
+        // Logs are on by default. To read Docker's root-owned container-log files the collector must
+        // run as root and bind-mount the container-log directory read-only (standard log-agent posture).
+        $this->publisher()->publish($this->projectDir, 'grafana', new CollectorBufferPolicy());
+
+        $compose = (string) file_get_contents(
+            $this->projectDir . '/observability/collector/docker-compose.collector.yaml',
+        );
+        $config = (string) file_get_contents(
+            $this->projectDir . '/observability/collector/otel-collector-config.yaml',
+        );
+
+        self::assertStringContainsString('user: 0:0', $compose);
+        self::assertStringContainsString('chown -R 0:0', $compose);
+        self::assertStringContainsString('/var/lib/docker/containers:/var/lib/docker/containers:ro', $compose);
+        // The config grew a filelog logs pipeline shipping to the sink.
+        self::assertStringContainsString('filelog/vortos:', $config);
+        self::assertStringContainsString('otlphttp/vortos_logs:', $config);
+    }
+
+    public function test_no_logs_pipeline_when_disabled(): void
+    {
+        $this->publisher()->publish($this->projectDir, 'grafana', new CollectorBufferPolicy(), false, false, CollectorConfigBuilder::DEFAULT_RECEIVER_HOST, false);
+
+        $compose = (string) file_get_contents(
+            $this->projectDir . '/observability/collector/docker-compose.collector.yaml',
+        );
+        $config = (string) file_get_contents(
+            $this->projectDir . '/observability/collector/otel-collector-config.yaml',
+        );
+
+        self::assertStringNotContainsString('/var/lib/docker/containers', $compose);
+        self::assertStringNotContainsString('filelog/vortos', $config);
     }
 
     public function test_host_metrics_adds_hostfs_mount_to_collector_service(): void

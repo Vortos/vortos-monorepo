@@ -154,9 +154,16 @@ final class ObservabilityExtension extends Extension
             ? ((string) $_ENV['OBSERVABILITY_GRAFANA_OTLP_PATH'])
             : ($protocol === OtlpProtocol::HttpProtobuf ? '/otlp' : null);
 
+        // Explicit port override for a non-standard gateway; left unset the sink derives the
+        // correct default (443 for a TLS gateway, the OTLP convention for a plaintext collector).
+        $port = array_key_exists('OBSERVABILITY_GRAFANA_OTLP_PORT', $_ENV) && $_ENV['OBSERVABILITY_GRAFANA_OTLP_PORT'] !== ''
+            ? (int) $_ENV['OBSERVABILITY_GRAFANA_OTLP_PORT']
+            : null;
+
         $container->register(GrafanaOtlpMetricsSink::class, GrafanaOtlpMetricsSink::class)
             ->setArgument('$host', (string) ($_ENV['OBSERVABILITY_GRAFANA_OTLP_HOST'] ?? 'otlp-gateway.example.invalid'))
             ->setArgument('$protocol', $protocol)
+            ->setArgument('$port', $port)
             ->setArgument('$tlsEnabled', (bool) ($_ENV['OBSERVABILITY_GRAFANA_OTLP_TLS'] ?? true))
             ->setArgument('$basePath', $basePath)
             ->addTag(CollectMetricsSinksPass::TAG)
@@ -213,6 +220,7 @@ final class ObservabilityExtension extends Extension
         $container->register(CollectorConfigPublisher::class, CollectorConfigPublisher::class)
             ->setArgument('$registry', new Reference(MetricsSinkRegistry::class))
             ->setArgument('$builder', new Reference(CollectorConfigBuilder::class))
+            ->setArgument('$logPipelineBuilder', new Reference(LogPipelineBuilder::class))
             ->setArgument('$yaml', new Reference(YamlWriter::class))
             ->setPublic(false);
     }

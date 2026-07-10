@@ -25,7 +25,15 @@ final class SinkEndpointTest extends TestCase
     {
         $endpoint = SinkEndpoint::create('host.example.com', OtlpProtocol::HttpProtobuf, 443, true);
 
-        self::assertSame('https://host.example.com:443', $endpoint->dsn());
+        // The scheme-default port (443 for https) is omitted — a public gateway is `https://host`.
+        self::assertSame('https://host.example.com', $endpoint->dsn());
+    }
+
+    public function test_dsn_keeps_non_default_port(): void
+    {
+        $endpoint = SinkEndpoint::create('host.example.com', OtlpProtocol::HttpProtobuf, 4318, true);
+
+        self::assertSame('https://host.example.com:4318', $endpoint->dsn());
     }
 
     public function test_dsn_uses_http_when_tls_disabled(): void
@@ -78,7 +86,7 @@ final class SinkEndpointTest extends TestCase
     {
         $endpoint = SinkEndpoint::create('gw.grafana.net', OtlpProtocol::HttpProtobuf, 443, true, null, '/otlp');
 
-        self::assertSame('https://gw.grafana.net:443/otlp', $endpoint->dsn());
+        self::assertSame('https://gw.grafana.net/otlp', $endpoint->dsn());
     }
 
     #[DataProvider('basePathVariants')]

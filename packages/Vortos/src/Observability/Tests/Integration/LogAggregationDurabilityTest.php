@@ -12,8 +12,9 @@ use Vortos\Observability\Collector\LogRedactionPolicy;
 
 /**
  * Verifies the durability invariants of the log aggregation pipeline:
- * persistent queue + file storage + start_at=beginning guarantees
- * no loss and no duplication across collector restarts.
+ * persistent read-offset checkpoint (filelog `storage`) + a disk-backed exporter
+ * sending queue + retry guarantee no loss and no duplication across collector
+ * restarts, regardless of the `start_at` policy.
  *
  * These are config-level invariants — if any is violated, the deployed
  * collector will silently drop logs on restart.
@@ -47,15 +48,16 @@ final class LogAggregationDurabilityTest extends TestCase
         );
     }
 
-    public function test_filelog_receiver_starts_at_beginning(): void
+    public function test_filelog_receiver_start_at_defaults_to_end_and_is_configurable(): void
     {
-        $config = $this->mergedConfig(new LogPipelineConfig(['/var/log/*.json']));
+        // Default `end`: on first start (no checkpoint yet) only new lines are read, so a fresh
+        // deploy does not re-ingest the entire pre-existing container-log history. Durability across
+        // restarts comes from the persistent `storage` checkpoint, not from `start_at`.
+        $default = $this->mergedConfig(new LogPipelineConfig(['/var/log/*.json']));
+        self::assertSame('end', $default['receivers']['filelog/vortos']['start_at']);
 
-        self::assertSame(
-            'beginning',
-            $config['receivers']['filelog/vortos']['start_at'],
-            'filelog must start at beginning — combined with persistent storage, this ensures no logs are missed on first deploy',
-        );
+        $beginning = $this->mergedConfig(new LogPipelineConfig(['/var/log/*.json'], startAt: LogPipelineConfig::START_AT_BEGINNING));
+        self::assertSame('beginning', $beginning['receivers']['filelog/vortos']['start_at']);
     }
 
     public function test_exporter_has_persistent_sending_queue(): void
@@ -98,15 +100,15 @@ final class LogAggregationDurabilityTest extends TestCase
     {
         $configs = [
             new LogPipelineConfig(['/var/log/*.json']),
-            new LogPipelineConfig(['/var/log/*.json', '/tmp/app.log'], infoSampleRatio: 0.5),
-            new LogPipelineConfig(['/opt/logs/*.log'], redaction: new LogRedactionPolicy([], []), infoSampleRatio: 1.0),
+            new LogPipelineConfig(['/var/log/*.json', '/tmp/app.log'], sampleRatio: 0.5),
+            new LogPipelineConfig(['/opt/logs/*.log'], redaction: new LogRedactionPolicy([], []), sampleRatio: 1.0, startAt: LogPipelineConfig::START_AT_BEGINNING),
         ];
 
         foreach ($configs as $i => $logConfig) {
             $config = $this->mergedConfig($logConfig);
 
             self::assertSame('file_storage/vortos', $config['receivers']['filelog/vortos']['storage'], "Config $i: filelog storage");
-            self::assertSame('beginning', $config['receivers']['filelog/vortos']['start_at'], "Config $i: start_at");
+            self::assertSame($logConfig->startAt, $config['receivers']['filelog/vortos']['start_at'], "Config $i: start_at");
             self::assertTrue($config['exporters']['otlphttp/vortos_logs']['sending_queue']['enabled'], "Config $i: sending queue");
             self::assertTrue($config['exporters']['otlphttp/vortos_logs']['retry_on_failure']['enabled'], "Config $i: retry");
         }

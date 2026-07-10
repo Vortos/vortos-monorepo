@@ -1,5 +1,15 @@
+# Bounded local log storage: every container's stdout/stderr is captured by Docker's
+# json-file driver. Without a cap these files grow unbounded and fill the host disk.
+# The collector sidecar tails and ships these same logs off-host (to Grafana/Loki, where
+# long-term retention lives); this cap keeps only a bounded local buffer on the box.
+x-vortos-logging: &vortos-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 services:
   backend:
+    logging: *vortos-logging
     build:
       context: ./
       dockerfile: ./docker/php/Dockerfile
@@ -13,6 +23,7 @@ services:
       - ./.env
 
   nginx:
+    logging: *vortos-logging
     build:
       context: .
       dockerfile: ./docker/nginx/Dockerfile
@@ -27,6 +38,7 @@ services:
       - backend
 
   write_db:
+    logging: *vortos-logging
     image: postgres:18-alpine
     ports:
       - 5432:5432
@@ -43,6 +55,7 @@ services:
       - ./.env
 
   redis:
+    logging: *vortos-logging
     image: redis:alpine
     networks:
       - vortos-net
@@ -54,6 +67,7 @@ services:
       - ./.env
 
   read_db:
+    logging: *vortos-logging
     image: mongo:8.0
     networks:
       - vortos-net
@@ -68,6 +82,7 @@ services:
       - ./.env
 
   read_pg:
+    logging: *vortos-logging
     image: postgres:18-alpine
     ports:
       - 5433:5432
@@ -83,6 +98,7 @@ services:
       - ./.env
 
   kafka:
+    logging: *vortos-logging
     image: apache/kafka:latest
     environment:
       KAFKA_NODE_ID: 1
@@ -102,6 +118,7 @@ services:
       - vortos-net
 
   worker:
+    logging: *vortos-logging
     build:
       context: .
       dockerfile: ./docker/php/Dockerfile

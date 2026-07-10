@@ -13,6 +13,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Vortos\Observability\Collector\CollectorBufferPolicy;
 use Vortos\Observability\Collector\CollectorConfigBuilder;
 use Vortos\Observability\Collector\CollectorConfigPublisher;
+use Vortos\Observability\Collector\LogPipelineConfig;
 use Vortos\OpsKit\Driver\Exception\UnknownDriverException;
 
 /**
@@ -44,6 +45,10 @@ final class GenerateCollectorConfigCommand extends Command
             ->addOption('container-stats-endpoint', null, InputOption::VALUE_REQUIRED, 'Docker API endpoint for docker_stats', CollectorBufferPolicy::DEFAULT_CONTAINER_STATS_ENDPOINT)
             ->addOption('force', 'f', InputOption::VALUE_NONE, 'Overwrite existing files')
             ->addOption('bind', null, InputOption::VALUE_REQUIRED, 'OTLP receiver bind host: 127.0.0.1 (sidecar) or 0.0.0.0 (shared collector on a private network)')
+            ->addOption('no-logs', null, InputOption::VALUE_NONE, 'Disable the container-log aggregation pipeline (logs are shipped by default when the sink supports them)')
+            ->addOption('log-include', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Container-log file glob(s) the filelog receiver tails (repeatable; defaults to Docker json-file logs)')
+            ->addOption('log-sample', null, InputOption::VALUE_REQUIRED, 'Fraction of log records to forward, 0.0-1.0 (default 1.0 = ship all)')
+            ->addOption('log-start-at', null, InputOption::VALUE_REQUIRED, 'Where filelog begins on a new file: end (default) or beginning')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Preview without writing');
     }
 
@@ -70,7 +75,27 @@ final class GenerateCollectorConfigCommand extends Command
             // for a sidecar sharing the app netns, or 0.0.0.0 for a shared collector on a private
             // Docker network that a separate worker container emits to (P3-2 topology).
             $bind = (string) ($input->getOption('bind') ?: ($_ENV['OBSERVABILITY_COLLECTOR_BIND'] ?? CollectorConfigBuilder::DEFAULT_RECEIVER_HOST));
-            $result = $this->publisher->publish((string) getcwd(), $sink, $policy, $force, $dryRun, $bind);
+
+            // Log aggregation is on by default (and only realized when the sink carries logs). The
+            // env fallbacks let a deploy pipeline set the same policy without editing the invocation.
+            $logs = !((bool) $input->getOption('no-logs') || filter_var($_ENV['OBSERVABILITY_LOGS_DISABLED'] ?? false, FILTER_VALIDATE_BOOL));
+            $includeOpt = (array) $input->getOption('log-include');
+            $includePaths = $includeOpt !== []
+                ? array_values(array_map('strval', $includeOpt))
+                : $this->envIncludePaths();
+            $sampleRatio = $input->getOption('log-sample') !== null
+                ? (float) $input->getOption('log-sample')
+                : (float) ($_ENV['OBSERVABILITY_LOG_SAMPLE_RATIO'] ?? 1.0);
+            $startAt = (string) ($input->getOption('log-start-at') ?: ($_ENV['OBSERVABILITY_LOG_START_AT'] ?? LogPipelineConfig::START_AT_END));
+
+            $logConfig = new LogPipelineConfig(
+                includePaths: $includePaths,
+                sampleRatio: $sampleRatio,
+                storageDir: (string) $input->getOption('storage-dir'),
+                startAt: $startAt,
+            );
+
+            $result = $this->publisher->publish((string) getcwd(), $sink, $policy, $force, $dryRun, $bind, $logs, $logConfig);
         } catch (UnknownDriverException $e) {
             $io->error($e->getMessage());
 
@@ -94,5 +119,22 @@ final class GenerateCollectorConfigCommand extends Command
         }
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Include globs from OBSERVABILITY_LOG_INCLUDE (comma/space separated) or the Docker default.
+     *
+     * @return list<string>
+     */
+    private function envIncludePaths(): array
+    {
+        $raw = trim((string) ($_ENV['OBSERVABILITY_LOG_INCLUDE'] ?? ''));
+        if ($raw === '') {
+            return LogPipelineConfig::DEFAULT_INCLUDE_PATHS;
+        }
+
+        $paths = preg_split('/[\s,]+/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return $paths === [] ? LogPipelineConfig::DEFAULT_INCLUDE_PATHS : array_values($paths);
     }
 }

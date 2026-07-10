@@ -22,6 +22,18 @@ Two cooperating subsystems:
   persistent queue (`retry_on_failure` + `sending_queue`) so a backend blip buffers to
   disk and drains on recovery. Backend credentials are referenced via `${env:...}` —
   never inlined into the committed config.
+- **Log aggregation** rides the same sidecar and is **on by default** when the sink
+  carries the Logs signal (`grafana` does). A `filelog` receiver tails the host's Docker
+  json-file container logs, unwraps the Docker envelope, and parses the app's structured
+  JSON into attributes; a `transform` processor drops secret-named keys and masks
+  secret-shaped values (JWTs, bearer tokens, cards, emails) **before logs leave the host**;
+  a dedicated disk-backed queue isolates log delivery from metrics/traces. To read the
+  root-owned container logs the collector sidecar runs as root and bind-mounts the
+  container-log directory read-only — the standard log-agent posture (Promtail, Fluent
+  Bit, Grafana Alloy). Disable with `--no-logs`.
+  Note: the redaction is a `transform` processor, not the dedicated `redaction`
+  processor, because the pinned collector (0.103.0) does not support `redaction` on the
+  logs signal. The regex escaping for OTTL is validated end-to-end against that image.
 - **Error sink** spools captured errors to a **bounded, crash-safe** on-disk queue
   (`BoundedSpool`: byte-capped, drop-oldest + counter, CRC-checked, atomic rewrite);
   `capture()` never blocks the request path and never throws. Errors are PII-scrubbed
@@ -33,9 +45,11 @@ Two cooperating subsystems:
 ### Telemetry-seam commands
 
 ```bash
-php bin/console vortos:observability:collector --sink=grafana   # generate sidecar config
-php bin/console vortos:observability:collector --dry-run        # preview
-php bin/console vortos:observability:heartbeat --status=success # dead-man check-in (cron, ~60s)
+php bin/console vortos:observability:collector --sink=grafana   # generate sidecar config (logs on by default)
+php bin/console vortos:observability:collector --no-logs         # metrics/traces only
+php bin/console vortos:observability:collector --log-sample=0.5  # forward 50% of log records
+php bin/console vortos:observability:collector --dry-run         # preview
+php bin/console vortos:observability:heartbeat --status=success  # dead-man check-in (cron, ~60s)
 ```
 
 ### Configuration (env)
@@ -46,6 +60,12 @@ php bin/console vortos:observability:heartbeat --status=success # dead-man check
 | `OBSERVABILITY_ERROR_SINK` | `glitchtip` | Selected error sink driver key |
 | `OBSERVABILITY_GRAFANA_OTLP_HOST` | — | Off-host OTLP gateway host |
 | `OBSERVABILITY_GRAFANA_OTLP_HEADERS` | — | Auth header (resolved by the collector at runtime) |
+| `OBSERVABILITY_GRAFANA_OTLP_PORT` | 443 (TLS) / 4318 | Gateway port; omit to let the sink derive it (a TLS gateway is 443, not the bare-OTLP 4318) |
+| `OBSERVABILITY_GRAFANA_OTLP_PATH` | `/otlp` (http) | Gateway base path the exporter appends `/v1/{signal}` onto |
+| `OBSERVABILITY_LOGS_DISABLED` | `false` | Set truthy to omit the log-aggregation pipeline |
+| `OBSERVABILITY_LOG_INCLUDE` | Docker json-file glob | Comma/space-separated container-log globs the filelog receiver tails |
+| `OBSERVABILITY_LOG_SAMPLE_RATIO` | `1.0` | Fraction of log records forwarded (1.0 = all) |
+| `OBSERVABILITY_LOG_START_AT` | `end` | `end` (only new lines) or `beginning` on a new file |
 | `OBSERVABILITY_GLITCHTIP_DSN` | — | Error backend ingest URL (read at use time, never logged) |
 | `OBSERVABILITY_SPOOL_DIR` | system temp | Error spool directory |
 | `OBSERVABILITY_SPOOL_MAX_BYTES` | 256 MiB | Error spool byte cap (drop-oldest past this) |

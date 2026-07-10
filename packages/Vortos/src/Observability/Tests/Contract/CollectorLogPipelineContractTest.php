@@ -65,7 +65,7 @@ final class CollectorLogPipelineContractTest extends TestCase
         $logConfig = new LogPipelineConfig(
             includePaths: ['/var/lib/docker/containers/*/*.log'],
             redaction: new LogRedactionPolicy(),
-            infoSampleRatio: 0.1,
+            sampleRatio: 0.1,
             storageDir: '/var/lib/otelcol/storage',
         );
 
@@ -80,7 +80,7 @@ final class CollectorLogPipelineContractTest extends TestCase
         $config = $this->pinnedLogConfig();
 
         self::assertArrayHasKey('filelog/vortos', $config['receivers']);
-        self::assertArrayHasKey('redaction/vortos', $config['processors']);
+        self::assertArrayHasKey('transform/vortos_logs', $config['processors']);
         self::assertArrayHasKey('probabilistic_sampler/vortos_logs', $config['processors']);
         self::assertArrayHasKey('logs', $config['service']['pipelines']);
         self::assertContains('file_storage/vortos', $config['service']['extensions']);
@@ -89,23 +89,34 @@ final class CollectorLogPipelineContractTest extends TestCase
     public function test_filelog_receiver_pinned(): void
     {
         $config = $this->pinnedLogConfig();
+        $receiver = $config['receivers']['filelog/vortos'];
 
-        self::assertSame([
-            'include' => ['/var/lib/docker/containers/*/*.log'],
-            'storage' => 'file_storage/vortos',
-            'start_at' => 'beginning',
-        ], $config['receivers']['filelog/vortos']);
+        self::assertSame(['/var/lib/docker/containers/*/*.log'], $receiver['include']);
+        self::assertSame('file_storage/vortos', $receiver['storage']);
+        self::assertSame('end', $receiver['start_at']);
+        // Envelope parse → promote app line to body → parse app JSON into attributes.
+        self::assertSame('json_parser', $receiver['operators'][0]['type']);
+        self::assertSame('move', $receiver['operators'][1]['type']);
+        self::assertSame('json_parser', $receiver['operators'][2]['type']);
     }
 
     public function test_redaction_processor_pinned(): void
     {
         $config = $this->pinnedLogConfig();
-        $redaction = $config['processors']['redaction/vortos'];
+        $redaction = $config['processors']['transform/vortos_logs'];
 
-        self::assertFalse($redaction['allow_all_keys']);
-        self::assertNotEmpty($redaction['blocked_values']);
-        self::assertNotEmpty($redaction['allowed_keys']);
-        self::assertSame('redacted', $redaction['summary']);
+        // Rendered as a logs-capable `transform` processor (the `redaction` processor of the
+        // pinned collector does not support the logs signal).
+        self::assertSame('ignore', $redaction['error_mode']);
+        self::assertSame('log', $redaction['log_statements'][0]['context']);
+
+        $joined = implode("\n", $redaction['log_statements'][0]['statements']);
+        // Drops secret-named keys and masks secret values in body + attributes.
+        self::assertStringContainsString('delete_matching_keys(attributes,', $joined);
+        self::assertStringContainsString('replace_pattern(body,', $joined);
+        self::assertStringContainsString('replace_all_patterns(attributes, "value",', $joined);
+        // OTTL regex backslashes are doubled (a single backslash would crash the collector).
+        self::assertStringContainsString('\\\\b', $joined);
     }
 
     public function test_logs_pipeline_pinned(): void
@@ -114,7 +125,7 @@ final class CollectorLogPipelineContractTest extends TestCase
 
         self::assertSame([
             'receivers' => ['filelog/vortos'],
-            'processors' => ['memory_limiter', 'redaction/vortos', 'probabilistic_sampler/vortos_logs', 'batch'],
+            'processors' => ['memory_limiter', 'transform/vortos_logs', 'probabilistic_sampler/vortos_logs', 'batch'],
             'exporters' => ['otlphttp/vortos_logs'],
         ], $config['service']['pipelines']['logs']);
     }

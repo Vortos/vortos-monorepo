@@ -50,10 +50,18 @@ final class GrafanaOtlpMetricsSink implements MetricsSinkInterface
 
     public function endpoint(): SinkEndpoint
     {
+        // A TLS OTLP gateway (Grafana Cloud, or a self-hosted LGTM stack behind an HTTPS
+        // ingress) serves ingest on 443 — the bare-OTLP conventions 4317/4318 apply only to
+        // a plaintext in-cluster collector. Defaulting to the protocol port here produced
+        // `https://host:4318/otlp`, which Grafana Cloud refuses; every operator then had to
+        // hand-edit the generated config back to 443. Default TLS endpoints to 443 so the
+        // generated exporter is correct out of the box; an explicit port still wins.
+        $port = $this->port ?? ($this->tlsEnabled ? 443 : $this->protocol->defaultPort());
+
         return SinkEndpoint::create(
             host: $this->host,
             protocol: $this->protocol,
-            port: $this->port,
+            port: $port,
             tlsEnabled: $this->tlsEnabled,
             headersEnvRef: $this->headersEnvRef,
             basePath: $this->basePath,

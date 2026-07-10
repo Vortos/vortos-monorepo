@@ -71,10 +71,12 @@ final class CollectorConfigBuilderTest extends TestCase
     {
         $config = $this->build();
 
-        // grafana carries metrics, traces, logs.
+        // The base builder emits metrics + traces (both OTLP-push signals). The logs pipeline is
+        // NOT emitted here: an otlp-receiver logs pipeline would have nothing feeding it. Logs are
+        // grafted on by LogPipelineBuilder::merge() (a filelog pipeline) only when enabled.
         self::assertArrayHasKey('metrics', $config['service']['pipelines']);
         self::assertArrayHasKey('traces', $config['service']['pipelines']);
-        self::assertArrayHasKey('logs', $config['service']['pipelines']);
+        self::assertArrayNotHasKey('logs', $config['service']['pipelines']);
     }
 
     public function test_metrics_pipeline_includes_cardinality_processor(): void
@@ -82,7 +84,7 @@ final class CollectorConfigBuilderTest extends TestCase
         $config = $this->build();
 
         self::assertContains('attributes/cardinality', $config['service']['pipelines']['metrics']['processors']);
-        // traces/logs do not get cardinality deletion.
+        // traces do not get cardinality deletion.
         self::assertNotContains('attributes/cardinality', $config['service']['pipelines']['traces']['processors']);
     }
 

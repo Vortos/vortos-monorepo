@@ -89,7 +89,7 @@ final class CollectorConfigContractTest extends TestCase
             ],
             'exporters' => [
                 'otlphttp/grafana' => [
-                    'endpoint' => 'https://collector.example.com:443',
+                    'endpoint' => 'https://collector.example.com',
                     'headers' => ['Authorization' => '${env:OBSERVABILITY_GRAFANA_OTLP_HEADERS}'],
                     'tls' => ['insecure' => false],
                     'retry_on_failure' => ['enabled' => true, 'max_elapsed_time' => '300s'],
@@ -109,11 +109,8 @@ final class CollectorConfigContractTest extends TestCase
                         'processors' => ['memory_limiter', 'batch'],
                         'exporters' => ['otlphttp/grafana'],
                     ],
-                    'logs' => [
-                        'receivers' => ['otlp'],
-                        'processors' => ['memory_limiter', 'batch'],
-                        'exporters' => ['otlphttp/grafana'],
-                    ],
+                    // No 'logs' pipeline: the base metrics/traces config carries only OTLP-push
+                    // signals. Logs are a filelog pipeline added by LogPipelineBuilder::merge().
                 ],
             ],
         ], $this->pinnedConfig());

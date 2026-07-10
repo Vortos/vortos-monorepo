@@ -43,22 +43,23 @@ final class RemoteDeployScriptTest extends TestCase
     {
         $script = $this->script($this->definition(false));
 
-        self::assertStringNotContainsString('reveal-env.php', $script);
+        self::assertStringNotContainsString('open-env.php', $script);
     }
 
     public function test_materializes_sealed_env_before_any_env_consuming_command(): void
     {
         $script = $this->script($this->definition(false, sealedEnvFile: 'deploy/secrets/env.prod.sealed'));
 
-        // Emits the decrypt one-shot: no kernel boot, identity forwarded, deploy dir mounted rw, writes .env.prod.
+        // Emits the decrypt one-shot: no kernel boot, identity forwarded, deploy dir mounted rw, runs the
+        // app's reveal script over the sealed blob → .env.prod.
         self::assertStringContainsString(
             '--entrypoint php -e VORTOS_AGE_IDENTITY -v /opt/vortos:/opt/vortos ghcr.io/acme/app@${{ needs.build.outputs.image }} '
-            . 'vendor/vortos/vortos-secrets/bin/reveal-env.php deploy/secrets/env.prod.sealed /opt/vortos/.env.prod',
+            . 'deploy/secrets/open-env.php deploy/secrets/env.prod.sealed /opt/vortos/.env.prod',
             $script,
         );
 
         // ...and it runs BEFORE the first command that reads --env-file .env.prod (migrate:analyze).
-        $revealPos = strpos($script, 'reveal-env.php');
+        $revealPos = strpos($script, 'open-env.php');
         $analyzePos = strpos($script, 'vortos:migrate:analyze');
         self::assertIsInt($revealPos);
         self::assertIsInt($analyzePos);
@@ -70,7 +71,7 @@ final class RemoteDeployScriptTest extends TestCase
         // OIDC posture forwards no identity, so the sealed env cannot be opened — the step is omitted.
         $script = $this->script($this->definition(true, sealedEnvFile: 'deploy/secrets/env.prod.sealed'));
 
-        self::assertStringNotContainsString('reveal-env.php', $script);
+        self::assertStringNotContainsString('open-env.php', $script);
     }
 
     public function test_commands_run_on_the_app_network_reaching_prod_state(): void

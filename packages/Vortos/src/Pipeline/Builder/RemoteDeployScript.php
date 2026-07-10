@@ -155,17 +155,19 @@ final class RemoteDeployScript
         // Sealed-env materialization: decrypt the committed, sealed copy of the runtime env into the
         // target env file BEFORE any command reads it, so the plaintext is derived from a versioned,
         // encrypted source of truth (opened with VORTOS_AGE_IDENTITY) rather than hand-maintained on the
-        // box. Runs with `--entrypoint php` — no kernel boot, because a valid env file may not exist yet
-        // — reading the sealed blob + reveal script baked into the image. The reveal script fails closed
-        // (leaves any existing env untouched), and `set -euo pipefail` then aborts before cutover. Gated
-        // on the age-KEK posture, since the identity is what opens it (OIDC has no forwarded identity).
+        // box. Runs the app's reveal entrypoint with `--entrypoint php` — no kernel boot, because a valid
+        // env file may not exist yet — reading the sealed blob + reveal script baked into the image. The
+        // reveal script fails closed (leaves any existing env untouched), and `set -euo pipefail` then
+        // aborts before cutover. Gated on the age-KEK posture (OIDC forwards no identity to open it).
+        // The plaintext-to-disk step is an app-provided reveal script, deliberately not framework library
+        // code — the framework only emits the one-shot.
         if ($useAgeKek && $definition->sealedEnvFile !== null) {
             $lines[] = sprintf(
-                'docker run --rm --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s '
-                . 'vendor/vortos/vortos-secrets/bin/reveal-env.php %s %s/.env.prod',
+                'docker run --rm --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/.env.prod',
                 $deployDir,
                 $deployDir,
                 $imageRef,
+                $definition->sealedEnvRevealScript,
                 $definition->sealedEnvFile,
                 $deployDir,
             );

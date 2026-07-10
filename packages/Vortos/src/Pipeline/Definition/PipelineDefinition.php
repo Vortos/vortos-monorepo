@@ -83,7 +83,12 @@ final readonly class PipelineDefinition
         // decrypts it with VORTOS_AGE_IDENTITY into `<remoteDeployDir>/.env.prod` BEFORE the colors
         // boot — so the plaintext env is derived from a versioned, encrypted source of truth instead of
         // hand-maintained on the box. Null (default) leaves env delivery untouched (backward compatible).
+        //
+        // The reveal itself is an app-provided entrypoint script (the plaintext-to-disk materialization
+        // is a deploy concern, deliberately NOT in the pure Secrets library): the framework only emits
+        // the one-shot that runs it. Default path matches the shipped skeleton convention.
         public ?string $sealedEnvFile = null,
+        public string $sealedEnvRevealScript = 'deploy/secrets/open-env.php',
         // ── Per-job bootstrap + quality-stage optionality (B6/G6) ──
         public array $bootstrapSteps = [],
         public bool $emitStaticAnalysis = true,

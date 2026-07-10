@@ -53,6 +53,7 @@ final class PipelineDefinitionBuilder
     /** @var list<string> */
     private array $runtimeFileSecretDirs = [];
     private ?string $sealedEnvFile = null;
+    private string $sealedEnvRevealScript = 'deploy/secrets/open-env.php';
     /** @var list<array{name: string, run: string}> */
     private array $bootstrapSteps = [];
     private bool $emitStaticAnalysis = true;
@@ -352,11 +353,14 @@ final class PipelineDefinitionBuilder
      * Image-relative path to a sealed copy of the runtime env file (e.g. `deploy/secrets/env.prod.sealed`).
      * When set, the deploy decrypts it with VORTOS_AGE_IDENTITY into the target env file before cutover,
      * so the plaintext env is derived from a versioned, encrypted source of truth. Null disables it.
+     *
+     * @param string $revealScript image-relative path to the app's reveal entrypoint (`php <script> <sealed> <out>`)
      */
-    public function sealedEnvFile(?string $path): self
+    public function sealedEnvFile(?string $path, string $revealScript = 'deploy/secrets/open-env.php'): self
     {
         $clone = clone $this;
         $clone->sealedEnvFile = ($path === null || $path === '') ? null : $path;
+        $clone->sealedEnvRevealScript = $revealScript;
 
         return $clone;
     }
@@ -454,6 +458,7 @@ final class PipelineDefinitionBuilder
             runtimeEnvFiles: $this->runtimeEnvFiles,
             runtimeFileSecretDirs: $this->runtimeFileSecretDirs,
             sealedEnvFile: $this->sealedEnvFile,
+            sealedEnvRevealScript: $this->sealedEnvRevealScript,
             bootstrapSteps: $this->bootstrapSteps,
             emitStaticAnalysis: $this->emitStaticAnalysis,
             emitAgnosticism: $this->emitAgnosticism,

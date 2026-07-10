@@ -129,6 +129,12 @@ use Vortos\Deploy\Driver\Redis\RedisDeployStateStore;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
 use Vortos\Deploy\Driver\SshCompose\EdgeServiceReconciler;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
+use Vortos\Deploy\Driver\Docker\ImageReclaimer;
+use Vortos\Deploy\Reclaim\Schedule\ImageGcSchedule;
+use Vortos\Deploy\Reclaim\Schedule\ReclaimImagesCommand;
+use Vortos\Deploy\Reclaim\Schedule\ReclaimImagesHandler;
+use Vortos\Scheduler\DependencyInjection\Compiler\StaticSchedulePass;
+use Psr\Log\LoggerInterface;
 use Vortos\Deploy\Execution\CommandRunnerInterface;
 use Vortos\Deploy\Execution\LocalTransport;
 use Vortos\Deploy\Execution\DeployConnectionContext;
@@ -851,6 +857,13 @@ final class DeployExtension extends Extension
 
         // ── Block 7+8+9+10: StepExecutor + SshComposeTarget ──
 
+        // Image reclaimer — the single reference-counted GC used by BOTH the deploy target (after
+        // every attempt) and the scheduled image-gc safety-net. Local runner by default; the push+
+        // remote-host block below swaps in the SSH transport so it reclaims ON the box.
+        $container->register(ImageReclaimer::class, ImageReclaimer::class)
+            ->setArgument('$localRunner', new Reference(CommandRunnerInterface::class))
+            ->setPublic(false);
+
         $stepExecutorDef = $container->register(StepExecutor::class, StepExecutor::class)
             ->setArgument('$stateStore', new Reference($deployStateStoreId))
             ->setArgument('$registry', new Reference(ContainerRegistryInterface::class))
@@ -885,6 +898,7 @@ final class DeployExtension extends Extension
             ->setArgument('$registry', new Reference(ContainerRegistryInterface::class))
             ->setArgument('$stateStore', new Reference($deployStateStoreId))
             ->setArgument('$releaseStore', new Reference($deployStateStoreId))
+            ->setArgument('$reclaimer', new Reference(ImageReclaimer::class))
             ->addTag(CollectDeployTargetsPass::TAG)
             ->setPublic(false);
 
@@ -893,6 +907,15 @@ final class DeployExtension extends Extension
         $sshTargetDef->setArgument(
             '$rollbackGuard',
             new Reference(RollbackGuard::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        );
+
+        // Manifest read model backs the release-authoritative protected-digest set (current +
+        // previous-for-rollback) the reclaimer must never remove. Optional: absent in installs
+        // without vortos-release's DBAL read model, where reclaim falls back to container-ref +
+        // recency-floor protection only.
+        $sshTargetDef->setArgument(
+            '$manifestReadModel',
+            new Reference(ManifestReadModelInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
         );
 
         // ── Push delivery: real SSH transport wiring ──
@@ -935,7 +958,7 @@ final class DeployExtension extends Extension
                 ->setArgument('$transport', new Reference(SshTransportInterface::class))
                 ->setPublic(false);
 
-            foreach ([StepExecutor::class, MountedConfigWriter::class, SupervisorWorkerController::class, CaddyfileAdapter::class] as $consumer) {
+            foreach ([StepExecutor::class, ImageReclaimer::class, MountedConfigWriter::class, SupervisorWorkerController::class, CaddyfileAdapter::class] as $consumer) {
                 $container->getDefinition($consumer)
                     ->setArgument('$sshTransport', new Reference(SshTransportInterface::class));
             }
@@ -1191,6 +1214,44 @@ final class DeployExtension extends Extension
             ->setArgument('$stateStore', new Reference(EdgeStateStoreInterface::class))
             ->setArgument('$generator', new Reference(EdgeConfigGenerator::class))
             ->addTag('console.command')
+            ->setPublic(false);
+
+        $this->registerImageGcSchedule($container);
+    }
+
+    /**
+     * Scheduled image-GC safety-net (layer 3). Only wired when BOTH vortos-scheduler and vortos-cqrs
+     * are installed — an app without them still gets the full deploy-path reclaim (layers 1+2), it
+     * just has no cadence sweep. Mirrors how SchedulerExtension wires its own auto-prune schedule:
+     * the CQRS command is registered as a definition so SchedulableCommandPass discovers its
+     * #[SchedulableCommand] attribute for the allowlist; the handler is tagged vortos.command_handler
+     * (collected only when the CQRS bus is present); the static schedule carries the scheduler pass tag.
+     */
+    private function registerImageGcSchedule(ContainerBuilder $container): void
+    {
+        // interface_exists / class_exists are pure autoload checks — reliable inside load(), unlike
+        // container hasAlias() gates which read false under MergeExtensionConfigurationPass isolation.
+        if (!interface_exists('Vortos\\Cqrs\\Command\\CommandBusInterface') || !class_exists(StaticSchedulePass::class)) {
+            return;
+        }
+
+        // Registered purely so SchedulableCommandPass's attribute scan (which only inspects
+        // already-registered definitions) discovers #[SchedulableCommand]; CommandHydrator
+        // instantiates the command by reflection, never via the container.
+        $container->register(ReclaimImagesCommand::class, ReclaimImagesCommand::class)
+            ->setPublic(false);
+
+        $container->register(ReclaimImagesHandler::class, ReclaimImagesHandler::class)
+            ->setArgument('$reclaimer', new Reference(ImageReclaimer::class))
+            ->setArgument('$definitionBuilder', new Reference(DeploymentDefinitionBuilder::class))
+            ->setArgument('$releaseStore', new Reference(CurrentReleaseStoreInterface::class))
+            ->setArgument('$manifests', new Reference(ManifestReadModelInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('vortos.command_handler')
+            ->setPublic(true);
+
+        $container->register(ImageGcSchedule::class, ImageGcSchedule::class)
+            ->addTag(StaticSchedulePass::TAG)
             ->setPublic(false);
     }
 

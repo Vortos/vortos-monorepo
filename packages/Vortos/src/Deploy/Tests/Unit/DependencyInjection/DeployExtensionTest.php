@@ -6,7 +6,13 @@ namespace Vortos\Deploy\Tests\Unit\DependencyInjection;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Deploy\Credential\CredentialProviderRegistry;
+use Vortos\Deploy\Driver\Docker\ImageReclaimer;
+use Vortos\Deploy\Reclaim\Schedule\ImageGcSchedule;
+use Vortos\Deploy\Reclaim\Schedule\ReclaimImagesCommand;
+use Vortos\Deploy\Reclaim\Schedule\ReclaimImagesHandler;
+use Vortos\Scheduler\DependencyInjection\Compiler\StaticSchedulePass;
 use Vortos\Deploy\Definition\DeploymentDefinitionValidator;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectContainerRegistriesPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectCredentialProvidersPass;
@@ -55,6 +61,38 @@ final class DeployExtensionTest extends TestCase
         self::assertTrue($container->hasDefinition(DeployPlanner::class));
         self::assertTrue($container->hasDefinition(PlanRenderer::class));
         self::assertTrue($container->hasDefinition(DeploymentDefinitionValidator::class));
+    }
+
+    public function test_registers_image_reclaimer_and_scheduled_gc(): void
+    {
+        $container = new ContainerBuilder();
+        (new DeployExtension())->load([], $container);
+
+        // Layer 1+2: the reference-counted reclaimer is always wired and injected into the target.
+        self::assertTrue($container->hasDefinition(ImageReclaimer::class));
+        self::assertInstanceOf(
+            Reference::class,
+            $container->getDefinition(SshComposeTarget::class)->getArgument('$reclaimer'),
+        );
+
+        // Layer 3: the scheduled safety-net wires only when vortos-scheduler + vortos-cqrs are present
+        // (both are in the monorepo autoload), mirroring how SchedulerExtension gates its own schedule.
+        $scheduled = interface_exists('Vortos\\Cqrs\\Command\\CommandBusInterface')
+            && class_exists(StaticSchedulePass::class);
+
+        self::assertSame($scheduled, $container->hasDefinition(ReclaimImagesCommand::class));
+        self::assertSame($scheduled, $container->hasDefinition(ReclaimImagesHandler::class));
+        self::assertSame($scheduled, $container->hasDefinition(ImageGcSchedule::class));
+
+        if ($scheduled) {
+            self::assertTrue(
+                $container->getDefinition(ImageGcSchedule::class)->hasTag(StaticSchedulePass::TAG),
+                'the image-gc schedule must carry the static-schedule tag so StaticSchedulePass discovers it',
+            );
+            self::assertTrue(
+                $container->getDefinition(ReclaimImagesHandler::class)->hasTag('vortos.command_handler'),
+            );
+        }
     }
 
     /** @return list<string> the four control-plane store interfaces that must share one durable store */

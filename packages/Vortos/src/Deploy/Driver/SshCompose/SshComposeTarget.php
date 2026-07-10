@@ -10,6 +10,7 @@ use Vortos\Deploy\Plan\DeployContext;
 use Vortos\Deploy\Plan\DeployPlan;
 use Vortos\Deploy\Plan\DeployPlanner;
 use Vortos\Deploy\Plan\DesiredImage;
+use Vortos\Deploy\Driver\Docker\ImageReclaimer;
 use Vortos\Deploy\Registry\ContainerRegistryInterface;
 use Vortos\Deploy\Registry\ImageReference;
 use Vortos\Deploy\Rollback\RollbackGuard;
@@ -23,6 +24,7 @@ use Vortos\Deploy\Target\TargetStatus;
 use Vortos\OpsKit\Attribute\AsDriver;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
 use Vortos\Release\Manifest\BuildManifest;
+use Vortos\Release\ReadModel\ManifestReadModelInterface;
 
 #[AsDriver('ssh-compose')]
 final class SshComposeTarget implements DeployTargetInterface
@@ -33,7 +35,9 @@ final class SshComposeTarget implements DeployTargetInterface
         private readonly ContainerRegistryInterface $registry,
         private readonly DeployStateStoreInterface $stateStore,
         private readonly CurrentReleaseStoreInterface $releaseStore,
+        private readonly ImageReclaimer $reclaimer,
         private readonly ?RollbackGuard $rollbackGuard = null,
+        private readonly ?ManifestReadModelInterface $manifestReadModel = null,
     ) {}
 
     public function capabilities(): CapabilityDescriptor
@@ -167,12 +171,17 @@ final class SshComposeTarget implements DeployTargetInterface
             $this->stateStore->fail($run->runId, $e->getMessage());
 
             throw $e;
-        }
-
-        // R8-4: reclaim superseded images AFTER the release is durably recorded complete. Best-effort:
-        // the deploy is already green, so a prune failure must never surface as a deploy failure.
-        if ($plan->imagePrunePolicy !== null && $plan->imagePrunePolicy->enabled) {
-            $this->executor->reclaimImages($image, $plan->imagePrunePolicy);
+        } finally {
+            // R8-4: reclaim superseded release images + build cache on EVERY deploy attempt —
+            // success AND failure. A failed deploy leaves a freshly-pulled but never-promoted image
+            // orphaned on disk exactly where reclaim used to be skipped (it ran only after the
+            // success path); running it in a finally block closes that leak so disk stays bounded whether
+            // CI is green or red. The keep-set is reference-counted (live release + previous-for-
+            // rollback digest + container-referenced images + recency floor), so the failure's
+            // orphan is removed while the rollback target is protected. Best-effort by construction:
+            // a reclaim error is swallowed here so it can neither fail a green deploy nor mask the
+            // exception propagating out of a red one.
+            $this->reclaimImagesSafely($plan, $env, $image);
         }
 
         return new TargetStatus(
@@ -181,6 +190,50 @@ final class SshComposeTarget implements DeployTargetInterface
             healthStatus: 'ok',
             checkedAt: new \DateTimeImmutable(),
         );
+    }
+
+    /**
+     * Best-effort reclaim wrapper: applies the plan's ImagePrunePolicy through the reference-counted
+     * {@see ImageReclaimer}, computing the release-authoritative protected-digest set. Never throws —
+     * it runs inside the deploy's a finally block, so an error must not become the deploy's outcome.
+     */
+    private function reclaimImagesSafely(DeployPlan $plan, EnvironmentName $env, ImageReference $image): void
+    {
+        $policy = $plan->imagePrunePolicy;
+        if ($policy === null || !$policy->enabled) {
+            return;
+        }
+
+        try {
+            $this->reclaimer->reclaim($image->repository, $policy, $this->protectedDigests($env));
+        } catch (\Throwable) {
+            // Reclaim is disk hygiene, never a release gate — swallow.
+        }
+    }
+
+    /**
+     * Registry digests that must never be reclaimed: the current live release and the
+     * previous-for-rollback. These mirror the exact authority the rollback path uses
+     * ({@see ManifestReadModelInterface::previousForEnvironment()}), so the keep-set can never
+     * evict an image a rollback could target.
+     *
+     * @return list<string>
+     */
+    private function protectedDigests(EnvironmentName $env): array
+    {
+        $digests = [];
+
+        $current = $this->releaseStore->currentRelease($env->value);
+        if ($current !== null && $current->imageDigest !== '') {
+            $digests[] = $current->imageDigest;
+        }
+
+        $previous = $this->manifestReadModel?->previousForEnvironment($env->value);
+        if ($previous !== null) {
+            $digests[] = $previous->imageDigest;
+        }
+
+        return array_values(array_unique(array_filter($digests)));
     }
 
     private function extractPromotedColor(DeployRun $run): ?string

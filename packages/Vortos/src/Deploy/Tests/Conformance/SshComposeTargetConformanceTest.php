@@ -7,6 +7,7 @@ namespace Vortos\Deploy\Tests\Conformance;
 use Vortos\Deploy\Compose\ComposeProjectFactory;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
+use Vortos\Deploy\Driver\Docker\ImageReclaimer;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Plan\DeployPlanner;
 use Vortos\Deploy\Strategy\BlueGreenStrategy;
@@ -45,6 +46,7 @@ final class SshComposeTargetConformanceTest extends DeployTargetConformanceTestC
             registry: $registry,
             stateStore: $stateStore,
             releaseStore: $stateStore,
+            reclaimer: new ImageReclaimer(new FakeCommandRunner()),
         );
     }
 

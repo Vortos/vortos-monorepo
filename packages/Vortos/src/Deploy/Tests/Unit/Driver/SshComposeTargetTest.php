@@ -10,6 +10,7 @@ use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Definition\DeploymentDefinition;
 use Vortos\Deploy\Driver\SshCompose\SshComposeCapability;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
+use Vortos\Deploy\Driver\Docker\ImageReclaimer;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Plan\CurrentDeployState;
 use Vortos\Deploy\Plan\DeployContext;
@@ -51,6 +52,7 @@ final class SshComposeTargetTest extends TestCase
             registry: $registry,
             stateStore: $stateStore,
             releaseStore: $stateStore,
+            reclaimer: new ImageReclaimer(new FakeCommandRunner()),
         );
     }
 

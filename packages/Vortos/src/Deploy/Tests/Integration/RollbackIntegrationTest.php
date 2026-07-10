@@ -10,6 +10,7 @@ use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Cutover\CutoverCoordinator;
 use Vortos\Deploy\Cutover\NullCutoverEventRecorder;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
+use Vortos\Deploy\Driver\Docker\ImageReclaimer;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Exception\RollbackRefusedException;
 use Vortos\Deploy\Plan\DeployPlanner;
@@ -86,7 +87,7 @@ final class RollbackIntegrationTest extends TestCase
         $strategies = new DeployStrategyRegistry();
         $strategies->register(new BlueGreenStrategy());
 
-        $target = new SshComposeTarget(new DeployPlanner($strategies), $executor, $registry, $store, $store);
+        $target = new SshComposeTarget(new DeployPlanner($strategies), $executor, $registry, $store, $store, new ImageReclaimer(new FakeCommandRunner()));
         $targets = new DeployTargetRegistry(new InMemoryServiceLocator(['ssh-compose' => $target]));
 
         $manifests = new FakeManifestReadModel(

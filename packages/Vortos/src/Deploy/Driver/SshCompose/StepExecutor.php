@@ -26,7 +26,6 @@ use Vortos\Deploy\Gate\SmokeRunnerInterface;
 use Vortos\Deploy\Gate\SmokeSpec;
 use Vortos\Deploy\Plan\DeployPlan;
 use Vortos\Deploy\Plan\DeployStep;
-use Vortos\Deploy\Plan\ImagePrunePolicy;
 use Vortos\Deploy\Plan\StepAction;
 use Vortos\Deploy\Registry\ContainerRegistryInterface;
 use Vortos\Deploy\Registry\ImageReference;
@@ -160,93 +159,6 @@ final class StepExecutor
         }
 
         return sprintf('weighted route %d%% → %s', $weight, $color->value);
-    }
-
-    /**
-     * R8-4: reclaim superseded release images + build cache on the target after a successful cutover.
-     *
-     * Conservative and best-effort by construction — it must never endanger a healthy release:
-     *   - keeps the {@see ImagePrunePolicy::$keep} most-recent images of the deployed repository
-     *     (docker lists newest-first), which always includes the now-active and previous-for-rollback;
-     *   - removes older superseded release images individually (never a blanket '-a' prune); an image
-     *     still referenced by a running container makes 'docker image rm' fail — that is caught and the
-     *     image is left in place (double safety for the active color);
-     *   - prunes dangling layers and build cache older than the configured age.
-     *
-     * Every command is isolated: any failure is recorded and skipped, and the whole method never
-     * throws. Returns a human-readable summary for the audit/outcome trail.
-     */
-    public function reclaimImages(ImageReference $image, ImagePrunePolicy $policy): string
-    {
-        if (!$policy->enabled) {
-            return 'image reclaim disabled';
-        }
-
-        $notes = [];
-
-        try {
-            $removed = $this->reclaimSupersededImages($image->repository, $policy->keep);
-            $notes[] = sprintf('removed %d superseded image(s)', $removed);
-        } catch (\Throwable $e) {
-            $notes[] = 'superseded-image prune skipped: ' . $e->getMessage();
-        }
-
-        try {
-            $this->runReclaimCommand(['docker', 'image', 'prune', '-f']);
-            $notes[] = 'dangling layers pruned';
-        } catch (\Throwable $e) {
-            $notes[] = 'dangling prune skipped: ' . $e->getMessage();
-        }
-
-        try {
-            $this->runReclaimCommand(['docker', 'builder', 'prune', '-f', '--filter', 'until=' . $policy->builderCacheMaxAge]);
-            $notes[] = 'build cache pruned (until=' . $policy->builderCacheMaxAge . ')';
-        } catch (\Throwable $e) {
-            $notes[] = 'build-cache prune skipped: ' . $e->getMessage();
-        }
-
-        return 'image reclaim: ' . implode('; ', $notes);
-    }
-
-    private function reclaimSupersededImages(string $repository, int $keep): int
-    {
-        // Newest-first (docker default). Keep the first $keep unique IDs (active + previous + slack),
-        // remove the rest one-by-one.
-        $result = $this->runReclaimCommand(['docker', 'images', $repository, '--no-trunc', '--format', '{{.ID}}']);
-
-        $ids = [];
-        foreach (preg_split('/\r?\n/', trim($result->stdout)) ?: [] as $line) {
-            $id = trim($line);
-            if ($id !== '' && !in_array($id, $ids, true)) {
-                $ids[] = $id;
-            }
-        }
-
-        $toRemove = array_slice($ids, $keep);
-        $removed = 0;
-
-        foreach ($toRemove as $id) {
-            try {
-                // No -f: an image still referenced by a running container must NOT be force-removed.
-                $rm = $this->runReclaimCommand(['docker', 'image', 'rm', $id]);
-                if ($rm->isSuccess()) {
-                    $removed++;
-                }
-            } catch (\Throwable) {
-                // In-use / already-gone — leave it, continue.
-            }
-        }
-
-        return $removed;
-    }
-
-    private function runReclaimCommand(array $argv): \Vortos\Deploy\Execution\CommandResult
-    {
-        if ($this->sshTransport !== null) {
-            return $this->sshTransport->run(new RemoteCommand($argv));
-        }
-
-        return $this->localRunner->run($argv);
     }
 
     private function handlePullImage(DeployStep $step, ImageReference $image): string

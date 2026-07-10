@@ -7,6 +7,7 @@ namespace Vortos\Deploy\Tests\Unit\Driver;
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Definition\EnvironmentName;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
+use Vortos\Deploy\Driver\Docker\ImageReclaimer;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Exception\RollbackRefusedException;
 use Vortos\Deploy\Plan\DeployPlan;
@@ -66,6 +67,7 @@ final class SshComposeRollbackTest extends TestCase
             registry: new FakeContainerRegistry(),
             stateStore: $stateStore,
             releaseStore: $stateStore,
+            reclaimer: new ImageReclaimer(new FakeCommandRunner()),
             rollbackGuard: $guard,
         );
     }

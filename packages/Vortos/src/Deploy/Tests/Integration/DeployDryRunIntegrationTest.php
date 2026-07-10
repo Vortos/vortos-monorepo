@@ -11,6 +11,7 @@ use Vortos\Deploy\Cutover\CutoverCoordinator;
 use Vortos\Deploy\Cutover\NullCutoverEventRecorder;
 use Vortos\Deploy\Driver\LocalFile\FileDeployStateStore;
 use Vortos\Deploy\Driver\SshCompose\SshComposeTarget;
+use Vortos\Deploy\Driver\Docker\ImageReclaimer;
 use Vortos\Deploy\Driver\SshCompose\StepExecutor;
 use Vortos\Deploy\Plan\DeployPlanner;
 use Vortos\Deploy\Plan\PhaseGate;
@@ -91,6 +92,7 @@ final class DeployDryRunIntegrationTest extends TestCase
             registry: $registry,
             stateStore: $store,
             releaseStore: $store,
+            reclaimer: new ImageReclaimer(new FakeCommandRunner()),
         );
 
         $targets = new DeployTargetRegistry(new InMemoryServiceLocator(['ssh-compose' => $target]));

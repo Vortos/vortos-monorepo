@@ -13,6 +13,8 @@
     },
     "extra": {
         "vortos": {
+            "package": "Vortos\\FeatureFlagsAdmin\\DependencyInjection\\FeatureFlagsAdminPackage",
+            "order": 100,
             "public-dir": "Public"
         }
     },

@@ -12,6 +12,7 @@ use Symfony\Component\HttpFoundation\RequestStack;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Vortos\Auth\Identity\CurrentUserProvider;
+use Vortos\Auth\TwoFactor\Contract\TwoFactorVerifierInterface;
 use Vortos\FeatureFlags\Application\FlagWriteService;
 use Vortos\FeatureFlags\Authz\Management\ManagementAuthzGateInterface;
 use Vortos\FeatureFlags\ChangeRequest\ChangeRequestService;
@@ -75,10 +76,14 @@ final class FeatureFlagsAdminExtension extends Extension
             ? (string) $container->getParameter('feature_flags_admin.asset_base_path')
             : '/bundles/feature-flags-admin/build';
 
-        $config = new AdminConfig($enabled, $prefix, $requiredRole);
+        $require2fa = $container->hasParameter('feature_flags_admin.require_2fa')
+            ? (bool) $container->getParameter('feature_flags_admin.require_2fa')
+            : false;
+
+        $config = new AdminConfig($enabled, $prefix, $requiredRole, $require2fa);
 
         $container->register(AdminConfig::class, AdminConfig::class)
-            ->setArguments([$enabled, $prefix, $requiredRole])
+            ->setArguments([$enabled, $prefix, $requiredRole, $require2fa])
             ->setShared(true)
             ->setPublic(false);
 
@@ -96,6 +101,7 @@ final class FeatureFlagsAdminExtension extends Extension
         $container->register(AdminAuthMiddleware::class, AdminAuthMiddleware::class)
             ->setArgument('$currentUser', new Reference(CurrentUserProvider::class))
             ->setArgument('$config', new Reference(AdminConfig::class))
+            ->setArgument('$twoFactor', new Reference(TwoFactorVerifierInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag('vortos.http_middleware', ['priority' => MiddlewareOrder::AUTH])
             ->setShared(true)
             ->setPublic(false);

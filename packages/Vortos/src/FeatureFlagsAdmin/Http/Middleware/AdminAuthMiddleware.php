@@ -6,6 +6,7 @@ namespace Vortos\FeatureFlagsAdmin\Http\Middleware;
 
 use Symfony\Component\HttpFoundation\Response;
 use Vortos\Auth\Identity\CurrentUserProvider;
+use Vortos\Auth\TwoFactor\Contract\TwoFactorVerifierInterface;
 use Vortos\FeatureFlagsAdmin\AdminConfig;
 use Vortos\Http\Contract\MiddlewareInterface;
 use Vortos\Http\Exception\ForbiddenException;
@@ -17,6 +18,7 @@ final class AdminAuthMiddleware implements MiddlewareInterface
     public function __construct(
         private readonly CurrentUserProvider $currentUser,
         private readonly AdminConfig $config,
+        private readonly ?TwoFactorVerifierInterface $twoFactor = null,
     ) {}
 
     public function handle(Request $request, \Closure $next): Response
@@ -33,6 +35,23 @@ final class AdminAuthMiddleware implements MiddlewareInterface
 
         if (!$user->hasRole($this->config->requiredRole)) {
             throw new ForbiddenException('Insufficient permissions to access the flags admin console.');
+        }
+
+        // Step-up: require a 2FA-verified session for the admin console. Enforced
+        // fail-closed — a missing verifier means deny, never silently allow.
+        if ($this->config->require2fa) {
+            if ($this->twoFactor === null) {
+                throw new ForbiddenException('Two-factor verification is required but not configured for the flags admin console.');
+            }
+
+            if (!$this->twoFactor->isVerified($user, $request)) {
+                $challenge = $this->twoFactor->getChallengeUrl();
+                $separator = str_contains($challenge, '?') ? '&' : '?';
+
+                return new RedirectResponse(
+                    $challenge . $separator . 'redirect=' . urlencode($request->getPathInfo()),
+                );
+            }
         }
 
         return $next($request);

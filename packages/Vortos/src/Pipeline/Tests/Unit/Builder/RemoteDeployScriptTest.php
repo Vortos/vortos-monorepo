@@ -53,7 +53,7 @@ final class RemoteDeployScriptTest extends TestCase
         // Emits the decrypt one-shot: no kernel boot, identity forwarded, deploy dir mounted rw, runs the
         // app's reveal script over the sealed blob → .env.prod.
         self::assertStringContainsString(
-            '--entrypoint php -e VORTOS_AGE_IDENTITY -v /opt/vortos:/opt/vortos ghcr.io/acme/app@${{ needs.build.outputs.image }} '
+            '--user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v /opt/vortos:/opt/vortos ghcr.io/acme/app@${{ needs.build.outputs.image }} '
             . 'deploy/secrets/open-env.php deploy/secrets/env.prod.sealed /opt/vortos/.env.prod',
             $script,
         );

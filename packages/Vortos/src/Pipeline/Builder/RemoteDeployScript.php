@@ -162,8 +162,11 @@ final class RemoteDeployScript
         // The plaintext-to-disk step is an app-provided reveal script, deliberately not framework library
         // code — the framework only emits the one-shot.
         if ($useAgeKek && $definition->sealedEnvFile !== null) {
+            // Runs as root (--user 0:0): the target env lives in the deploy-owned deploy dir, which the
+            // image's non-root uid cannot write. The reveal script preserves the existing env file's
+            // owner:group after writing, so the deploy's group-based env readers are unaffected.
             $lines[] = sprintf(
-                'docker run --rm --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/.env.prod',
+                'docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/.env.prod',
                 $deployDir,
                 $deployDir,
                 $imageRef,

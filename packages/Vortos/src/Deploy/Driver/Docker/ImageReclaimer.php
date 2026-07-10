@@ -96,7 +96,12 @@ final class ImageReclaimer
     {
         // One row per local image of the repository, newest-first (docker default), carrying the
         // image ID and its registry digest so we can reference-count against releases + containers.
-        $result = $this->run(['docker', 'images', $repository, '--no-trunc', '--format', '{{.ID}}|{{.Digest}}']);
+        // The repository is normalized first: docker stores/filters Docker Hub images WITHOUT the
+        // "docker.io/" prefix, so filtering by the canonical "docker.io/acme/app" (as carried on the
+        // build manifest) matches nothing and the reclaim silently no-ops — the exact reason a Docker
+        // Hub deploy leaked images.
+        $listRepository = $this->normalizeRepositoryForList($repository);
+        $result = $this->run(['docker', 'images', $listRepository, '--no-trunc', '--format', '{{.ID}}|{{.Digest}}']);
 
         /** @var list<string> $orderedIds distinct image IDs, newest-first */
         $orderedIds = [];
@@ -232,6 +237,26 @@ final class ImageReclaimer
         }
 
         return $imageIds;
+    }
+
+    /**
+     * Docker normalizes Docker Hub references for storage and for the "docker images ref" filter:
+     * the "docker.io/" registry prefix is dropped (and the "library/" namespace for official images).
+     * Other registries (ghcr.io, gcr.io, a private "host:port/...") are stored verbatim. The build
+     * manifest carries the canonical fully-qualified repository, so we must translate it to the form
+     * docker actually indexes before filtering, or the filter matches nothing.
+     */
+    private function normalizeRepositoryForList(string $repository): string
+    {
+        if (str_starts_with($repository, 'docker.io/')) {
+            $repository = substr($repository, strlen('docker.io/'));
+
+            if (str_starts_with($repository, 'library/')) {
+                $repository = substr($repository, strlen('library/'));
+            }
+        }
+
+        return $repository;
     }
 
     /** @param list<string> $argv */

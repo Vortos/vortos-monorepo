@@ -141,6 +141,42 @@ final class ImageReclaimerTest extends TestCase
         $this->assertSame(0, $report->removed);
     }
 
+    public function test_docker_hub_repository_is_normalized_for_the_images_filter(): void
+    {
+        // Docker stores Docker Hub images WITHOUT the docker.io/ prefix, so the filter must be
+        // normalized or it matches nothing (the real-world image leak on a Docker Hub deploy).
+        $this->runner->addResult($this->images([['sha-only', 'sha256:' . str_repeat('a', 64)]]));
+        $this->runner->addResult(new CommandResult(0, '', '', 0.01)); // no containers
+
+        $this->reclaimer->reclaim('docker.io/sqoura/sqoura-backend', new ImagePrunePolicy(keep: 2));
+
+        $this->assertSame(
+            ['docker', 'images', 'sqoura/sqoura-backend', '--no-trunc', '--format', '{{.ID}}|{{.Digest}}'],
+            $this->argvs()[0],
+            'the docker.io/ prefix must be stripped for the images filter',
+        );
+    }
+
+    public function test_official_image_library_namespace_is_stripped(): void
+    {
+        $this->runner->addResult($this->images([['sha-only', 'sha256:' . str_repeat('a', 64)]]));
+        $this->runner->addResult(new CommandResult(0, '', '', 0.01));
+
+        $this->reclaimer->reclaim('docker.io/library/redis', new ImagePrunePolicy(keep: 2));
+
+        $this->assertSame('redis', $this->argvs()[0][2]);
+    }
+
+    public function test_non_dockerhub_registry_is_kept_verbatim(): void
+    {
+        $this->runner->addResult($this->images([['sha-only', 'sha256:' . str_repeat('a', 64)]]));
+        $this->runner->addResult(new CommandResult(0, '', '', 0.01));
+
+        $this->reclaimer->reclaim('ghcr.io/acme/app', new ImagePrunePolicy(keep: 2));
+
+        $this->assertSame('ghcr.io/acme/app', $this->argvs()[0][2], 'other registries keep their prefix');
+    }
+
     /**
      * @param list<array{0: string, 1: string}> $rows [imageId, registryDigest], newest-first
      */

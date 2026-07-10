@@ -64,9 +64,9 @@ final class ReclaimImagesHandlerTest extends TestCase
 
         $argvs = array_map(static fn (array $c): array => $c['argv'], $runner->calls);
 
-        // It reclaimed OUR repository (resolved from the ledger).
+        // It reclaimed OUR repository (resolved from the ledger), normalized for the docker.io/ prefix.
         $this->assertContains(
-            ['docker', 'images', self::REPO, '--no-trunc', '--format', '{{.ID}}|{{.Digest}}'],
+            ['docker', 'images', 'acme/app', '--no-trunc', '--format', '{{.ID}}|{{.Digest}}'],
             $argvs,
         );
         // The orphan (keep=2 default → current+previous are the recency floor AND protected) is removed…

@@ -77,6 +77,13 @@ final readonly class PipelineDefinition
         // materialises file-shaped secrets before cutover, and which the color mounts read-only. Each
         // is created (mkdir -p, 0700) and bind-mounted into the one-shot. Empty = no file secrets.
         public array $runtimeFileSecretDirs = [],
+        // ── Sealed env materialization ──
+        // Image-relative path to a sealed (libsodium sealed-box) copy of the runtime env file, e.g.
+        // `deploy/secrets/env.prod.sealed`. When set (and the age-KEK posture is active), the deploy
+        // decrypts it with VORTOS_AGE_IDENTITY into `<remoteDeployDir>/.env.prod` BEFORE the colors
+        // boot — so the plaintext env is derived from a versioned, encrypted source of truth instead of
+        // hand-maintained on the box. Null (default) leaves env delivery untouched (backward compatible).
+        public ?string $sealedEnvFile = null,
         // ── Per-job bootstrap + quality-stage optionality (B6/G6) ──
         public array $bootstrapSteps = [],
         public bool $emitStaticAnalysis = true,

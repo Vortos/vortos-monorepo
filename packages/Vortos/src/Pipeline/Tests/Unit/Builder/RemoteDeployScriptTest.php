@@ -25,7 +25,7 @@ final class RemoteDeployScriptTest extends TestCase
         );
     }
 
-    private function definition(bool $oidc, string $registryProvider = 'ghcr'): PipelineDefinition
+    private function definition(bool $oidc, string $registryProvider = 'ghcr', ?string $sealedEnvFile = null): PipelineDefinition
     {
         return new PipelineDefinition(
             environments: ['production'],
@@ -35,7 +35,42 @@ final class RemoteDeployScriptTest extends TestCase
             registryProvider: $registryProvider,
             remoteDeployDir: '/opt/vortos',
             appNetwork: 'vortos-net',
+            sealedEnvFile: $sealedEnvFile,
         );
+    }
+
+    public function test_no_sealed_env_materialization_by_default(): void
+    {
+        $script = $this->script($this->definition(false));
+
+        self::assertStringNotContainsString('reveal-env.php', $script);
+    }
+
+    public function test_materializes_sealed_env_before_any_env_consuming_command(): void
+    {
+        $script = $this->script($this->definition(false, sealedEnvFile: 'deploy/secrets/env.prod.sealed'));
+
+        // Emits the decrypt one-shot: no kernel boot, identity forwarded, deploy dir mounted rw, writes .env.prod.
+        self::assertStringContainsString(
+            '--entrypoint php -e VORTOS_AGE_IDENTITY -v /opt/vortos:/opt/vortos ghcr.io/acme/app@${{ needs.build.outputs.image }} '
+            . 'vendor/vortos/vortos-secrets/bin/reveal-env.php deploy/secrets/env.prod.sealed /opt/vortos/.env.prod',
+            $script,
+        );
+
+        // ...and it runs BEFORE the first command that reads --env-file .env.prod (migrate:analyze).
+        $revealPos = strpos($script, 'reveal-env.php');
+        $analyzePos = strpos($script, 'vortos:migrate:analyze');
+        self::assertIsInt($revealPos);
+        self::assertIsInt($analyzePos);
+        self::assertLessThan($analyzePos, $revealPos, 'sealed env must be materialized before any command reads it');
+    }
+
+    public function test_sealed_env_materialization_skipped_under_oidc(): void
+    {
+        // OIDC posture forwards no identity, so the sealed env cannot be opened — the step is omitted.
+        $script = $this->script($this->definition(true, sealedEnvFile: 'deploy/secrets/env.prod.sealed'));
+
+        self::assertStringNotContainsString('reveal-env.php', $script);
     }
 
     public function test_commands_run_on_the_app_network_reaching_prod_state(): void

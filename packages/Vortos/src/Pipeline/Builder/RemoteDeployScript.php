@@ -152,6 +152,25 @@ final class RemoteDeployScript
             $lines[] = sprintf('mkdir -p %s && chmod 700 %s', $dir, $dir);
         }
 
+        // Sealed-env materialization: decrypt the committed, sealed copy of the runtime env into the
+        // target env file BEFORE any command reads it, so the plaintext is derived from a versioned,
+        // encrypted source of truth (opened with VORTOS_AGE_IDENTITY) rather than hand-maintained on the
+        // box. Runs with `--entrypoint php` — no kernel boot, because a valid env file may not exist yet
+        // — reading the sealed blob + reveal script baked into the image. The reveal script fails closed
+        // (leaves any existing env untouched), and `set -euo pipefail` then aborts before cutover. Gated
+        // on the age-KEK posture, since the identity is what opens it (OIDC has no forwarded identity).
+        if ($useAgeKek && $definition->sealedEnvFile !== null) {
+            $lines[] = sprintf(
+                'docker run --rm --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s '
+                . 'vendor/vortos/vortos-secrets/bin/reveal-env.php %s %s/.env.prod',
+                $deployDir,
+                $deployDir,
+                $imageRef,
+                $definition->sealedEnvFile,
+                $deployDir,
+            );
+        }
+
         // R8-9 (B3): hard CI gate on destructive/undeclared DDL BEFORE any migration is applied.
         // Runs before provision (which applies expand migrations). analyze initializes its own
         // migration metadata storage, so it is safe on a fresh DB; a finding is non-zero and

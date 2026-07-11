@@ -33,6 +33,7 @@ return new class extends AbstractModuleSchemaProvider {
         $table->addColumn('active',      'boolean', ['notnull' => true, 'default' => true]);
         $table->addColumn('created_at',  'datetime_immutable', ['notnull' => true]);
         $table->setPrimaryKey(['id']);
-        $table->addIndex(['active'], 'idx_ff_webhooks_active');
+        // No secondary index: the subscriptions table is tiny (findActive scans it), and a
+        // non-CONCURRENT CREATE INDEX trips the migration lock-safety gate on deploy.
     }
 };

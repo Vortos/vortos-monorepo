@@ -14,6 +14,7 @@ use Vortos\FeatureFlags\Domain\Event\FlagExpirySetEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagLifecycleChangedEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagOwnerSetEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagPromotedEvent;
+use Vortos\FeatureFlags\Domain\Event\FlagReconfiguredEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagRevertedEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagRulesChangedEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagScheduledEvent;
@@ -337,6 +338,86 @@ final class Flag extends AggregateRoot
             actorId:         $actorId,
             reason:          $reason,
             environment:     $this->state->environment,
+        ));
+    }
+
+    /**
+     * Apply a bulk edit of definition-level fields (description, kind, bucketBy,
+     * prerequisites, requiredScope, payload, defaultValue, layer) in a single audited
+     * change. Each argument is a "no change" sentinel by default; fields whose null is a
+     * meaningful value (requiredScope, payload, defaultValue, layer) use an explicit
+     * *Provided flag. Records exactly one {@see FlagReconfiguredEvent} listing what moved;
+     * a no-op edit records nothing.
+     *
+     * @param \Vortos\FeatureFlags\Prerequisite[]|null $prerequisites null = unchanged; [] = clear
+     * @param array<array-key,mixed>|null              $payload
+     */
+    public function reconfigure(
+        string $actorId,
+        ?string $reason = null,
+        ?string $description = null,
+        ?\Vortos\FeatureFlags\FlagKind $kind = null,
+        ?string $bucketBy = null,
+        ?array $prerequisites = null,
+        bool $requiredScopeProvided = false,
+        ?string $requiredScope = null,
+        bool $payloadProvided = false,
+        ?array $payload = null,
+        bool $defaultValueProvided = false,
+        ?\Vortos\FeatureFlags\FlagValue $defaultValue = null,
+        bool $layerProvided = false,
+        ?string $layerId = null,
+    ): void {
+        $this->guardNotArchived();
+
+        $changes = [];
+        $next    = $this->state;
+
+        if ($description !== null && $description !== $this->state->description) {
+            $changes['description'] = $description;
+            $next = $next->withDescription($description);
+        }
+        if ($kind !== null && $kind !== $this->state->kind) {
+            $changes['kind'] = $kind->value;
+            $next = $next->withKind($kind);
+        }
+        if ($bucketBy !== null && $bucketBy !== $this->state->bucketBy) {
+            $changes['bucketBy'] = $bucketBy;
+            $next = $next->withBucketBy($bucketBy);
+        }
+        if ($prerequisites !== null) {
+            $changes['prerequisites'] = array_map(static fn($p) => $p->toArray(), $prerequisites);
+            $next = $next->withPrerequisites($prerequisites);
+        }
+        if ($requiredScopeProvided && $requiredScope !== $this->state->requiredScope) {
+            $changes['requiredScope'] = $requiredScope;
+            $next = $next->withRequiredScope($requiredScope);
+        }
+        if ($payloadProvided) {
+            $changes['payload'] = $payload;
+            $next = $next->withPayload($payload);
+        }
+        if ($defaultValueProvided) {
+            $changes['defaultValue'] = $defaultValue?->encode();
+            $next = $next->withDefaultValue($defaultValue);
+        }
+        if ($layerProvided && $layerId !== $this->state->layerId) {
+            $changes['layerId'] = $layerId;
+            $next = $next->withLayer($layerId);
+        }
+
+        if ($changes === []) {
+            return;
+        }
+
+        $this->state = $next;
+        $this->recordEvent(new FlagReconfiguredEvent(
+            flagId:      $this->state->id,
+            name:        $this->state->name,
+            changes:     $changes,
+            actorId:     $actorId,
+            reason:      $reason,
+            environment: $this->state->environment,
         ));
     }
 

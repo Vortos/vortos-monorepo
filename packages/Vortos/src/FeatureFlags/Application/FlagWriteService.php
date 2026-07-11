@@ -9,8 +9,10 @@ use Vortos\FeatureFlags\Domain\Flag;
 use Vortos\FeatureFlags\Exception\FlagNotFoundException;
 use Vortos\FeatureFlags\FeatureFlag;
 use Vortos\FeatureFlags\FlagEnvironmentState;
+use Vortos\FeatureFlags\FlagKind;
 use Vortos\FeatureFlags\FlagLifecycleState;
 use Vortos\FeatureFlags\FlagRule;
+use Vortos\FeatureFlags\FlagValue;
 use Vortos\FeatureFlags\FlagScopeContext;
 use Vortos\FeatureFlags\ProjectContext;
 use Vortos\FeatureFlags\Projection\FlagReadModelProjectorInterface;
@@ -252,6 +254,59 @@ final class FlagWriteService
             $flag = $this->load($name);
             $flag->setExpiry($expiresAt, $actorId, $reason);
             $this->storage->save($flag->state());
+
+            return $flag;
+        });
+    }
+
+    /**
+     * Bulk edit of definition-level fields via {@see Flag::reconfigure()}. Only fields
+     * explicitly provided change; a no-op edit records no event.
+     *
+     * @param \Vortos\FeatureFlags\Prerequisite[]|null $prerequisites null = unchanged; [] = clear
+     * @param array<array-key,mixed>|null              $payload
+     */
+    public function reconfigure(
+        string $name,
+        string $actorId,
+        ?string $reason = null,
+        ?string $description = null,
+        ?FlagKind $kind = null,
+        ?string $bucketBy = null,
+        ?array $prerequisites = null,
+        bool $requiredScopeProvided = false,
+        ?string $requiredScope = null,
+        bool $payloadProvided = false,
+        ?array $payload = null,
+        bool $defaultValueProvided = false,
+        ?FlagValue $defaultValue = null,
+        bool $layerProvided = false,
+        ?string $layerId = null,
+    ): Flag {
+        return $this->transactional(function () use (
+            $name, $actorId, $reason, $description, $kind, $bucketBy, $prerequisites,
+            $requiredScopeProvided, $requiredScope, $payloadProvided, $payload,
+            $defaultValueProvided, $defaultValue, $layerProvided, $layerId,
+        ): Flag {
+            $flag = $this->load($name);
+            $flag->reconfigure(
+                actorId:               $actorId,
+                reason:                $reason,
+                description:           $description,
+                kind:                  $kind,
+                bucketBy:              $bucketBy,
+                prerequisites:         $prerequisites,
+                requiredScopeProvided: $requiredScopeProvided,
+                requiredScope:         $requiredScope,
+                payloadProvided:       $payloadProvided,
+                payload:               $payload,
+                defaultValueProvided:  $defaultValueProvided,
+                defaultValue:          $defaultValue,
+                layerProvided:         $layerProvided,
+                layerId:               $layerId,
+            );
+            $this->storage->save($flag->state());
+            $this->saveEnvState($flag->state());
 
             return $flag;
         });

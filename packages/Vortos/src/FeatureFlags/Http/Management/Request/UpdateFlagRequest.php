@@ -21,4 +21,17 @@ final class UpdateFlagRequest extends RequestDto
     public mixed $defaultValue = null;
 
     public ?array $payload = null;
+
+    /** @var array<int,array<string,mixed>>|null list of Prerequisite arrays; [] clears */
+    public ?array $prerequisites = null;
+
+    public ?string $requiredScope = null;
+
+    public ?string $layerId = null;
+
+    /** ISO-8601 expiry; null clears (presence detected from the raw body). */
+    public ?string $expiresAt = null;
+
+    /** draft | active | archived */
+    public ?string $lifecycle = null;
 }

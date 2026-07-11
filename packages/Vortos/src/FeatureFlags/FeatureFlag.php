@@ -155,22 +155,28 @@ final class FeatureFlag
         ?\DateTimeImmutable $expiresAt = null,
         bool $layerIdSet = false,
         ?string $layerId = null,
+        ?string $description = null,
+        ?string $bucketBy = null,
+        ?FlagKind $kind = null,
+        ?array $prerequisites = null,
+        bool $defaultValueSet = false,
+        ?FlagValue $defaultValue = null,
     ): self {
         return new self(
             id:           $this->id,
             name:         $this->name,
-            description:  $this->description,
+            description:  $description ?? $this->description,
             enabled:      $enabled ?? $this->enabled,
             rules:        $rules ?? $this->rules,
             variants:     $variantsSet ? $variants : $this->variants,
             createdAt:    $this->createdAt,
             updatedAt:    new \DateTimeImmutable(),
             valueType:    $this->valueType,
-            defaultValue: $this->defaultValue,
+            defaultValue: $defaultValueSet ? $defaultValue : $this->defaultValue,
             payload:      $payloadSet ? $payload : $this->payload,
-            bucketBy:     $this->bucketBy,
-            kind:         $this->kind,
-            prerequisites: $this->prerequisites,
+            bucketBy:     $bucketBy ?? $this->bucketBy,
+            kind:         $kind ?? $this->kind,
+            prerequisites: $prerequisites ?? $this->prerequisites,
             variantRules: $variantRulesSet ? $variantRules : $this->variantRules,
             schedule:     $scheduleSet ? $schedule : $this->schedule,
             requiredScope: $requiredScopeSet ? $requiredScope : $this->requiredScope,
@@ -181,6 +187,43 @@ final class FeatureFlag
             expiresAt:    $expiresAtSet ? $expiresAt : $this->expiresAt,
             layerId:      $layerIdSet ? $layerId : $this->layerId,
         );
+    }
+
+    public function withDescription(string $description): self
+    {
+        return $this->withClone(description: $description);
+    }
+
+    public function withKind(FlagKind $kind): self
+    {
+        return $this->withClone(kind: $kind);
+    }
+
+    public function withBucketBy(string $bucketBy): self
+    {
+        return $this->withClone(bucketBy: $bucketBy);
+    }
+
+    /** @param Prerequisite[] $prerequisites */
+    public function withPrerequisites(array $prerequisites): self
+    {
+        return $this->withClone(prerequisites: $prerequisites);
+    }
+
+    public function withRequiredScope(?string $requiredScope): self
+    {
+        return $this->withClone(requiredScopeSet: true, requiredScope: $requiredScope);
+    }
+
+    /** @param array<string,FlagRule[]>|null $variantRules */
+    public function withVariantRules(?array $variantRules): self
+    {
+        return $this->withClone(variantRulesSet: true, variantRules: $variantRules);
+    }
+
+    public function withDefaultValue(?FlagValue $defaultValue): self
+    {
+        return $this->withClone(defaultValueSet: true, defaultValue: $defaultValue);
     }
 
     public function withEnabled(bool $enabled): self

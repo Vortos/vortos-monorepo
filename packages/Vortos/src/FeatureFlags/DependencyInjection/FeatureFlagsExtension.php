@@ -586,6 +586,7 @@ final class FeatureFlagsExtension extends Extension
             ->setArgument('$projectContext', new Reference(ProjectContext::class))
             ->setArgument('$changeRequestInterceptor', new Reference(ChangeRequestInterceptorInterface::class))
             ->setArgument('$validator', new Reference(VortosValidator::class))
+            ->setArgument('$envStateStorage', new Reference(FlagEnvironmentStateStorageInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag('vortos.api.controller')
             ->setPublic(true);
 

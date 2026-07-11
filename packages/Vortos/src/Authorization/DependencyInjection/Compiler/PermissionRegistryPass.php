@@ -40,6 +40,13 @@ final class PermissionRegistryPass implements CompilerPassInterface
     {
         $permissions = [];
         $defaultGrants = [];
+        // Grants are resolved in a SECOND pass (below) against the COMPLETE permission set.
+        // A one-pass loop could only grant permissions declared by catalogs already iterated,
+        // so an app catalog granting a framework-owned permission (e.g. platform.superadmin →
+        // flags.write.any) threw "grants unknown permission" purely from catalog discovery
+        // order. Two passes make cross-catalog grants order-independent.
+        /** @var list<array{class: string, resource: string, grants: array<string, string[]>, catalogPermissions: array<string, string>}> */
+        $pendingGrants = [];
 
         foreach ($container->findTaggedServiceIds('vortos.permission_catalog') as $serviceId => $tags) {
             $class = $container->getDefinition($serviceId)->getClass() ?? $serviceId;
@@ -112,22 +119,33 @@ final class PermissionRegistryPass implements CompilerPassInterface
                 $catalogPermissions[$permission] = $permission;
             }
 
-            foreach ($this->catalogGrants($class) as $role => $grants) {
+            $pendingGrants[] = [
+                'class' => $class,
+                'resource' => $resource,
+                'grants' => $this->catalogGrants($class),
+                'catalogPermissions' => $catalogPermissions,
+            ];
+        }
+
+        // Pass 2 — resolve grants now that every catalog's permissions are known.
+        foreach ($pendingGrants as $pending) {
+            foreach ($pending['grants'] as $role => $grants) {
                 foreach ($grants as $grant) {
                     if (!is_string($grant)) {
                         throw new \LogicException(sprintf(
                             'Permission catalog "%s" has a non-string grant for role "%s".',
-                            $class,
+                            $pending['class'],
                             $role,
                         ));
                     }
 
-                    $permission = $catalogPermissions[$grant] ?? $this->normalizePermission($resource, $grant, $class);
+                    $permission = $pending['catalogPermissions'][$grant]
+                        ?? $this->normalizePermission($pending['resource'], $grant, $pending['class']);
 
                     if (!isset($permissions[$permission])) {
                         throw new \LogicException(sprintf(
                             'Permission catalog "%s" grants unknown permission "%s" to role "%s".',
-                            $class,
+                            $pending['class'],
                             $grant,
                             $role,
                         ));

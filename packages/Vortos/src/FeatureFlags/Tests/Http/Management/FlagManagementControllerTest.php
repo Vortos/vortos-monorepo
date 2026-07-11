@@ -160,7 +160,7 @@ final class FlagManagementControllerTest extends TestCase
         $this->storage->method('findByName')->willReturn(null);
 
         $this->expectException(NotFoundException::class);
-        $this->controller->show('nonexistent');
+        $this->controller->show('nonexistent', new Request());
     }
 
     public function test_show_returns_200_for_existing_flag(): void
@@ -168,7 +168,7 @@ final class FlagManagementControllerTest extends TestCase
         $this->authz->method('requirePermission');
         $this->storage->method('findByName')->willReturn($this->buildFlag('my-flag'));
 
-        $response = $this->controller->show('my-flag');
+        $response = $this->controller->show('my-flag', new Request());
         $this->assertSame(200, $response->getStatusCode());
     }
 
@@ -238,7 +238,7 @@ final class FlagManagementControllerTest extends TestCase
         $this->storage->method('findByName')->willReturn(null);
 
         $this->expectException(NotFoundException::class);
-        $this->controller->show('ghost-flag');
+        $this->controller->show('ghost-flag', new Request());
     }
 
     public function test_update_is_metadata_only_and_never_enables(): void
@@ -259,8 +259,12 @@ final class FlagManagementControllerTest extends TestCase
     public function test_update_sets_owner_when_provided(): void
     {
         $this->authz->method('requirePermission');
-        $this->storage->method('findByName')->willReturn($this->buildFlag('my-flag'));
-        $this->storage->method('save');
+        // Stateful storage: the PATCH reload must reflect the owner write, so save() captures
+        // and findByName() returns the latest saved flag (a plain willReturn mock would not).
+        $original = $this->buildFlag('my-flag');
+        $saved = null;
+        $this->storage->method('save')->willReturnCallback(function ($f) use (&$saved) { $saved = $f; });
+        $this->storage->method('findByName')->willReturnCallback(function () use (&$saved, $original) { return $saved ?? $original; });
 
         $response = $this->controller->update('my-flag', $this->jsonRequest(['owner' => 'team-growth']));
         $body     = $this->decode($response);
@@ -268,6 +272,21 @@ final class FlagManagementControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame('team-growth', $body['data']['owner']);
         $this->assertFalse($body['data']['enabled']);
+    }
+
+    public function test_update_reconfigures_definition_fields(): void
+    {
+        $this->authz->method('requirePermission');
+        $saved = $this->buildFlag('cfg');
+        $this->storage->method('save')->willReturnCallback(function ($f) use (&$saved) { $saved = $f; });
+        $this->storage->method('findByName')->willReturnCallback(function () use (&$saved) { return $saved; });
+
+        $response = $this->controller->update('cfg', $this->jsonRequest(['description' => 'new desc', 'kind' => 'ops']));
+        $body     = $this->decode($response);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('new desc', $body['data']['description']);
+        $this->assertSame('ops', $body['data']['kind']);
     }
 
     public function test_serialize_exposes_targeting_config(): void
@@ -281,7 +300,7 @@ final class FlagManagementControllerTest extends TestCase
         );
         $this->storage->method('findByName')->willReturn($flag);
 
-        $body = $this->decode($this->controller->show('exp'));
+        $body = $this->decode($this->controller->show('exp', new Request()));
 
         $this->assertCount(1, $body['data']['rules']);
         $this->assertSame(25, $body['data']['rules'][0]['percentage']);

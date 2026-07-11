@@ -10,13 +10,17 @@ use Vortos\FeatureFlags\Authz\Management\FlagManagementPermissionCatalog;
 
 final class FlagManagementPermissionCatalogTest extends TestCase
 {
-    public function test_declares_the_three_management_permissions(): void
+    public function test_declares_all_five_management_permissions(): void
     {
         $meta = FlagManagementPermissionCatalog::meta();
 
         $this->assertArrayHasKey(FlagManagementPermissionCatalog::READ_ANY, $meta);
         $this->assertArrayHasKey(FlagManagementPermissionCatalog::WRITE_ANY, $meta);
         $this->assertArrayHasKey(FlagManagementPermissionCatalog::PUBLISH_ANY, $meta);
+        $this->assertArrayHasKey(FlagManagementPermissionCatalog::APPROVE_ANY, $meta);
+        $this->assertArrayHasKey(FlagManagementPermissionCatalog::ADMIN_ANY, $meta);
+        $this->assertSame('approve.any', FlagManagementPermissionCatalog::APPROVE_ANY);
+        $this->assertSame('admin.any', FlagManagementPermissionCatalog::ADMIN_ANY);
     }
 
     public function test_permission_values_match_the_gate_strings(): void

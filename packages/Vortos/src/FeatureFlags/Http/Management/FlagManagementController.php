@@ -18,7 +18,9 @@ use Vortos\FeatureFlags\FlagKind;
 use Vortos\FeatureFlags\FlagLifecycleState;
 use Vortos\FeatureFlags\FlagRule;
 use Vortos\FeatureFlags\FlagScopeContext;
+use Vortos\FeatureFlags\FlagValue;
 use Vortos\FeatureFlags\FlagValueType;
+use Vortos\FeatureFlags\Prerequisite;
 use Vortos\FeatureFlags\Http\Management\Interceptor\ChangeRequestInterceptorInterface;
 use Vortos\FeatureFlags\Http\Management\Request\CreateFlagRequest;
 use Vortos\FeatureFlags\Http\Management\Request\PromoteFlagRequest;
@@ -29,6 +31,7 @@ use Vortos\FeatureFlags\Http\Management\Request\UpdateVariantsRequest;
 use Vortos\FeatureFlags\Http\RateLimit\FlagRateLimitService;
 use Vortos\FeatureFlags\ProjectContext;
 use Vortos\FeatureFlags\RolloutSchedule;
+use Vortos\FeatureFlags\Storage\FlagEnvironmentStateStorageInterface;
 use Vortos\FeatureFlags\Storage\FlagStorageInterface;
 use Vortos\Http\Attribute\AsController;
 use Vortos\Http\Exception\NotFoundException;
@@ -50,7 +53,11 @@ final class FlagManagementController
         private readonly ProjectContext $projectContext,
         private readonly ChangeRequestInterceptorInterface $changeRequestInterceptor,
         private readonly VortosValidator $validator,
+        private readonly ?FlagEnvironmentStateStorageInterface $envStateStorage = null,
     ) {}
+
+    /** The environments a flag can hold independent state in. */
+    private const ENVIRONMENTS = ['production', 'staging', 'development', 'test'];
 
     #[Route('/api/management/v1/flags', name: 'vortos.management.flags.list', methods: ['GET'])]
     public function list(Request $request): JsonResponse
@@ -58,11 +65,23 @@ final class FlagManagementController
         $this->authz->requirePermission('flags.read.any');
         $this->rateLimit->checkManagement($this->currentUser->get()->id());
 
-        $flags = $this->storage->findAll();
-
+        $env   = $this->applyEnv($request);
+        $flags = array_map(fn(FeatureFlag $f) => $this->composeForEnv($f, $env), $this->storage->findAll());
         $items = array_map(fn(FeatureFlag $f) => $this->serializeFlag($f), $flags);
 
         return $this->response->list($items, null, count($items));
+    }
+
+    #[Route('/api/management/v1/environments', name: 'vortos.management.environments.list', methods: ['GET'])]
+    public function environments(): JsonResponse
+    {
+        $this->authz->requirePermission('flags.read.any');
+        $this->rateLimit->checkManagement($this->currentUser->get()->id());
+
+        return $this->response->ok(array_map(
+            static fn(string $e) => ['name' => $e, 'default' => $e === FlagScopeContext::ENV_PRODUCTION],
+            self::ENVIRONMENTS,
+        ));
     }
 
     #[Route('/api/management/v1/flags', name: 'vortos.management.flags.create', methods: ['POST'])]
@@ -100,18 +119,19 @@ final class FlagManagementController
     }
 
     #[Route('/api/management/v1/flags/{name}', name: 'vortos.management.flags.show', methods: ['GET'])]
-    public function show(string $name): JsonResponse
+    public function show(string $name, Request $request): JsonResponse
     {
         $this->authz->requirePermission('flags.read.any');
         $this->rateLimit->checkManagement($this->currentUser->get()->id());
 
+        $env  = $this->applyEnv($request);
         $flag = $this->storage->findByName($name);
 
         if ($flag === null) {
             throw new NotFoundException(sprintf('Flag "%s" not found.', $name));
         }
 
-        return $this->response->ok($this->serializeFlag($flag));
+        return $this->response->ok($this->serializeFlag($this->composeForEnv($flag, $env)));
     }
 
     #[Route('/api/management/v1/flags/{name}', name: 'vortos.management.flags.update', methods: ['PATCH'])]
@@ -126,21 +146,58 @@ final class FlagManagementController
             throw new NotFoundException(sprintf('Flag "%s" not found.', $name));
         }
 
-        $dto = UpdateFlagRequest::fromRequest($request, $this->validator);
+        $this->applyEnv($request);
 
-        // Metadata-only PATCH. Enabling/disabling a flag is a distinct, audited state
-        // transition with its own endpoints (POST .../enable, POST .../disable) and its own
-        // change-request interception — a metadata edit must never flip a flag ON as a side
-        // effect. Apply only the fields provided; an empty PATCH is a no-op that echoes back
-        // the current state.
-        $flag = null;
+        $dto = UpdateFlagRequest::fromRequest($request, $this->validator);
+        // Presence map from the raw body: distinguishes "sent null" (clear the field) from
+        // "omitted" (leave unchanged) — the DTO alone can't tell them apart.
+        $raw = json_decode((string) $request->getContent(), true);
+        $raw = is_array($raw) ? $raw : [];
+        $has = static fn(string $k): bool => array_key_exists($k, $raw);
+
+        // Metadata edit only. Enabling/disabling is a distinct, audited transition with its
+        // own endpoints (and change-request interception) — a metadata PATCH must never flip
+        // a flag on/off as a side effect. Each field applies only when present.
         if ($dto->owner !== null) {
-            $flag = $this->writeService->setOwner($name, $dto->owner, $actor->id());
+            $this->writeService->setOwner($name, $dto->owner, $actor->id());
+        }
+        if ($dto->lifecycle !== null) {
+            $this->writeService->changeLifecycle($name, FlagLifecycleState::from($dto->lifecycle), $actor->id());
+        }
+        if ($has('expiresAt')) {
+            $expiresAt = $dto->expiresAt !== null ? new \DateTimeImmutable($dto->expiresAt) : null;
+            $this->writeService->setExpiry($name, $expiresAt, $actor->id());
         }
 
-        $state = $flag?->state() ?? $existing;
+        $prerequisites = null;
+        if ($has('prerequisites') && is_array($dto->prerequisites)) {
+            $prerequisites = array_map(static fn(array $p) => Prerequisite::fromArray($p), $dto->prerequisites);
+        }
+        $defaultValue = null;
+        if ($has('defaultValue') && $dto->defaultValue !== null) {
+            $defaultValue = FlagValue::decode($existing->valueType, $dto->defaultValue);
+        }
 
-        return $this->response->ok($this->serializeFlag($state));
+        $this->writeService->reconfigure(
+            name:                  $name,
+            actorId:               $actor->id(),
+            description:           $dto->description,
+            kind:                  $dto->kind !== null ? FlagKind::from($dto->kind) : null,
+            bucketBy:              $dto->bucketBy,
+            prerequisites:         $prerequisites,
+            requiredScopeProvided: $has('requiredScope'),
+            requiredScope:         $dto->requiredScope,
+            payloadProvided:       $has('payload'),
+            payload:               $dto->payload,
+            defaultValueProvided:  $has('defaultValue'),
+            defaultValue:          $defaultValue,
+            layerProvided:         $has('layerId'),
+            layerId:               $dto->layerId,
+        );
+
+        $updated = $this->storage->findByName($name) ?? $existing;
+
+        return $this->response->ok($this->serializeFlag($updated));
     }
 
     #[Route('/api/management/v1/flags/{name}', name: 'vortos.management.flags.delete', methods: ['DELETE'])]
@@ -270,6 +327,32 @@ final class FlagManagementController
         $this->promotionService->promote($name, $dto->fromEnvironment, $dto->toEnvironment, $actor->id());
 
         return $this->response->ok(['promoted' => true, 'from' => $dto->fromEnvironment, 'to' => $dto->toEnvironment]);
+    }
+
+    /** Read ?env= (default production), validate against the known set, set the scope, return it. */
+    private function applyEnv(Request $request): string
+    {
+        $env = (string) $request->query->get('env', FlagScopeContext::ENV_PRODUCTION);
+        if (!in_array($env, self::ENVIRONMENTS, true)) {
+            $env = FlagScopeContext::ENV_PRODUCTION;
+        }
+        $this->scopeContext->withEnvironment($env);
+
+        return $env;
+    }
+
+    /** Compose a definition with its per-env mutable state so reads reflect the selected env. */
+    private function composeForEnv(FeatureFlag $definition, string $env): FeatureFlag
+    {
+        if ($this->envStateStorage === null) {
+            return $definition->withEnvironment($env);
+        }
+
+        $state = $this->envStateStorage->findForFlag($definition->id, $env);
+
+        return $state !== null
+            ? FeatureFlag::compose($definition, $state)
+            : $definition->withEnvironment($env);
     }
 
     private function serializeFlag(FeatureFlag $flag): array

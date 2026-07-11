@@ -30,4 +30,18 @@ interface ChangeRequestStorageInterface
         ?string $afterCursor = null,
         int $limit = 0,
     ): array;
+
+    /**
+     * Global inbox query: change requests across all flags, optionally filtered by status,
+     * environment and project. Powers a cross-flag approvals view.
+     *
+     * @return ChangeRequest[]
+     */
+    public function findRecent(
+        ?ChangeRequestStatus $status = null,
+        ?string $environment = null,
+        ?string $projectId = null,
+        ?string $afterCursor = null,
+        int $limit = 0,
+    ): array;
 }

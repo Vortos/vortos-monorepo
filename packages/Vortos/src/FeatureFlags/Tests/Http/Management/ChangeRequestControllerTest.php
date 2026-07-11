@@ -138,12 +138,21 @@ final class ChangeRequestControllerTest extends TestCase
         $this->controller->list($this->queryRequest(['flagName' => 'checkout', 'environment' => 'production']));
     }
 
-    public function test_list_requires_flag_and_env_params(): void
+    public function test_list_without_flag_is_a_global_inbox(): void
+    {
+        $this->authz->method('requirePermission');
+
+        // No flagName → global list across flags (no exception).
+        $response = $this->controller->list($this->queryRequest([]));
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function test_list_with_flag_but_no_env_is_422(): void
     {
         $this->authz->method('requirePermission');
 
         $this->expectException(HttpException::class);
-        $this->controller->list($this->queryRequest([]));
+        $this->controller->list($this->queryRequest(['flagName' => 'my-flag']));
     }
 
     public function test_list_returns_items(): void
@@ -308,6 +317,15 @@ final class ChangeRequestControllerTest extends TestCase
                 return array_values(array_filter(
                     $this->rows,
                     static fn(ChangeRequest $r) => $r->flagName() === $flagName && ($status === null || $r->status() === $status),
+                ));
+            }
+
+            public function findRecent(?ChangeRequestStatus $status = null, ?string $environment = null, ?string $projectId = null, ?string $afterCursor = null, int $limit = 0): array
+            {
+                return array_values(array_filter(
+                    $this->rows,
+                    static fn(ChangeRequest $r) => ($status === null || $r->status() === $status)
+                        && ($environment === null || $environment === '' || $r->environment() === $environment),
                 ));
             }
         };

@@ -208,6 +208,11 @@ final class ChangeRequestProcessorTest extends TestCase
             {
                 return array_values($this->rows);
             }
+
+            public function findRecent(?ChangeRequestStatus $status = null, ?string $environment = null, ?string $projectId = null, ?string $afterCursor = null, int $limit = 0): array
+            {
+                return array_values($this->rows);
+            }
         };
     }
 }

@@ -144,6 +144,46 @@ final class DatabaseChangeRequestStorage implements ChangeRequestStorageInterfac
         return array_map($this->hydrate(...), $rows);
     }
 
+    public function findRecent(
+        ?ChangeRequestStatus $status = null,
+        ?string $environment = null,
+        ?string $projectId = null,
+        ?string $afterCursor = null,
+        int $limit = 0,
+    ): array {
+        $qb = $this->connection->createQueryBuilder()
+            ->select('*')
+            ->from($this->table)
+            ->orderBy('requested_at', 'ASC')
+            ->addOrderBy('id', 'ASC');
+
+        if ($status !== null) {
+            $qb->andWhere('status = :status')->setParameter('status', $status->value);
+        }
+        if ($environment !== null && $environment !== '') {
+            $qb->andWhere('environment = :environment')->setParameter('environment', $environment);
+        }
+        if ($projectId !== null && $projectId !== '') {
+            $qb->andWhere('project_id = :project_id')->setParameter('project_id', $projectId);
+        }
+
+        if ($afterCursor !== null) {
+            $decoded = CursorEncoder::decode($afterCursor);
+            if ($decoded !== null) {
+                $cursorAt = (new \DateTimeImmutable($decoded['at']))->format('Y-m-d H:i:s');
+                $qb->andWhere('(requested_at > :cursor_ra OR (requested_at = :cursor_ra AND id > :cursor_id))')
+                    ->setParameter('cursor_ra', $cursorAt)
+                    ->setParameter('cursor_id', $decoded['id']);
+            }
+        }
+
+        if ($limit > 0) {
+            $qb->setMaxResults($limit);
+        }
+
+        return array_map($this->hydrate(...), $qb->executeQuery()->fetchAllAssociative());
+    }
+
     private function hydrate(array $row): ChangeRequest
     {
         $approvalsData  = json_decode((string) $row['approvals'], true, 512, JSON_THROW_ON_ERROR);

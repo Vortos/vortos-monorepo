@@ -260,6 +260,11 @@ final class ChangeRequestServiceTest extends TestCase
                     static fn(ChangeRequest $r) => $status === null || $r->status() === $status,
                 ));
             }
+
+            public function findRecent(?ChangeRequestStatus $status = null, ?string $environment = null, ?string $projectId = null, ?string $afterCursor = null, int $limit = 0): array
+            {
+                return array_values(array_filter($this->rows, static fn(ChangeRequest $r) => $status === null || $r->status() === $status));
+            }
         };
     }
 }

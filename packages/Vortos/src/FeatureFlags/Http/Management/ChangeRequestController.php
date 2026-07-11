@@ -45,18 +45,23 @@ final class ChangeRequestController
         $this->rateLimit->checkManagement($this->currentUser->get()->id());
 
         $flagName    = (string) $request->query->get('flagName', '');
-        $projectId   = (string) $request->query->get('projectId', 'default');
+        $projectId   = (string) $request->query->get('projectId', '');
         $environment = (string) $request->query->get('environment', '');
         $statusRaw   = $request->query->get('status');
         $status      = is_string($statusRaw) && $statusRaw !== '' ? ChangeRequestStatus::tryFrom($statusRaw) : null;
         $cursor      = $request->query->has('cursor') ? (string) $request->query->get('cursor') : null;
         $limit       = min(100, max(1, (int) $request->query->get('limit', 50)));
 
-        if ($flagName === '' || $environment === '') {
-            throw new HttpException(422, 'flagName and environment query parameters are required.');
+        if ($flagName !== '') {
+            // Per-flag view: environment is required to scope the flag's change requests.
+            if ($environment === '') {
+                throw new HttpException(422, 'environment query parameter is required when flagName is given.');
+            }
+            $rows = $this->storage->findByFlag($flagName, $projectId !== '' ? $projectId : 'default', $environment, $status, $cursor, $limit + 1);
+        } else {
+            // Global approvals inbox: change requests across all flags, optionally filtered.
+            $rows = $this->storage->findRecent($status, $environment !== '' ? $environment : null, $projectId !== '' ? $projectId : null, $cursor, $limit + 1);
         }
-
-        $rows = $this->storage->findByFlag($flagName, $projectId, $environment, $status, $cursor, $limit + 1);
 
         $nextCursor = null;
         if (count($rows) > $limit) {

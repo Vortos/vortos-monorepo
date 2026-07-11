@@ -25,6 +25,8 @@ use Vortos\Audit\Ingestion\Idempotency\InMemoryIdempotencyGuard;
 use Vortos\Audit\Ingestion\Idempotency\RedisIdempotencyGuard;
 use Vortos\Audit\Clock\SystemClock;
 use Vortos\Audit\Console\AuditRetentionCommand;
+use Vortos\Audit\Admin\AuditAdminService;
+use Vortos\Audit\Admin\AuditPermissionCatalog;
 use Vortos\Audit\Export\AuditExporter;
 use Vortos\Audit\Integrity\AuditChainVerifier;
 use Vortos\Audit\Integrity\AuditHashChain;
@@ -80,6 +82,7 @@ final class AuditExtension extends Extension
         $this->registerStorage($container, $hmacKey);
         $this->registerIngestion($container, $config);
         $this->registerRetention($container, $config);
+        $this->registerAdmin($container, $hmacKey);
 
         // Default sink: Null recorder (logs a warning) unless the DBAL store already
         // claimed the alias above.
@@ -267,6 +270,33 @@ final class AuditExtension extends Extension
             ->setArgument('$sweeper', $sweeperRef)
             ->addTag('console.command')
             ->setPublic(false);
+    }
+
+    /**
+     * Wire the admin facade + permission catalog (P6). The facade is the one surface the
+     * app's audit endpoints (platform console / org settings) call. The permission catalog
+     * is registered only when vortos-authorization is installed.
+     */
+    private function registerAdmin(ContainerBuilder $container, string $hmacKey): void
+    {
+        if ($container->hasDefinition(DbalAuditStore::class)) {
+            $container->register(AuditAdminService::class, AuditAdminService::class)
+                ->setArgument('$query', new Reference(AuditQueryInterface::class))
+                ->setArgument('$reader', new Reference(AuditReaderInterface::class))
+                ->setArgument('$verifier', new Reference(AuditChainVerifier::class))
+                ->setArgument('$exporter', new Reference(AuditExporter::class))
+                ->setArgument('$hmacKey', $hmacKey)
+                ->setArgument('$checkpoints', new Reference(AuditCheckpointStoreInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                ->setPublic(true);
+        }
+
+        // Permission catalog: only when vortos-authorization is present (the class extends
+        // its AbstractPermissionCatalog, so referencing it otherwise would fail to autoload).
+        if (class_exists('Vortos\Authorization\Permission\AbstractPermissionCatalog')) {
+            $container->register(AuditPermissionCatalog::class, AuditPermissionCatalog::class)
+                ->addTag('vortos.permission_catalog', ['resource' => 'audit'])
+                ->setPublic(false);
+        }
     }
 
     /**

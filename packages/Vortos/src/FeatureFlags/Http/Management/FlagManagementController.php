@@ -128,13 +128,19 @@ final class FlagManagementController
 
         $dto = UpdateFlagRequest::fromRequest($request, $this->validator);
 
+        // Metadata-only PATCH. Enabling/disabling a flag is a distinct, audited state
+        // transition with its own endpoints (POST .../enable, POST .../disable) and its own
+        // change-request interception — a metadata edit must never flip a flag ON as a side
+        // effect. Apply only the fields provided; an empty PATCH is a no-op that echoes back
+        // the current state.
+        $flag = null;
         if ($dto->owner !== null) {
             $flag = $this->writeService->setOwner($name, $dto->owner, $actor->id());
-        } else {
-            $flag = $this->writeService->enable($name, $actor->id());
         }
 
-        return $this->response->ok($this->serializeFlag($flag->state()));
+        $state = $flag?->state() ?? $existing;
+
+        return $this->response->ok($this->serializeFlag($state));
     }
 
     #[Route('/api/management/v1/flags/{name}', name: 'vortos.management.flags.delete', methods: ['DELETE'])]
@@ -280,6 +286,15 @@ final class FlagManagementController
             'environment' => $flag->environment,
             'lifecycle'   => $flag->lifecycle->value,
             'owner'       => $flag->owner,
+            // Targeting configuration — exposed so a management UI can render and round-trip
+            // the current rules/variants/schedule when editing (the PUT endpoints replace
+            // these wholesale, so a client must be able to read them first).
+            'rules'       => array_map(static fn(FlagRule $r) => $r->toArray(), $flag->rules),
+            'variants'    => $flag->variants,
+            'schedule'    => $flag->schedule?->toArray(),
+            'payload'     => $flag->payload,
+            'defaultValue' => $flag->defaultValue()->encode(),
+            'expiresAt'   => $flag->expiresAt?->format(\DateTimeInterface::ATOM),
             'createdAt'   => $flag->createdAt->format(\DateTimeInterface::ATOM),
             'updatedAt'   => $flag->updatedAt->format(\DateTimeInterface::ATOM),
         ];

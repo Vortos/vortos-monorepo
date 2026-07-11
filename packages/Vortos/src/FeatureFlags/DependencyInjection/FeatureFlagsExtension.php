@@ -52,6 +52,7 @@ use Vortos\FeatureFlags\Guardrail\Storage\DatabaseGuardrailPolicyStorage;
 use Vortos\FeatureFlags\Guardrail\Storage\GuardrailPolicyStorageInterface;
 use Vortos\FeatureFlags\Http\Management\ChangeRequestController;
 use Vortos\FeatureFlags\Http\Management\GuardrailController;
+use Vortos\FeatureFlags\Authz\Management\FlagManagementPermissionCatalog;
 use Vortos\FeatureFlags\Authz\Management\ManagementAuthzGateInterface;
 use Vortos\FeatureFlags\Authz\Management\NullManagementAuthzGate;
 use Vortos\FeatureFlags\Authz\NullFlagAuthzGate;
@@ -546,6 +547,14 @@ final class FeatureFlagsExtension extends Extension
             ->setPublic(false);
 
         $container->setAlias(ManagementAuthzGateInterface::class, NullManagementAuthzGate::class)
+            ->setPublic(false);
+
+        // Register the management permissions (flags.read.any / write.any / publish.any) so
+        // the PolicyEngine gate can resolve them. The tag is inert unless Authorization is
+        // installed (PermissionRegistryPass only runs there); apps grant these to their own
+        // admin role. Without this the management API fails closed with unknown_permission.
+        $container->register(FlagManagementPermissionCatalog::class, FlagManagementPermissionCatalog::class)
+            ->addTag('vortos.permission_catalog', ['resource' => 'flags'])
             ->setPublic(false);
 
         // Block 13 — rate limiting. Cache is optional — null = disabled.

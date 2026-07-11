@@ -16,6 +16,7 @@ use Vortos\FeatureFlags\Application\FlagPromotionService;
 use Vortos\FeatureFlags\Application\FlagWriteService;
 use Vortos\FeatureFlags\Authz\Management\ManagementAuthzGateInterface;
 use Vortos\FeatureFlags\FeatureFlag;
+use Vortos\FeatureFlags\FlagRule;
 use Vortos\FeatureFlags\FlagEnvironmentState;
 use Vortos\FeatureFlags\FlagScopeContext;
 use Vortos\FeatureFlags\Http\Management\FlagManagementController;
@@ -238,6 +239,55 @@ final class FlagManagementControllerTest extends TestCase
 
         $this->expectException(NotFoundException::class);
         $this->controller->show('ghost-flag');
+    }
+
+    public function test_update_is_metadata_only_and_never_enables(): void
+    {
+        // A metadata PATCH with no applicable field must NOT flip the flag on — enabling is a
+        // distinct transition with its own endpoint. buildFlag() is disabled; the echoed state
+        // must stay disabled.
+        $this->authz->method('requirePermission');
+        $this->storage->method('findByName')->willReturn($this->buildFlag('my-flag'));
+
+        $response = $this->controller->update('my-flag', $this->jsonRequest([]));
+        $body     = $this->decode($response);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertFalse($body['data']['enabled']);
+    }
+
+    public function test_update_sets_owner_when_provided(): void
+    {
+        $this->authz->method('requirePermission');
+        $this->storage->method('findByName')->willReturn($this->buildFlag('my-flag'));
+        $this->storage->method('save');
+
+        $response = $this->controller->update('my-flag', $this->jsonRequest(['owner' => 'team-growth']));
+        $body     = $this->decode($response);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('team-growth', $body['data']['owner']);
+        $this->assertFalse($body['data']['enabled']);
+    }
+
+    public function test_serialize_exposes_targeting_config(): void
+    {
+        $this->authz->method('requirePermission');
+        $now  = new \DateTimeImmutable();
+        $flag = new FeatureFlag(
+            id: '22222222-2222-4222-8222-222222222222', name: 'exp', description: '', enabled: true,
+            rules: [new FlagRule(type: FlagRule::TYPE_PERCENTAGE, percentage: 25)],
+            variants: ['control' => 50, 'treatment' => 50], createdAt: $now, updatedAt: $now,
+        );
+        $this->storage->method('findByName')->willReturn($flag);
+
+        $body = $this->decode($this->controller->show('exp'));
+
+        $this->assertCount(1, $body['data']['rules']);
+        $this->assertSame(25, $body['data']['rules'][0]['percentage']);
+        $this->assertSame(['control' => 50, 'treatment' => 50], $body['data']['variants']);
+        $this->assertArrayHasKey('schedule', $body['data']);
+        $this->assertArrayHasKey('defaultValue', $body['data']);
     }
 
     private function buildFlag(string $name): FeatureFlag

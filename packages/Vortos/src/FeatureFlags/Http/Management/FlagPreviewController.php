@@ -9,6 +9,7 @@ use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\FeatureFlags\Authz\Management\ManagementAuthzGateInterface;
 use Vortos\FeatureFlags\Explain\EvaluationExplainer;
 use Vortos\FeatureFlags\FlagContext;
+use Vortos\FeatureFlags\FlagScopeContext;
 use Vortos\FeatureFlags\Http\RateLimit\FlagRateLimitService;
 use Vortos\FeatureFlags\Resolution\EffectiveFlagResolverInterface;
 use Vortos\FeatureFlags\Storage\FlagStorageInterface;
@@ -32,7 +33,20 @@ final class FlagPreviewController
         private readonly FlagRateLimitService $rateLimit,
         private readonly ManagementResponseFactory $response,
         private readonly CurrentUserProvider $currentUser,
+        private readonly ?FlagScopeContext $scopeContext = null,
     ) {}
+
+    private const ENVIRONMENTS = ['production', 'staging', 'development', 'test'];
+
+    /** Scope evaluation to the requested environment so preview reflects that env's state. */
+    private function applyEnv(Request $request): void
+    {
+        if ($this->scopeContext === null) {
+            return;
+        }
+        $env = (string) $request->query->get('env', FlagScopeContext::ENV_PRODUCTION);
+        $this->scopeContext->withEnvironment(in_array($env, self::ENVIRONMENTS, true) ? $env : FlagScopeContext::ENV_PRODUCTION);
+    }
 
     #[Route('/api/management/v1/flags/{flagName}/preview', name: 'vortos.management.flags.preview', methods: ['POST'])]
     public function preview(Request $request, string $flagName): JsonResponse
@@ -40,6 +54,7 @@ final class FlagPreviewController
         $this->authz->requirePermission('flags.read.any');
         $actor = $this->currentUser->get();
         $this->rateLimit->checkManagement($actor->id());
+        $this->applyEnv($request);
 
         $flag = $this->resolver !== null
             ? $this->resolver->resolve($flagName, new FlagContext())
@@ -107,6 +122,8 @@ final class FlagPreviewController
             trusted:    $body['trusted'] ?? [],
             untrusted:  $body['untrusted'] ?? [],
         );
+
+        $this->applyEnv($request);
 
         $all = $this->resolver !== null
             ? $this->resolver->resolveAll($context)

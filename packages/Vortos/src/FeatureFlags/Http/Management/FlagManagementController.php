@@ -35,6 +35,7 @@ use Vortos\FeatureFlags\RolloutSchedule;
 use Vortos\FeatureFlags\Storage\FlagEnvironmentStateStorageInterface;
 use Vortos\FeatureFlags\Storage\FlagStorageInterface;
 use Vortos\Http\Attribute\AsController;
+use Vortos\Http\Exception\BadRequestException;
 use Vortos\Http\Exception\NotFoundException;
 use Vortos\Http\JsonResponse;
 use Vortos\Http\Request;
@@ -67,7 +68,17 @@ final class FlagManagementController
         $this->rateLimit->checkManagement($this->currentUser->get()->id());
 
         $env   = $this->applyEnv($request);
-        $flags = array_map(fn(FeatureFlag $f) => $this->composeForEnv($f, $env), $this->storage->findAll());
+        $all   = $this->storage->findAll();
+
+        // Optional project scoping: ?project=<id> narrows to one workspace; omitting it (or
+        // the "all" sentinel) returns every project's flags. Backward-compatible with callers
+        // that never send the parameter.
+        $project = (string) $request->query->get('project', '');
+        if ($project !== '' && $project !== 'all') {
+            $all = array_values(array_filter($all, static fn(FeatureFlag $f) => $f->projectId === $project));
+        }
+
+        $flags = array_map(fn(FeatureFlag $f) => $this->composeForEnv($f, $env), $all);
         $items = array_map(fn(FeatureFlag $f) => $this->serializeFlag($f), $flags);
 
         return $this->response->list($items, null, count($items));
@@ -173,6 +184,16 @@ final class FlagManagementController
         $prerequisites = null;
         if ($has('prerequisites') && is_array($dto->prerequisites)) {
             $prerequisites = array_map(static fn(array $p) => Prerequisite::fromArray($p), $dto->prerequisites);
+            // A prerequisite must reference a real flag, and never itself (which would
+            // deadlock evaluation). Reject with 400 so the console can surface a clear error.
+            foreach ($prerequisites as $prereq) {
+                if ($prereq->flag === $name) {
+                    throw new BadRequestException(sprintf('A flag cannot be a prerequisite of itself ("%s").', $name));
+                }
+                if ($this->storage->findByName($prereq->flag) === null) {
+                    throw new BadRequestException(sprintf('Prerequisite flag "%s" does not exist.', $prereq->flag));
+                }
+            }
         }
         $defaultValue = null;
         if ($has('defaultValue') && $dto->defaultValue !== null) {
@@ -419,6 +440,9 @@ final class FlagManagementController
                 ? array_map(static fn(array $rules) => array_map(static fn(FlagRule $r) => $r->toArray(), $rules), $flag->variantRules)
                 : null,
             'schedule'    => $flag->schedule?->toArray(),
+            'prerequisites' => array_map(static fn(Prerequisite $p) => $p->toArray(), $flag->prerequisites),
+            'requiredScope' => $flag->requiredScope,
+            'layerId'     => $flag->layerId,
             'payload'     => $flag->payload,
             'defaultValue' => $flag->defaultValue()->encode(),
             'expiresAt'   => $flag->expiresAt?->format(\DateTimeInterface::ATOM),

@@ -903,6 +903,7 @@ final class FeatureFlagsExtension extends Extension
             ->setArgument('$rateLimit', new Reference(FlagRateLimitService::class))
             ->setArgument('$response', new Reference(ManagementResponseFactory::class))
             ->setArgument('$currentUser', new Reference(CurrentUserProvider::class))
+            ->setArgument('$scopeContext', new Reference(FlagScopeContext::class))
             ->addTag('vortos.api.controller')
             ->setPublic(true);
     }

@@ -89,7 +89,11 @@ use Vortos\FeatureFlags\Http\FlagsController;
 use Vortos\FeatureFlags\Http\Management\FlagHistoryController;
 use Vortos\FeatureFlags\Http\Management\FlagInsightsController;
 use Vortos\FeatureFlags\Http\Management\GitOpsController;
+use Vortos\FeatureFlags\Http\Management\WebhookManagementController;
 use Vortos\FeatureFlags\Http\Management\FlagManagementController;
+use Vortos\FeatureFlags\Webhook\DatabaseWebhookStorage;
+use Vortos\FeatureFlags\Webhook\SsrfGuard;
+use Vortos\FeatureFlags\Webhook\WebhookStorageInterface;
 use Vortos\FeatureFlags\Http\Management\Interceptor\ChangeRequestInterceptorInterface;
 use Vortos\FeatureFlags\Http\Management\Interceptor\NullChangeRequestInterceptor;
 use Vortos\FeatureFlags\Http\Management\ManagementResponseFactory;
@@ -200,6 +204,15 @@ final class FeatureFlagsExtension extends Extension
             ->setPublic(false);
 
         $container->setAlias(SegmentStorageInterface::class, DatabaseSegmentStorage::class)
+            ->setPublic(false);
+
+        // Webhook subscription storage + SSRF guard (outbound flag-event notifications).
+        $container->register(SsrfGuard::class, SsrfGuard::class)->setPublic(false);
+        $container->register(DatabaseWebhookStorage::class, DatabaseWebhookStorage::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $prefix . 'feature_flag_webhooks')
+            ->setPublic(false);
+        $container->setAlias(WebhookStorageInterface::class, DatabaseWebhookStorage::class)
             ->setPublic(false);
 
         // Block 11 — project storage.
@@ -619,6 +632,16 @@ final class FeatureFlagsExtension extends Extension
 
         $container->register(FlagInsightsController::class, FlagInsightsController::class)
             ->setArgument('$storage', new Reference(FlagStorageInterface::class))
+            ->setArgument('$authz', new Reference(ManagementAuthzGateInterface::class))
+            ->setArgument('$currentUser', new Reference(CurrentUserProvider::class))
+            ->setArgument('$rateLimit', new Reference(FlagRateLimitService::class))
+            ->setArgument('$response', new Reference(ManagementResponseFactory::class))
+            ->addTag('vortos.api.controller')
+            ->setPublic(true);
+
+        $container->register(WebhookManagementController::class, WebhookManagementController::class)
+            ->setArgument('$storage', new Reference(WebhookStorageInterface::class))
+            ->setArgument('$ssrf', new Reference(SsrfGuard::class))
             ->setArgument('$authz', new Reference(ManagementAuthzGateInterface::class))
             ->setArgument('$currentUser', new Reference(CurrentUserProvider::class))
             ->setArgument('$rateLimit', new Reference(FlagRateLimitService::class))

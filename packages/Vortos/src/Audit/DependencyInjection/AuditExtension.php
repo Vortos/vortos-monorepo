@@ -23,9 +23,18 @@ use Vortos\Audit\Ingestion\AuditIngestionProcessor;
 use Vortos\Audit\Ingestion\Idempotency\IdempotencyGuardInterface;
 use Vortos\Audit\Ingestion\Idempotency\InMemoryIdempotencyGuard;
 use Vortos\Audit\Ingestion\Idempotency\RedisIdempotencyGuard;
+use Vortos\Audit\Clock\SystemClock;
+use Vortos\Audit\Console\AuditRetentionCommand;
 use Vortos\Audit\Integrity\AuditChainVerifier;
 use Vortos\Audit\Integrity\AuditHashChain;
 use Vortos\Audit\Recorder\NullAuditRecorder;
+use Vortos\Audit\Retention\AuditArchiveWriterInterface;
+use Vortos\Audit\Retention\AuditCheckpointStoreInterface;
+use Vortos\Audit\Retention\AuditRetentionPolicy;
+use Vortos\Audit\Retention\AuditRetentionSweeper;
+use Vortos\Audit\Retention\Dbal\DbalAuditCheckpointStore;
+use Vortos\Audit\Retention\ObjectStore\ObjectStoreArchiveWriter;
+use Vortos\Audit\Retention\StoredAuditEventSerializer;
 use Vortos\Audit\Storage\AuditReaderInterface;
 use Vortos\Audit\Storage\Dbal\DbalAuditStore;
 use Vortos\Messaging\Contract\EventBusInterface;
@@ -67,6 +76,7 @@ final class AuditExtension extends Extension
 
         $this->registerStorage($container, $hmacKey);
         $this->registerIngestion($container, $config);
+        $this->registerRetention($container, $config);
 
         // Default sink: Null recorder (logs a warning) unless the DBAL store already
         // claimed the alias above.
@@ -178,6 +188,69 @@ final class AuditExtension extends Extension
     }
 
     /**
+     * Wire archive-then-purge retention (P4). Registered only with DBAL present. The
+     * sweeper + console command are wired only when a durable archive target exists
+     * (vortos-object-store), because purge must never run without archiving first.
+     *
+     * @param array<string, mixed> $config
+     */
+    private function registerRetention(ContainerBuilder $container, array $config): void
+    {
+        if (!class_exists(Connection::class) || !$container->hasDefinition(DbalAuditStore::class)) {
+            return;
+        }
+
+        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
+            ? (string) $container->getParameter('vortos.db.framework_table_prefix')
+            : 'vortos_';
+
+        $container->register(SystemClock::class, SystemClock::class)->setPublic(false);
+        $container->register(StoredAuditEventSerializer::class, StoredAuditEventSerializer::class)->setPublic(false);
+
+        $container->register(DbalAuditCheckpointStore::class, DbalAuditCheckpointStore::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $prefix . 'audit_checkpoints')
+            ->setPublic(false);
+        $container->setAlias(AuditCheckpointStoreInterface::class, DbalAuditCheckpointStore::class);
+
+        $container->register(AuditRetentionPolicy::class, AuditRetentionPolicy::class)
+            ->setArgument('$platformDays', (int) $config['retention_platform_days'])
+            ->setArgument('$tenantDefaultDays', (int) $config['retention_tenant_days'])
+            ->setArgument('$tenantOverrides', (array) $config['retention_tenant_overrides'])
+            ->setPublic(false);
+
+        // Durable archive target — only when vortos-object-store is installed.
+        $objectStoreIface = 'Vortos\ObjectStore\Contract\ObjectStoreInterface';
+        $sweeperRef = null;
+        if (interface_exists($objectStoreIface) && ($container->has($objectStoreIface) || $container->hasAlias($objectStoreIface))) {
+            $container->register(ObjectStoreArchiveWriter::class, ObjectStoreArchiveWriter::class)
+                ->setArgument('$objectStore', new Reference($objectStoreIface))
+                ->setArgument('$keyPrefix', (string) $config['archive_key_prefix'])
+                ->setPublic(false);
+            $container->setAlias(AuditArchiveWriterInterface::class, ObjectStoreArchiveWriter::class);
+
+            $container->register(AuditRetentionSweeper::class, AuditRetentionSweeper::class)
+                ->setArgument('$source', new Reference(DbalAuditStore::class))
+                ->setArgument('$checkpoints', new Reference(AuditCheckpointStoreInterface::class))
+                ->setArgument('$archiveWriter', new Reference(AuditArchiveWriterInterface::class))
+                ->setArgument('$policy', new Reference(AuditRetentionPolicy::class))
+                ->setArgument('$serializer', new Reference(StoredAuditEventSerializer::class))
+                ->setArgument('$clock', new Reference(SystemClock::class))
+                ->setArgument('$batchSize', (int) $config['retention_batch_size'])
+                ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                ->setPublic(false);
+            $sweeperRef = new Reference(AuditRetentionSweeper::class);
+        }
+
+        // Command always exists (so `vortos:audit:retention` is discoverable); it refuses
+        // to run when the sweeper is null (no archive target).
+        $container->register(AuditRetentionCommand::class, AuditRetentionCommand::class)
+            ->setArgument('$sweeper', $sweeperRef)
+            ->addTag('console.command')
+            ->setPublic(false);
+    }
+
+    /**
      * Loads config/audit.php then config/{env}/audit.php (env overrides base), same
      * convention as the other framework extensions. Recognised keys: 'strict' (bool),
      * 'hmac_key' (string). The HMAC key also falls back to the VORTOS_AUDIT_HMAC_KEY env
@@ -198,6 +271,12 @@ final class AuditExtension extends Extension
             'failure_mode'           => 'block',
             'idempotency_ttl_seconds'=> 604800,
             'redis_dsn'              => (string) ($_ENV['VORTOS_AUDIT_REDIS_DSN'] ?? getenv('VORTOS_AUDIT_REDIS_DSN') ?: ''),
+            // Retention + tiering (P4)
+            'retention_platform_days'   => 730,   // 2y default for operator/platform trail
+            'retention_tenant_days'     => 365,   // 1y default per tenant
+            'retention_tenant_overrides'=> [],    // tenantId => days (0 = never purge)
+            'retention_batch_size'      => 1000,
+            'archive_key_prefix'        => 'audit-archive',
         ];
 
         if (!$container->hasParameter('kernel.project_dir')) {

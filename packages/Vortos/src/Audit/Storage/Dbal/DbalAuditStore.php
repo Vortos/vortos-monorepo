@@ -8,6 +8,7 @@ use Doctrine\DBAL\Connection;
 use Vortos\Audit\Contract\AuditRecorderInterface;
 use Vortos\Audit\Event\AuditEvent;
 use Vortos\Audit\Integrity\AuditHashChain;
+use Vortos\Audit\Retention\AuditRetentionSourceInterface;
 use Vortos\Audit\Storage\AuditReaderInterface;
 use Vortos\Audit\Storage\StoredAuditEvent;
 
@@ -22,7 +23,7 @@ use Vortos\Audit\Storage\StoredAuditEvent;
  * This is a valid synchronous {@see AuditRecorderInterface}; P3 layers Kafka in front so
  * the request path enqueues and this runs in the consumer instead.
  */
-final class DbalAuditStore implements AuditRecorderInterface, AuditReaderInterface
+final class DbalAuditStore implements AuditRecorderInterface, AuditReaderInterface, AuditRetentionSourceInterface
 {
     public function __construct(
         private readonly Connection      $connection,
@@ -73,6 +74,24 @@ final class DbalAuditStore implements AuditRecorderInterface, AuditReaderInterfa
         );
 
         return array_map([$this, 'fromRow'], $rows);
+    }
+
+    public function chainsWithRecordsBefore(\DateTimeImmutable $cutoff): array
+    {
+        $rows = $this->connection->fetchFirstColumn(
+            "SELECT DISTINCT chain_key FROM {$this->table} WHERE occurred_at < :cut ORDER BY chain_key",
+            ['cut' => $cutoff->format('Y-m-d\TH:i:s.uP')],
+        );
+
+        return array_map('strval', $rows);
+    }
+
+    public function deleteChainUpTo(string $chainKey, int $sequence): int
+    {
+        return (int) $this->connection->executeStatement(
+            "DELETE FROM {$this->table} WHERE chain_key = :ck AND sequence <= :seq",
+            ['ck' => $chainKey, 'seq' => $sequence],
+        );
     }
 
     /**

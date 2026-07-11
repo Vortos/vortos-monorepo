@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Audit\Ingestion;
 
+use Vortos\Audit\Event\AuditEvent;
 use Vortos\Messaging\Attribute\AsEventHandler;
 
 /**
@@ -21,6 +22,6 @@ final class AuditIngestionHandler
     #[AsEventHandler(handlerId: 'vortos.audit.ingest', consumer: 'vortos.audit', idempotent: true)]
     public function __invoke(AuditEventRecorded $message): void
     {
-        $this->processor->process($message->toEvent());
+        $this->processor->process(AuditEvent::fromArray($message->event));
     }
 }

@@ -33,7 +33,7 @@ final class AsyncAuditRecorderTest extends TestCase
 
         self::assertInstanceOf(AuditEventRecorded::class, $bus->last?->payload);
         self::assertSame('AuditEvent', $bus->last->aggregateType);
-        self::assertSame('flag.published', $bus->last->payload->toEvent()->action);
+        self::assertSame('flag.published', \Vortos\Audit\Event\AuditEvent::fromArray($bus->last->payload->event)->action);
     }
 
     public function test_block_mode_rethrows_on_dispatch_failure(): void

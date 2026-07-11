@@ -42,7 +42,7 @@ final class AsyncAuditRecorder implements AuditRecorderInterface
                 payloadType:      AuditEventRecorded::class,
                 schemaVersion:    1,
                 occurredAt:       $event->occurredAt,
-                payload:          AuditEventRecorded::fromEvent($event),
+                payload:          new AuditEventRecorded($event->id, $event->toArray()),
                 metadata:         Metadata::empty(),
             ));
         } catch (\Throwable $e) {

@@ -4,15 +4,13 @@ declare(strict_types=1);
 
 namespace Vortos\Audit\Ingestion;
 
-use Vortos\Audit\Event\AuditEvent;
-
 /**
  * Wire contract carried over the message bus from the request path (producer) to the
- * ingestion consumer. A plain, final readonly POPO — the consumer's handler deserializes
- * the payload back into an {@see AuditEvent} and appends it to its chain.
- *
- * It transports the fully-assembled event as an array so the chain is computed exactly
- * once, in the consumer, under the per-chain lock.
+ * ingestion consumer. A pure, final readonly POPO with no methods beyond the constructor
+ * (the messaging wire-contract rules forbid extra methods on an event class) — the
+ * producer passes {@see AuditEvent::toArray()} and the consumer rebuilds it via
+ * {@see AuditEvent::fromArray()}. Transporting the fully-assembled event as an array
+ * keeps the chain computed exactly once, in the consumer, under the per-chain lock.
  */
 final readonly class AuditEventRecorded
 {
@@ -23,14 +21,4 @@ final readonly class AuditEventRecorded
         public string $auditId,
         public array  $event,
     ) {}
-
-    public static function fromEvent(AuditEvent $event): self
-    {
-        return new self($event->id, $event->toArray());
-    }
-
-    public function toEvent(): AuditEvent
-    {
-        return AuditEvent::fromArray($this->event);
-    }
 }

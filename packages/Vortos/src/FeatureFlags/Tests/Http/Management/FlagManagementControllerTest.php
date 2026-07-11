@@ -198,7 +198,7 @@ final class FlagManagementControllerTest extends TestCase
             ->willThrowException(new ForbiddenException());
 
         $this->expectException(ForbiddenException::class);
-        $this->controller->enable('my-flag');
+        $this->controller->enable('my-flag', new Request());
     }
 
     public function test_enable_returns_200_on_success(): void
@@ -208,7 +208,7 @@ final class FlagManagementControllerTest extends TestCase
         $this->storage->method('findByName')->willReturn($flag);
         $this->storage->method('save');
 
-        $response = $this->controller->enable('my-flag');
+        $response = $this->controller->enable('my-flag', new Request());
         $this->assertSame(200, $response->getStatusCode());
     }
 
@@ -218,7 +218,7 @@ final class FlagManagementControllerTest extends TestCase
             ->willThrowException(new ForbiddenException());
 
         $this->expectException(ForbiddenException::class);
-        $this->controller->disable('my-flag');
+        $this->controller->disable('my-flag', new Request());
     }
 
     public function test_disable_returns_200_on_success(): void
@@ -228,7 +228,7 @@ final class FlagManagementControllerTest extends TestCase
         $this->storage->method('findByName')->willReturn($flag);
         $this->storage->method('save');
 
-        $response = $this->controller->disable('my-flag');
+        $response = $this->controller->disable('my-flag', new Request());
         $this->assertSame(200, $response->getStatusCode());
     }
 

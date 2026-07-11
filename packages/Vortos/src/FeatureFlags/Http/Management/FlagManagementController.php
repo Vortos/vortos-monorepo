@@ -219,11 +219,12 @@ final class FlagManagementController
     }
 
     #[Route('/api/management/v1/flags/{name}/enable', name: 'vortos.management.flags.enable', methods: ['POST'])]
-    public function enable(string $name): JsonResponse
+    public function enable(string $name, Request $request): JsonResponse
     {
         $this->authz->requirePermission('flags.write.any');
         $actor = $this->currentUser->get();
         $this->rateLimit->checkManagement($actor->id());
+        $this->applyEnv($request);
 
         if ($this->changeRequestInterceptor->isProtected($name, $this->scopeContext->environment())) {
             return new JsonResponse(['message' => 'Change request required for this environment.'], 202);
@@ -240,11 +241,12 @@ final class FlagManagementController
     }
 
     #[Route('/api/management/v1/flags/{name}/disable', name: 'vortos.management.flags.disable', methods: ['POST'])]
-    public function disable(string $name): JsonResponse
+    public function disable(string $name, Request $request): JsonResponse
     {
         $this->authz->requirePermission('flags.write.any');
         $actor = $this->currentUser->get();
         $this->rateLimit->checkManagement($actor->id());
+        $this->applyEnv($request);
 
         if ($this->changeRequestInterceptor->isProtected($name, $this->scopeContext->environment())) {
             return new JsonResponse(['message' => 'Change request required for this environment.'], 202);
@@ -266,6 +268,11 @@ final class FlagManagementController
         $this->authz->requirePermission('flags.write.any');
         $actor = $this->currentUser->get();
         $this->rateLimit->checkManagement($actor->id());
+        $this->applyEnv($request);
+
+        if ($this->changeRequestInterceptor->isProtected($name, $this->scopeContext->environment())) {
+            return new JsonResponse(['message' => 'Change request required for this environment.'], 202);
+        }
 
         $existing = $this->storage->findByName($name);
         if ($existing === null) {
@@ -285,6 +292,11 @@ final class FlagManagementController
         $this->authz->requirePermission('flags.write.any');
         $actor = $this->currentUser->get();
         $this->rateLimit->checkManagement($actor->id());
+        $this->applyEnv($request);
+
+        if ($this->changeRequestInterceptor->isProtected($name, $this->scopeContext->environment())) {
+            return new JsonResponse(['message' => 'Change request required for this environment.'], 202);
+        }
 
         $existing = $this->storage->findByName($name);
         if ($existing === null) {
@@ -326,6 +338,11 @@ final class FlagManagementController
         $this->authz->requirePermission('flags.write.any');
         $actor = $this->currentUser->get();
         $this->rateLimit->checkManagement($actor->id());
+        $this->applyEnv($request);
+
+        if ($this->changeRequestInterceptor->isProtected($name, $this->scopeContext->environment())) {
+            return new JsonResponse(['message' => 'Change request required for this environment.'], 202);
+        }
 
         $existing = $this->storage->findByName($name);
         if ($existing === null) {

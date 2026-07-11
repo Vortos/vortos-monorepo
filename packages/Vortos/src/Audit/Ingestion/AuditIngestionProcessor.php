@@ -9,6 +9,7 @@ use Psr\Log\NullLogger;
 use Vortos\Audit\Contract\AuditRecorderInterface;
 use Vortos\Audit\Event\AuditEvent;
 use Vortos\Audit\Ingestion\Idempotency\IdempotencyGuardInterface;
+use Vortos\Audit\Observability\AuditMetrics;
 
 /**
  * The consumer-side worker: takes a delivered event and appends it to its chain, exactly
@@ -29,6 +30,7 @@ final class AuditIngestionProcessor
         private readonly IdempotencyGuardInterface  $guard,
         private readonly int                        $idempotencyTtlSeconds = 604800,
         private readonly LoggerInterface            $logger = new NullLogger(),
+        private readonly ?AuditMetrics              $metrics = null,
     ) {}
 
     public function process(AuditEvent $event): void
@@ -37,15 +39,18 @@ final class AuditIngestionProcessor
 
         if (!$this->guard->claim($key, $this->idempotencyTtlSeconds)) {
             $this->logger->debug('Audit ingestion skipped: duplicate delivery.', ['audit_id' => $event->id]);
+            $this->metrics?->duplicateSkipped();
             return;
         }
 
         try {
             $this->store->record($event);
+            $this->metrics?->ingested($event->scope->value);
         } catch (\Throwable $e) {
             if ($this->isDuplicateKey($e)) {
                 // Already persisted by an earlier delivery — idempotent success.
                 $this->logger->debug('Audit ingestion: id already persisted, treating as done.', ['audit_id' => $event->id]);
+                $this->metrics?->duplicateSkipped();
                 return;
             }
             // Genuine failure — release the claim so redelivery retries, then surface.

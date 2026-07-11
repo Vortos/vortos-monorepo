@@ -24,10 +24,14 @@ use Vortos\Audit\Ingestion\Idempotency\IdempotencyGuardInterface;
 use Vortos\Audit\Ingestion\Idempotency\InMemoryIdempotencyGuard;
 use Vortos\Audit\Ingestion\Idempotency\RedisIdempotencyGuard;
 use Vortos\Audit\Clock\SystemClock;
+use Vortos\Audit\Console\AuditDoctorCommand;
 use Vortos\Audit\Console\AuditRetentionCommand;
 use Vortos\Audit\Admin\AuditAdminService;
 use Vortos\Audit\Admin\AuditPermissionCatalog;
+use Vortos\Audit\Doctor\AuditDoctor;
 use Vortos\Audit\Export\AuditExporter;
+use Vortos\Audit\Observability\AuditMetricDefinitions;
+use Vortos\Audit\Observability\AuditMetrics;
 use Vortos\Audit\Integrity\AuditChainVerifier;
 use Vortos\Audit\Integrity\AuditHashChain;
 use Vortos\Audit\Query\AuditQueryInterface;
@@ -83,6 +87,7 @@ final class AuditExtension extends Extension
         $this->registerIngestion($container, $config);
         $this->registerRetention($container, $config);
         $this->registerAdmin($container, $hmacKey);
+        $this->registerObservability($container, $config, $hmacKey);
 
         // Default sink: Null recorder (logs a warning) unless the DBAL store already
         // claimed the alias above.
@@ -188,6 +193,7 @@ final class AuditExtension extends Extension
             ->setArgument('$guard', new Reference(IdempotencyGuardInterface::class))
             ->setArgument('$idempotencyTtlSeconds', $config['idempotency_ttl_seconds'])
             ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$metrics', new Reference(AuditMetrics::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
 
         $container->register(AuditIngestionHandler::class, AuditIngestionHandler::class)
@@ -260,6 +266,7 @@ final class AuditExtension extends Extension
                 ->setArgument('$clock', new Reference(SystemClock::class))
                 ->setArgument('$batchSize', (int) $config['retention_batch_size'])
                 ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                ->setArgument('$metrics', new Reference(AuditMetrics::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
                 ->setPublic(false);
             $sweeperRef = new Reference(AuditRetentionSweeper::class);
         }
@@ -297,6 +304,45 @@ final class AuditExtension extends Extension
                 ->addTag('vortos.permission_catalog', ['resource' => 'audit'])
                 ->setPublic(false);
         }
+    }
+
+    /**
+     * Wire metrics + doctor (P7). Metric definitions register into the global registry
+     * when vortos-metrics is present; AuditMetrics is null-safe when it isn't. The doctor
+     * captures compile-time facts so `vortos:audit:doctor` reports the real wiring.
+     *
+     * @param array<string, mixed> $config
+     */
+    private function registerObservability(ContainerBuilder $container, array $config, string $hmacKey): void
+    {
+        $metricsIface = 'Vortos\Metrics\Contract\MetricsInterface';
+        if (interface_exists('Vortos\Metrics\Definition\MetricDefinitionProviderInterface')) {
+            $container->register(AuditMetricDefinitions::class, AuditMetricDefinitions::class)
+                ->addTag('vortos.metric_definitions')
+                ->setPublic(false);
+        }
+
+        $metricsRef = interface_exists($metricsIface) && ($container->has($metricsIface) || $container->hasAlias($metricsIface))
+            ? new Reference($metricsIface)
+            : null;
+        $container->register(AuditMetrics::class, AuditMetrics::class)
+            ->setArgument('$metrics', $metricsRef)
+            ->setPublic(false);
+
+        $container->register(AuditDoctor::class, AuditDoctor::class)
+            ->setArgument('$facts', [
+                'hmac_key_set'       => $hmacKey !== '',
+                'async'              => (bool) $config['async'],
+                'has_archive_target' => $container->hasAlias(AuditArchiveWriterInterface::class),
+                'has_store'          => $container->hasDefinition(DbalAuditStore::class),
+                'has_checkpoints'    => $container->hasAlias(AuditCheckpointStoreInterface::class),
+            ])
+            ->setPublic(false);
+
+        $container->register(AuditDoctorCommand::class, AuditDoctorCommand::class)
+            ->setArgument('$doctor', new Reference(AuditDoctor::class))
+            ->addTag('console.command')
+            ->setPublic(false);
     }
 
     /**

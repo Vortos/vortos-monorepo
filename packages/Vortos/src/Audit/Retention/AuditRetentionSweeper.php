@@ -7,6 +7,7 @@ namespace Vortos\Audit\Retention;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Vortos\Audit\Observability\AuditMetrics;
 use Vortos\Audit\Storage\StoredAuditEvent;
 
 /**
@@ -31,6 +32,7 @@ final class AuditRetentionSweeper
         private readonly ClockInterface                     $clock,
         private readonly int                                $batchSize = 1000,
         private readonly LoggerInterface                    $logger = new NullLogger(),
+        private readonly ?AuditMetrics                       $metrics = null,
     ) {}
 
     public function sweep(bool $dryRun = false): RetentionResult
@@ -83,6 +85,9 @@ final class AuditRetentionSweeper
             ));
 
             $deleted = $this->source->deleteChainUpTo($chainKey, $last->sequence);
+
+            $this->metrics?->archived($count);
+            $this->metrics?->purged($deleted);
 
             $this->logger->info('Audit retention swept a chain.', [
                 'chain_key'  => $chainKey,

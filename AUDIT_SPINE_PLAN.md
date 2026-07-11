@@ -43,6 +43,24 @@ Log framework bugs to FRAMEWORK_BUGS.md. No AI attribution in commits.
   sensitivity-floor). Registered in root composer autoload, phpunit `Audit` suite, split.yml matrix.
   12/12 unit tests green. Bug fixed: occurred_at serialized microsecond (Y-m-d\TH:i:s.uP), not ms.
 
+## PUBLISHED
+- alpha-212 (P2) storage+integrity: AuditHashChain (content-hash + HMAC signature, canonical
+  JSON), StoredAuditEvent, AuditChainVerifier + ChainVerificationResult, AuditReaderInterface,
+  DbalAuditStore (per-chain advisory lock, append-only, is a synchronous AuditRecorderInterface),
+  migration create_audit_events (uq chain_key+sequence tamper anchor + 5 query indexes), DI storage
+  wiring + config/audit.php loader (strict + hmac_key, env VORTOS_AUDIT_HMAC_KEY fallback). 21/21
+  green. DESIGN NOTE: tamper-evidence is cryptographic (hash chain + off-host HMAC), matching
+  auth/scheduler ledgers — NOT DB triggers/partitioning (framework migration seam is portable
+  Schema-diff only). High volume handled via retention+cold-archive (P4); PG declarative
+  partitioning is an optional app-side scale add-on, documented, not in the portable core.
+- alpha-211 (P1) split to https://github.com/Vortos/vortos-audit — main + tag present. Packagist
+  submission = user's step.
+- NEW-PACKAGE PUBLISH GOTCHA: on the very first release of a brand-new split package, the tag-
+  triggered split job RACES the branch(main)-triggered one and fails with
+  "src refspec main does not match any" if it runs before `main` exists on the empty target repo.
+  Fix: re-run the failed tag split job after the main split lands (self-resolved here). Prevention:
+  push branch main first, wait for its split job to finish, THEN push the tag.
+
 ## FIRST-PUBLISH PREREQUISITES (before tag alpha-211)
 - New split target repo `vortos-audit` must exist on the org (split.yml pushes to it) — NEW package.
 - Packagist must know about `vortos/vortos-audit` (submit once) or `composer require` in backend fails.

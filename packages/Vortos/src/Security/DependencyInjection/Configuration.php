@@ -89,6 +89,7 @@ final class Configuration implements ConfigurationInterface
                     ->scalarNode('cookie_name')->defaultValue('csrf_token')->end()
                     ->booleanNode('cookie_secure')->defaultFalse()->end()
                     ->scalarNode('cookie_same_site')->defaultValue('Strict')->end()
+                    ->scalarNode('cookie_domain')->defaultNull()->end()
                     ->integerNode('token_length')->defaultValue(32)->end()
                     ->arrayNode('skip_controllers')->scalarPrototype()->end()->defaultValue([])->end()
                 ->end()

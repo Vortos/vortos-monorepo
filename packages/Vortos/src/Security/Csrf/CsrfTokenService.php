@@ -38,6 +38,13 @@ final class CsrfTokenService
         private readonly int    $tokenLength,
         private readonly bool   $cookieSecure,
         private readonly string $cookieSameSite,
+        /**
+         * Cookie Domain. Null = host-only (default). Set to a shared parent domain
+         * (e.g. ".example.com") when the frontend that must READ this cookie for the
+         * double-submit pattern lives on a sibling subdomain of the API — otherwise
+         * that frontend cannot see the cookie and every state-changing request fails CSRF.
+         */
+        private readonly ?string $cookieDomain = null,
     ) {}
 
     /**
@@ -74,7 +81,7 @@ final class CsrfTokenService
                 value:    $token,
                 expire:   0,             // session cookie
                 path:     '/',
-                domain:   null,
+                domain:   $this->cookieDomain,
                 secure:   $this->cookieSecure,
                 httpOnly: false,         // JS must be able to read it for double-submit
                 raw:      false,

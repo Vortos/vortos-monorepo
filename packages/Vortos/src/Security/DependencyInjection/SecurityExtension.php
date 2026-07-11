@@ -190,6 +190,7 @@ final class SecurityExtension extends Extension
                 $resolved['token_length'],
                 $resolved['cookie_secure'],
                 $resolved['cookie_same_site'],
+                $resolved['cookie_domain'] ?? null,
             ])
             ->setShared(true)
             ->setPublic(false);

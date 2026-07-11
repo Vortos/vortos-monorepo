@@ -87,6 +87,10 @@ return static function (VortosSecurityConfig $config): void {
         ->cookieName('csrf_token')
         // ->cookieSecure(true)       // enable in prod (HTTPS only)
         ->cookieSameSite('Strict')
+        // Split frontend/backend origins? The double-submit cookie must be READABLE by
+        // the frontend. If the SPA lives on a sibling subdomain of the API
+        // (app.example.com -> api.example.com), set the shared parent domain and use Lax:
+        // ->cookieDomain('.example.com')->cookieSameSite('Lax')
     ;
 
     // =========================================================================

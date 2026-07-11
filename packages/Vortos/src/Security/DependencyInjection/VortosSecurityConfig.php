@@ -318,6 +318,7 @@ final class CsrfConfig
     private string $cookieName     = 'csrf_token';
     private bool   $cookieSecure   = false;
     private string $cookieSameSite = 'Strict';
+    private ?string $cookieDomain  = null;
     private int    $tokenLength    = 32;
 
     public function enabled(bool $enabled = true): static { $this->enabled = $enabled; return $this; }
@@ -329,6 +330,8 @@ final class CsrfConfig
     public function cookieSecure(bool $secure = true): static { $this->cookieSecure = $secure; return $this; }
 
     public function cookieSameSite(string $sameSite): static { $this->cookieSameSite = $sameSite; return $this; }
+    /** Shared parent domain for the CSRF cookie (e.g. ".example.com") for split frontend/backend origins; null = host-only. */
+    public function cookieDomain(?string $domain): static { $this->cookieDomain = $domain; return $this; }
 
     public function tokenLength(int $bytes): static { $this->tokenLength = $bytes; return $this; }
 
@@ -340,6 +343,7 @@ final class CsrfConfig
             'cookie_name'      => $this->cookieName,
             'cookie_secure'    => $this->cookieSecure,
             'cookie_same_site' => $this->cookieSameSite,
+            'cookie_domain'    => $this->cookieDomain,
             'token_length'     => $this->tokenLength,
         ];
     }

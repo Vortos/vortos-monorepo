@@ -86,6 +86,9 @@ use Vortos\FeatureFlags\Http\ExposureController;
 use Vortos\FeatureFlags\Http\FeatureFlagMiddleware;
 use Vortos\FeatureFlags\Http\FlagContextResolverInterface;
 use Vortos\FeatureFlags\Http\FlagsController;
+use Vortos\FeatureFlags\Http\Management\FlagHistoryController;
+use Vortos\FeatureFlags\Http\Management\FlagInsightsController;
+use Vortos\FeatureFlags\Http\Management\GitOpsController;
 use Vortos\FeatureFlags\Http\Management\FlagManagementController;
 use Vortos\FeatureFlags\Http\Management\Interceptor\ChangeRequestInterceptorInterface;
 use Vortos\FeatureFlags\Http\Management\Interceptor\NullChangeRequestInterceptor;
@@ -587,6 +590,39 @@ final class FeatureFlagsExtension extends Extension
             ->setArgument('$changeRequestInterceptor', new Reference(ChangeRequestInterceptorInterface::class))
             ->setArgument('$validator', new Reference(VortosValidator::class))
             ->setArgument('$envStateStorage', new Reference(FlagEnvironmentStateStorageInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('vortos.api.controller')
+            ->setPublic(true);
+
+        $container->register(FlagHistoryController::class, FlagHistoryController::class)
+            ->setArgument('$auditLog', new Reference(FlagAuditLogRepositoryInterface::class))
+            ->setArgument('$storage', new Reference(FlagStorageInterface::class))
+            ->setArgument('$writeService', new Reference(FlagWriteService::class))
+            ->setArgument('$authz', new Reference(ManagementAuthzGateInterface::class))
+            ->setArgument('$currentUser', new Reference(CurrentUserProvider::class))
+            ->setArgument('$rateLimit', new Reference(FlagRateLimitService::class))
+            ->setArgument('$response', new Reference(ManagementResponseFactory::class))
+            ->setArgument('$scopeContext', new Reference(FlagScopeContext::class))
+            ->setArgument('$changeRequestInterceptor', new Reference(ChangeRequestInterceptorInterface::class))
+            ->addTag('vortos.api.controller')
+            ->setPublic(true);
+
+        $container->register(GitOpsController::class, GitOpsController::class)
+            ->setArgument('$exporter', new Reference(FlagDefinitionExporter::class))
+            ->setArgument('$importer', new Reference(FlagDefinitionImporter::class))
+            ->setArgument('$drift', new Reference(GitOpsDriftService::class))
+            ->setArgument('$authz', new Reference(ManagementAuthzGateInterface::class))
+            ->setArgument('$currentUser', new Reference(CurrentUserProvider::class))
+            ->setArgument('$rateLimit', new Reference(FlagRateLimitService::class))
+            ->setArgument('$response', new Reference(ManagementResponseFactory::class))
+            ->addTag('vortos.api.controller')
+            ->setPublic(true);
+
+        $container->register(FlagInsightsController::class, FlagInsightsController::class)
+            ->setArgument('$storage', new Reference(FlagStorageInterface::class))
+            ->setArgument('$authz', new Reference(ManagementAuthzGateInterface::class))
+            ->setArgument('$currentUser', new Reference(CurrentUserProvider::class))
+            ->setArgument('$rateLimit', new Reference(FlagRateLimitService::class))
+            ->setArgument('$response', new Reference(ManagementResponseFactory::class))
             ->addTag('vortos.api.controller')
             ->setPublic(true);
 

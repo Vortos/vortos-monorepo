@@ -289,6 +289,23 @@ final class FlagManagementControllerTest extends TestCase
         $this->assertSame('ops', $body['data']['kind']);
     }
 
+    public function test_replace_variant_rules(): void
+    {
+        $this->authz->method('requirePermission');
+        $saved = $this->buildFlag('exp');
+        $this->storage->method('save')->willReturnCallback(function ($f) use (&$saved) { $saved = $f; });
+        $this->storage->method('findByName')->willReturnCallback(function () use (&$saved) { return $saved; });
+
+        $response = $this->controller->replaceVariantRules('exp', $this->jsonRequest([
+            'variantRules' => ['treatment' => [['type' => 'users', 'users' => ['u1']]]],
+        ]));
+        $body = $this->decode($response);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertArrayHasKey('treatment', $body['data']['variantRules']);
+        $this->assertSame(['u1'], $body['data']['variantRules']['treatment'][0]['users']);
+    }
+
     public function test_serialize_exposes_targeting_config(): void
     {
         $this->authz->method('requirePermission');

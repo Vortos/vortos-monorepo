@@ -27,6 +27,7 @@ use Vortos\FeatureFlags\Http\Management\Request\PromoteFlagRequest;
 use Vortos\FeatureFlags\Http\Management\Request\UpdateFlagRequest;
 use Vortos\FeatureFlags\Http\Management\Request\UpdateRulesRequest;
 use Vortos\FeatureFlags\Http\Management\Request\UpdateScheduleRequest;
+use Vortos\FeatureFlags\Http\Management\Request\UpdateVariantRulesRequest;
 use Vortos\FeatureFlags\Http\Management\Request\UpdateVariantsRequest;
 use Vortos\FeatureFlags\Http\RateLimit\FlagRateLimitService;
 use Vortos\FeatureFlags\ProjectContext;
@@ -296,6 +297,29 @@ final class FlagManagementController
         return $this->response->ok($this->serializeFlag($flag->state()));
     }
 
+    #[Route('/api/management/v1/flags/{name}/variant-rules', name: 'vortos.management.flags.variant_rules', methods: ['PUT'])]
+    public function replaceVariantRules(string $name, Request $request): JsonResponse
+    {
+        $this->authz->requirePermission('flags.write.any');
+        $actor = $this->currentUser->get();
+        $this->rateLimit->checkManagement($actor->id());
+        $this->applyEnv($request);
+
+        $existing = $this->storage->findByName($name);
+        if ($existing === null) {
+            throw new NotFoundException(sprintf('Flag "%s" not found.', $name));
+        }
+
+        $dto = UpdateVariantRulesRequest::fromRequest($request, $this->validator);
+        $variantRules = $dto->variantRules === null ? null : array_map(
+            static fn(array $rules) => array_map(static fn(array $r) => FlagRule::fromArray($r), $rules),
+            $dto->variantRules,
+        );
+        $flag = $this->writeService->changeVariantRules($name, $variantRules, $actor->id());
+
+        return $this->response->ok($this->serializeFlag($flag->state()));
+    }
+
     #[Route('/api/management/v1/flags/{name}/schedule', name: 'vortos.management.flags.schedule', methods: ['PUT'])]
     public function setSchedule(string $name, Request $request): JsonResponse
     {
@@ -374,6 +398,9 @@ final class FlagManagementController
             // these wholesale, so a client must be able to read them first).
             'rules'       => array_map(static fn(FlagRule $r) => $r->toArray(), $flag->rules),
             'variants'    => $flag->variants,
+            'variantRules' => $flag->variantRules !== null
+                ? array_map(static fn(array $rules) => array_map(static fn(FlagRule $r) => $r->toArray(), $rules), $flag->variantRules)
+                : null,
             'schedule'    => $flag->schedule?->toArray(),
             'payload'     => $flag->payload,
             'defaultValue' => $flag->defaultValue()->encode(),

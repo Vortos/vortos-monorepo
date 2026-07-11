@@ -18,6 +18,7 @@ use Vortos\FeatureFlags\Domain\Event\FlagReconfiguredEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagRevertedEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagRulesChangedEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagScheduledEvent;
+use Vortos\FeatureFlags\Domain\Event\FlagVariantRulesChangedEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagVariantsChangedEvent;
 use Vortos\FeatureFlags\Exception\FlagArchivedException;
 use Vortos\FeatureFlags\FeatureFlag;
@@ -195,6 +196,36 @@ final class Flag extends AggregateRoot
             actorId:     $actorId,
             reason:      $reason,
             environment: $this->state->environment,
+        ));
+    }
+
+    /**
+     * Replace per-variant targeting overrides (force a matching context into a specific
+     * variant regardless of weight). @param array<string,FlagRule[]>|null $variantRules
+     */
+    public function changeVariantRules(?array $variantRules, string $actorId, ?string $reason = null): void
+    {
+        $this->guardNotArchived();
+
+        $serialize = static fn(?array $vr): ?array => $vr === null ? null : array_map(
+            static fn(array $rules) => array_map(static fn(FlagRule $r) => $r->toArray(), $rules),
+            $vr,
+        );
+        $oldSer = $serialize($this->state->variantRules);
+        $newSer = $serialize($variantRules);
+        if ($oldSer === $newSer) {
+            return;
+        }
+
+        $this->state = $this->state->withVariantRules($variantRules);
+        $this->recordEvent(new FlagVariantRulesChangedEvent(
+            flagId:          $this->state->id,
+            name:            $this->state->name,
+            oldVariantRules: $oldSer,
+            newVariantRules: $newSer,
+            actorId:         $actorId,
+            reason:          $reason,
+            environment:     $this->state->environment,
         ));
     }
 

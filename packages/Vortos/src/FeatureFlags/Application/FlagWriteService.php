@@ -154,6 +154,21 @@ final class FlagWriteService
         });
     }
 
+    /**
+     * Replace per-variant targeting overrides. @param array<string,FlagRule[]>|null $variantRules
+     */
+    public function changeVariantRules(string $name, ?array $variantRules, string $actorId, ?string $reason = null): Flag
+    {
+        return $this->transactional(function () use ($name, $variantRules, $actorId, $reason): Flag {
+            $flag = $this->load($name);
+            $flag->changeVariantRules($variantRules, $actorId, $reason);
+            $this->storage->save($flag->state());
+            $this->saveEnvState($flag->state());
+
+            return $flag;
+        });
+    }
+
     public function schedule(string $name, ?RolloutSchedule $schedule, string $actorId, ?string $reason = null): Flag
     {
         return $this->transactional(function () use ($name, $schedule, $actorId, $reason): Flag {

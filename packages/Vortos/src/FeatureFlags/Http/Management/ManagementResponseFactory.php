@@ -14,6 +14,12 @@ final class ManagementResponseFactory
         return new JsonResponse($this->envelope($data), $status);
     }
 
+    /** Single-item response — alias of {@see ok()} for controllers that read as "return this item". */
+    public function item(mixed $data, int $status = 200): JsonResponse
+    {
+        return $this->ok($data, $status);
+    }
+
     /** @param array<mixed> $items */
     public function list(array $items, ?string $nextCursor, int $total): JsonResponse
     {

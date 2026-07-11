@@ -43,12 +43,20 @@ final class OpenTelemetryTracerFactory
         $resourceInfoClass = 'OpenTelemetry\SDK\Resource\ResourceInfo';
         $resourceInfoFactoryClass = 'OpenTelemetry\SDK\Resource\ResourceInfoFactory';
 
+        // Fire-and-forget: NO in-process retries (retryDelay/maxRetries = 0). Telemetry
+        // export must never block or sleep-retry in the request/worker path — a slow or
+        // unreachable collector would otherwise stall the served application (the OTLP
+        // default is 3 retries with backoff, which can add many seconds per request).
+        // Durability/retry is the collector agent's job, not the app's. Matches the
+        // metrics exporter. Pair with a LOCAL collector endpoint so connect is instant.
         $transport = (new $transportFactoryClass())->create(
             $config['endpoint'],
             'application/x-protobuf',
             $config['headers'],
             null,
             $config['timeout_ms'] / 1000,
+            retryDelay: 0,
+            maxRetries: 0,
         );
         $exporter = new $spanExporterClass(
             $transport,
@@ -77,8 +85,14 @@ final class OpenTelemetryTracerFactory
             $tracer,
             \OpenTelemetry\API\Trace\Propagation\TraceContextPropagator::getInstance(),
             static function () use ($provider): void {
-                if (method_exists($provider, 'shutdown')) {
-                    $provider->shutdown();
+                // Fail-open: a failing/slow export on shutdown must never surface as an
+                // application error. Swallow anything the flush throws.
+                try {
+                    if (method_exists($provider, 'shutdown')) {
+                        $provider->shutdown();
+                    }
+                } catch (\Throwable) {
+                    // telemetry is best-effort — never let it break the request/worker
                 }
             },
         );

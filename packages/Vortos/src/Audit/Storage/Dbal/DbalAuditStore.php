@@ -10,6 +10,7 @@ use Vortos\Audit\Event\AuditEvent;
 use Vortos\Audit\Integrity\AuditHashChain;
 use Vortos\Audit\Retention\AuditRetentionSourceInterface;
 use Vortos\Audit\Storage\AuditReaderInterface;
+use Vortos\Audit\Storage\Dbal\StoredAuditEventRowMapper;
 use Vortos\Audit\Storage\StoredAuditEvent;
 
 /**
@@ -126,28 +127,7 @@ final class DbalAuditStore implements AuditRecorderInterface, AuditReaderInterfa
      */
     private function fromRow(array $row): StoredAuditEvent
     {
-        $event = AuditEvent::fromArray([
-            'id'          => $row['id'],
-            'scope'       => $row['scope'],
-            'tenant_id'   => $row['tenant_id'],
-            'actor'       => json_decode((string) $row['actor'], true, 512, JSON_THROW_ON_ERROR),
-            'action'      => $row['action'],
-            'target'      => $row['target'] !== null ? json_decode((string) $row['target'], true, 512, JSON_THROW_ON_ERROR) : null,
-            'sensitivity' => $row['sensitivity'],
-            'outcome'     => $row['outcome'],
-            'source'      => json_decode((string) $row['source'], true, 512, JSON_THROW_ON_ERROR),
-            'context'     => json_decode((string) ($row['context'] ?? '[]'), true, 512, JSON_THROW_ON_ERROR),
-            'occurred_at' => $row['occurred_at'],
-        ]);
-
-        return new StoredAuditEvent(
-            event:       $event,
-            chainKey:    (string) $row['chain_key'],
-            sequence:    (int) $row['sequence'],
-            prevHash:    (string) $row['prev_hash'],
-            contentHash: (string) $row['content_hash'],
-            signature:   (string) $row['signature'],
-        );
+        return StoredAuditEventRowMapper::toStored($row);
     }
 
     /** Deterministic 63-bit advisory-lock key from the chain key. */

@@ -25,8 +25,11 @@ use Vortos\Audit\Ingestion\Idempotency\InMemoryIdempotencyGuard;
 use Vortos\Audit\Ingestion\Idempotency\RedisIdempotencyGuard;
 use Vortos\Audit\Clock\SystemClock;
 use Vortos\Audit\Console\AuditRetentionCommand;
+use Vortos\Audit\Export\AuditExporter;
 use Vortos\Audit\Integrity\AuditChainVerifier;
 use Vortos\Audit\Integrity\AuditHashChain;
+use Vortos\Audit\Query\AuditQueryInterface;
+use Vortos\Audit\Query\Dbal\DbalAuditQueryReader;
 use Vortos\Audit\Recorder\NullAuditRecorder;
 use Vortos\Audit\Retention\AuditArchiveWriterInterface;
 use Vortos\Audit\Retention\AuditCheckpointStoreInterface;
@@ -125,6 +128,22 @@ final class AuditExtension extends Extension
         // The DBAL store becomes the recorder + reader of record.
         $container->setAlias(AuditRecorderInterface::class, DbalAuditStore::class);
         $container->setAlias(AuditReaderInterface::class, DbalAuditStore::class);
+
+        // Read side (P5): keyset query + signed export.
+        $container->register(DbalAuditQueryReader::class, DbalAuditQueryReader::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $prefix . 'audit_events')
+            ->setPublic(false);
+        $container->setAlias(AuditQueryInterface::class, DbalAuditQueryReader::class);
+
+        $container->register(StoredAuditEventSerializer::class, StoredAuditEventSerializer::class)->setPublic(false);
+
+        $container->register(AuditExporter::class, AuditExporter::class)
+            ->setArgument('$query', new Reference(AuditQueryInterface::class))
+            ->setArgument('$serializer', new Reference(StoredAuditEventSerializer::class))
+            ->setArgument('$chain', new Reference(AuditHashChain::class))
+            ->setArgument('$hmacKey', $hmacKey)
+            ->setPublic(false);
     }
 
     /**

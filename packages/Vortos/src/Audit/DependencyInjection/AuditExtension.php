@@ -196,14 +196,19 @@ final class AuditExtension extends Extension
             ->setArgument('$metrics', new Reference(AuditMetrics::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
 
+        if (!$config['async']) {
+            // Synchronous mode: no producer, and crucially NO event handler — the handler
+            // references the 'vortos.audit' consumer, which only a async-enabled app
+            // declares. Registering + tagging it here would fail an app's messaging
+            // wire-contract check for referencing an undeclared consumer.
+            return;
+        }
+
+        // Consumer entrypoint — only when async is on (the app has declared 'vortos.audit').
         $container->register(AuditIngestionHandler::class, AuditIngestionHandler::class)
             ->setArgument('$processor', new Reference(AuditIngestionProcessor::class))
             ->addTag('vortos.event_handler')
             ->setPublic(false);
-
-        if (!$config['async']) {
-            return; // Consumer side ready, but keep the synchronous recorder.
-        }
 
         $container->register(AsyncAuditRecorder::class, AsyncAuditRecorder::class)
             ->setArgument('$eventBus', new Reference(EventBusInterface::class))

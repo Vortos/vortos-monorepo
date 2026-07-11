@@ -48,6 +48,7 @@ return array(
     'Vortos\\AwsSes\\' => array($baseDir . '/packages/Vortos/src/AwsSes'),
     'Vortos\\Authorization\\' => array($vendorDir . '/vortos/vortos-authorization'),
     'Vortos\\Auth\\' => array($vendorDir . '/vortos/vortos-auth'),
+    'Vortos\\Audit\\' => array($baseDir . '/packages/Vortos/src/Audit'),
     'Vortos\\Analytics\\' => array($baseDir . '/packages/Vortos/src/Analytics'),
     'Vortos\\AnalyticsPosthog\\' => array($baseDir . '/packages/Vortos/src/AnalyticsPosthog'),
     'Vortos\\Alerts\\' => array($baseDir . '/packages/Vortos/src/Alerts'),

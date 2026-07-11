@@ -1,0 +1,40 @@
+{
+    "name": "vortos/vortos-audit",
+    "description": "Vortos Audit — enterprise-grade unified audit spine. One append-only, hash-chained, per-scope/per-tenant event store with controlled action vocabulary, sensitivity classification, impersonation-chain capture, async (Kafka) ingestion, partitioned storage, retention + cold-storage tiering, keyset query, and signed per-tenant export. Replaces per-app hand-rolled audit tables.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Audit\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "ext-hash": "*",
+        "psr/clock": "^1.0",
+        "psr/log": "^3.0",
+        "symfony/uid": "^7.0 || ^8.0",
+        "symfony/dependency-injection": "^7.0 || ^8.0",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-domain": "^1.0"
+    },
+    "suggest": {
+        "doctrine/dbal": "Required for the default partitioned DBAL audit store, hash chain, and keyset reader (P2).",
+        "ext-redis": "Idempotency keys for the async ingestion consumer (P3).",
+        "vortos/vortos-messaging": "Kafka-decoupled ingestion — record() enqueues, the worker appends the chain (P3).",
+        "vortos/vortos-scheduler": "Drives the retention + cold-archive sweeper on a schedule (P4).",
+        "vortos/vortos-object-store": "Cold-storage archival target for aged partitions (P4).",
+        "vortos/vortos-authorization": "RBAC gate for the audit-admin read/export/verify endpoints (P6).",
+        "vortos/vortos-observability": "Ingest-lag, chain-length, and verify-failure metrics (P7).",
+        "vortos/vortos-audit-admin": "Cross-tenant platform audit console endpoints (P6)."
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Audit\\DependencyInjection\\AuditPackage",
+            "order": 105
+        }
+    }
+}

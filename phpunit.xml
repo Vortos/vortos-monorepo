@@ -20,6 +20,9 @@
     </php>
 
     <testsuites>
+        <testsuite name="Audit">
+            <directory>packages/Vortos/src/Audit/Tests</directory>
+        </testsuite>
         <testsuite name="Auth">
             <directory>packages/Vortos/src/Auth/Tests</directory>
             <directory>packages/Vortos/src/Auth/Scim/Tests</directory>

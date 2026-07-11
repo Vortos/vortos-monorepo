@@ -87,6 +87,7 @@
       "Vortos\\DeployK8s\\": "packages/Vortos/src/DeployK8s/",
       "Vortos\\Scheduler\\": "packages/Vortos/src/Scheduler/",
       "Vortos\\SchedulerAdmin\\": "packages/Vortos/src/SchedulerAdmin/",
+      "Vortos\\Audit\\": "packages/Vortos/src/Audit/",
       "Cron\\": "vendor/dragonmantank/cron-expression/src/Cron/"
     },
     "exclude-from-classmap": [

@@ -91,6 +91,7 @@ final class Configuration implements ConfigurationInterface
                     ->scalarNode('cookie_same_site')->defaultValue('Strict')->end()
                     ->scalarNode('cookie_domain')->defaultNull()->end()
                     ->integerNode('token_length')->defaultValue(32)->end()
+                    ->booleanNode('skip_when_bearer_auth')->defaultFalse()->end()
                     ->arrayNode('skip_controllers')->scalarPrototype()->end()->defaultValue([])->end()
                 ->end()
             ->end()

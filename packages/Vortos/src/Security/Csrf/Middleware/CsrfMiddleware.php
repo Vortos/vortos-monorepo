@@ -40,6 +40,17 @@ final class CsrfMiddleware implements MiddlewareInterface
         private readonly bool                    $enabled,
         private readonly array                   $skipControllers,
         private readonly IpResolverInterface      $ipResolver = new \Vortos\Http\IpResolver\RemoteAddrIpResolver(),
+        /**
+         * When true, requests carrying an `Authorization: Bearer` token bypass CSRF
+         * validation. Such requests are token-authenticated, not cookie-authenticated:
+         * a cross-site attacker cannot read the token (same-origin policy) nor set the
+         * Authorization header on a forged navigation/form post, and a forged request
+         * without a valid Bearer is rejected by the auth layer regardless. CSRF's
+         * double-submit only defends ambient *cookie* credentials, so it adds no
+         * protection here — only the fragility of cross-origin cookie plumbing.
+         * Leave false for cookie/session-authenticated apps.
+         */
+        private readonly bool                    $skipWhenBearerAuth = false,
     ) {}
 
     public function handle(Request $request, \Closure $next): Response
@@ -47,7 +58,7 @@ final class CsrfMiddleware implements MiddlewareInterface
         if ($this->enabled && !in_array($request->getMethod(), ['GET', 'HEAD', 'OPTIONS', 'TRACE'], true)) {
             $controller = $this->resolveControllerKey($request->attributes->get('_controller'));
 
-            if ($controller === null || !$this->isSkipped($controller)) {
+            if (($controller === null || !$this->isSkipped($controller)) && !$this->isBearerAuthenticated($request)) {
                 if (!$this->csrf->validate($request)) {
                     $this->events->dispatch(new CsrfViolationEvent(
                         $this->ipResolver->resolve($request),
@@ -77,6 +88,17 @@ final class CsrfMiddleware implements MiddlewareInterface
         }
 
         return $response;
+    }
+
+    /**
+     * True when CSRF should be skipped because the request is Bearer-token
+     * authenticated (see $skipWhenBearerAuth). Only presence of the header is
+     * needed — token validity is enforced downstream by the auth middleware.
+     */
+    private function isBearerAuthenticated(Request $request): bool
+    {
+        return $this->skipWhenBearerAuth
+            && str_starts_with($request->headers->get('Authorization', ''), 'Bearer ');
     }
 
     private function isSkipped(string $controllerKey): bool

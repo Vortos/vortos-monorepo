@@ -202,6 +202,7 @@ final class SecurityExtension extends Extension
                 $resolved['enabled'],
                 [],  // skip controllers — filled by CsrfCompilerPass
                 new Reference(IpResolverInterface::class),
+                $resolved['skip_when_bearer_auth'] ?? false,
             ])
             ->addTag('kernel.event_subscriber')
             ->setShared(true)

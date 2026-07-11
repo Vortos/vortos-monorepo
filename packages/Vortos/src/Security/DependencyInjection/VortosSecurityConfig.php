@@ -320,6 +320,7 @@ final class CsrfConfig
     private string $cookieSameSite = 'Strict';
     private ?string $cookieDomain  = null;
     private int    $tokenLength    = 32;
+    private bool   $skipWhenBearerAuth = false;
 
     public function enabled(bool $enabled = true): static { $this->enabled = $enabled; return $this; }
 
@@ -335,6 +336,18 @@ final class CsrfConfig
 
     public function tokenLength(int $bytes): static { $this->tokenLength = $bytes; return $this; }
 
+    /**
+     * Skip CSRF validation for requests carrying an `Authorization: Bearer` token.
+     *
+     * Enable for stateless token-authenticated APIs (JWT/OAuth Bearer): such requests
+     * are structurally immune to CSRF — the token is not an ambient credential the
+     * browser auto-attaches, a cross-site page cannot read it or set the Authorization
+     * header on a forged request, and any forged request without a valid Bearer is
+     * rejected by the auth layer anyway. Leave disabled for cookie/session auth, where
+     * the double-submit cookie is the correct defence.
+     */
+    public function skipWhenBearerAuth(bool $skip = true): static { $this->skipWhenBearerAuth = $skip; return $this; }
+
     public function toArray(): array
     {
         return [
@@ -345,6 +358,7 @@ final class CsrfConfig
             'cookie_same_site' => $this->cookieSameSite,
             'cookie_domain'    => $this->cookieDomain,
             'token_length'     => $this->tokenLength,
+            'skip_when_bearer_auth' => $this->skipWhenBearerAuth,
         ];
     }
 }

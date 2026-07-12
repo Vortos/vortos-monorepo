@@ -128,4 +128,9 @@ LUA;
 
         return $sessions;
     }
+
+    public function hasSession(string $userId, string $jti): bool
+    {
+        return $this->redis->zScore("vortos_auth:sessions:{$userId}", $jti) !== false;
+    }
 }

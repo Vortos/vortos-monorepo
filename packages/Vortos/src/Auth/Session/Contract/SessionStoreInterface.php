@@ -28,4 +28,7 @@ interface SessionStoreInterface
      * @return array<string, int> jti => issuedAt (unix seconds)
      */
     public function listSessions(string $userId): array;
+
+    /** True when the user currently has an active session with this JTI. */
+    public function hasSession(string $userId, string $jti): bool;
 }

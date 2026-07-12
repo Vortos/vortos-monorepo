@@ -84,4 +84,18 @@ final class RedisSessionStoreTest extends TestCase
         $this->redis->method('zRange')->willReturn([]);
         $this->assertSame([], $this->store->listSessions('user-1'));
     }
+
+    public function test_has_session_true_when_member_present(): void
+    {
+        $this->redis->expects($this->once())->method('zScore')
+            ->with('vortos_auth:sessions:user-1', 'jti-abc')
+            ->willReturn(1783744163.0);
+        $this->assertTrue($this->store->hasSession('user-1', 'jti-abc'));
+    }
+
+    public function test_has_session_false_when_member_absent(): void
+    {
+        $this->redis->method('zScore')->willReturn(false);
+        $this->assertFalse($this->store->hasSession('user-1', 'jti-missing'));
+    }
 }

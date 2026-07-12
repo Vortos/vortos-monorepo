@@ -37,7 +37,46 @@ final class MigrationSqlExtractor implements MigrationSqlExtractorInterface
 
         $source = file_get_contents($file);
 
-        return $source !== false ? $this->extractFromSource($source) : [];
+        if ($source === false) {
+            return [];
+        }
+
+        // Isolate the up() method body before extracting addSql() calls. Without this the
+        // regexes match ->addSql() anywhere in the file — including down() — so a migration's
+        // rollback SQL would be analysed as if it were forward SQL (e.g. a DROP in down()
+        // tripping the Expand-phase gate). down() is isolated the same way for downSql.
+        $upBody = $this->extractMethodBody($source, 'up');
+
+        return $this->extractFromSource($upBody ?? $source);
+    }
+
+    /**
+     * Returns the brace-delimited body of the named method, or null if not found.
+     */
+    private function extractMethodBody(string $source, string $method): ?string
+    {
+        $pattern = '/function\s+' . preg_quote($method, '/') . '\s*\([^)]*\)\s*(?::\s*\w+\s*)?\{/';
+
+        if (!preg_match($pattern, $source, $match, PREG_OFFSET_CAPTURE)) {
+            return null;
+        }
+
+        $start = (int) $match[0][1] + strlen($match[0][0]);
+        $depth = 1;
+        $len = strlen($source);
+
+        for ($i = $start; $i < $len; $i++) {
+            if ($source[$i] === '{') {
+                $depth++;
+            } elseif ($source[$i] === '}') {
+                $depth--;
+                if ($depth === 0) {
+                    return substr($source, $start, $i - $start);
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

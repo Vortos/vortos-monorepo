@@ -6,6 +6,7 @@ namespace Vortos\Migration\Tests\Service;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Migration\Service\MigrationSqlExtractor;
+use Vortos\Migration\Tests\Fixtures\FakeUpDownMigration;
 
 final class MigrationSqlExtractorTest extends TestCase
 {
@@ -14,6 +15,25 @@ final class MigrationSqlExtractorTest extends TestCase
     protected function setUp(): void
     {
         $this->extractor = new MigrationSqlExtractor();
+    }
+
+    public function test_extract_from_class_returns_only_up_sql_not_down(): void
+    {
+        $sql = $this->extractor->extractFromClass(FakeUpDownMigration::class);
+
+        // Only the two up() index creations — the down() DROPs must be excluded, otherwise
+        // rollback SQL gets analysed as forward SQL (e.g. a DROP tripping the Expand gate).
+        $this->assertSame(
+            [
+                'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_a ON t (a)',
+                'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_b ON t (b)',
+            ],
+            $sql,
+        );
+
+        foreach ($sql as $statement) {
+            $this->assertStringNotContainsStringIgnoringCase('DROP INDEX', $statement);
+        }
     }
 
     public function test_extracts_single_quoted_sql(): void

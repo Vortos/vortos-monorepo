@@ -98,6 +98,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Authorization\\' => 21,
             'Vortos\\Auth\\' => 12,
             'Vortos\\Audit\\' => 13,
+            'Vortos\\AuditAdmin\\' => 18,
             'Vortos\\Analytics\\' => 17,
             'Vortos\\AnalyticsPosthog\\' => 24,
             'Vortos\\Alerts\\' => 14,
@@ -429,6 +430,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Audit\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Audit',
+        ),
+        'Vortos\\AuditAdmin\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/AuditAdmin',
         ),
         'Vortos\\Analytics\\' =>
         array (

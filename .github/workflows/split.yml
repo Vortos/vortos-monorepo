@@ -170,6 +170,8 @@ jobs:
             split_repository: 'vortos-scheduler-admin'
           - local_path: 'packages/Vortos/src/Audit'
             split_repository: 'vortos-audit'
+          - local_path: 'packages/Vortos/src/AuditAdmin'
+            split_repository: 'vortos-audit-admin'
 
     steps:
       - uses: actions/checkout@v4

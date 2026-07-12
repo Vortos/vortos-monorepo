@@ -36,7 +36,12 @@ final class AsyncAuditRecorder implements AuditRecorderInterface
         try {
             $this->eventBus->dispatch(new EventEnvelope(
                 eventId:          (string) new UuidV7(),
-                aggregateId:      $event->id,
+                // Partition/aggregate key = the hash chain, NOT the event id: every event for
+                // one chain (platform, or a single tenant) shares a key so the broker routes
+                // them to one partition and the consumer appends them in order. The store's
+                // append lock keeps correctness regardless, but co-partitioning removes
+                // cross-partition reordering and cross-consumer lock contention on hot chains.
+                aggregateId:      $event->chainKey(),
                 aggregateType:    'AuditEvent',
                 aggregateVersion: 0,
                 payloadType:      AuditEventRecorded::class,

@@ -46,6 +46,9 @@ use Vortos\Audit\Retention\ObjectStore\ObjectStoreArchiveWriter;
 use Vortos\Audit\Retention\StoredAuditEventSerializer;
 use Vortos\Audit\Storage\AuditReaderInterface;
 use Vortos\Audit\Storage\Dbal\DbalAuditStore;
+use Vortos\Audit\Storage\Dbal\Lock\ChainLockStrategyInterface;
+use Vortos\Audit\Storage\Dbal\Lock\PgAdvisoryChainLock;
+use Vortos\Audit\Storage\Dbal\Lock\RowChainLock;
 use Vortos\Messaging\Contract\EventBusInterface;
 
 /**
@@ -126,11 +129,25 @@ final class AuditExtension extends Extension
             ? (string) $container->getParameter('vortos.db.framework_table_prefix')
             : 'vortos_';
 
+        // Per-chain append lock: Postgres advisory lock (no extra table, no contention) when
+        // the store runs on Postgres; the portable SELECT ... FOR UPDATE row lock otherwise.
+        // Auto-detected from the write DSN, Postgres-first when the platform is unknown.
+        if ($this->isPostgres($container)) {
+            $container->register(PgAdvisoryChainLock::class, PgAdvisoryChainLock::class)->setPublic(false);
+            $container->setAlias(ChainLockStrategyInterface::class, PgAdvisoryChainLock::class);
+        } else {
+            $container->register(RowChainLock::class, RowChainLock::class)
+                ->setArgument('$headsTable', $prefix . 'audit_chain_heads')
+                ->setPublic(false);
+            $container->setAlias(ChainLockStrategyInterface::class, RowChainLock::class);
+        }
+
         $container->register(DbalAuditStore::class, DbalAuditStore::class)
             ->setArgument('$connection', new Reference(Connection::class))
             ->setArgument('$chain', new Reference(AuditHashChain::class))
             ->setArgument('$hmacKey', $hmacKey)
             ->setArgument('$table', $prefix . 'audit_events')
+            ->setArgument('$lock', new Reference(ChainLockStrategyInterface::class))
             ->setPublic(false);
 
         // The DBAL store becomes the recorder + reader of record.
@@ -351,50 +368,85 @@ final class AuditExtension extends Extension
     }
 
     /**
-     * Loads config/audit.php then config/{env}/audit.php (env overrides base), same
-     * convention as the other framework extensions. Recognised keys: 'strict' (bool),
-     * 'hmac_key' (string). The HMAC key also falls back to the VORTOS_AUDIT_HMAC_KEY env
-     * var so it can be supplied as a secret without a config file.
+     * True when the store runs on Postgres — read from the persistence write DSN. Defaults
+     * to true (Postgres-first) when no DSN parameter is available at compile time, so the
+     * advisory-lock strategy is chosen unless the app is demonstrably on another engine.
+     */
+    private function isPostgres(ContainerBuilder $container): bool
+    {
+        if (!$container->hasParameter('vortos.persistence.write_dsn')) {
+            return true;
+        }
+
+        $dsn = strtolower((string) $container->getParameter('vortos.persistence.write_dsn'));
+
+        return $dsn === ''
+            || str_starts_with($dsn, 'pgsql')
+            || str_starts_with($dsn, 'postgres')
+            || str_contains($dsn, 'postgresql');
+    }
+
+    /**
+     * Builds the effective config from the fluent {@see VortosAuditConfig}.
      *
-     * @return array{strict: bool, hmac_key: string}
+     * Loads config/audit.php then config/{env}/audit.php (env overrides base), each a closure
+     * taking the config object — the same convention as vortos-scheduler/messaging. A legacy
+     * `vortos_audit.strict` container parameter is still honoured (pre-fluent apps), and the
+     * HMAC key is resolved from its referenced env var so the secret stays out of config.
+     *
+     * @return array<string, mixed>
      */
     private function loadConfig(ContainerBuilder $container): array
     {
-        $resolved = [
-            'strict'   => $container->hasParameter('vortos_audit.strict')
-                ? (bool) $container->getParameter('vortos_audit.strict')
-                : true,
-            'hmac_key' => (string) ($_ENV['VORTOS_AUDIT_HMAC_KEY'] ?? getenv('VORTOS_AUDIT_HMAC_KEY') ?: ''),
-            // Async ingestion (P3): opt-in. When true the app MUST declare a 'vortos.audit'
-            // consumer pipeline; otherwise dispatched events have nowhere to land.
-            'async'                  => false,
-            'failure_mode'           => 'block',
-            'idempotency_ttl_seconds'=> 604800,
-            'redis_dsn'              => (string) ($_ENV['VORTOS_AUDIT_REDIS_DSN'] ?? getenv('VORTOS_AUDIT_REDIS_DSN') ?: ''),
-            // Retention + tiering (P4)
-            'retention_platform_days'   => 730,   // 2y default for operator/platform trail
-            'retention_tenant_days'     => 365,   // 1y default per tenant
-            'retention_tenant_overrides'=> [],    // tenantId => days (0 = never purge)
-            'retention_batch_size'      => 1000,
-            'archive_key_prefix'        => 'audit-archive',
-        ];
+        $config = new VortosAuditConfig();
 
-        if (!$container->hasParameter('kernel.project_dir')) {
-            return $resolved;
+        if ($container->hasParameter('vortos_audit.strict')) {
+            $config->strict((bool) $container->getParameter('vortos_audit.strict'));
         }
 
-        $projectDir = (string) $container->getParameter('kernel.project_dir');
-        $env        = $container->hasParameter('kernel.env') ? (string) $container->getParameter('kernel.env') : 'prod';
+        if ($container->hasParameter('kernel.project_dir')) {
+            $projectDir = (string) $container->getParameter('kernel.project_dir');
+            $env        = $container->hasParameter('kernel.env') ? (string) $container->getParameter('kernel.env') : 'prod';
 
-        foreach (["{$projectDir}/config/audit.php", "{$projectDir}/config/{$env}/audit.php"] as $file) {
-            if (is_file($file)) {
-                $loaded = require $file;
-                if (is_array($loaded)) {
-                    $resolved = [...$resolved, ...array_intersect_key($loaded, $resolved)];
+            foreach (["{$projectDir}/config/audit.php", "{$projectDir}/config/{$env}/audit.php"] as $file) {
+                if (is_file($file)) {
+                    $loaded = require $file;
+                    if ($loaded instanceof \Closure) {
+                        $loaded($config);
+                    } elseif (is_array($loaded)) {
+                        // Back-compat: a plain-array config still merges its recognised keys.
+                        $this->applyLegacyArray($config, $loaded);
+                    }
                 }
             }
         }
 
+        $resolved             = $config->toArray();
+        $resolved['hmac_key'] = $config->resolveHmacKey();
+
         return $resolved;
+    }
+
+    /**
+     * Back-compat shim: map the old plain-array config shape onto the fluent object so an
+     * app that hasn't migrated its config/audit.php keeps working.
+     *
+     * @param array<string, mixed> $a
+     */
+    private function applyLegacyArray(VortosAuditConfig $config, array $a): void
+    {
+        if (isset($a['strict']))       { $config->strict((bool) $a['strict']); }
+        if (isset($a['async']))        { $config->async((bool) $a['async']); }
+        if (isset($a['failure_mode'])) { $config->failureMode(FailureMode::tryFrom((string) $a['failure_mode']) ?? FailureMode::Block); }
+        if (isset($a['idempotency_ttl_seconds'])) { $config->idempotencyTtl((int) $a['idempotency_ttl_seconds']); }
+        if (isset($a['redis_dsn']))    { $config->redisDsn((string) $a['redis_dsn']); }
+        if (isset($a['retention_platform_days'], $a['retention_tenant_days'])) {
+            $config->retention((int) $a['retention_platform_days'], (int) $a['retention_tenant_days']);
+        }
+        foreach ((array) ($a['retention_tenant_overrides'] ?? []) as $tenantId => $days) {
+            $config->retentionOverride((string) $tenantId, (int) $days);
+        }
+        if (isset($a['retention_batch_size'])) { $config->retentionBatchSize((int) $a['retention_batch_size']); }
+        if (isset($a['archive_key_prefix']))   { $config->coldArchive((string) ($a['archive_bucket'] ?? ''), (string) $a['archive_key_prefix']); }
     }
 }

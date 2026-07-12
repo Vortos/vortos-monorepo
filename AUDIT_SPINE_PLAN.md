@@ -1,5 +1,58 @@
 # Enterprise Audit Spine — Master Plan
 
+## PLAN V2 — FINAL ARCHITECTURE (decided 2026-07-12, no backward compat)
+Target: ONE store; EVERY event (auth+org+platform+payments+…) flows ASYNC via Kafka
+(keyed by chain_key) into audit_events, per-(scope,tenant) hash chains, one rich query API,
+one console per audience. Locked decisions:
+- ASYNC for ALL audit (enable AsyncAuditRecorder + run vortos.audit consumer worker; Kafka
+  key = chain_key for per-chain partition ordering).
+- AUTH FULLY UNIFIED: PostgresAuditStore forwards into AuditTrail; auth events Scope::Tenant
+  when org known else Scope::Platform. Drop vortos.audit_log.
+- ADMIN HTTP API in FRAMEWORK (new vortos-audit-admin): provides BOTH platform (.any, scope/
+  tenantId params) AND org-own (.own, via TenantContext) read/verify/export endpoints — app
+  deletes its hand-written controllers, keeps only vocabulary + record() calls + perms→roles
+  mapping + optional bespoke /me route. BOUNDARY RULE: expressible in framework primitives
+  (scope, TenantContext tenantId, actorId, targetId, filters, permission) => framework; encodes
+  app identity semantics => app (thin, calls AuditAdminService).
+- SEARCH = pluggable port AuditSearchIndexInterface; default = Postgres FTS (tsvector/GIN) +
+  btree facets in framework; apps can swap OpenSearch/etc. Add action-PREFIX filter + facet counts
+  + saved-views store.
+- CONFIG = fluent builder VortosAuditConfig (config/audit.php returns a closure taking it), matching
+  Scheduler/Messaging convention — NOT the current plain array. Every knob a typed method
+  (->async/->consumer/->failureMode/->hmacKeyFromSecret/->strict/->retention/->coldArchive/->search/
+  ->rowLevelSecurity/->authEvents/…); secrets by name (stay in sealed env). Fold into F1.
+- DB-AGNOSTIC by CONTRACT, Postgres-first DEFAULT: domain+integrity+query+search are pure interfaces
+  (swap store impl freely). Make per-chain append lock a STRATEGY — portable DBAL default (SELECT FOR
+  UPDATE on a per-chain head row, any transactional DB) + pg_advisory_xact_lock as a PG optimization.
+  FTS behind the search port; RLS behind a ->rowLevelSecurity() toggle that no-ops off-PG. Another DB =
+  drop-in AuditStore impl, not a rewrite. (Fold portable-lock strategy into F1.)
+- MIGRATION all-or-nothing bug: being fixed in another session — treat as SOLVED; ship FTS/GIN indexes
+  as normal migrations (no manual out-of-band index creation).
+- TENANT ISOLATION: query-layer scoping + Postgres RLS on audit_events (defense-in-depth).
+- Retention+cold-archive on scheduler; legacy org_audit_log/platform_audit_log/vortos.audit_log
+  Contract-dropped.
+## V2 PROGRESS
+- F1 DONE (local, green — publishing as alpha-224): fluent `VortosAuditConfig` (closure-loaded
+  config/audit.php, HMAC by env-name only) + `AuditExtension::loadConfig` closure loader + legacy-array
+  shim; `AuditSearchDriver` enum; Kafka partition key = `chain_key` (AsyncAuditRecorder envelope
+  aggregateId=chainKey; KafkaProducer honours aggregate_id as the producev message key);
+  `ChainLockStrategyInterface` + `PgAdvisoryChainLock` + portable `RowChainLock` (SELECT..FOR UPDATE on
+  `audit_chain_heads`) with DI auto-selecting from the write DSN; new `vortos/vortos-audit-admin` module
+  (Vortos\AuditAdmin) shipping the 5 JSON controllers over AuditAdminService + AuditRecordPresenter,
+  registered via `vortos.api.controller`; split.yml + root autoload + phpunit suite added; GitHub split
+  repo Vortos/vortos-audit-admin created (Packagist reg = user's step). 52 Audit+AuditAdmin tests green.
+
+V2 PHASES: F1 fw(Kafka-key chain_key, async default, vortos-audit-admin module) -> F2 fw(rich
+query: prefix+FTS port+facets+saved-views, RLS helpers) -> A1 backend(enable async: declare
+vortos.audit consumer+worker, auth->spine, HMAC secret) -> A2 backend(vocabulary: payment.*/
+registration.*/auth.* + record() calls) -> A3 backend(adopt fw admin API, delete app controllers,
+enable RLS+retention, Contract-drop 3 legacy tables) -> U1 front/U2 admin(faceted filters+search+
+saved-views+export+impersonation lens) -> H hardening(security-review, async load test, verify E2E).
+Also fix FRAMEWORK_BUGS migrate all-or-nothing before A-phases (blocks index migrations).
+
+---
+
+
 Goal: replace the three parallel hand-rolled audit systems (auth `vortos.audit_log`,
 app `platform_audit_log`, app `org_audit_log`) with ONE framework-provided audit spine
 (`vortos/vortos-audit` + `vortos/vortos-audit-admin`) so every future Vortos app gets
@@ -44,6 +97,14 @@ Log framework bugs to FRAMEWORK_BUGS.md. No AI attribution in commits.
   12/12 unit tests green. Bug fixed: occurred_at serialized microsecond (Y-m-d\TH:i:s.uP), not ms.
 
 ## PUBLISHED
+- alpha-211..218 = P1..P7 (framework spine COMPLETE, 37 tests green). alpha-213 was a concurrent
+  feature-flags fix (not ours). P3=214, P4=215, P5=216, P6=217, P7=218.
+- P8 pt1 (squaura-backend, branch feat/audit-spine-adoption): composer require vortos/vortos-audit
+  (locked alpha-217; `composer update` in-container to reach 218), backed-enum AuditAction vocabulary
+  (23 cases, replaces OrgAuditAction consts) + AppAuditActionProvider + config/audit.php. Verified
+  vs installed pkg. REMAINING P8 pt2: wire AuditTrail into ~34 mutating handlers, run module
+  migrations (vortos:migrate:publish+migrate), seed audit perms, then DANGEROUS cutover
+  (dual-write->backfill->verify->retire 3 legacy tables+loggers) = needs maintenance window + user go.
 - alpha-212 (P2) storage+integrity: AuditHashChain (content-hash + HMAC signature, canonical
   JSON), StoredAuditEvent, AuditChainVerifier + ChainVerificationResult, AuditReaderInterface,
   DbalAuditStore (per-chain advisory lock, append-only, is a synchronous AuditRecorderInterface),

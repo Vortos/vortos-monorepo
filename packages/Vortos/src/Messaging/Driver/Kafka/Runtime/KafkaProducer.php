@@ -70,7 +70,12 @@ final class KafkaProducer implements ProducerInterface
 
             $this->tracer?->injectHeaders($headers);
 
-            $topic->producev(RD_KAFKA_PARTITION_UA, 0, $serialized, null, $headers);
+            // Partition key = aggregate_id: co-partitions all events for one aggregate so the
+            // broker preserves per-aggregate order (and lets keyed compaction work). Empty
+            // aggregate_id → null key → round-robin, unchanged from before.
+            $partitionKey = ($headers['aggregate_id'] ?? '') !== '' ? (string) $headers['aggregate_id'] : null;
+
+            $topic->producev(RD_KAFKA_PARTITION_UA, 0, $serialized, $partitionKey, $headers);
         } catch (\RdKafka\Exception | Throwable $e) {
             throw ProducerException::forTransport($transportName, $payloadClass, $e);
         }

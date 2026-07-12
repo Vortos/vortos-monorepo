@@ -10,6 +10,8 @@ use Vortos\Audit\Event\AuditEvent;
 use Vortos\Audit\Integrity\AuditHashChain;
 use Vortos\Audit\Retention\AuditRetentionSourceInterface;
 use Vortos\Audit\Storage\AuditReaderInterface;
+use Vortos\Audit\Storage\Dbal\Lock\ChainLockStrategyInterface;
+use Vortos\Audit\Storage\Dbal\Lock\PgAdvisoryChainLock;
 use Vortos\Audit\Storage\Dbal\StoredAuditEventRowMapper;
 use Vortos\Audit\Storage\StoredAuditEvent;
 
@@ -26,21 +28,28 @@ use Vortos\Audit\Storage\StoredAuditEvent;
  */
 final class DbalAuditStore implements AuditRecorderInterface, AuditReaderInterface, AuditRetentionSourceInterface
 {
+    private readonly ChainLockStrategyInterface $lock;
+
     public function __construct(
         private readonly Connection      $connection,
         private readonly AuditHashChain  $chain,
         private readonly string          $hmacKey,
         private readonly string          $table = 'vortos_audit_events',
-    ) {}
+        ?ChainLockStrategyInterface      $lock = null,
+    ) {
+        // Postgres advisory lock by default (the store's Postgres-first posture); the DI
+        // layer swaps in the portable RowChainLock for non-Postgres connections.
+        $this->lock = $lock ?? new PgAdvisoryChainLock();
+    }
 
     public function record(AuditEvent $event): void
     {
         $chainKey = $event->chainKey();
 
         $this->connection->transactional(function (Connection $conn) use ($event, $chainKey): void {
-            // Per-chain advisory lock: serialise appends to THIS chain only. Different
+            // Per-chain append lock: serialise appends to THIS chain only. Different
             // chains (tenants) hash independently and never contend.
-            $conn->executeStatement('SELECT pg_advisory_xact_lock(:k)', ['k' => $this->lockKey($chainKey)]);
+            $this->lock->acquire($conn, $chainKey);
 
             $tail = $this->chainTail($chainKey);
             $sequence = ($tail['sequence'] ?? 0) + 1;
@@ -128,12 +137,5 @@ final class DbalAuditStore implements AuditRecorderInterface, AuditReaderInterfa
     private function fromRow(array $row): StoredAuditEvent
     {
         return StoredAuditEventRowMapper::toStored($row);
-    }
-
-    /** Deterministic 63-bit advisory-lock key from the chain key. */
-    private function lockKey(string $chainKey): int
-    {
-        // crc32 is unsigned 32-bit; namespace it into a stable signed-bigint range.
-        return 0x41554449 << 20 | crc32($chainKey) % 0xFFFFF; // 'AUDI' namespace | bucket
     }
 }

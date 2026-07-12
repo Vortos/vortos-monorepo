@@ -202,6 +202,7 @@ final class MigrateDownVerifyCommand extends Command
                 upSql: $artifact->downSql,
                 phase: $artifact->phase,
                 hasAllowFullTableRewrite: $artifact->hasAllowFullTableRewrite,
+                hasAllowNonIdempotentConcurrent: $artifact->hasAllowNonIdempotentConcurrent,
             );
 
             $result = $this->analyzer->analyze($downArtifact, null);

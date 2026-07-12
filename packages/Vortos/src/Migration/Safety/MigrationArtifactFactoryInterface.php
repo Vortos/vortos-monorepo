@@ -20,5 +20,6 @@ interface MigrationArtifactFactoryInterface
         array $downSql = [],
         ?MigrationPhase $phase = null,
         bool $hasAllowFullTableRewrite = false,
+        bool $hasAllowNonIdempotentConcurrent = false,
     ): MigrationArtifact;
 }

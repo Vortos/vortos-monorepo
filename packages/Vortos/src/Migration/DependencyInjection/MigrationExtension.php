@@ -27,6 +27,7 @@ use Vortos\Migration\Driver\PgNative\Rule\ConcurrentInTransactionRule;
 use Vortos\Migration\Driver\PgNative\Rule\FullTableRewriteRule;
 use Vortos\Migration\Driver\PgNative\Rule\LockTimeoutMissingRule;
 use Vortos\Migration\Driver\PgNative\Rule\NonConcurrentIndexRule;
+use Vortos\Migration\Driver\PgNative\Rule\NonIdempotentConcurrentRule;
 use Vortos\Migration\Driver\PgNative\Rule\NotNullNoDefaultRule;
 use Vortos\Migration\Driver\PgNative\Rule\PhaseMismatchRule;
 use Vortos\Migration\Driver\PgNative\Rule\PhaseUndeclaredRule;
@@ -53,6 +54,7 @@ use Vortos\Migration\Service\MigrationLockSafetyEnforcer;
 use Vortos\Migration\Service\MigrationPhaseHeuristic;
 use Vortos\Migration\Service\MigrationPlanAnalyzer;
 use Vortos\Migration\Service\MigrationPreflight;
+use Vortos\Migration\Service\TransactionAwareMigrationRunner;
 use Vortos\Migration\Service\ModuleFlagGateMetadataReader;
 use Vortos\Migration\Service\ModuleMigrationPhaseReader;
 use Vortos\Migration\Schema\FlagGateMetadataReaderInterface;
@@ -117,6 +119,25 @@ final class MigrationExtension extends Extension
     {
         $projectDir = $container->getParameter('kernel.project_dir');
         $env        = $container->getParameter('kernel.env');
+
+        // Fluent configuration (config/migration.php → config/{env}/migration.php).
+        // Becomes the single source of truth for the settings below; the env-var defaults
+        // baked into VortosMigrationConfig preserve prior behavior when no file is present.
+        $migrationConfig = $this->loadConfig($projectDir, $env);
+        $safetyConfig    = $migrationConfig->getSafety();
+        $allOrNothing    = $migrationConfig->getAllOrNothing();
+
+        $container->setParameter('vortos.migration.all_or_nothing', $allOrNothing);
+        $container->setParameter('vortos.migration.lock_timeout_ms', $migrationConfig->getLockTimeoutMs());
+        $container->setParameter('vortos.migration.statement_timeout_ms', $migrationConfig->getStatementTimeoutMs());
+        $container->setParameter('vortos.migration.safety.hot_table.row_threshold', $safetyConfig->getHotTableRowThreshold());
+        $container->setParameter('vortos.migration.safety.hot_table.bytes_threshold', $safetyConfig->getHotTableBytesThreshold());
+
+        // Transactionality-aware runner shared by migrate / migrate:fresh / migrate:rollback.
+        // Driver-agnostic: keys off Doctrine's per-migration isTransactional() flag only.
+        $container->register(TransactionAwareMigrationRunner::class, TransactionAwareMigrationRunner::class)
+            ->setShared(true)
+            ->setPublic(false);
 
         $container->register(DependencyFactoryProvider::class, DependencyFactoryProvider::class)
             ->setArgument('$connection', new Reference(Connection::class))
@@ -233,6 +254,8 @@ final class MigrationExtension extends Extension
             ->setArgument('$lock', new Reference(MigrationLock::class))
             ->setArgument('$connection', new Reference(Connection::class))
             ->setArgument('$frameworkTablePrefix', $frameworkTablePrefix)
+            ->setArgument('$runner', new Reference(TransactionAwareMigrationRunner::class))
+            ->setArgument('$allOrNothing', $allOrNothing)
             ->setPublic(true)
             ->addTag('console.command');
 
@@ -257,6 +280,8 @@ final class MigrationExtension extends Extension
 
         $container->register(MigrateRollbackCommand::class, MigrateRollbackCommand::class)
             ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
+            ->setArgument('$runner', new Reference(TransactionAwareMigrationRunner::class))
+            ->setArgument('$allOrNothing', $allOrNothing)
             ->setPublic(true)
             ->addTag('console.command');
 
@@ -273,6 +298,8 @@ final class MigrationExtension extends Extension
             ->setArgument('$connection', new Reference(Connection::class))
             ->setArgument('$env', $env)
             ->setArgument('$frameworkTablePrefix', $frameworkTablePrefix)
+            ->setArgument('$runner', new Reference(TransactionAwareMigrationRunner::class))
+            ->setArgument('$allOrNothing', $allOrNothing)
             ->setPublic(true)
             ->addTag('console.command');
 
@@ -349,11 +376,13 @@ final class MigrationExtension extends Extension
             : 67_108_864;
 
         $ruleSetDef = $container->register(SafetyRuleSet::class, SafetyRuleSet::class)
+            ->setArgument('$severityOverrides', $safetyConfig->getSeverityOverrides())
             ->setShared(true)
             ->setPublic(false);
 
         $ruleClasses = [
             NonConcurrentIndexRule::class => [],
+            NonIdempotentConcurrentRule::class => [],
             ConcurrentInTransactionRule::class => [],
             VolatileDefaultRule::class => ['$rowThreshold' => $hotTableRowThreshold, '$bytesThreshold' => $hotTableBytesThreshold],
             NotNullNoDefaultRule::class => [],
@@ -371,6 +400,9 @@ final class MigrationExtension extends Extension
             }
             $ruleSetDef->addMethodCall('add', [new Reference($ruleClass)]);
         }
+
+        // Fail fast on a severity override that names an unknown rule id (runs after every add()).
+        $ruleSetDef->addMethodCall('validateOverrides');
 
         $container->register(PgNativeSafetyAnalyzer::class, PgNativeSafetyAnalyzer::class)
             ->setArgument('$ruleSet', new Reference(SafetyRuleSet::class))
@@ -431,5 +463,26 @@ final class MigrationExtension extends Extension
 
         $container->registerForAutoconfiguration(MigrationSafetyAnalyzerInterface::class)
             ->addTag('vortos.migration.safety_analyzer');
+    }
+
+    /**
+     * Loads config/migration.php then config/{env}/migration.php (env overrides base),
+     * mirroring how every other vortos module resolves its fluent config.
+     */
+    private function loadConfig(string $projectDir, string $env): VortosMigrationConfig
+    {
+        $config = new VortosMigrationConfig();
+
+        $base = $projectDir . '/config/migration.php';
+        if (is_file($base)) {
+            (require $base)($config);
+        }
+
+        $envFile = $projectDir . '/config/' . $env . '/migration.php';
+        if (is_file($envFile)) {
+            (require $envFile)($config);
+        }
+
+        return $config;
     }
 }

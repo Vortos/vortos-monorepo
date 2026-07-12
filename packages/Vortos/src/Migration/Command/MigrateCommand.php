@@ -6,7 +6,6 @@ namespace Vortos\Migration\Command;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
-use Doctrine\Migrations\MigratorConfiguration;
 use Doctrine\Migrations\Version\Direction;
 use Doctrine\Migrations\Version\ExecutionResult;
 use Doctrine\Migrations\Version\Version;
@@ -21,6 +20,7 @@ use Vortos\Migration\Schema\MigrationPlanItemAnalysis;
 use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 use Vortos\Migration\Service\MigrationLock;
 use Vortos\Migration\Service\MigrationPlanAnalyzer;
+use Vortos\Migration\Service\TransactionAwareMigrationRunner;
 
 /**
  * Runs all pending database migrations with smart conflict detection.
@@ -50,6 +50,8 @@ final class MigrateCommand extends Command
         private readonly ?MigrationLock $lock = null,
         private readonly ?Connection $connection = null,
         private readonly string $frameworkTablePrefix = 'vortos_',
+        private readonly TransactionAwareMigrationRunner $runner = new TransactionAwareMigrationRunner(),
+        private readonly bool $allOrNothing = true,
     ) {
         parent::__construct();
     }
@@ -210,10 +212,7 @@ final class MigrateCommand extends Command
 
             $filteredPlan = new \Doctrine\Migrations\Metadata\MigrationPlanList($remainingItems, Direction::UP);
 
-            $factory->getMigrator()->migrate(
-                $filteredPlan,
-                (new MigratorConfiguration())->setAllOrNothing(true),
-            );
+            $this->runner->run($factory->getMigrator(), $filteredPlan, $this->allOrNothing);
 
             $output->writeln(sprintf(
                 '<info>✔ %d migration(s) executed successfully.</info>',

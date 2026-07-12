@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Migration\Safety;
 
 use Vortos\Migration\Attribute\AllowFullTableRewrite;
+use Vortos\Migration\Attribute\AllowNonIdempotentConcurrent;
 use Vortos\Migration\Attribute\DeployPhase;
 use Vortos\Migration\Schema\MigrationPhase;
 use Vortos\Migration\Service\MigrationSqlExtractorInterface;
@@ -21,6 +22,7 @@ final class MigrationArtifactFactory implements MigrationArtifactFactoryInterfac
         $downSql = $this->extractDownSql($className);
         $phase = $this->resolvePhase($className);
         $hasOptOut = $this->hasAllowFullTableRewrite($className);
+        $hasConcurrentOptOut = $this->hasClassAttribute($className, AllowNonIdempotentConcurrent::class);
 
         return new MigrationArtifact(
             version: $className,
@@ -29,6 +31,7 @@ final class MigrationArtifactFactory implements MigrationArtifactFactoryInterfac
             upSql: $upSql,
             downSql: $downSql,
             hasAllowFullTableRewrite: $hasOptOut,
+            hasAllowNonIdempotentConcurrent: $hasConcurrentOptOut,
         );
     }
 
@@ -42,6 +45,7 @@ final class MigrationArtifactFactory implements MigrationArtifactFactoryInterfac
         array $downSql = [],
         ?MigrationPhase $phase = null,
         bool $hasAllowFullTableRewrite = false,
+        bool $hasAllowNonIdempotentConcurrent = false,
     ): MigrationArtifact {
         return new MigrationArtifact(
             version: $version,
@@ -50,6 +54,7 @@ final class MigrationArtifactFactory implements MigrationArtifactFactoryInterfac
             upSql: $upSql,
             downSql: $downSql,
             hasAllowFullTableRewrite: $hasAllowFullTableRewrite,
+            hasAllowNonIdempotentConcurrent: $hasAllowNonIdempotentConcurrent,
         );
     }
 
@@ -79,6 +84,12 @@ final class MigrationArtifactFactory implements MigrationArtifactFactoryInterfac
 
     private function hasAllowFullTableRewrite(string $className): bool
     {
+        return $this->hasClassAttribute($className, AllowFullTableRewrite::class);
+    }
+
+    /** @param class-string $attribute */
+    private function hasClassAttribute(string $className, string $attribute): bool
+    {
         if (!class_exists($className)) {
             return false;
         }
@@ -89,7 +100,7 @@ final class MigrationArtifactFactory implements MigrationArtifactFactoryInterfac
             return false;
         }
 
-        return $reflection->getAttributes(AllowFullTableRewrite::class) !== [];
+        return $reflection->getAttributes($attribute) !== [];
     }
 
     /** @return list<string> */

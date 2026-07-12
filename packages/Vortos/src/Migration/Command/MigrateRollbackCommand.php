@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vortos\Migration\Command;
 
-use Doctrine\Migrations\MigratorConfiguration;
 use Doctrine\Migrations\Version\Version;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -14,6 +13,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Vortos\Migration\Service\DependencyFactoryProviderInterface;
+use Vortos\Migration\Service\TransactionAwareMigrationRunner;
 
 /**
  * Rolls back the last N executed migrations.
@@ -39,8 +39,11 @@ use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 )]
 final class MigrateRollbackCommand extends Command
 {
-    public function __construct(private readonly DependencyFactoryProviderInterface $factoryProvider)
-    {
+    public function __construct(
+        private readonly DependencyFactoryProviderInterface $factoryProvider,
+        private readonly TransactionAwareMigrationRunner $runner = new TransactionAwareMigrationRunner(),
+        private readonly bool $allOrNothing = true,
+    ) {
         parent::__construct();
     }
 
@@ -94,10 +97,7 @@ final class MigrateRollbackCommand extends Command
             }
         }
 
-        $factory->getMigrator()->migrate(
-            $plan,
-            (new MigratorConfiguration())->setAllOrNothing(true),
-        );
+        $this->runner->run($factory->getMigrator(), $plan, $this->allOrNothing);
 
         $output->writeln(sprintf('<info>✔ Rolled back %d migration(s).</info>', count($plan)));
 

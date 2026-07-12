@@ -6,7 +6,6 @@ namespace Vortos\Migration\Command;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
-use Doctrine\Migrations\MigratorConfiguration;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
@@ -15,6 +14,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Vortos\Migration\Service\DependencyFactoryProviderInterface;
+use Vortos\Migration\Service\TransactionAwareMigrationRunner;
 
 /**
  * Drops all database tables and re-runs all migrations from scratch.
@@ -51,6 +51,8 @@ final class MigrateFreshCommand extends Command
         private readonly Connection $connection,
         private readonly string $env,
         private readonly string $frameworkTablePrefix = 'vortos_',
+        private readonly TransactionAwareMigrationRunner $runner = new TransactionAwareMigrationRunner(),
+        private readonly bool $allOrNothing = true,
     ) {
         parent::__construct();
     }
@@ -104,10 +106,7 @@ final class MigrateFreshCommand extends Command
 
         $output->writeln(sprintf('<info>Running %d migration(s)...</info>', count($plan)));
 
-        $factory->getMigrator()->migrate(
-            $plan,
-            (new MigratorConfiguration())->setAllOrNothing(true),
-        );
+        $this->runner->run($factory->getMigrator(), $plan, $this->allOrNothing);
 
         $output->writeln(sprintf(
             '<info>✔ Fresh migration complete: %d migration(s) applied.</info>',

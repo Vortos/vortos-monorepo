@@ -28,6 +28,7 @@ use Vortos\Audit\Console\AuditDoctorCommand;
 use Vortos\Audit\Console\AuditPgInstallCommand;
 use Vortos\Audit\Console\AuditRetentionCommand;
 use Vortos\Audit\Enum\AuditSearchDriver;
+use Vortos\Audit\Http\AuditTenantRlsMiddleware;
 use Vortos\Audit\SavedView\AuditSavedViewStoreInterface;
 use Vortos\Audit\SavedView\Dbal\DbalAuditSavedViewStore;
 use Vortos\Audit\Search\AuditSearchIndexInterface;
@@ -209,6 +210,19 @@ final class AuditExtension extends Extension
             $container->register(AuditTenantGuc::class, AuditTenantGuc::class)
                 ->setArgument('$connection', new Reference(Connection::class))
                 ->setPublic(true);
+
+            // RLS enforcement: a request middleware sets app.current_tenant per request so the
+            // tenant-isolation policy actually confines org sessions. Only when RLS is enabled
+            // AND vortos-http + vortos-tenant are present (the class's use-imports need them).
+            if (($config['row_level_security'] ?? false) === true
+                && interface_exists('Vortos\Http\Contract\MiddlewareInterface')
+                && class_exists('Vortos\Tenant\TenantContext')) {
+                $container->register(AuditTenantRlsMiddleware::class, AuditTenantRlsMiddleware::class)
+                    ->setArgument('$guc', new Reference(AuditTenantGuc::class))
+                    ->setArgument('$tenantContext', new Reference('Vortos\Tenant\TenantContext'))
+                    ->addTag('vortos.http_middleware')
+                    ->setPublic(false);
+            }
         }
 
         // The install command exists whenever DBAL is present; it refuses to run off Postgres.

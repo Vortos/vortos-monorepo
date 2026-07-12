@@ -89,6 +89,36 @@ final class NonConcurrentIndexRuleTest extends TestCase
     }
 
     /** @param list<string> $sql */
+    public function test_exempts_index_on_table_created_in_same_migration(): void
+    {
+        // A new table + its secondary index in one migration: the table is empty, so the plain
+        // CREATE INDEX takes an instantaneous lock — exempt (lets migrate:publish output pass).
+        $up = [
+            'CREATE TABLE IF NOT EXISTS vortos.audit_saved_views (id VARCHAR(36) NOT NULL, tenant_id VARCHAR(255), PRIMARY KEY (id))',
+            'CREATE INDEX idx_audit_saved_views_owner ON vortos.audit_saved_views (tenant_id)',
+        ];
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact($up),
+            null,
+            new ParsedStatement($up[1], 1),
+        ));
+
+        $this->assertCount(0, $diags);
+    }
+
+    public function test_still_flags_index_on_a_pre_existing_table(): void
+    {
+        // Only the index is in this migration — the table already exists, so CONCURRENTLY is required.
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact(['CREATE INDEX idx_users_email ON users (email)']),
+            null,
+            new ParsedStatement('CREATE INDEX idx_users_email ON users (email)', 0),
+        ));
+
+        $this->assertCount(1, $diags);
+    }
+
     private function artifact(array $sql): MigrationArtifact
     {
         return new MigrationArtifact('TestMigration', null, MigrationPhase::Expand, $sql, [], false);

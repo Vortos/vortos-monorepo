@@ -59,6 +59,7 @@ use Vortos\Audit\Storage\Dbal\Lock\ChainLockStrategyInterface;
 use Vortos\Audit\Storage\Dbal\Lock\PgAdvisoryChainLock;
 use Vortos\Audit\Storage\Dbal\Lock\RowChainLock;
 use Vortos\Messaging\Contract\EventBusInterface;
+use Vortos\Messaging\Contract\StandaloneEventBusInterface;
 
 /**
  * Wires the audit domain core (P1).
@@ -274,8 +275,11 @@ final class AuditExtension extends Extension
             ->addTag('vortos.event_handler')
             ->setPublic(false);
 
+        // Standalone bus: audit is recorded outside business transactions (auth middleware,
+        // read paths), where the transactional outbox write would fail. StandaloneEventBus
+        // opens its own transaction when none is active, and joins one when present.
         $container->register(AsyncAuditRecorder::class, AsyncAuditRecorder::class)
-            ->setArgument('$eventBus', new Reference(EventBusInterface::class))
+            ->setArgument('$eventBus', new Reference(StandaloneEventBusInterface::class))
             ->setArgument('$failureMode', FailureMode::tryFrom($config['failure_mode']) ?? FailureMode::Block)
             ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);

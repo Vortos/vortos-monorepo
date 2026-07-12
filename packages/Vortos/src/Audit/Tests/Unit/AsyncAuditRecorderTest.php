@@ -12,7 +12,7 @@ use Vortos\Audit\Event\AuditEvent;
 use Vortos\Audit\Ingestion\AsyncAuditRecorder;
 use Vortos\Audit\Ingestion\AuditEventRecorded;
 use Vortos\Domain\Event\EventEnvelope;
-use Vortos\Messaging\Contract\EventBusInterface;
+use Vortos\Messaging\Contract\StandaloneEventBusInterface;
 
 final class AsyncAuditRecorderTest extends TestCase
 {
@@ -23,7 +23,7 @@ final class AsyncAuditRecorderTest extends TestCase
 
     public function test_dispatches_audit_event_recorded_envelope(): void
     {
-        $bus = new class implements EventBusInterface {
+        $bus = new class implements StandaloneEventBusInterface {
             public ?EventEnvelope $last = null;
             public function dispatch(EventEnvelope $envelope): void { $this->last = $envelope; }
             public function dispatchBatch(EventEnvelope ...$envelopes): void { $this->last = $envelopes[array_key_last($envelopes)] ?? null; }
@@ -38,7 +38,7 @@ final class AsyncAuditRecorderTest extends TestCase
 
     public function test_envelope_is_keyed_by_chain_for_partition_ordering(): void
     {
-        $bus = new class implements EventBusInterface {
+        $bus = new class implements StandaloneEventBusInterface {
             public ?EventEnvelope $last = null;
             public function dispatch(EventEnvelope $envelope): void { $this->last = $envelope; }
             public function dispatchBatch(EventEnvelope ...$envelopes): void { $this->last = $envelopes[array_key_last($envelopes)] ?? null; }
@@ -70,9 +70,9 @@ final class AsyncAuditRecorderTest extends TestCase
         $this->addToAssertionCount(1); // no exception == pass
     }
 
-    private function throwingBus(): EventBusInterface
+    private function throwingBus(): StandaloneEventBusInterface
     {
-        return new class implements EventBusInterface {
+        return new class implements StandaloneEventBusInterface {
             public function dispatch(EventEnvelope $envelope): void { throw new \RuntimeException('broker down'); }
             public function dispatchBatch(EventEnvelope ...$envelopes): void { throw new \RuntimeException('broker down'); }
         };

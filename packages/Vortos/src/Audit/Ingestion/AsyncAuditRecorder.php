@@ -12,7 +12,7 @@ use Vortos\Audit\Enum\FailureMode;
 use Vortos\Audit\Event\AuditEvent;
 use Vortos\Domain\Event\EventEnvelope;
 use Vortos\Domain\Event\Metadata;
-use Vortos\Messaging\Contract\EventBusInterface;
+use Vortos\Messaging\Contract\StandaloneEventBusInterface;
 
 /**
  * Decouples the request path from the chain append: instead of writing synchronously,
@@ -20,13 +20,20 @@ use Vortos\Messaging\Contract\EventBusInterface;
  * where the ingestion consumer appends it under the per-chain lock. The request never
  * blocks on audit storage.
  *
+ * Uses the STANDALONE event bus, not the transactional one: audit events are recorded from
+ * places that are NOT inside a business DB transaction — auth/security middleware after-hooks,
+ * read paths, background jobs — and the transactional outbox write would fail there ("requires
+ * an active database transaction"). The standalone bus opens its own transaction when none is
+ * active (and joins an existing one when there is), so the outbox write always succeeds while
+ * still riding a real business transaction when the audit call happens inside one.
+ *
  * On a dispatch failure the configured {@see FailureMode} decides between blocking the
  * caller (compliance-critical) and dropping with a log line (availability-first).
  */
 final class AsyncAuditRecorder implements AuditRecorderInterface
 {
     public function __construct(
-        private readonly EventBusInterface $eventBus,
+        private readonly StandaloneEventBusInterface $eventBus,
         private readonly FailureMode       $failureMode = FailureMode::Block,
         private readonly LoggerInterface   $logger = new NullLogger(),
     ) {}

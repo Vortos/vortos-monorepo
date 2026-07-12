@@ -20,4 +20,12 @@ interface SessionStoreInterface
     public function removeSession(string $userId, string $jti): void;
     public function getSessionCount(string $userId): int;
     public function clearAll(string $userId): void;
+
+    /**
+     * List a user's active session JTIs with their issued-at timestamps, newest first is
+     * left to the caller — the map is unordered. Backs session/device-management UIs.
+     *
+     * @return array<string, int> jti => issuedAt (unix seconds)
+     */
+    public function listSessions(string $userId): array;
 }

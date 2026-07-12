@@ -66,4 +66,22 @@ final class RedisSessionStoreTest extends TestCase
         $this->redis->expects($this->once())->method('del')->with('vortos_auth:sessions:user-1');
         $this->store->clearAll('user-1');
     }
+
+    public function test_list_sessions_returns_jti_to_issued_at_map(): void
+    {
+        $this->redis->expects($this->once())->method('zRange')
+            ->with('vortos_auth:sessions:user-1', 0, -1, ['withscores' => true])
+            ->willReturn(['jti-a' => 1783744163.0, 'jti-b' => 1783745280.0]);
+
+        $this->assertSame(
+            ['jti-a' => 1783744163, 'jti-b' => 1783745280],
+            $this->store->listSessions('user-1'),
+        );
+    }
+
+    public function test_list_sessions_returns_empty_array_when_no_sessions(): void
+    {
+        $this->redis->method('zRange')->willReturn([]);
+        $this->assertSame([], $this->store->listSessions('user-1'));
+    }
 }

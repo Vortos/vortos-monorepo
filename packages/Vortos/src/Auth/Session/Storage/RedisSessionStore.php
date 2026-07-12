@@ -112,4 +112,20 @@ LUA;
     {
         $this->redis->del("vortos_auth:sessions:{$userId}");
     }
+
+    /**
+     * @return array<string, int> jti => issuedAt (the ZSET score)
+     */
+    public function listSessions(string $userId): array
+    {
+        /** @var array<string, mixed> $raw */
+        $raw = $this->redis->zRange("vortos_auth:sessions:{$userId}", 0, -1, ['withscores' => true]);
+
+        $sessions = [];
+        foreach ($raw as $jti => $score) {
+            $sessions[(string) $jti] = (int) $score;
+        }
+
+        return $sessions;
+    }
 }

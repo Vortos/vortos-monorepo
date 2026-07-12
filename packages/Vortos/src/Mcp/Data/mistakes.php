@@ -153,4 +153,14 @@ return [
         'right'  => 'Run `vortos:backup:pitr:recipe` — it emits a pure `cp` archive_command (to a shared volume) plus a wal-shipper worker in the app image that ships segments off-host. The DB image needs no PHP.',
         'why'    => 'archive_command executes inside the Postgres container; a stock postgres:alpine image has no Vortos CLI. The recipe decouples "archive to volume" (DB) from "ship off-host" (app worker).',
     ],
+    [
+        'wrong'  => 'Dispatching onto the bus (EventBusInterface) from outside a business transaction — e.g. an audit/telemetry recorder, an HTTP middleware after-hook, a read path, a scheduled/CLI job',
+        'right'  => 'Inject StandaloneEventBusInterface (it opens its own DB transaction when none is active, and joins an existing one when there is). Same for object-store writes on a CLI/maintenance path: use ImmediateObjectStoreInterface, not the transactional ObjectStoreInterface.',
+        'why'    => 'The transactional outbox write requires an active DB transaction ("Messaging transactional outbox write requires an active database transaction"). Outside a CommandBus tx the dispatch throws — and if the caller swallows it (fail-open), every event is silently dropped. vortos-audit\'s AsyncAuditRecorder hit exactly this.',
+    ],
+    [
+        'wrong'  => 'Enabling audit_events RLS + the per-request app.current_tenant GUC, then serving an endpoint that returns the caller\'s OWN cross-scope rows (e.g. their platform-scoped auth events) without relaxing the GUC',
+        'right'  => 'Clear the tenant GUC (SELECT set_config(\'app.current_tenant\', \'\', false)) for that specific own-data query; the actor-id / owner filter already confines results to the caller, so there is no cross-tenant leak.',
+        'why'    => 'The "restrict only when the GUC is set" policy makes tenant_id = current_setting(...); platform rows have tenant_id IS NULL, so a tenant-scoped session sees NONE of them. An "all my activity" endpoint would silently drop the user\'s logins.',
+    ],
 ];

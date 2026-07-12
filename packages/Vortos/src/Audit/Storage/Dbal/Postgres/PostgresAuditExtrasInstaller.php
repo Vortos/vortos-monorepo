@@ -29,15 +29,31 @@ final class PostgresAuditExtrasInstaller
     /** Create the expression GIN index that turns full-text `search` from a scan into a probe. */
     public function installFtsIndex(): void
     {
-        $index = $this->table . '_fts_gin';
+        // CREATE INDEX names are NOT schema-qualified (the index inherits the table's schema),
+        // so derive an UNqualified name from a possibly schema-qualified table ('vortos.audit_events').
         $this->connection->executeStatement(
-            "CREATE INDEX IF NOT EXISTS {$index} ON {$this->table} USING gin (" . PostgresFtsSearchIndex::DOCUMENT_SQL . ')',
+            "CREATE INDEX IF NOT EXISTS {$this->indexName()} ON {$this->table} USING gin (" . PostgresFtsSearchIndex::DOCUMENT_SQL . ')',
         );
     }
 
     public function dropFtsIndex(): void
     {
-        $this->connection->executeStatement('DROP INDEX IF EXISTS ' . $this->table . '_fts_gin');
+        // DROP INDEX resolves the index in its own schema, so qualify with the table's schema.
+        $this->connection->executeStatement('DROP INDEX IF EXISTS ' . $this->qualifiedIndexName());
+    }
+
+    /** Bare (unqualified) index name, for CREATE INDEX. */
+    private function indexName(): string
+    {
+        $bare = str_contains($this->table, '.') ? substr((string) strrchr($this->table, '.'), 1) : $this->table;
+        return $bare . '_fts_gin';
+    }
+
+    /** Schema-qualified index name (matches the table's schema), for DROP INDEX. */
+    private function qualifiedIndexName(): string
+    {
+        $schema = str_contains($this->table, '.') ? substr($this->table, 0, (int) strrpos($this->table, '.')) : null;
+        return ($schema !== null ? $schema . '.' : '') . $this->indexName();
     }
 
     /** Enable + FORCE row-level security and (re)create the tenant-isolation policy. */

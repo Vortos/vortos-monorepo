@@ -28,6 +28,10 @@ final readonly class AuditQuery
         public ?\DateTimeImmutable $to = null,
         public ?AuditCursor        $cursor = null,
         public int                 $limit = 50,
+        /** Match all actions under a dotted namespace, e.g. 'payment.' → payment.captured, payment.refunded. */
+        public ?string             $actionPrefix = null,
+        /** Free-text terms matched across actor label + action + target + context (driver-dependent). */
+        public ?string             $search = null,
     ) {
         if ($scope->requiresTenantId() && ($tenantId === null || $tenantId === '')) {
             throw new \InvalidArgumentException('A tenant-scoped audit query requires a tenantId.');
@@ -44,6 +48,7 @@ final readonly class AuditQuery
         return new self(
             $this->scope, $this->tenantId, $this->actorId, $this->action, $this->minSensitivity,
             $this->outcome, $this->targetType, $this->targetId, $this->from, $this->to, $cursor, $this->limit,
+            $this->actionPrefix, $this->search,
         );
     }
 
@@ -52,6 +57,7 @@ final readonly class AuditQuery
         return new self(
             $this->scope, $this->tenantId, $this->actorId, $this->action, $this->minSensitivity,
             $this->outcome, $this->targetType, $this->targetId, $this->from, $this->to, $this->cursor, $limit,
+            $this->actionPrefix, $this->search,
         );
     }
 }

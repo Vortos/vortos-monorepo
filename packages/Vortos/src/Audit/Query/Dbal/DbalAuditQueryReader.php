@@ -8,22 +8,33 @@ use Doctrine\DBAL\Connection;
 use Vortos\Audit\Enum\Scope;
 use Vortos\Audit\Enum\Sensitivity;
 use Vortos\Audit\Query\AuditCursor;
+use Vortos\Audit\Query\AuditFacets;
 use Vortos\Audit\Query\AuditPage;
 use Vortos\Audit\Query\AuditQuery;
 use Vortos\Audit\Query\AuditQueryInterface;
+use Vortos\Audit\Search\AuditSearchIndexInterface;
+use Vortos\Audit\Search\LikeSearchIndex;
 use Vortos\Audit\Storage\Dbal\StoredAuditEventRowMapper;
 
 /**
  * Keyset-paginated reader over audit_events. Orders by (occurred_at DESC, id DESC) and
  * pages with a row-value comparison against the cursor — constant cost at any depth.
  * Fetches limit+1 rows to detect whether a next page exists.
+ *
+ * Free-text `search` is delegated to the injected {@see AuditSearchIndexInterface}, so the
+ * same filter builder drives Postgres FTS or the portable LIKE fallback identically.
  */
 final class DbalAuditQueryReader implements AuditQueryInterface
 {
+    private readonly AuditSearchIndexInterface $search;
+
     public function __construct(
         private readonly Connection $connection,
         private readonly string     $table = 'vortos_audit_events',
-    ) {}
+        ?AuditSearchIndexInterface  $search = null,
+    ) {
+        $this->search = $search ?? new LikeSearchIndex();
+    }
 
     public function page(AuditQuery $query): AuditPage
     {
@@ -52,6 +63,39 @@ final class DbalAuditQueryReader implements AuditQueryInterface
         return new AuditPage(array_values($records), $next);
     }
 
+    public function facets(AuditQuery $query): AuditFacets
+    {
+        // Facets describe the whole filtered set, so drop the keyset cursor before counting.
+        [$where, $params] = $this->buildWhere($query->withCursor(null));
+        $whereSql = $where !== '' ? ' WHERE ' . $where : '';
+
+        return new AuditFacets(
+            $this->countBy('action', $whereSql, $params),
+            $this->countBy('sensitivity', $whereSql, $params),
+            $this->countBy('outcome', $whereSql, $params),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     *
+     * @return array<string, int>
+     */
+    private function countBy(string $column, string $whereSql, array $params): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            "SELECT {$column} AS k, COUNT(*) AS c FROM {$this->table}{$whereSql} GROUP BY {$column} ORDER BY c DESC, k ASC",
+            $params,
+        );
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(string) $row['k']] = (int) $row['c'];
+        }
+
+        return $out;
+    }
+
     /**
      * @return array{string, array<string, mixed>}
      */
@@ -72,6 +116,19 @@ final class DbalAuditQueryReader implements AuditQueryInterface
         if ($query->action !== null) {
             $parts[]         = 'action = :action';
             $params['action'] = $query->action;
+        }
+        if ($query->actionPrefix !== null && $query->actionPrefix !== '') {
+            // Namespace filter, e.g. 'payment.' → every payment.* action. Escape LIKE wildcards.
+            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $query->actionPrefix);
+            $parts[]                 = "action LIKE :action_prefix ESCAPE '\\'";
+            $params['action_prefix'] = $escaped . '%';
+        }
+        if ($query->search !== null && trim($query->search) !== '') {
+            [$searchSql, $searchParams] = $this->search->matchCondition($query->search, 'search_q');
+            if ($searchSql !== '') {
+                $parts[] = $searchSql;
+                $params  = [...$params, ...$searchParams];
+            }
         }
         if ($query->minSensitivity !== null) {
             $levels = $this->sensitivityAtLeast($query->minSensitivity);

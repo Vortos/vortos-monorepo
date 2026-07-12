@@ -13,7 +13,7 @@ namespace Vortos\Audit\Doctor;
 final class AuditDoctor
 {
     /**
-     * @param array{hmac_key_set: bool, async: bool, has_archive_target: bool, has_store: bool, has_checkpoints: bool} $facts
+     * @param array{hmac_key_set: bool, async: bool, has_archive_target: bool, has_store: bool, has_checkpoints: bool, row_level_security?: bool, search_driver?: string, auth_events_unified?: bool} $facts
      */
     public function __construct(private readonly array $facts) {}
 
@@ -40,6 +40,18 @@ final class AuditDoctor
             $checks[] = AuditDoctorCheck::ok('ingestion', 'Async ingestion enabled — ensure a vortos.audit consumer worker is running.');
         } else {
             $checks[] = AuditDoctorCheck::ok('ingestion', 'Synchronous ingestion — events are chained in-request.');
+        }
+
+        if (($this->facts['row_level_security'] ?? false) === true) {
+            $checks[] = AuditDoctorCheck::ok('isolation', 'Row-level security is configured on — run vortos:audit:pg:install to enforce the tenant-isolation policy in the DB.');
+        }
+
+        if (isset($this->facts['search_driver'])) {
+            $checks[] = AuditDoctorCheck::ok('search', sprintf('Search driver: %s.', (string) $this->facts['search_driver']));
+        }
+
+        if (($this->facts['auth_events_unified'] ?? false) === true) {
+            $checks[] = AuditDoctorCheck::ok('auth-unify', 'Auth/security events are unified into the audit spine.');
         }
 
         return $checks;

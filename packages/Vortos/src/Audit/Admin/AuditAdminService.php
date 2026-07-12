@@ -8,6 +8,7 @@ use Vortos\Audit\Export\AuditExport;
 use Vortos\Audit\Integrity\AuditChainVerifier;
 use Vortos\Audit\Integrity\AuditHashChain;
 use Vortos\Audit\Integrity\ChainVerificationResult;
+use Vortos\Audit\Query\AuditFacets;
 use Vortos\Audit\Query\AuditPage;
 use Vortos\Audit\Query\AuditQuery;
 use Vortos\Audit\Query\AuditQueryInterface;
@@ -35,6 +36,12 @@ final class AuditAdminService
     public function page(AuditQuery $query): AuditPage
     {
         return $this->query->page($query);
+    }
+
+    /** Facet counts (by action / sensitivity / outcome) for the console's filter rail. */
+    public function facets(AuditQuery $query): AuditFacets
+    {
+        return $this->query->facets($query);
     }
 
     public function export(AuditQuery $query): AuditExport

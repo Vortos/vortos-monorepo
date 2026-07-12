@@ -42,6 +42,18 @@ one console per audience. Locked decisions:
   registered via `vortos.api.controller`; split.yml + root autoload + phpunit suite added; GitHub split
   repo Vortos/vortos-audit-admin created (Packagist reg = user's step). 52 Audit+AuditAdmin tests green.
 
+- F2 DONE (local, green — publishing as alpha-225): AuditQuery gains `actionPrefix` + free-text
+  `search`; `AuditSearchIndexInterface` port + `PostgresFtsSearchIndex` (to_tsvector/plainto_tsquery,
+  'simple' config) + portable `LikeSearchIndex`, DI-selected by search_driver+isPostgres and injected
+  into DbalAuditQueryReader; `facets()` (counts by action/sensitivity/outcome, cursor-dropped) on the
+  reader+interface+AuditAdminService, surfaced via `?withFacets=1` on both list controllers; saved views
+  (`AuditSavedView` VO + `AuditSavedViewStoreInterface` + `DbalAuditSavedViewStore` + migration, scope+owner
+  bound); Postgres extras that the Schema-diff seam can't express shipped as an idempotent installer
+  (`PostgresAuditExtrasInstaller`: FTS GIN index + RLS enable/policy) + `vortos:audit:pg:install` command +
+  `AuditTenantGuc` request guard (RLS = "restrict only when app.current_tenant set"); doctor gains
+  rls/search/auth-unify facts. Real-Postgres integration test (docker, self-skips if unavailable) proves
+  append+verify, tamper-detection, prefix+facets, FTS, saved-view scope, and RLS A-can't-see-B. 64 green.
+
 V2 PHASES: F1 fw(Kafka-key chain_key, async default, vortos-audit-admin module) -> F2 fw(rich
 query: prefix+FTS port+facets+saved-views, RLS helpers) -> A1 backend(enable async: declare
 vortos.audit consumer+worker, auth->spine, HMAC secret) -> A2 backend(vocabulary: payment.*/

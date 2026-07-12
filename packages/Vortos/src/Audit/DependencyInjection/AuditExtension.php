@@ -25,7 +25,16 @@ use Vortos\Audit\Ingestion\Idempotency\InMemoryIdempotencyGuard;
 use Vortos\Audit\Ingestion\Idempotency\RedisIdempotencyGuard;
 use Vortos\Audit\Clock\SystemClock;
 use Vortos\Audit\Console\AuditDoctorCommand;
+use Vortos\Audit\Console\AuditPgInstallCommand;
 use Vortos\Audit\Console\AuditRetentionCommand;
+use Vortos\Audit\Enum\AuditSearchDriver;
+use Vortos\Audit\SavedView\AuditSavedViewStoreInterface;
+use Vortos\Audit\SavedView\Dbal\DbalAuditSavedViewStore;
+use Vortos\Audit\Search\AuditSearchIndexInterface;
+use Vortos\Audit\Search\LikeSearchIndex;
+use Vortos\Audit\Search\PostgresFtsSearchIndex;
+use Vortos\Audit\Storage\Dbal\Postgres\AuditTenantGuc;
+use Vortos\Audit\Storage\Dbal\Postgres\PostgresAuditExtrasInstaller;
 use Vortos\Audit\Admin\AuditAdminService;
 use Vortos\Audit\Admin\AuditPermissionCatalog;
 use Vortos\Audit\Doctor\AuditDoctor;
@@ -86,7 +95,7 @@ final class AuditExtension extends Extension
             ->setArgument('$chain', new Reference(AuditHashChain::class))
             ->setPublic(false);
 
-        $this->registerStorage($container, $hmacKey);
+        $this->registerStorage($container, $hmacKey, $config);
         $this->registerIngestion($container, $config);
         $this->registerRetention($container, $config);
         $this->registerAdmin($container, $hmacKey);
@@ -119,7 +128,7 @@ final class AuditExtension extends Extension
      * is installed. Until then the Null recorder stands in. P3 will front this with the
      * Kafka-decoupled recorder.
      */
-    private function registerStorage(ContainerBuilder $container, string $hmacKey): void
+    private function registerStorage(ContainerBuilder $container, string $hmacKey, array $config): void
     {
         if (!class_exists(Connection::class)) {
             return;
@@ -128,11 +137,12 @@ final class AuditExtension extends Extension
         $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
             ? (string) $container->getParameter('vortos.db.framework_table_prefix')
             : 'vortos_';
+        $isPostgres = $this->isPostgres($container);
 
         // Per-chain append lock: Postgres advisory lock (no extra table, no contention) when
         // the store runs on Postgres; the portable SELECT ... FOR UPDATE row lock otherwise.
         // Auto-detected from the write DSN, Postgres-first when the platform is unknown.
-        if ($this->isPostgres($container)) {
+        if ($isPostgres) {
             $container->register(PgAdvisoryChainLock::class, PgAdvisoryChainLock::class)->setPublic(false);
             $container->setAlias(ChainLockStrategyInterface::class, PgAdvisoryChainLock::class);
         } else {
@@ -140,6 +150,16 @@ final class AuditExtension extends Extension
                 ->setArgument('$headsTable', $prefix . 'audit_chain_heads')
                 ->setPublic(false);
             $container->setAlias(ChainLockStrategyInterface::class, RowChainLock::class);
+        }
+
+        // Free-text search index: Postgres FTS when configured + on Postgres, else portable LIKE.
+        $ftsSelected = ($config['search_driver'] ?? 'postgres_fts') === AuditSearchDriver::PostgresFts->value && $isPostgres;
+        if ($ftsSelected) {
+            $container->register(PostgresFtsSearchIndex::class, PostgresFtsSearchIndex::class)->setPublic(false);
+            $container->setAlias(AuditSearchIndexInterface::class, PostgresFtsSearchIndex::class);
+        } else {
+            $container->register(LikeSearchIndex::class, LikeSearchIndex::class)->setPublic(false);
+            $container->setAlias(AuditSearchIndexInterface::class, LikeSearchIndex::class);
         }
 
         $container->register(DbalAuditStore::class, DbalAuditStore::class)
@@ -154,10 +174,11 @@ final class AuditExtension extends Extension
         $container->setAlias(AuditRecorderInterface::class, DbalAuditStore::class);
         $container->setAlias(AuditReaderInterface::class, DbalAuditStore::class);
 
-        // Read side (P5): keyset query + signed export.
+        // Read side (P5 + F2): keyset query with prefix/search/facets + signed export.
         $container->register(DbalAuditQueryReader::class, DbalAuditQueryReader::class)
             ->setArgument('$connection', new Reference(Connection::class))
             ->setArgument('$table', $prefix . 'audit_events')
+            ->setArgument('$search', new Reference(AuditSearchIndexInterface::class))
             ->setPublic(false);
         $container->setAlias(AuditQueryInterface::class, DbalAuditQueryReader::class);
 
@@ -168,6 +189,32 @@ final class AuditExtension extends Extension
             ->setArgument('$serializer', new Reference(StoredAuditEventSerializer::class))
             ->setArgument('$chain', new Reference(AuditHashChain::class))
             ->setArgument('$hmacKey', $hmacKey)
+            ->setPublic(false);
+
+        // Saved views (F2): named, scope-bound console filter sets.
+        $container->register(DbalAuditSavedViewStore::class, DbalAuditSavedViewStore::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $prefix . 'audit_saved_views')
+            ->setPublic(true);
+        $container->setAlias(AuditSavedViewStoreInterface::class, DbalAuditSavedViewStore::class)->setPublic(true);
+
+        // Postgres-only extras (F2): FTS GIN index + RLS installer/guard + install command.
+        if ($isPostgres) {
+            $container->register(PostgresAuditExtrasInstaller::class, PostgresAuditExtrasInstaller::class)
+                ->setArgument('$connection', new Reference(Connection::class))
+                ->setArgument('$table', $prefix . 'audit_events')
+                ->setPublic(false);
+
+            $container->register(AuditTenantGuc::class, AuditTenantGuc::class)
+                ->setArgument('$connection', new Reference(Connection::class))
+                ->setPublic(true);
+        }
+
+        // The install command exists whenever DBAL is present; it refuses to run off Postgres.
+        $container->register(AuditPgInstallCommand::class, AuditPgInstallCommand::class)
+            ->setArgument('$installer', $isPostgres ? new Reference(PostgresAuditExtrasInstaller::class) : null)
+            ->setArgument('$rlsConfigured', (bool) ($config['row_level_security'] ?? false))
+            ->addTag('console.command')
             ->setPublic(false);
     }
 
@@ -358,6 +405,9 @@ final class AuditExtension extends Extension
                 'has_archive_target' => $container->hasAlias(AuditArchiveWriterInterface::class),
                 'has_store'          => $container->hasDefinition(DbalAuditStore::class),
                 'has_checkpoints'    => $container->hasAlias(AuditCheckpointStoreInterface::class),
+                'row_level_security' => (bool) ($config['row_level_security'] ?? false),
+                'search_driver'      => (string) ($config['search_driver'] ?? 'postgres_fts'),
+                'auth_events_unified'=> (bool) ($config['auth_events_unify'] ?? false),
             ])
             ->setPublic(false);
 

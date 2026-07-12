@@ -35,7 +35,7 @@ final class PlatformAuditController
         $scope    = Scope::tryFrom((string) $request->query->get('scope', 'platform')) ?? Scope::Platform;
         $tenantId = $scope === Scope::Tenant ? (string) $request->query->get('tenantId', '') : null;
 
-        $page = $this->audit->page(new AuditQuery(
+        $query = new AuditQuery(
             scope:          $scope,
             tenantId:       $tenantId ?: null,
             actorId:        $request->query->get('actorId') ?: null,
@@ -44,11 +44,20 @@ final class PlatformAuditController
             outcome:        Outcome::tryFrom((string) $request->query->get('outcome', '')),
             cursor:         AuditCursor::decode((string) $request->query->get('cursor', '')),
             limit:          (int) $request->query->get('limit', 50),
-        ));
+            actionPrefix:   $request->query->get('actionPrefix') ?: null,
+            search:         $request->query->get('search') ?: null,
+        );
 
-        return new JsonResponse([
+        $page = $this->audit->page($query);
+
+        $body = [
             'records'    => array_map([AuditRecordPresenter::class, 'toArray'], $page->records),
             'nextCursor' => $page->nextCursor?->encode(),
-        ]);
+        ];
+        if ($request->query->getBoolean('withFacets')) {
+            $body['facets'] = $this->audit->facets($query)->toArray();
+        }
+
+        return new JsonResponse($body);
     }
 }

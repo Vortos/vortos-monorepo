@@ -11,4 +11,10 @@ namespace Vortos\Audit\Query;
 interface AuditQueryInterface
 {
     public function page(AuditQuery $query): AuditPage;
+
+    /**
+     * Facet counts (by action / sensitivity / outcome) over the filtered set, ignoring
+     * pagination — for a console's faceted filter rail.
+     */
+    public function facets(AuditQuery $query): AuditFacets;
 }

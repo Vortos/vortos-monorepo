@@ -39,7 +39,7 @@ final class OrgAuditController
     {
         $orgId = $this->tenantContext->requireTenantId();
 
-        $page = $this->audit->page(new AuditQuery(
+        $query = new AuditQuery(
             scope:          Scope::Tenant,
             tenantId:       $orgId,
             actorId:        $request->query->get('actorId') ?: null,
@@ -49,11 +49,20 @@ final class OrgAuditController
             targetId:       $request->query->get('targetId') ?: null,
             cursor:         AuditCursor::decode((string) $request->query->get('cursor', '')),
             limit:          (int) $request->query->get('limit', 50),
-        ));
+            actionPrefix:   $request->query->get('actionPrefix') ?: null,
+            search:         $request->query->get('search') ?: null,
+        );
 
-        return new JsonResponse([
+        $page = $this->audit->page($query);
+
+        $body = [
             'records'    => array_map([AuditRecordPresenter::class, 'toArray'], $page->records),
             'nextCursor' => $page->nextCursor?->encode(),
-        ]);
+        ];
+        if ($request->query->getBoolean('withFacets')) {
+            $body['facets'] = $this->audit->facets($query)->toArray();
+        }
+
+        return new JsonResponse($body);
     }
 }

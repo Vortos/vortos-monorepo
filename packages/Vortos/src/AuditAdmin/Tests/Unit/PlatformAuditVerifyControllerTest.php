@@ -67,6 +67,7 @@ final class PlatformAuditVerifyControllerTest extends TestCase
     {
         $query = new class implements AuditQueryInterface {
             public function page(AuditQuery $query): AuditPage { return new AuditPage([], null); }
+            public function facets(AuditQuery $query): \Vortos\Audit\Query\AuditFacets { return new \Vortos\Audit\Query\AuditFacets([], [], []); }
         };
         $chain    = new AuditHashChain();
         $exporter = new AuditExporter($query, new StoredAuditEventSerializer(), $chain);

@@ -91,4 +91,9 @@ final class FakePagedQuery implements AuditQueryInterface
         }
         return new AuditPage(array_values($slice), $next);
     }
+
+    public function facets(AuditQuery $query): \Vortos\Audit\Query\AuditFacets
+    {
+        return new \Vortos\Audit\Query\AuditFacets([], [], []);
+    }
 }

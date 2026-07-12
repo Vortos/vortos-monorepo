@@ -177,6 +177,25 @@ final class JwtServiceTest extends TestCase
         $this->assertSame('test', $payload['aud']);
     }
 
+    public function test_issue_access_token_carries_sid_matching_refresh_jti(): void
+    {
+        $identity = new UserIdentity('user-1', []);
+        $token = $this->jwtService->issue($identity);
+
+        $decode = static function (string $jwt): array {
+            $parts = explode('.', $jwt);
+            return json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+        };
+
+        $access  = $decode($token->accessToken);
+        $refresh = $decode($token->refreshToken);
+
+        $this->assertArrayHasKey('sid', $access);
+        $this->assertNotEmpty($access['sid']);
+        // The access-token session id is the refresh-token JTI (the session store key).
+        $this->assertSame($refresh['jti'], $access['sid']);
+    }
+
     public function test_issue_includes_aud_claim_in_refresh_token(): void
     {
         $identity = new UserIdentity('user-1', []);

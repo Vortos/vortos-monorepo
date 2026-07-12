@@ -92,6 +92,10 @@ final class JwtService
             'exp'           => $accessExpiresAt,
             'roles'         => $identity->roles(),
             'authz_version' => $authzVersion,
+            // Session id (OIDC `sid`): the same JTI carried by the refresh token and tracked
+            // in the session store, so a request bearing only the access token can identify
+            // which active session it belongs to (e.g. "this device" in session listings).
+            'sid'           => $jti,
             'type'          => 'access',
         ];
 

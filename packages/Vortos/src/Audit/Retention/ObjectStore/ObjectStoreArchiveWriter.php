@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Audit\Retention\ObjectStore;
 
 use Vortos\Audit\Retention\AuditArchiveWriterInterface;
-use Vortos\ObjectStore\Contract\ObjectStoreInterface;
+use Vortos\ObjectStore\Contract\ImmediateObjectStoreInterface;
 
 /**
  * Writes archive segments to a Vortos ObjectStore bucket (S3 / OCI Object Storage).
@@ -15,8 +15,11 @@ use Vortos\ObjectStore\Contract\ObjectStoreInterface;
 final class ObjectStoreArchiveWriter implements AuditArchiveWriterInterface
 {
     public function __construct(
-        private readonly ObjectStoreInterface $objectStore,
-        private readonly string               $keyPrefix = 'audit-archive',
+        // ImmediateObjectStoreInterface (not the transactional ObjectStoreInterface): the
+        // retention sweep runs as a scheduled CLI command with no active DB transaction, so an
+        // outbox-backed put() would fail — this maintenance path wants a direct provider write.
+        private readonly ImmediateObjectStoreInterface $objectStore,
+        private readonly string                        $keyPrefix = 'audit-archive',
     ) {}
 
     public function write(string $chainKey, int $fromSequence, int $toSequence, string $ndjson): string

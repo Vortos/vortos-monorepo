@@ -334,8 +334,10 @@ final class AuditExtension extends Extension
             ->setArgument('$tenantOverrides', (array) $config['retention_tenant_overrides'])
             ->setPublic(false);
 
-        // Durable archive target — only when vortos-object-store is installed.
-        $objectStoreIface = 'Vortos\ObjectStore\Contract\ObjectStoreInterface';
+        // Durable archive target — only when vortos-object-store is installed. Use the IMMEDIATE
+        // store (unconditionally aliased, and it writes directly with no outbox/transaction), so
+        // the retention CLI sweep can archive without an active DB transaction.
+        $objectStoreIface = 'Vortos\ObjectStore\Contract\ImmediateObjectStoreInterface';
         $sweeperRef = null;
         if (interface_exists($objectStoreIface) && ($container->has($objectStoreIface) || $container->hasAlias($objectStoreIface))) {
             $container->register(ObjectStoreArchiveWriter::class, ObjectStoreArchiveWriter::class)

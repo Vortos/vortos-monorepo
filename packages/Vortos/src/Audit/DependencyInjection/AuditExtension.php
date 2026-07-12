@@ -334,36 +334,18 @@ final class AuditExtension extends Extension
             ->setArgument('$tenantOverrides', (array) $config['retention_tenant_overrides'])
             ->setPublic(false);
 
-        // Durable archive target — only when vortos-object-store is installed. Use the IMMEDIATE
-        // store (unconditionally aliased, and it writes directly with no outbox/transaction), so
-        // the retention CLI sweep can archive without an active DB transaction.
-        $objectStoreIface = 'Vortos\ObjectStore\Contract\ImmediateObjectStoreInterface';
-        $sweeperRef = null;
-        if (interface_exists($objectStoreIface) && ($container->has($objectStoreIface) || $container->hasAlias($objectStoreIface))) {
-            $container->register(ObjectStoreArchiveWriter::class, ObjectStoreArchiveWriter::class)
-                ->setArgument('$objectStore', new Reference($objectStoreIface))
-                ->setArgument('$keyPrefix', (string) $config['archive_key_prefix'])
-                ->setPublic(false);
-            $container->setAlias(AuditArchiveWriterInterface::class, ObjectStoreArchiveWriter::class);
+        // Durable archive target (ObjectStoreArchiveWriter + AuditRetentionSweeper) is wired by
+        // AuditRetentionArchivePass, NOT here: whether the object-store alias exists can only be
+        // known reliably AFTER every extension's load() has run, so the decision is deferred to a
+        // compiler pass. These two config values are handed to the pass via parameters.
+        $container->setParameter('vortos_audit.archive_key_prefix', (string) $config['archive_key_prefix']);
+        $container->setParameter('vortos_audit.retention_batch_size', (int) $config['retention_batch_size']);
 
-            $container->register(AuditRetentionSweeper::class, AuditRetentionSweeper::class)
-                ->setArgument('$source', new Reference(DbalAuditStore::class))
-                ->setArgument('$checkpoints', new Reference(AuditCheckpointStoreInterface::class))
-                ->setArgument('$archiveWriter', new Reference(AuditArchiveWriterInterface::class))
-                ->setArgument('$policy', new Reference(AuditRetentionPolicy::class))
-                ->setArgument('$serializer', new Reference(StoredAuditEventSerializer::class))
-                ->setArgument('$clock', new Reference(SystemClock::class))
-                ->setArgument('$batchSize', (int) $config['retention_batch_size'])
-                ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
-                ->setArgument('$metrics', new Reference(AuditMetrics::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
-                ->setPublic(false);
-            $sweeperRef = new Reference(AuditRetentionSweeper::class);
-        }
-
-        // Command always exists (so `vortos:audit:retention` is discoverable); it refuses
-        // to run when the sweeper is null (no archive target).
+        // Command always exists (so `vortos:audit:retention` is discoverable); the pass points
+        // its $sweeper at the real sweeper when an archive target is present, else it stays null
+        // and the command refuses to run.
         $container->register(AuditRetentionCommand::class, AuditRetentionCommand::class)
-            ->setArgument('$sweeper', $sweeperRef)
+            ->setArgument('$sweeper', null)
             ->addTag('console.command')
             ->setPublic(false);
     }

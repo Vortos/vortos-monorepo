@@ -37,26 +37,53 @@ final class RedisTokenStorage implements TokenStorageInterface
 {
     private const TOKEN_PREFIX = 'vortos_auth:token:';
     private const USER_TOKENS_PREFIX = 'vortos_auth:user_tokens:';
+    private const GRACE_PREFIX = 'vortos_auth:token_grace:';
 
+    /**
+     * Atomic rotation-with-grace.
+     *
+     * Primary hit (token still live): delete it, drop it from the user's active set, and —
+     * when a grace window is configured — leave a short-lived grace marker so an immediate
+     * re-presentation of THIS jti (a racing tab, a retried request) is recognised as benign
+     * rather than reuse. The grace marker is only ever written on the primary path, so a
+     * grace hit never re-arms grace (no unbounded chaining).
+     *
+     * Primary miss: if grace is enabled and a marker exists, the token was consumed moments
+     * ago — return the userId so the caller issues a fresh pair instead of declaring theft.
+     * Otherwise return false (nil) → genuine reuse, and the caller applies its theft policy.
+     */
     private const LUA_CONSUME = <<<'LUA'
 local key = KEYS[1]
+local graceKey = KEYS[2]
 local jti = ARGV[1]
 local userPrefix = ARGV[2]
+local graceSeconds = tonumber(ARGV[3])
 local userId = redis.call('GET', key)
-if not userId then
-    return false
+if userId then
+    redis.call('DEL', key)
+    redis.call('SREM', userPrefix .. userId, jti)
+    if graceSeconds > 0 then
+        redis.call('SET', graceKey, userId, 'EX', graceSeconds)
+    end
+    return userId
 end
-redis.call('DEL', key)
-redis.call('SREM', userPrefix .. userId, jti)
-return userId
+if graceSeconds > 0 then
+    local graceUser = redis.call('GET', graceKey)
+    if graceUser then
+        return graceUser
+    end
+end
+return false
 LUA;
 
     private const LUA_REVOKE = <<<'LUA'
 local key = KEYS[1]
+local graceKey = KEYS[2]
 local jti = ARGV[1]
 local userPrefix = ARGV[2]
 local userId = redis.call('GET', key)
 redis.call('DEL', key)
+redis.call('DEL', graceKey)
 if userId then
     redis.call('SREM', userPrefix .. userId, jti)
 end
@@ -78,7 +105,14 @@ redis.call('DEL', userKey)
 return #jtis
 LUA;
 
-    public function __construct(private \Redis $redis) {}
+    /**
+     * @param int $rotationGraceSeconds Grace window during which a just-rotated jti may be
+     *                                  re-consumed without tripping reuse detection. 0 = strict.
+     */
+    public function __construct(
+        private \Redis $redis,
+        private int $rotationGraceSeconds = 0,
+    ) {}
 
     public function store(string $jti, string $userId, int $expiresAt): void
     {
@@ -104,8 +138,8 @@ LUA;
     {
         $result = $this->redis->eval(
             self::LUA_CONSUME,
-            [self::TOKEN_PREFIX . $jti, $jti, self::USER_TOKENS_PREFIX],
-            1,
+            [self::TOKEN_PREFIX . $jti, self::GRACE_PREFIX . $jti, $jti, self::USER_TOKENS_PREFIX, (string) $this->rotationGraceSeconds],
+            2,
         );
 
         return $result !== false ? (string) $result : null;
@@ -115,8 +149,8 @@ LUA;
     {
         $this->redis->eval(
             self::LUA_REVOKE,
-            [self::TOKEN_PREFIX . $jti, $jti, self::USER_TOKENS_PREFIX],
-            1,
+            [self::TOKEN_PREFIX . $jti, self::GRACE_PREFIX . $jti, $jti, self::USER_TOKENS_PREFIX],
+            2,
         );
     }
 

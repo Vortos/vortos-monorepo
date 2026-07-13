@@ -22,6 +22,7 @@ final class VortosAuthConfig
     private bool $exposeJwks = false;
     private int $accessTokenTtl = 900;
     private int $refreshTokenTtl = 604800;
+    private int $refreshRotationGraceSeconds = 0;
     private string $issuer = 'vortos';
     private string $audience = 'vortos';
     private string $tokenStorage = InMemoryTokenStorage::class;
@@ -164,6 +165,22 @@ final class VortosAuthConfig
     public function refreshTokenTtl(int $seconds): static
     {
         $this->refreshTokenTtl = $seconds;
+        return $this;
+    }
+
+    /**
+     * Grace window (seconds) during which a just-rotated refresh token may be presented
+     * again without being treated as reuse/theft. Absorbs benign races — concurrent
+     * browser tabs refreshing at once, or a refresh request retried after a flaky-network
+     * timeout — that would otherwise trip strict one-time-use detection and revoke every
+     * session for the user.
+     *
+     * 0 (default) preserves strict one-time-use with no grace. Keep the window small
+     * (e.g. 30) so it never becomes a meaningful theft window.
+     */
+    public function refreshRotationGraceSeconds(int $seconds): static
+    {
+        $this->refreshRotationGraceSeconds = max(0, $seconds);
         return $this;
     }
 
@@ -313,6 +330,7 @@ final class VortosAuthConfig
         return [
             'access_token_ttl'            => $this->accessTokenTtl,
             'refresh_token_ttl'           => $this->refreshTokenTtl,
+            'refresh_rotation_grace_seconds' => $this->refreshRotationGraceSeconds,
             'issuer'                      => $this->issuer,
             'audience'                    => $this->audience,
             'token_storage'               => $this->tokenStorage,

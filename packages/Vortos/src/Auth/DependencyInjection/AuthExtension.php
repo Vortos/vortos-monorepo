@@ -156,10 +156,12 @@ final class AuthExtension extends Extension
         if ($this->hasRedisService($container)) {
             $container->register(RedisTokenStorage::class, RedisTokenStorage::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
+                ->setArgument('$rotationGraceSeconds', $resolved['refresh_rotation_grace_seconds'])
                 ->setShared(true)->setPublic(false);
         }
 
         $container->register(InMemoryTokenStorage::class, InMemoryTokenStorage::class)
+            ->setArgument('$rotationGraceSeconds', $resolved['refresh_rotation_grace_seconds'])
             ->setShared(true)->setPublic(false);
 
         $container->setAlias(TokenStorageInterface::class, $resolved['token_storage'])->setPublic(false);

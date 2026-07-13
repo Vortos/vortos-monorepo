@@ -9,6 +9,7 @@ use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\ORMSetup;
+use Doctrine\ORM\Proxy\ProxyFactory;
 use Psr\Cache\CacheItemPoolInterface;
 use Vortos\PersistenceOrm\Tenant\TenantScopedEntityRegistry;
 
@@ -73,6 +74,21 @@ final class EntityManagerFactory
             isDevMode: $devMode,
             cache: $metadataCache,
         );
+
+        // ORMSetup sets AutoGenerateProxyClasses to !isDevMode → in production
+        // ($devMode === false) that is AUTOGENERATE_NEVER, which means Doctrine
+        // will *never* write proxy files and instead require() them from the
+        // proxy dir (sys_get_temp_dir() by default). Nothing generates them at
+        // deploy time, so the first lazy reference (getReference()/lazy assoc)
+        // fatals with `require(__CG__...php): Failed to open stream`.
+        //
+        // AUTOGENERATE_FILE_NOT_EXISTS keeps the production fast-path (no
+        // regeneration once the file is on disk) while self-healing the very
+        // first miss per class — safe whether or not a build-time
+        // `orm:generate-proxies` step ran.
+        if (! $devMode) {
+            $config->setAutoGenerateProxyClasses(ProxyFactory::AUTOGENERATE_FILE_NOT_EXISTS);
+        }
 
         if ($middlewares !== []) {
             $config->setMiddlewares($middlewares);

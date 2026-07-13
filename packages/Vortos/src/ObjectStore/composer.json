@@ -11,7 +11,7 @@
     "require": {
         "php": ">=8.2",
         "psr/clock": "^1.0",
-        "symfony/clock": "^7.0",
+        "symfony/clock": "^7.0 || ^8.0",
         "vortos/vortos-foundation": "^1.0",
         "vortos/vortos-logger": "^1.0",
         "vortos/vortos-persistence": "^1.0",

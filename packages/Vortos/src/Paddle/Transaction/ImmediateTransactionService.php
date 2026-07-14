@@ -4,14 +4,20 @@ declare(strict_types=1);
 
 namespace Vortos\Paddle\Transaction;
 
+use Paddle\SDK\Entities\Shared\CurrencyCode;
+use Paddle\SDK\Entities\Shared\CustomData;
+use Paddle\SDK\Entities\Shared\Money as SdkMoney;
 use Paddle\SDK\Resources\Transactions\Operations\Create\TransactionCreateItem as SdkCreateItem;
+use Paddle\SDK\Resources\Transactions\Operations\Create\TransactionCreateItemWithPrice;
 use Paddle\SDK\Resources\Transactions\Operations\CreateTransaction;
 use Paddle\SDK\Resources\Transactions\Operations\Preview\TransactionItemPreviewWithPriceId;
+use Paddle\SDK\Resources\Transactions\Operations\Price\TransactionNonCatalogPrice;
 use Paddle\SDK\Resources\Transactions\Operations\PreviewTransaction;
 use Paddle\SDK\Resources\Transactions\Operations\UpdateTransaction;
 use Vortos\Paddle\Api\PaddleApiClientInterface;
 use Vortos\Paddle\Transaction\Contract\ImmediateTransactionServiceInterface;
 use Vortos\Paddle\Transaction\Operation\CreateTransactionRequest;
+use Vortos\Paddle\Transaction\Operation\TransactionItemRequest;
 use Vortos\Paddle\Transaction\Operation\UpdateTransactionRequest;
 use Vortos\Paddle\ValueObject\PaddleTransactionId;
 
@@ -22,17 +28,50 @@ final class ImmediateTransactionService implements ImmediateTransactionServiceIn
     public function create(CreateTransactionRequest $request): PaddleTransactionId
     {
         $items = array_map(
-            fn($item) => new SdkCreateItem($item->priceId->value, $item->quantity),
+            fn(TransactionItemRequest $item) => $this->toSdkCreateItem($item),
             $request->items
         );
 
-        $sdkTransaction = $this->client->call(
-            fn() => $this->client->sdk()->transactions->create(
-                new CreateTransaction(items: $items, customerId: $request->customerId->value)
+        $op = $request->customData !== null
+            ? new CreateTransaction(
+                items:      $items,
+                customerId: $request->customerId->value,
+                customData: new CustomData($request->customData),
             )
+            : new CreateTransaction(
+                items:      $items,
+                customerId: $request->customerId->value,
+            );
+
+        $sdkTransaction = $this->client->call(
+            fn() => $this->client->sdk()->transactions->create($op)
         );
 
         return PaddleTransactionId::of($sdkTransaction->id);
+    }
+
+    /**
+     * Maps a wrapper line to the SDK's catalog or non-catalog create item.
+     * Non-catalog lines carry an inline price (exact unit amount) on an existing
+     * product, so callers can charge a runtime-derived amount without a catalog price.
+     */
+    private function toSdkCreateItem(TransactionItemRequest $item): SdkCreateItem|TransactionCreateItemWithPrice
+    {
+        if ($item->isNonCatalog()) {
+            return new TransactionCreateItemWithPrice(
+                new TransactionNonCatalogPrice(
+                    description: $item->description ?? 'Registration payment',
+                    unitPrice:   new SdkMoney(
+                        $item->unitPrice->toAmountString(),
+                        CurrencyCode::from(strtoupper($item->unitPrice->currencyCode)),
+                    ),
+                    productId:   $item->productId,
+                ),
+                $item->quantity,
+            );
+        }
+
+        return new SdkCreateItem($item->priceId->value, $item->quantity);
     }
 
     public function get(PaddleTransactionId $id): Transaction

@@ -25,9 +25,18 @@ final class TransactionalTransactionService implements TransactionServiceInterfa
         $this->outbox->queue('transaction.create', [
             'customerId' => $request->customerId->value,
             'items'      => array_map(
-                fn($item) => ['priceId' => $item->priceId->value, 'quantity' => $item->quantity],
+                fn($item) => $item->isNonCatalog()
+                    ? [
+                        'productId'   => $item->productId,
+                        'unitAmount'  => $item->unitPrice->amount,
+                        'currency'    => $item->unitPrice->currencyCode,
+                        'description' => $item->description,
+                        'quantity'    => $item->quantity,
+                    ]
+                    : ['priceId' => $item->priceId->value, 'quantity' => $item->quantity],
                 $request->items
             ),
+            'customData' => $request->customData,
         ]);
 
         return $id;

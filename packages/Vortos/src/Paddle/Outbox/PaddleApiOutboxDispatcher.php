@@ -114,16 +114,17 @@ final class PaddleApiOutboxDispatcher implements PaddleOutboxDispatcherInterface
             'transaction.create' => $this->transactions->create(new CreateTransactionRequest(
                 customerId: PaddleCustomerId::of($payload['customerId']),
                 items:      array_map(
-                    fn(array $i) => new TransactionItemRequest(PaddlePriceId::of($i['priceId']), $i['quantity']),
+                    fn(array $i) => $this->rehydrateTransactionItem($i),
                     $payload['items'],
                 ),
+                customData: $payload['customData'] ?? null,
             )),
             'transaction.update' => $this->transactions->update(
                 PaddleTransactionId::of($payload['id']),
                 new UpdateTransactionRequest(
                     items: isset($payload['items']) && $payload['items'] !== null
                         ? array_map(
-                            fn(array $i) => new TransactionItemRequest(PaddlePriceId::of($i['priceId']), $i['quantity']),
+                            fn(array $i) => $this->rehydrateTransactionItem($i),
                             $payload['items'],
                         )
                         : null,
@@ -211,5 +212,20 @@ final class PaddleApiOutboxDispatcher implements PaddleOutboxDispatcherInterface
 
             default => throw UnknownOutboxOperationException::forOperation($operation),
         };
+    }
+
+    /** Rebuilds a transaction line from its queued payload — catalog or non-catalog. */
+    private function rehydrateTransactionItem(array $i): TransactionItemRequest
+    {
+        if (isset($i['priceId'])) {
+            return new TransactionItemRequest(PaddlePriceId::of($i['priceId']), $i['quantity']);
+        }
+
+        return TransactionItemRequest::nonCatalog(
+            productId:   $i['productId'],
+            unitPrice:   new Money($i['unitAmount'], $i['currency']),
+            quantity:    $i['quantity'],
+            description: $i['description'] ?? 'Registration payment',
+        );
     }
 }

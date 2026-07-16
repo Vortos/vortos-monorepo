@@ -32,15 +32,16 @@ final class AuditTrail implements AuditTrailInterface
     ) {}
 
     public function record(
-        Scope        $scope,
-        ?string      $tenantId,
-        AuditActor   $actor,
-        string       $action,
-        ?AuditTarget $target = null,
-        Outcome      $outcome = Outcome::Allowed,
-        ?AuditSource $source = null,
-        array        $context = [],
-        ?Sensitivity $sensitivity = null,
+        Scope              $scope,
+        ?string            $tenantId,
+        AuditActor         $actor,
+        string             $action,
+        ?AuditTarget       $target = null,
+        Outcome            $outcome = Outcome::Allowed,
+        ?AuditSource       $source = null,
+        array              $context = [],
+        ?Sensitivity       $sensitivity = null,
+        ?\DateTimeImmutable $occurredAt = null,
     ): void {
         $declared = $this->registry->get($action);
 
@@ -58,6 +59,7 @@ final class AuditTrail implements AuditTrailInterface
             outcome:     $outcome,
             source:      $source,
             context:     $context,
+            occurredAt:  $occurredAt,
         ));
     }
 

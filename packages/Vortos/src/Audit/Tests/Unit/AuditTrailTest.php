@@ -67,6 +67,34 @@ final class AuditTrailTest extends TestCase
         self::assertSame(Sensitivity::High, $buffer->last()?->sensitivity);
     }
 
+    public function test_forwards_explicit_occurred_at_to_the_event(): void
+    {
+        $buffer = new BufferingAuditRecorder();
+        $trail  = new AuditTrail($buffer, $this->registry());
+
+        // The true business-event time (e.g. an async handler passing the domain event's own
+        // timestamp) must be stamped on the row, not the moment record() happened to run.
+        $eventTime = new \DateTimeImmutable('2026-07-16T12:29:57.123456+00:00');
+        $trail->record(Scope::Tenant, 'org-1', AuditActor::system(), 'member.invited', occurredAt: $eventTime);
+
+        self::assertEquals($eventTime, $buffer->last()?->occurredAt);
+    }
+
+    public function test_defaults_occurred_at_to_now_for_inline_recorders(): void
+    {
+        $buffer = new BufferingAuditRecorder();
+        $trail  = new AuditTrail($buffer, $this->registry());
+
+        $before = new \DateTimeImmutable();
+        $trail->record(Scope::Tenant, 'org-1', AuditActor::system(), 'member.invited');
+        $after  = new \DateTimeImmutable();
+
+        $stamped = $buffer->last()?->occurredAt;
+        self::assertNotNull($stamped);
+        self::assertGreaterThanOrEqual($before, $stamped);
+        self::assertLessThanOrEqual($after, $stamped);
+    }
+
     private function registry(): AuditActionRegistry
     {
         return new AuditActionRegistry([

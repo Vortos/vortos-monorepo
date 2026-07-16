@@ -106,8 +106,9 @@ final readonly class AuditEvent
             'outcome'     => $this->outcome->value,
             'source'      => $this->source->toArray(),
             'context'     => $this->context,
-            // Microsecond precision (not RFC3339_EXTENDED's milliseconds): the hash chain
-            // orders by occurred_at, so truncating to ms would collide sub-ms events.
+            // Microsecond precision (not RFC3339_EXTENDED's milliseconds): the hash chain is
+            // append-ordered by `sequence`, but reads and retention cut-offs order by
+            // `occurred_at`, so truncating to ms would collide (and misorder) sub-ms events.
             'occurred_at' => $this->occurredAt->format('Y-m-d\TH:i:s.uP'),
         ];
     }

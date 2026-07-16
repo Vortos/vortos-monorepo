@@ -79,4 +79,25 @@ final class AuditEventTest extends TestCase
         self::assertSame(['role' => 'ROLE_ORG_ADMIN'], $restored->context);
         self::assertEquals($event->occurredAt, $restored->occurredAt);
     }
+
+    public function test_explicit_occurred_at_survives_wire_round_trip_at_microsecond_precision(): void
+    {
+        // The async ingestion path transports AuditEvent::toArray() over the bus and rebuilds it
+        // with fromArray(). FB-5 relies on the true event-time surviving that hop exactly, so a
+        // consumer draining a backlog stamps reality, not ingest-time. Microseconds must not be lost.
+        $eventTime = new \DateTimeImmutable('2026-07-16T12:29:57.123456+00:00');
+
+        $event = AuditEvent::create(
+            scope: Scope::Tenant,
+            tenantId: 'org-42',
+            actor: AuditActor::system(),
+            action: 'registration.submitted',
+            occurredAt: $eventTime,
+        );
+
+        $restored = AuditEvent::fromArray($event->toArray());
+
+        self::assertEquals($eventTime, $restored->occurredAt);
+        self::assertSame('123456', $restored->occurredAt->format('u'));
+    }
 }

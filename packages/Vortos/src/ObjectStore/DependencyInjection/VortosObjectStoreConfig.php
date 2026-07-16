@@ -18,6 +18,7 @@ final class VortosObjectStoreConfig
     private ObjectStoreLifecycleConfig $lifecycleConfig;
     private ObjectStoreCircuitBreakerConfig $circuitBreakerConfig;
     private ObjectStoreObservabilityConfig $observabilityConfig;
+    private ObjectStoreHealthConfig $healthConfig;
 
     public function __construct()
     {
@@ -33,6 +34,7 @@ final class VortosObjectStoreConfig
         $this->lifecycleConfig = new ObjectStoreLifecycleConfig();
         $this->circuitBreakerConfig = new ObjectStoreCircuitBreakerConfig();
         $this->observabilityConfig = new ObjectStoreObservabilityConfig();
+        $this->healthConfig = new ObjectStoreHealthConfig();
 
         $this->clientConfig
             ->endpoint($_ENV['OBJECT_STORE_ENDPOINT'] ?? null)
@@ -124,6 +126,11 @@ final class VortosObjectStoreConfig
         return $this->observabilityConfig;
     }
 
+    public function health(): ObjectStoreHealthConfig
+    {
+        return $this->healthConfig;
+    }
+
     /** @internal */
     public function toArray(): array
     {
@@ -140,6 +147,7 @@ final class VortosObjectStoreConfig
             'lifecycle'       => $this->lifecycleConfig->toArray(),
             'circuit_breaker' => $this->circuitBreakerConfig->toArray(),
             'observability'   => $this->observabilityConfig->toArray(),
+            'health'          => $this->healthConfig->toArray(),
         ];
     }
 }

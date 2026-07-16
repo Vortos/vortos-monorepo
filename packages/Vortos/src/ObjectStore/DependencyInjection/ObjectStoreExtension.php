@@ -604,6 +604,8 @@ final class ObjectStoreExtension extends Extension
                 ->setArgument('$client', new Reference(\Aws\S3\S3Client::class))
                 ->setArgument('$bucket', $config['bucket']['name'])
                 ->setArgument('$provider', $config['provider'])
+                ->setArgument('$coldStartAttempts', (int) ($config['health']['cold_start_attempts'] ?? 3))
+                ->setArgument('$coldStartBackoffMs', (int) ($config['health']['cold_start_backoff_milliseconds'] ?? 200))
                 ->setShared(true)
                 ->setPublic(false);
         }

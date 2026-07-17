@@ -37,11 +37,15 @@ final class AuditPackage implements PackageInterface
         );
 
         // Wires the async-export object-store target (sink + streaming exporter + service +
-        // consumer handler + GC) after every extension's load(), same rationale as retention.
+        // consumer handler + GC). Priority 95 places it in the window AFTER messaging's
+        // MessagingConfigCompilerPass (100, registers consumers) but BEFORE HandlerDiscovery
+        // (90) — the export consumer HANDLER carries the 'vortos.event_handler' tag, so it must
+        // exist before discovery runs, and the object-store alias it needs is already present
+        // (all extension load() runs before any pass).
         $container->addCompilerPass(
             new AuditExportObjectStorePass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
-            -60,
+            95,
         );
     }
 }

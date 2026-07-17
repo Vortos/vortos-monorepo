@@ -326,9 +326,11 @@ final class AuditExtension extends Extension
             return;
         }
 
-        $exportAsync = (bool) $config['async']
-            && interface_exists(EventBusInterface::class)
-            && ($container->has(StandaloneEventBusInterface::class) || $container->hasAlias(StandaloneEventBusInterface::class));
+        // Match the ingestion producer's gate exactly: config flag + the bus INTERFACE existing.
+        // Never test container->has(StandaloneEventBusInterface) here — extension load order is
+        // not guaranteed, so the messaging extension may not have registered it yet at this point
+        // (it resolves fine at compile-end). An app that enables async audit ships messaging.
+        $exportAsync = (bool) $config['async'] && interface_exists(EventBusInterface::class);
 
         // Tuning handed to AuditExportObjectStorePass (runs after every extension's load()).
         $container->setParameter('vortos_audit.export_async', $exportAsync);

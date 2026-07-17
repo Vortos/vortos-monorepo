@@ -19,12 +19,14 @@ final class AuditAdminPackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
-        // Runs after vortos-audit's AuditExportObjectStorePass (priority -60): a lower priority
-        // (-70) guarantees AuditExportService is registered before we wire its controllers.
+        // Priority 82 sits in the window: AFTER vortos-audit's AuditExportObjectStorePass (95,
+        // which registers AuditExportService) so the service exists, and BEFORE http's
+        // RouteCompilerPass (80) so the export controllers — tagged 'vortos.api.controller' —
+        // are seen by route discovery. (A late pass would register them after routes are built.)
         $container->addCompilerPass(
             new AuditExportControllerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
-            -70,
+            82,
         );
     }
 }

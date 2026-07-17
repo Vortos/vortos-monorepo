@@ -61,7 +61,6 @@ final class AuditExportRequestHandler
             $this->jobs->save($job);
 
             $this->metrics?->exportCompleted($result->recordCount);
-            $this->notifier?->exportReady($job, $result);
 
             $this->logger->info('Audit export completed.', [
                 'export_id'    => $job->id,
@@ -69,15 +68,34 @@ final class AuditExportRequestHandler
                 'byte_size'    => $result->byteSize,
                 'body_key'     => $result->bodyKey,
             ]);
+
+            // Notify OUTSIDE the export try/catch and swallow its errors: the artifact is
+            // already persisted and the job is Ready, so a flaky notification channel must
+            // never flip a successful export to Failed (or crash the consumer).
+            $this->notify(fn () => $this->notifier?->exportReady($job, $result), $job->id);
         } catch (\Throwable $e) {
             $job->markFailed($e->getMessage(), $this->clock->now());
             $this->jobs->save($job);
 
             $this->metrics?->exportFailed();
-            $this->notifier?->exportFailed($job, $e->getMessage());
 
             $this->logger->error('Audit export failed.', [
                 'export_id' => $job->id,
+                'exception' => $e->getMessage(),
+            ]);
+
+            $this->notify(fn () => $this->notifier?->exportFailed($job, $e->getMessage()), $job->id);
+        }
+    }
+
+    /** Run a notification callback, isolating its failures from the export outcome. */
+    private function notify(callable $send, string $exportId): void
+    {
+        try {
+            $send();
+        } catch (\Throwable $e) {
+            $this->logger->error('Audit export notification failed (export outcome unaffected).', [
+                'export_id' => $exportId,
                 'exception' => $e->getMessage(),
             ]);
         }

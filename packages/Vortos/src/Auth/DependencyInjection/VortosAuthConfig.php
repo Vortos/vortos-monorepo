@@ -23,6 +23,10 @@ final class VortosAuthConfig
     private int $accessTokenTtl = 900;
     private int $refreshTokenTtl = 604800;
     private int $refreshRotationGraceSeconds = 0;
+    private bool $enforceSessionLiveness = false;
+    private int $sessionLivenessCacheTtlSeconds = 5;
+    private int $sessionLivenessCircuitBreakerThreshold = 5;
+    private int $sessionLivenessCircuitBreakerResetSeconds = 30;
     private string $issuer = 'vortos';
     private string $audience = 'vortos';
     private string $tokenStorage = InMemoryTokenStorage::class;
@@ -184,6 +188,36 @@ final class VortosAuthConfig
         return $this;
     }
 
+    /**
+     * When true, every authenticated request verifies that the access token's session
+     * (the `sid` claim) is still live in the session store, returning 401 the moment a
+     * session is revoked rather than waiting for the access token to expire. Costs one
+     * session-store lookup per authenticated request and requires Redis + a SessionPolicy.
+     * Fails open on store errors. Default: false (stateless access tokens).
+     */
+    public function enforceSessionLiveness(bool $enabled = true): static
+    {
+        $this->enforceSessionLiveness = $enabled;
+        return $this;
+    }
+
+    /**
+     * Positive-cache window (seconds) for session-liveness checks — see enforceSessionLiveness().
+     * Also the upper bound on revocation latency. 0 disables the cache (strict per-request).
+     */
+    public function sessionLivenessCacheTtlSeconds(int $seconds): static
+    {
+        $this->sessionLivenessCacheTtlSeconds = max(0, $seconds);
+        return $this;
+    }
+
+    public function sessionLivenessCircuitBreaker(int $failureThreshold, int $resetSeconds): static
+    {
+        $this->sessionLivenessCircuitBreakerThreshold = max(1, $failureThreshold);
+        $this->sessionLivenessCircuitBreakerResetSeconds = max(1, $resetSeconds);
+        return $this;
+    }
+
     public function issuer(string $issuer): static
     {
         $this->issuer = $issuer;
@@ -331,6 +365,10 @@ final class VortosAuthConfig
             'access_token_ttl'            => $this->accessTokenTtl,
             'refresh_token_ttl'           => $this->refreshTokenTtl,
             'refresh_rotation_grace_seconds' => $this->refreshRotationGraceSeconds,
+            'enforce_session_liveness'    => $this->enforceSessionLiveness,
+            'session_liveness_cache_ttl_seconds' => $this->sessionLivenessCacheTtlSeconds,
+            'session_liveness_circuit_breaker_threshold' => $this->sessionLivenessCircuitBreakerThreshold,
+            'session_liveness_circuit_breaker_reset_seconds' => $this->sessionLivenessCircuitBreakerResetSeconds,
             'issuer'                      => $this->issuer,
             'audience'                    => $this->audience,
             'token_storage'               => $this->tokenStorage,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Auth\Storage;
 
 use Vortos\Auth\Contract\TokenStorageInterface;
+use Vortos\Auth\Storage\TokenConsumeResult;
 
 /**
  * Redis-backed refresh token storage.
@@ -13,6 +14,16 @@ use Vortos\Auth\Contract\TokenStorageInterface;
  *
  *   {prefix}auth:token:{jti}          — value: userId, TTL: token expiry
  *   {prefix}auth:user_tokens:{userId} — Redis SET of active JTIs for this user
+ *   {prefix}auth:token_grace:{jti}    — short-lived rotation-grace marker (benign re-use window)
+ *   {prefix}auth:token_revoked:{jti}  — revocation tombstone: this JTI was deliberately revoked
+ *
+ * ## Revoked vs. reused
+ *
+ * revoke() does not merely delete the token — it leaves a tombstone that outlives the
+ * token's own natural expiry. A later consume() of a tombstoned JTI reports Revoked
+ * (deliberate sign-out) rather than Reused (theft), so a revoked device firing one last
+ * refresh is rejected in isolation instead of tripping the RFC 6819 breach response that
+ * would revoke every session the user has.
  *
  * ## Atomicity
  *
@@ -38,23 +49,29 @@ final class RedisTokenStorage implements TokenStorageInterface
     private const TOKEN_PREFIX = 'vortos_auth:token:';
     private const USER_TOKENS_PREFIX = 'vortos_auth:user_tokens:';
     private const GRACE_PREFIX = 'vortos_auth:token_grace:';
+    private const REVOKED_PREFIX = 'vortos_auth:token_revoked:';
 
     /**
-     * Atomic rotation-with-grace.
+     * Atomic rotation-with-grace, classifying every outcome.
      *
      * Primary hit (token still live): delete it, drop it from the user's active set, and —
      * when a grace window is configured — leave a short-lived grace marker so an immediate
      * re-presentation of THIS jti (a racing tab, a retried request) is recognised as benign
      * rather than reuse. The grace marker is only ever written on the primary path, so a
-     * grace hit never re-arms grace (no unbounded chaining).
+     * grace hit never re-arms grace (no unbounded chaining). → status 'rotated'.
      *
-     * Primary miss: if grace is enabled and a marker exists, the token was consumed moments
-     * ago — return the userId so the caller issues a fresh pair instead of declaring theft.
-     * Otherwise return false (nil) → genuine reuse, and the caller applies its theft policy.
+     * Primary miss: classify why the token is gone —
+     *   - a revocation tombstone exists → the session was deliberately signed out → 'revoked'.
+     *   - a grace marker exists (and grace enabled) → benign just-rotated race → 'rotated'.
+     *   - neither → the token was consumed and never revoked → genuine reuse → 'reused'.
+     *
+     * Revoked is checked before grace so a deliberate revoke always wins over a lingering
+     * grace marker. Returns a cjson-encoded {status, userId}.
      */
     private const LUA_CONSUME = <<<'LUA'
 local key = KEYS[1]
 local graceKey = KEYS[2]
+local revokedKey = KEYS[3]
 local jti = ARGV[1]
 local userPrefix = ARGV[2]
 local graceSeconds = tonumber(ARGV[3])
@@ -65,27 +82,49 @@ if userId then
     if graceSeconds > 0 then
         redis.call('SET', graceKey, userId, 'EX', graceSeconds)
     end
-    return userId
+    return cjson.encode({status='rotated', userId=userId})
+end
+if redis.call('EXISTS', revokedKey) == 1 then
+    return cjson.encode({status='revoked'})
 end
 if graceSeconds > 0 then
     local graceUser = redis.call('GET', graceKey)
     if graceUser then
-        return graceUser
+        return cjson.encode({status='rotated', userId=graceUser})
     end
 end
-return false
+return cjson.encode({status='reused'})
 LUA;
 
+    /**
+     * Revoke-with-tombstone.
+     *
+     * Delete the token and its grace marker, drop it from the user's active set, and write a
+     * revocation tombstone so a later consume() of this jti is classified 'revoked' rather
+     * than 'reused'. The tombstone inherits the token's remaining TTL when the token is still
+     * live (the common case — revoking an active session), so it survives exactly as long as
+     * the refresh token could have been replayed; if the token is already gone we fall back to
+     * the configured tombstone TTL.
+     */
     private const LUA_REVOKE = <<<'LUA'
 local key = KEYS[1]
 local graceKey = KEYS[2]
+local revokedKey = KEYS[3]
 local jti = ARGV[1]
 local userPrefix = ARGV[2]
+local fallbackTtl = tonumber(ARGV[3])
 local userId = redis.call('GET', key)
+local ttl = redis.call('TTL', key)
+if ttl == nil or ttl < 0 then
+    ttl = fallbackTtl
+end
 redis.call('DEL', key)
 redis.call('DEL', graceKey)
 if userId then
     redis.call('SREM', userPrefix .. userId, jti)
+end
+if ttl > 0 then
+    redis.call('SET', revokedKey, '1', 'EX', ttl)
 end
 return 1
 LUA;
@@ -93,25 +132,35 @@ LUA;
     private const LUA_REVOKE_ALL = <<<'LUA'
 local userKey = KEYS[1]
 local tokenPrefix = ARGV[1]
+local revokedPrefix = ARGV[2]
+local fallbackTtl = tonumber(ARGV[3])
 local jtis = redis.call('SMEMBERS', userKey)
-if #jtis > 0 then
-    local keys = {}
-    for i, jti in ipairs(jtis) do
-        keys[i] = tokenPrefix .. jti
+for _, jti in ipairs(jtis) do
+    local ttl = redis.call('TTL', tokenPrefix .. jti)
+    if ttl == nil or ttl < 0 then
+        ttl = fallbackTtl
     end
-    redis.call('DEL', unpack(keys))
+    redis.call('DEL', tokenPrefix .. jti)
+    if ttl > 0 then
+        redis.call('SET', revokedPrefix .. jti, '1', 'EX', ttl)
+    end
 end
 redis.call('DEL', userKey)
 return #jtis
 LUA;
 
     /**
-     * @param int $rotationGraceSeconds Grace window during which a just-rotated jti may be
-     *                                  re-consumed without tripping reuse detection. 0 = strict.
+     * @param int $rotationGraceSeconds     Grace window during which a just-rotated jti may be
+     *                                       re-consumed without tripping reuse detection. 0 = strict.
+     * @param int $revocationTombstoneTtl    Fallback TTL (seconds) for a revocation tombstone when
+     *                                       the revoked token's own remaining TTL is unknown. Should
+     *                                       be at least the refresh-token TTL so a revoked token can
+     *                                       never outlive its tombstone. Default: 604800 (7 days).
      */
     public function __construct(
         private \Redis $redis,
         private int $rotationGraceSeconds = 0,
+        private int $revocationTombstoneTtl = 604800,
     ) {}
 
     public function store(string $jti, string $userId, int $expiresAt): void
@@ -134,23 +183,44 @@ LUA;
         }
     }
 
-    public function consume(string $jti): ?string
+    public function consume(string $jti): TokenConsumeResult
     {
-        $result = $this->redis->eval(
+        /** @var string $raw */
+        $raw = $this->redis->eval(
             self::LUA_CONSUME,
-            [self::TOKEN_PREFIX . $jti, self::GRACE_PREFIX . $jti, $jti, self::USER_TOKENS_PREFIX, (string) $this->rotationGraceSeconds],
-            2,
+            [
+                self::TOKEN_PREFIX . $jti,
+                self::GRACE_PREFIX . $jti,
+                self::REVOKED_PREFIX . $jti,
+                $jti,
+                self::USER_TOKENS_PREFIX,
+                (string) $this->rotationGraceSeconds,
+            ],
+            3,
         );
 
-        return $result !== false ? (string) $result : null;
+        $decoded = json_decode($raw, true);
+
+        return match ($decoded['status'] ?? 'reused') {
+            'rotated' => TokenConsumeResult::rotated((string) $decoded['userId']),
+            'revoked' => TokenConsumeResult::revoked(),
+            default   => TokenConsumeResult::reused(),
+        };
     }
 
     public function revoke(string $jti): void
     {
         $this->redis->eval(
             self::LUA_REVOKE,
-            [self::TOKEN_PREFIX . $jti, self::GRACE_PREFIX . $jti, $jti, self::USER_TOKENS_PREFIX],
-            2,
+            [
+                self::TOKEN_PREFIX . $jti,
+                self::GRACE_PREFIX . $jti,
+                self::REVOKED_PREFIX . $jti,
+                $jti,
+                self::USER_TOKENS_PREFIX,
+                (string) $this->revocationTombstoneTtl,
+            ],
+            3,
         );
     }
 
@@ -158,7 +228,12 @@ LUA;
     {
         $this->redis->eval(
             self::LUA_REVOKE_ALL,
-            [self::USER_TOKENS_PREFIX . $userId, self::TOKEN_PREFIX],
+            [
+                self::USER_TOKENS_PREFIX . $userId,
+                self::TOKEN_PREFIX,
+                self::REVOKED_PREFIX,
+                (string) $this->revocationTombstoneTtl,
+            ],
             1,
         );
     }

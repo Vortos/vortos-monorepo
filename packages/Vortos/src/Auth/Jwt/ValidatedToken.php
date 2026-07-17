@@ -14,9 +14,17 @@ use Vortos\Auth\Contract\UserIdentityInterface;
  */
 final readonly class ValidatedToken
 {
+    /**
+     * @param string|null $sessionId The OIDC `sid` claim — the JTI of the refresh-token
+     *                               session this access token belongs to. Lets middleware
+     *                               check whether the session is still live (not revoked)
+     *                               without decoding the refresh token. Null on legacy tokens
+     *                               issued before the claim existed.
+     */
     public function __construct(
         public UserIdentityInterface $identity,
         public int $authzVersion,
         public int $issuedAt = 0,
+        public ?string $sessionId = null,
     ) {}
 }

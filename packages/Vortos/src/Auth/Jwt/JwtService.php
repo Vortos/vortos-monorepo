@@ -10,8 +10,15 @@ use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Exception\TokenExpiredException;
 use Vortos\Auth\Exception\TokenInvalidException;
 use Vortos\Auth\Exception\TokenReusedException;
+use Vortos\Auth\Exception\TokenRevokedException;
 use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Auth\Session\SessionEnforcer;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
 
 /**
  * Generates, validates, and refreshes JWT token pairs.
@@ -63,6 +70,7 @@ final class JwtService
         private JwtConfig $config,
         private TokenStorageInterface $tokenStorage,
         private ?SessionEnforcer $sessionEnforcer = null,
+        private ?FrameworkTelemetry $telemetry = null,
     ) {}
 
     /**
@@ -72,10 +80,13 @@ final class JwtService
      *
      * @param int $authzVersion Current authorization cache version for the user.
      *                          Pass the value from AuthorizationVersionStoreInterface::versionForUser().
+     * @param array<string, mixed> $sessionMeta Per-session metadata (device user-agent, IP,
+     *                          original logged-in-at) stored with the session and surfaced by
+     *                          session/device-management UIs. Carried across rotation by refresh().
      *
      * @throws \Vortos\Auth\Session\Exception\SessionLimitExceededException If session limit is exceeded with RejectNew policy.
      */
-    public function issue(UserIdentityInterface $identity, int $authzVersion = 0): JwtToken
+    public function issue(UserIdentityInterface $identity, int $authzVersion = 0, array $sessionMeta = []): JwtToken
     {
         $now = time();
         $accessExpiresAt = $now + $this->config->accessTokenTtl;
@@ -118,7 +129,7 @@ final class JwtService
         $refreshToken = JWT::encode($refreshPayload, $signingKey->signingMaterial(), $signingKey->algorithm, $signingKey->kid);
 
         // Session enforcement — may throw SessionLimitExceededException
-        $this->sessionEnforcer?->enforceOnIssue($identity, $jti, $now, $this->config->refreshTokenTtl);
+        $this->sessionEnforcer?->enforceOnIssue($identity, $jti, $now, $this->config->refreshTokenTtl, $sessionMeta);
 
         // Store refresh token JTI so it can be revoked later
         $this->tokenStorage->store($jti, $identity->id(), $refreshExpiresAt);
@@ -167,6 +178,7 @@ final class JwtService
             ),
             authzVersion: (int) ($payload['authz_version'] ?? 0),
             issuedAt: (int) ($payload['iat'] ?? 0),
+            sessionId: isset($payload['sid']) ? (string) $payload['sid'] : null,
         );
     }
 
@@ -176,15 +188,18 @@ final class JwtService
      * Validates the refresh token, atomically consumes it, removes its session
      * entry, and issues a fresh pair. The old refresh token cannot be reused.
      *
-     * If a validly-signed, non-expired refresh token has already been consumed,
-     * this is treated as credential theft: all tokens for the user are revoked
-     * and a TokenReusedException is thrown (RFC 6819 §5.2.2.3).
+     * A validly-signed, non-expired refresh token that is already gone is classified:
+     *   - deliberately revoked (tombstone present) → TokenRevokedException, this token
+     *     only; the user's other sessions are untouched.
+     *   - already consumed and never revoked → credential theft: all tokens for the user
+     *     are revoked and TokenReusedException is thrown (RFC 6819 §5.2.2.3).
      *
      * @param int $authzVersion Current authorization cache version for the user.
      *
      * @throws TokenInvalidException  If refresh token is malformed
      * @throws TokenExpiredException  If refresh token has expired
-     * @throws TokenReusedException   If refresh token was already consumed or revoked (breach detection)
+     * @throws TokenRevokedException  If refresh token was deliberately revoked (single session)
+     * @throws TokenReusedException   If refresh token was reused after consumption (breach detection)
      */
     public function refresh(string $refreshToken, UserIdentityInterface $identity, int $authzVersion = 0): JwtToken
     {
@@ -215,21 +230,39 @@ final class JwtService
             throw new TokenInvalidException('Refresh token missing jti claim.');
         }
 
-        $consumedUserId = $this->tokenStorage->consume($jti);
+        $result = $this->tokenStorage->consume($jti);
 
-        if ($consumedUserId === null) {
-            // Token was validly signed and not expired, but already consumed.
-            // This is a refresh token reuse — treat as credential theft.
+        if ($result->isRevoked()) {
+            // The token was deliberately revoked (single-device sign-out, admin revoke, or
+            // session-limit eviction). This is NOT theft — reject only this token and leave
+            // the user's other sessions untouched. Its session entry is already gone; drop it
+            // defensively in case the revoke path and the store ever diverge.
+            $this->sessionEnforcer?->removeSession($sub, $jti);
+            $this->emitSecurityEvent('auth.session.revoked_on_refresh');
+            throw new TokenRevokedException(
+                'This session has been signed out. Please log in again.'
+            );
+        }
+
+        if ($result->isReused()) {
+            // Token was validly signed and not expired, was never revoked, yet is already
+            // consumed. This is refresh-token reuse — treat as credential theft (RFC 6819).
             $this->tokenStorage->revokeAllForUser($sub);
             $this->sessionEnforcer?->clearAllSessions($sub);
+            $this->emitSecurityEvent('auth.token.reuse_detected');
             throw new TokenReusedException(
                 'Refresh token has already been used. All sessions for this user have been revoked as a security precaution.'
             );
         }
 
+        // Carry the session's device metadata across rotation, preserving the ORIGINAL
+        // logged-in-at, so the device keeps its name/IP and its true sign-in time in session
+        // listings instead of resetting to "Unknown device" at the moment the token rotates.
+        $carriedMeta = $this->sessionEnforcer?->getSessionMeta($sub, $jti) ?? [];
+
         $this->sessionEnforcer?->removeSession($sub, $jti);
 
-        return $this->issue($identity, $authzVersion);
+        return $this->issue($identity, $authzVersion, $carriedMeta);
     }
 
     /**
@@ -273,6 +306,15 @@ final class JwtService
         }
 
         return $payload['sub'];
+    }
+
+    private function emitSecurityEvent(string $event): void
+    {
+        $this->telemetry?->increment(
+            ObservabilityModule::Security,
+            FrameworkMetric::SecurityEventsTotal,
+            FrameworkMetricLabels::of(MetricLabelValue::of(MetricLabel::Event, $event)),
+        );
     }
 
     private function decode(string $token): array

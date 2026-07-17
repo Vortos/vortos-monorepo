@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Vortos\Auth\Exception\TokenExpiredException;
 use Vortos\Auth\Exception\TokenInvalidException;
 use Vortos\Auth\Exception\TokenReusedException;
+use Vortos\Auth\Exception\TokenRevokedException;
 use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Auth\Jwt\JwtConfig;
@@ -359,8 +360,9 @@ final class JwtServiceTest extends TestCase
             // expected
         }
 
-        // token2 should also be revoked as a breach response
-        $this->expectException(TokenReusedException::class);
+        // token2 is also revoked as a breach response. Because the mass-revoke leaves
+        // tombstones, its holder sees a clean Revoked rather than a second theft alarm.
+        $this->expectException(TokenRevokedException::class);
         $this->jwtService->refresh($token2->refreshToken, $identity);
     }
 
@@ -401,7 +403,9 @@ final class JwtServiceTest extends TestCase
 
         $this->jwtService->revokeAll('user-1');
 
-        $this->expectException(TokenReusedException::class);
+        // revokeAll is a deliberate action (logout-all / breach response) — a subsequent
+        // presentation is reported as Revoked, not misclassified as a fresh theft.
+        $this->expectException(TokenRevokedException::class);
         $this->jwtService->refresh($token1->refreshToken, $identity);
     }
 

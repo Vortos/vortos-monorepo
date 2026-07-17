@@ -60,6 +60,7 @@ use Vortos\Auth\TwoFactor\Middleware\TwoFactorMiddleware;
 use Vortos\Auth\Session\Compiler\SessionCompilerPass;
 use Vortos\Auth\Session\Contract\SessionStoreInterface;
 use Vortos\Auth\Session\SessionEnforcer;
+use Vortos\Auth\Session\SessionLivenessGuard;
 use Vortos\Auth\Session\Storage\RedisSessionStore;
 use Vortos\Auth\Storage\InMemoryTokenStorage;
 use Vortos\Auth\Storage\RedisTokenStorage;
@@ -157,11 +158,13 @@ final class AuthExtension extends Extension
             $container->register(RedisTokenStorage::class, RedisTokenStorage::class)
                 ->setArgument('$redis', new Reference(\Redis::class))
                 ->setArgument('$rotationGraceSeconds', $resolved['refresh_rotation_grace_seconds'])
+                ->setArgument('$revocationTombstoneTtl', $resolved['refresh_token_ttl'])
                 ->setShared(true)->setPublic(false);
         }
 
         $container->register(InMemoryTokenStorage::class, InMemoryTokenStorage::class)
             ->setArgument('$rotationGraceSeconds', $resolved['refresh_rotation_grace_seconds'])
+            ->setArgument('$revocationTombstoneTtl', $resolved['refresh_token_ttl'])
             ->setShared(true)->setPublic(false);
 
         $container->setAlias(TokenStorageInterface::class, $resolved['token_storage'])->setPublic(false);
@@ -172,6 +175,8 @@ final class AuthExtension extends Extension
                 new Reference(JwtConfig::class),
                 new Reference(TokenStorageInterface::class),
                 null, // $sessionEnforcer — wired below when Redis is available
+                // Telemetry for refresh-token reuse (theft) + deliberate-revoke-on-refresh events.
+                new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
             ])
             ->setShared(true)->setPublic(true);
 
@@ -225,6 +230,11 @@ final class AuthExtension extends Extension
                 new Reference(ArrayAdapter::class),
                 [], // $protectedControllers — filled by AuthCompilerPass
                 new Reference(TokenFreshnessGuardInterface::class),
+                // SessionLivenessGuard only exists when Redis is available — optional so the
+                // stateless (no-Redis) container still builds.
+                new Reference(SessionLivenessGuard::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                $resolved['enforce_session_liveness'],
+                new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
             ])
             ->setShared(true)->setPublic(true)
             ->addTag('kernel.event_subscriber');
@@ -298,6 +308,19 @@ final class AuthExtension extends Extension
 
             $container->getDefinition(JwtService::class)
                 ->setArgument('$sessionEnforcer', new Reference(SessionEnforcer::class));
+
+            // Session-liveness guard — caches positive checks + circuit-breaks the store lookup
+            // so the per-request sid check is cheap at scale and a store outage fails open.
+            $container->register(SessionLivenessGuard::class, SessionLivenessGuard::class)
+                ->setArguments([
+                    new Reference(SessionStoreInterface::class),
+                    $resolved['session_liveness_cache_ttl_seconds'],
+                    $resolved['session_liveness_circuit_breaker_threshold'],
+                    $resolved['session_liveness_circuit_breaker_reset_seconds'],
+                    new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                    new Reference('vortos.logger.security', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                ])
+                ->setShared(true)->setPublic(true);
 
             // LockoutManager
             $lockoutConfig = $config->getLockoutConfig() ?? new \Vortos\Auth\Lockout\LockoutConfig();

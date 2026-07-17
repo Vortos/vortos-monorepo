@@ -20,9 +20,13 @@ final class SessionEnforcer
     /**
      * Atomically enforce session limits and add the new session.
      *
+     * @param array<string, mixed> $meta Per-session metadata (device / IP / original
+     *                                   logged-in-at) stored with the session and carried
+     *                                   across refresh-token rotation.
+     *
      * @throws SessionLimitExceededException If the policy rejects the new session.
      */
-    public function enforceOnIssue(UserIdentityInterface $identity, string $jti, int $issuedAt, int $ttl): void
+    public function enforceOnIssue(UserIdentityInterface $identity, string $jti, int $issuedAt, int $ttl, array $meta = []): void
     {
         if ($this->policy === null) {
             return;
@@ -38,6 +42,7 @@ final class SessionEnforcer
             $ttl,
             $max,
             $evictOldest,
+            $meta,
         );
 
         if ($result->rejected) {
@@ -54,6 +59,16 @@ final class SessionEnforcer
     public function removeSession(string $userId, string $jti): void
     {
         $this->store->removeSession($userId, $jti);
+    }
+
+    /**
+     * Metadata stored for a session — used to carry device metadata across rotation.
+     *
+     * @return array<string, mixed>
+     */
+    public function getSessionMeta(string $userId, string $jti): array
+    {
+        return $this->store->getSessionMeta($userId, $jti);
     }
 
     public function clearAllSessions(string $userId): void

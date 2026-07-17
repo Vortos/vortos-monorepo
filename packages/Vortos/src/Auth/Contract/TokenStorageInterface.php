@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Auth\Contract;
 
+use Vortos\Auth\Storage\TokenConsumeResult;
+
 /**
  * Stores and validates refresh token JTIs for revocation tracking.
  *
@@ -38,18 +40,31 @@ interface TokenStorageInterface
     public function store(string $jti, string $userId, int $expiresAt): void;
 
     /**
-     * Atomically consume a JTI — returns the associated userId if the JTI was
-     * valid, null if already consumed, expired, or never stored.
+     * Atomically consume a JTI for refresh-token rotation.
      *
-     * Only one concurrent caller succeeds; all subsequent callers get null.
-     * This is the primary mechanism for refresh token rotation: the caller that
-     * gets null on a validly-signed, non-expired token should treat it as
-     * credential theft and revoke all tokens for the user (RFC 6819 §5.2.2.3).
+     * Only one concurrent caller can rotate a given JTI; the operation is a single
+     * atomic GET+DEL+SREM. The result distinguishes three cases the caller must
+     * handle differently (see {@see TokenConsumeResult}):
+     *
+     *   - Rotated: JTI was live (or within the rotation-grace window) → issue a
+     *     fresh pair.
+     *   - Revoked: a revocation tombstone was found → this session was deliberately
+     *     signed out; reject this token only, leave the user's other sessions alone.
+     *   - Reused: JTI was neither live nor tombstoned → genuine refresh-token reuse
+     *     (RFC 6819 §5.2.2.3); the caller revokes all of the user's tokens.
+     *
+     * Distinguishing Revoked from Reused is what prevents a deliberate single-device
+     * sign-out from being misread as theft and logging the user out everywhere.
      */
-    public function consume(string $jti): ?string;
+    public function consume(string $jti): TokenConsumeResult;
 
     /**
-     * Revoke a specific JTI — used on single-device logout.
+     * Revoke a specific JTI — used on single-device logout, admin session revoke,
+     * and session-limit eviction.
+     *
+     * Leaves a revocation tombstone so a later, benign presentation of the same JTI
+     * (the revoked device firing its own refresh before it notices) is reported as
+     * {@see TokenConsumeStatus::Revoked}, not misclassified as reuse/theft.
      */
     public function revoke(string $jti): void;
 

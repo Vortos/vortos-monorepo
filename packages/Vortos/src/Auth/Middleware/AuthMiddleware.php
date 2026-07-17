@@ -15,7 +15,14 @@ use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Jwt\JwtService;
 use Vortos\Auth\Jwt\ValidatedToken;
+use Vortos\Auth\Session\SessionLivenessGuard;
 use Vortos\Cache\Adapter\ArrayAdapter;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Observability\Telemetry\FrameworkMetric;
+use Vortos\Observability\Telemetry\FrameworkMetricLabels;
+use Vortos\Observability\Telemetry\MetricLabel;
+use Vortos\Observability\Telemetry\MetricLabelValue;
 
 /**
  * Validates JWT tokens and enforces #[RequiresAuth] on controllers.
@@ -46,6 +53,9 @@ final class AuthMiddleware implements MiddlewareInterface
         private ArrayAdapter                   $arrayAdapter,
         private array                          $protectedControllers = [],
         private ?TokenFreshnessGuardInterface  $freshnessGuard = null,
+        private ?SessionLivenessGuard          $livenessGuard = null,
+        private bool                           $enforceSessionLiveness = false,
+        private ?FrameworkTelemetry            $telemetry = null,
     ) {}
 
     public function handle(Request $request, \Closure $next): Response
@@ -79,7 +89,42 @@ final class AuthMiddleware implements MiddlewareInterface
             }
         }
 
+        // Session-liveness: reject an access token whose session was revoked, instead of
+        // waiting for it to expire. Opt-in; the guard caches + circuit-breaks the store lookup.
+        if ($this->shouldCheckSessionLiveness($validated)
+            && !$this->livenessGuard->isLive($validated->identity->id(), (string) $validated->sessionId)
+        ) {
+            $this->emitSecurityEvent('auth.session.liveness_rejected');
+            return new JsonResponse(
+                ['error' => 'Session Revoked', 'message' => 'This session has been signed out.'],
+                Response::HTTP_UNAUTHORIZED,
+                ['X-Session-Revoked' => 'true'],
+            );
+        }
+
         return $next($request);
+    }
+
+    /**
+     * @phpstan-assert-if-true !null $this->livenessGuard
+     * @phpstan-assert-if-true !null $validated
+     */
+    private function shouldCheckSessionLiveness(?ValidatedToken $validated): bool
+    {
+        return $this->enforceSessionLiveness
+            && $this->livenessGuard !== null
+            && $validated !== null
+            && $validated->identity->isAuthenticated()
+            && $validated->sessionId !== null;
+    }
+
+    private function emitSecurityEvent(string $event): void
+    {
+        $this->telemetry?->increment(
+            ObservabilityModule::Security,
+            FrameworkMetric::SecurityEventsTotal,
+            FrameworkMetricLabels::of(MetricLabelValue::of(MetricLabel::Event, $event)),
+        );
     }
 
     private function resolveToken(Request $request): ?ValidatedToken

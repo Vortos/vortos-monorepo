@@ -5,7 +5,7 @@
          colors="true">
 
     <php>
-        <ini name="memory_limit" value="256M"/>
+        <ini name="memory_limit" value="512M"/>
         <!--
             Auto-prune registers a framework-owned static schedule
             (PruneSchedulerRunsSchedule) whenever SchedulerExtension is loaded with

@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Audit\DependencyInjection\Compiler\AuditActionProviderPass;
+use Vortos\Audit\DependencyInjection\Compiler\AuditExportObjectStorePass;
 use Vortos\Audit\DependencyInjection\Compiler\AuditRetentionArchivePass;
 use Vortos\Foundation\Contract\PackageInterface;
 
@@ -31,6 +32,14 @@ final class AuditPackage implements PackageInterface
         // object-store alias check is load-order-independent.
         $container->addCompilerPass(
             new AuditRetentionArchivePass(),
+            PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            -60,
+        );
+
+        // Wires the async-export object-store target (sink + streaming exporter + service +
+        // consumer handler + GC) after every extension's load(), same rationale as retention.
+        $container->addCompilerPass(
+            new AuditExportObjectStorePass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,
             -60,
         );

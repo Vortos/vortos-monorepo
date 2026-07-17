@@ -48,4 +48,27 @@ final class AuditMetrics
             $this->metrics?->counter('vortos_audit_purged_total')->increment((float) $count);
         }
     }
+
+    public function exportRequested(string $scope): void
+    {
+        $this->metrics?->counter('vortos_audit_exports_requested_total', ['scope' => $scope])->increment();
+    }
+
+    public function exportCompleted(int $recordCount): void
+    {
+        $this->metrics?->counter('vortos_audit_exports_completed_total')->increment();
+        $this->metrics?->histogram('vortos_audit_export_records')->observe((float) $recordCount);
+    }
+
+    public function exportFailed(): void
+    {
+        $this->metrics?->counter('vortos_audit_exports_failed_total')->increment();
+    }
+
+    public function exportsGarbageCollected(int $count): void
+    {
+        if ($count > 0) {
+            $this->metrics?->counter('vortos_audit_exports_gc_total')->increment((float) $count);
+        }
+    }
 }

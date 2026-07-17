@@ -39,7 +39,10 @@ use Vortos\Audit\Storage\Dbal\Postgres\PostgresAuditExtrasInstaller;
 use Vortos\Audit\Admin\AuditAdminService;
 use Vortos\Audit\Admin\AuditPermissionCatalog;
 use Vortos\Audit\Doctor\AuditDoctor;
-use Vortos\Audit\Export\AuditExporter;
+use Vortos\Audit\Console\AuditExportGcCommand;
+use Vortos\Audit\Export\AuditExportEnqueuer;
+use Vortos\Audit\Export\AuditExportJobStoreInterface;
+use Vortos\Audit\Export\Dbal\DbalAuditExportJobStore;
 use Vortos\Audit\Observability\AuditMetricDefinitions;
 use Vortos\Audit\Observability\AuditMetrics;
 use Vortos\Audit\Integrity\AuditChainVerifier;
@@ -99,6 +102,7 @@ final class AuditExtension extends Extension
 
         $this->registerStorage($container, $hmacKey, $config);
         $this->registerIngestion($container, $config);
+        $this->registerExport($container, $config, $hmacKey);
         $this->registerRetention($container, $config);
         $this->registerAdmin($container, $hmacKey);
         $this->registerObservability($container, $config, $hmacKey);
@@ -186,12 +190,15 @@ final class AuditExtension extends Extension
 
         $container->register(StoredAuditEventSerializer::class, StoredAuditEventSerializer::class)->setPublic(false);
 
-        $container->register(AuditExporter::class, AuditExporter::class)
-            ->setArgument('$query', new Reference(AuditQueryInterface::class))
-            ->setArgument('$serializer', new Reference(StoredAuditEventSerializer::class))
-            ->setArgument('$chain', new Reference(AuditHashChain::class))
-            ->setArgument('$hmacKey', $hmacKey)
+        // Async export (P6): the durable job store is always available with DBAL present; the
+        // object-store-backed exporter, sink, service and consumer handler are wired later by
+        // AuditExportObjectStorePass (their object-store alias check must run post-load), and
+        // the enqueuer (producer) is wired by registerExport() when messaging is present.
+        $container->register(DbalAuditExportJobStore::class, DbalAuditExportJobStore::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $prefix . 'audit_export_jobs')
             ->setPublic(false);
+        $container->setAlias(AuditExportJobStoreInterface::class, DbalAuditExportJobStore::class);
 
         // Saved views (F2): named, scope-bound console filter sets.
         $container->register(DbalAuditSavedViewStore::class, DbalAuditSavedViewStore::class)
@@ -303,6 +310,57 @@ final class AuditExtension extends Extension
     }
 
     /**
+     * Wire async export (P6). The job store is already registered in registerStorage(); here
+     * we surface the tuning as container parameters (consumed by AuditExportObjectStorePass,
+     * which wires the object-store-dependent sink/exporter/service/handler post-load) and, when
+     * export can actually dispatch (async on + messaging present), register the enqueuer
+     * producer. Like ingestion, the consumer-side handler is only wired when async is on — an
+     * app enabling async audit declares BOTH the 'vortos.audit' and 'vortos.audit.export'
+     * consumers in its messaging config.
+     *
+     * @param array<string, mixed> $config
+     */
+    private function registerExport(ContainerBuilder $container, array $config, string $hmacKey): void
+    {
+        if (!$container->hasDefinition(DbalAuditExportJobStore::class)) {
+            return;
+        }
+
+        $exportAsync = (bool) $config['async']
+            && interface_exists(EventBusInterface::class)
+            && ($container->has(StandaloneEventBusInterface::class) || $container->hasAlias(StandaloneEventBusInterface::class));
+
+        // Tuning handed to AuditExportObjectStorePass (runs after every extension's load()).
+        $container->setParameter('vortos_audit.export_async', $exportAsync);
+        $container->setParameter('vortos_audit.export_hmac_key', $hmacKey);
+        $container->setParameter('vortos_audit.export_key_prefix', (string) $config['export_key_prefix']);
+        $container->setParameter('vortos_audit.export_page_size', (int) $config['export_page_size']);
+        $container->setParameter('vortos_audit.export_artifact_retention_days', (int) $config['export_artifact_retention_days']);
+        $container->setParameter('vortos_audit.export_download_url_ttl_seconds', (int) $config['export_download_url_ttl_seconds']);
+
+        // Clock is shared with retention; register once, idempotently.
+        if (!$container->hasDefinition(SystemClock::class)) {
+            $container->register(SystemClock::class, SystemClock::class)->setPublic(false);
+        }
+
+        if ($exportAsync) {
+            // Producer: persists the Queued job and dispatches the request envelope.
+            $container->register(AuditExportEnqueuer::class, AuditExportEnqueuer::class)
+                ->setArgument('$jobs', new Reference(AuditExportJobStoreInterface::class))
+                ->setArgument('$eventBus', new Reference(StandaloneEventBusInterface::class))
+                ->setArgument('$clock', new Reference(SystemClock::class))
+                ->setPublic(false);
+        }
+
+        // GC command always exists (so `vortos:audit:export:gc` is discoverable); the pass points
+        // its $collector at the real collector when an object-store target is present, else null.
+        $container->register(AuditExportGcCommand::class, AuditExportGcCommand::class)
+            ->setArgument('$collector', null)
+            ->addTag('console.command')
+            ->setPublic(false);
+    }
+
+    /**
      * Wire archive-then-purge retention (P4). Registered only with DBAL present. The
      * sweeper + console command are wired only when a durable archive target exists
      * (vortos-object-store), because purge must never run without archiving first.
@@ -362,7 +420,6 @@ final class AuditExtension extends Extension
                 ->setArgument('$query', new Reference(AuditQueryInterface::class))
                 ->setArgument('$reader', new Reference(AuditReaderInterface::class))
                 ->setArgument('$verifier', new Reference(AuditChainVerifier::class))
-                ->setArgument('$exporter', new Reference(AuditExporter::class))
                 ->setArgument('$hmacKey', $hmacKey)
                 ->setArgument('$checkpoints', new Reference(AuditCheckpointStoreInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
                 ->setPublic(true);
@@ -405,6 +462,7 @@ final class AuditExtension extends Extension
                 'hmac_key_set'       => $hmacKey !== '',
                 'async'              => (bool) $config['async'],
                 'has_archive_target' => $container->hasAlias(AuditArchiveWriterInterface::class),
+                'has_export_target'  => false, // flipped by AuditExportObjectStorePass when object store present
                 'has_store'          => $container->hasDefinition(DbalAuditStore::class),
                 'has_checkpoints'    => $container->hasAlias(AuditCheckpointStoreInterface::class),
                 'row_level_security' => (bool) ($config['row_level_security'] ?? false),

@@ -50,6 +50,11 @@ final class VortosAuditConfig
     private int $retentionBatchSize;
     private string $archiveBucket;
     private string $archiveKeyPrefix;
+    private string $exportConsumer;
+    private string $exportKeyPrefix;
+    private int $exportArtifactRetentionDays;
+    private int $exportDownloadUrlTtlSeconds;
+    private int $exportPageSize;
     private AuditSearchDriver $searchDriver;
     private bool $rowLevelSecurity;
     private bool $authEventsUnify;
@@ -70,6 +75,11 @@ final class VortosAuditConfig
         $this->retentionBatchSize                = 1000;
         $this->archiveBucket                     = '';
         $this->archiveKeyPrefix                  = 'audit-archive';
+        $this->exportConsumer                    = 'vortos.audit.export';
+        $this->exportKeyPrefix                   = 'audit-exports';
+        $this->exportArtifactRetentionDays       = 7;
+        $this->exportDownloadUrlTtlSeconds       = 900; // 15m
+        $this->exportPageSize                    = 500;
         $this->searchDriver                      = AuditSearchDriver::PostgresFts;
         $this->rowLevelSecurity                  = false;
         $this->authEventsUnify                   = false;
@@ -165,6 +175,38 @@ final class VortosAuditConfig
         return $this;
     }
 
+    /**
+     * Async export tuning. Exports run on their OWN consumer (isolated from ingestion so a
+     * huge export can't stall the append path); the artifact is streamed to the object store
+     * under {@see $keyPrefix} and stays downloadable for {@see $artifactRetentionDays} before
+     * the GC command removes it; each status request mints a fresh presigned URL valid for
+     * {@see $downloadUrlTtlSeconds}.
+     */
+    public function exports(
+        ?string $consumer = null,
+        ?string $keyPrefix = null,
+        ?int    $artifactRetentionDays = null,
+        ?int    $downloadUrlTtlSeconds = null,
+        ?int    $pageSize = null,
+    ): static {
+        if ($consumer !== null) {
+            $this->exportConsumer = $consumer;
+        }
+        if ($keyPrefix !== null) {
+            $this->exportKeyPrefix = $keyPrefix;
+        }
+        if ($artifactRetentionDays !== null) {
+            $this->exportArtifactRetentionDays = \max(1, $artifactRetentionDays);
+        }
+        if ($downloadUrlTtlSeconds !== null) {
+            $this->exportDownloadUrlTtlSeconds = \max(60, $downloadUrlTtlSeconds);
+        }
+        if ($pageSize !== null) {
+            $this->exportPageSize = \max(1, $pageSize);
+        }
+        return $this;
+    }
+
     /** Which search index backs free-text queries. Default = Postgres FTS. */
     public function search(AuditSearchDriver $driver): static
     {
@@ -229,6 +271,11 @@ final class VortosAuditConfig
             'retention_batch_size'          => $this->retentionBatchSize,
             'archive_bucket'                => $this->archiveBucket,
             'archive_key_prefix'            => $this->archiveKeyPrefix,
+            'export_consumer'               => $this->exportConsumer,
+            'export_key_prefix'             => $this->exportKeyPrefix,
+            'export_artifact_retention_days' => $this->exportArtifactRetentionDays,
+            'export_download_url_ttl_seconds' => $this->exportDownloadUrlTtlSeconds,
+            'export_page_size'              => $this->exportPageSize,
             'search_driver'                 => $this->searchDriver->value,
             'row_level_security'            => $this->rowLevelSecurity,
             'auth_events_unify'             => $this->authEventsUnify,

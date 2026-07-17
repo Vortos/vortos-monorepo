@@ -8,9 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Vortos\AuditAdmin\DependencyInjection\AuditAdminExtension;
 use Vortos\AuditAdmin\Http\Controller\OrgAuditController;
-use Vortos\AuditAdmin\Http\Controller\OrgAuditExportController;
 use Vortos\AuditAdmin\Http\Controller\PlatformAuditController;
-use Vortos\AuditAdmin\Http\Controller\PlatformAuditExportController;
 use Vortos\AuditAdmin\Http\Controller\PlatformAuditVerifyController;
 
 final class AuditAdminExtensionTest extends TestCase
@@ -41,12 +39,12 @@ final class AuditAdminExtensionTest extends TestCase
     {
         $container = $this->load();
 
+        // Export controllers are wired by AuditExportControllerPass (needs AuditExportService),
+        // not by load(), so only the read/verify controllers are expected here.
         $controllers = [
             PlatformAuditController::class,
             PlatformAuditVerifyController::class,
-            PlatformAuditExportController::class,
             OrgAuditController::class,
-            OrgAuditExportController::class,
         ];
 
         foreach ($controllers as $controller) {

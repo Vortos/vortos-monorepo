@@ -6,13 +6,11 @@ namespace Vortos\AuditAdmin\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Audit\Admin\AuditAdminService;
-use Vortos\Audit\Export\AuditExporter;
 use Vortos\Audit\Integrity\AuditChainVerifier;
 use Vortos\Audit\Integrity\AuditHashChain;
 use Vortos\Audit\Query\AuditPage;
 use Vortos\Audit\Query\AuditQuery;
 use Vortos\Audit\Query\AuditQueryInterface;
-use Vortos\Audit\Retention\StoredAuditEventSerializer;
 use Vortos\Audit\Storage\AuditReaderInterface;
 use Vortos\AuditAdmin\Http\Controller\PlatformAuditVerifyController;
 use Vortos\Http\Request;
@@ -69,9 +67,8 @@ final class PlatformAuditVerifyControllerTest extends TestCase
             public function page(AuditQuery $query): AuditPage { return new AuditPage([], null); }
             public function facets(AuditQuery $query): \Vortos\Audit\Query\AuditFacets { return new \Vortos\Audit\Query\AuditFacets([], [], []); }
         };
-        $chain    = new AuditHashChain();
-        $exporter = new AuditExporter($query, new StoredAuditEventSerializer(), $chain);
+        $chain = new AuditHashChain();
 
-        return new AuditAdminService($query, $reader, new AuditChainVerifier($chain), $exporter);
+        return new AuditAdminService($query, $reader, new AuditChainVerifier($chain));
     }
 }

@@ -9,9 +9,7 @@ use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Audit\Admin\AuditAdminService;
 use Vortos\AuditAdmin\Http\Controller\OrgAuditController;
-use Vortos\AuditAdmin\Http\Controller\OrgAuditExportController;
 use Vortos\AuditAdmin\Http\Controller\PlatformAuditController;
-use Vortos\AuditAdmin\Http\Controller\PlatformAuditExportController;
 use Vortos\AuditAdmin\Http\Controller\PlatformAuditVerifyController;
 
 /**
@@ -32,14 +30,16 @@ final class AuditAdminExtension extends Extension
     private const PLATFORM_CONTROLLERS = [
         PlatformAuditController::class,
         PlatformAuditVerifyController::class,
-        PlatformAuditExportController::class,
     ];
 
     /** @var list<class-string> */
     private const ORG_CONTROLLERS = [
         OrgAuditController::class,
-        OrgAuditExportController::class,
     ];
+
+    // Export controllers are wired separately by AuditExportControllerPass, because they depend
+    // on AuditExportService, which is only registered (by AuditExportObjectStorePass) after every
+    // extension's load() has run and an object-store target is confirmed present.
 
     public function getAlias(): string
     {

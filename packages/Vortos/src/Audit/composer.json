@@ -23,7 +23,7 @@
         "ext-redis": "Idempotency keys for the async ingestion consumer (P3).",
         "vortos/vortos-messaging": "Kafka-decoupled ingestion — record() enqueues, the worker appends the chain (P3).",
         "vortos/vortos-scheduler": "Drives the retention + cold-archive sweeper on a schedule (P4).",
-        "vortos/vortos-object-store": "Cold-storage archival target for aged partitions (P4).",
+        "vortos/vortos-object-store": "Cold-storage archival target for aged partitions (P4) + streaming sink for async signed exports (P6).",
         "vortos/vortos-authorization": "RBAC gate for the audit-admin read/export/verify endpoints (P6).",
         "vortos/vortos-observability": "Ingest-lag, chain-length, and verify-failure metrics (P7).",
         "vortos/vortos-audit-admin": "Cross-tenant platform audit console endpoints (P6)."

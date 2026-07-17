@@ -9,11 +9,9 @@ use Vortos\Audit\Admin\AuditAdminService;
 use Vortos\Audit\Enum\Scope;
 use Vortos\Audit\Event\AuditActor;
 use Vortos\Audit\Event\AuditEvent;
-use Vortos\Audit\Export\AuditExporter;
 use Vortos\Audit\Integrity\AuditChainVerifier;
 use Vortos\Audit\Integrity\AuditHashChain;
 use Vortos\Audit\Query\AuditQueryInterface;
-use Vortos\Audit\Retention\StoredAuditEventSerializer;
 use Vortos\Audit\Storage\AuditReaderInterface;
 use Vortos\Audit\Storage\StoredAuditEvent;
 
@@ -36,10 +34,9 @@ final class AuditAdminServiceTest extends TestCase
         };
         $query = $this->createStub(AuditQueryInterface::class);
         $chain = new AuditHashChain();
-        $exporter = new AuditExporter($query, new StoredAuditEventSerializer(), $chain, self::KEY);
 
         return new AuditAdminService(
-            $query, $reader, new AuditChainVerifier($chain), $exporter, self::KEY,
+            $query, $reader, new AuditChainVerifier($chain), self::KEY,
             checkpoints: null, verifyBatchSize: 2, // small batch to exercise streaming
         );
     }

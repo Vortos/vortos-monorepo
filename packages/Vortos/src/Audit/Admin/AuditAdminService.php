@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vortos\Audit\Admin;
 
-use Vortos\Audit\Export\AuditExport;
 use Vortos\Audit\Integrity\AuditChainVerifier;
 use Vortos\Audit\Integrity\AuditHashChain;
 use Vortos\Audit\Integrity\ChainVerificationResult;
@@ -18,8 +17,12 @@ use Vortos\Audit\Storage\AuditReaderInterface;
 
 /**
  * The app-facing facade the audit admin endpoints (platform console / org settings) call.
- * One cohesive surface over read, export, and integrity verification, so controllers stay
- * thin and every consumer verifies chains the same way.
+ * One cohesive surface over read and integrity verification, so controllers stay thin and
+ * every consumer verifies chains the same way.
+ *
+ * Export is NOT here anymore: it is asynchronous (a multi-million-record dump must never run
+ * inline) and lives behind {@see \Vortos\Audit\Export\AuditExportService} — enqueue a job,
+ * poll its status, download from a signed URL.
  */
 final class AuditAdminService
 {
@@ -27,7 +30,6 @@ final class AuditAdminService
         private readonly AuditQueryInterface             $query,
         private readonly AuditReaderInterface             $reader,
         private readonly AuditChainVerifier               $verifier,
-        private readonly \Vortos\Audit\Export\AuditExporter $exporter,
         private readonly string                          $hmacKey = '',
         private readonly ?AuditCheckpointStoreInterface  $checkpoints = null,
         private readonly int                             $verifyBatchSize = 1000,
@@ -42,11 +44,6 @@ final class AuditAdminService
     public function facets(AuditQuery $query): AuditFacets
     {
         return $this->query->facets($query);
-    }
-
-    public function export(AuditQuery $query): AuditExport
-    {
-        return $this->exporter->export($query);
     }
 
     public function retentionFrontier(string $chainKey): ?AuditCheckpoint

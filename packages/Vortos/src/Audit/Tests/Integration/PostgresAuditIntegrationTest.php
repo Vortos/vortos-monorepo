@@ -14,12 +14,10 @@ use Vortos\Audit\Enum\Sensitivity;
 use Vortos\Audit\Event\AuditActor;
 use Vortos\Audit\Event\AuditEvent;
 use Vortos\Audit\Event\AuditTarget;
-use Vortos\Audit\Export\AuditExporter;
 use Vortos\Audit\Integrity\AuditChainVerifier;
 use Vortos\Audit\Integrity\AuditHashChain;
 use Vortos\Audit\Query\AuditQuery;
 use Vortos\Audit\Query\Dbal\DbalAuditQueryReader;
-use Vortos\Audit\Retention\StoredAuditEventSerializer;
 use Vortos\Audit\SavedView\AuditSavedView;
 use Vortos\Audit\SavedView\Dbal\DbalAuditSavedViewStore;
 use Vortos\Audit\Search\PostgresFtsSearchIndex;
@@ -221,11 +219,10 @@ final class PostgresAuditIntegrationTest extends TestCase
 
     private function admin(): AuditAdminService
     {
-        $store    = $this->store();
-        $chain    = new AuditHashChain();
-        $exporter = new AuditExporter($this->reader(), new StoredAuditEventSerializer(), $chain, self::HMAC);
+        $store = $this->store();
+        $chain = new AuditHashChain();
 
-        return new AuditAdminService($this->reader(), $store, new AuditChainVerifier($chain), $exporter, self::HMAC);
+        return new AuditAdminService($this->reader(), $store, new AuditChainVerifier($chain), self::HMAC);
     }
 
     private static function migrate(Connection $conn): void

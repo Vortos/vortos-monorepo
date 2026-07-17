@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Vortos\AuditAdmin\Http\Controller;
 
 use Symfony\Component\Routing\Attribute\Route;
-use Vortos\Audit\Admin\AuditAdminService;
 use Vortos\Audit\Enum\Scope;
-use Vortos\Audit\Query\AuditQuery;
+use Vortos\Audit\Export\AuditExportService;
+use Vortos\AuditAdmin\Http\AuditExportRequestParser;
+use Vortos\AuditAdmin\Http\Serializer\AuditExportJobPresenter;
 use Vortos\Auth\Attribute\RequiresAuth;
+use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Auth\TwoFactor\Attribute\Requires2FA;
 use Vortos\Authorization\Attribute\RequiresPermission;
 use Vortos\Http\Attribute\AsController;
@@ -16,33 +18,57 @@ use Vortos\Http\JsonResponse;
 use Vortos\Http\Request;
 
 /**
- * GET /api/platform/audit/export — signed export of the platform chain (or a tenant's,
- * via ?scope=tenant&tenantId=…). Requires a 2FA step-up (cross-tenant data export).
+ * POST /api/platform/audit/export — enqueue an async signed export of the platform chain (or a
+ * tenant's, via body/query scope=tenant&tenantId=…). Cross-tenant export requires the .any
+ * permission and a 2FA step-up; it runs out of band and is polled via the status endpoint.
  */
 #[AsController]
 #[RequiresAuth]
 #[Requires2FA]
 #[RequiresPermission('audit.export.any')]
-#[Route('/api/platform/audit/export', name: 'audit.platform.export', methods: ['GET'])]
+#[Route('/api/platform/audit/export', name: 'audit.platform.export', methods: ['POST'])]
 final class PlatformAuditExportController
 {
-    public function __construct(private readonly AuditAdminService $audit) {}
+    public function __construct(
+        private readonly AuditExportService  $exports,
+        private readonly CurrentUserProvider $currentUser,
+    ) {}
 
     public function __invoke(Request $request): JsonResponse
     {
-        $scope    = Scope::tryFrom((string) $request->query->get('scope', 'platform')) ?? Scope::Platform;
-        $tenantId = $scope === Scope::Tenant ? (string) $request->query->get('tenantId', '') : null;
+        $body     = json_decode((string) $request->getContent(), true);
+        $body     = \is_array($body) ? $body : [];
+        $scope    = Scope::tryFrom((string) ($body['scope'] ?? $request->query->get('scope', 'platform'))) ?? Scope::Platform;
+        $tenantId = $scope === Scope::Tenant
+            ? (string) ($body['tenantId'] ?? $request->query->get('tenantId', ''))
+            : null;
 
-        $from = $request->query->get('from');
-        $to   = $request->query->get('to');
+        if ($scope === Scope::Tenant && ($tenantId === null || $tenantId === '')) {
+            return new JsonResponse(['error' => 'tenantId is required for a tenant-scoped export'], 422);
+        }
 
-        $export = $this->audit->export(new AuditQuery(
-            scope:    $scope,
-            tenantId: $tenantId ?: null,
-            from:     $from ? new \DateTimeImmutable((string) $from) : null,
-            to:       $to ? new \DateTimeImmutable((string) $to) : null,
-        ));
+        $identity = $this->currentUser->get();
 
-        return new JsonResponse(['ndjson' => $export->ndjson, 'manifest' => $export->manifest]);
+        $job = $this->exports->request(
+            scope:              $scope,
+            tenantId:           $tenantId ?: null,
+            requestedByActorId: $identity->id(),
+            requestedByLabel:   $this->label($identity),
+            filter:             AuditExportRequestParser::filter($request),
+        );
+
+        return new JsonResponse(AuditExportJobPresenter::toArray($job), 202);
+    }
+
+    private function label(object $identity): ?string
+    {
+        if (!method_exists($identity, 'getAttribute')) {
+            return null;
+        }
+        $name  = $identity->getAttribute('name');
+        $email = $identity->getAttribute('email');
+
+        return \is_string($name) && $name !== '' ? $name
+            : (\is_string($email) && $email !== '' ? $email : null);
     }
 }

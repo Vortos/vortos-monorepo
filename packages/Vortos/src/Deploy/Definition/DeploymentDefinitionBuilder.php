@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Definition;
 
 use Vortos\Deploy\Runtime\FileSecret;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
+use Vortos\Deploy\Runtime\AppHealthcheck;
 use Vortos\Deploy\Runtime\WorkerHealthcheck;
 use Vortos\Deploy\Strategy\DeployStrategy;
 use Vortos\Release\Manifest\Arch;
@@ -47,6 +48,8 @@ final class DeploymentDefinitionBuilder
     /** @var list<FileSecret> */
     private array $fileSecrets = [];
     private ?WorkerHealthcheck $workerHealthcheck = null;
+
+    private ?AppHealthcheck $appHealthcheck = null;
 
     /** @var array<string, \Closure(self): self> */
     private array $envOverrides = [];
@@ -292,6 +295,20 @@ final class DeploymentDefinitionBuilder
     }
 
     /**
+     * Override the app service readiness healthcheck. Optional — the framework default is an HTTP probe
+     * of the canonical /health/ready contract on the container port, which the worker gates on so its
+     * consumer fan-out cannot race the app's readiness. Use {@see AppHealthcheck::disabled()} for a
+     * custom, non-HTTP app (the worker then falls back to co-booting with the app).
+     */
+    public function appHealthcheck(AppHealthcheck $healthcheck): self
+    {
+        $clone = clone $this;
+        $clone->appHealthcheck = $healthcheck;
+
+        return $clone;
+    }
+
+    /**
      * The resolved runtime service shape. Consumed by the DI container to drive the cutover compose
      * generation ({@see \Vortos\Deploy\Compose\ComposeProjectFactory}). Env-agnostic: command/port
      * are image-level facts, so per-environment overrides don't change them.
@@ -306,6 +323,7 @@ final class DeploymentDefinitionBuilder
             environment: $this->appEnvironment,
             fileSecrets: $this->fileSecrets,
             workerHealthcheck: $this->workerHealthcheck,
+            appHealthcheck: $this->appHealthcheck,
         );
     }
 

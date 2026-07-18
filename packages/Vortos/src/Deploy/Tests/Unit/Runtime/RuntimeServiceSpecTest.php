@@ -67,6 +67,15 @@ final class RuntimeServiceSpecTest extends TestCase
             // GAP-G: custom (non-supervisord) worker command ⇒ healthcheck disabled (still overrides
             // the base image's inherited HTTP HEALTHCHECK).
             'worker_healthcheck' => ['disable' => true],
+            // The app defaults to an HTTP /health/ready probe on the container port — the readiness
+            // signal the worker gates on so its consumer fan-out cannot race the readiness gate.
+            'app_healthcheck' => [
+                'test' => ['CMD-SHELL', 'curl -fsS -o /dev/null http://127.0.0.1:9000/health/ready || exit 1'],
+                'interval' => '3s',
+                'timeout' => '5s',
+                'retries' => 20,
+                'start_period' => '10s',
+            ],
         ], $spec->toArray());
     }
 

@@ -61,9 +61,46 @@ final class ComposeFileTest extends TestCase
         $this->assertArrayHasKey('healthcheck', $worker);
         $this->assertSame('CMD-SHELL', $worker['healthcheck']['test'][0]);
         $this->assertStringContainsString('supervisorctl', $worker['healthcheck']['test'][1]);
+    }
 
-        // The app service is untouched — its FrankenPHP admin healthcheck is correct.
-        $this->assertArrayNotHasKey('healthcheck', $array['services']['app-blue']);
+    public function test_app_emits_readiness_healthcheck(): void
+    {
+        // The app service overrides the base image's liveness-only HTTP check with a real readiness
+        // probe of the canonical /health/ready contract on the container port — the signal the worker
+        // gates on. Without it the container flips healthy the moment the HTTP server binds.
+        $array = (new ComposeFile('p', ActiveColor::Blue, self::digestPinnedImage(), self::spec()))->toArray();
+
+        $health = $array['services']['app-blue']['healthcheck'];
+        $this->assertSame('CMD-SHELL', $health['test'][0]);
+        $this->assertStringContainsString('curl', $health['test'][1]);
+        $this->assertStringContainsString('/health/ready', $health['test'][1]);
+        $this->assertStringContainsString('8080', $health['test'][1]);
+    }
+
+    public function test_worker_depends_on_app_service_healthy(): void
+    {
+        // The consumer fan-out must not start until the app color is genuinely ready, else a cold-start
+        // stampede races the readiness gate. Compose holds the worker until app is 'service_healthy'.
+        $array = (new ComposeFile('p', ActiveColor::Green, self::digestPinnedImage(), self::spec()))->toArray();
+
+        $this->assertSame(
+            ['app-green' => ['condition' => 'service_healthy']],
+            $array['services']['worker-green']['depends_on'],
+        );
+    }
+
+    public function test_worker_has_no_depends_on_when_app_healthcheck_disabled(): void
+    {
+        // A custom non-HTTP app can disable its readiness healthcheck; with no readiness signal to wait
+        // on, the worker cannot gate on it and falls back to co-booting (prior behaviour).
+        $spec = new RuntimeServiceSpec(
+            command: ['some', 'custom', 'server'],
+            appHealthcheck: \Vortos\Deploy\Runtime\AppHealthcheck::disabled(),
+        );
+        $array = (new ComposeFile('p', ActiveColor::Blue, self::digestPinnedImage(), $spec))->toArray();
+
+        $this->assertSame(['disable' => true], $array['services']['app-blue']['healthcheck']);
+        $this->assertArrayNotHasKey('depends_on', $array['services']['worker-blue']);
     }
 
     public function test_custom_worker_emits_disabled_healthcheck(): void

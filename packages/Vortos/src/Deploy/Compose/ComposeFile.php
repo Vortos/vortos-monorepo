@@ -32,6 +32,8 @@ final readonly class ComposeFile
     {
         $imageRef = $this->image->toString();
 
+        $appHealthcheck = $this->spec->resolvedAppHealthcheck();
+
         $appService = [
             'image' => $imageRef,
             'command' => $this->spec->command,
@@ -39,6 +41,10 @@ final readonly class ComposeFile
             'expose' => [(string) $this->spec->containerPort],
             'networks' => $this->spec->networks,
             'restart' => 'unless-stopped',
+            // Explicit READINESS healthcheck (see AppHealthcheck): overrides the base image's inherited,
+            // liveness-only HTTP check so the container's health reflects true readiness — the signal the
+            // worker gates on below so its consumer fan-out cannot race (and starve) the readiness gate.
+            'healthcheck' => $appHealthcheck->toArray(),
         ];
 
         $workerService = [
@@ -51,6 +57,19 @@ final readonly class ComposeFile
             // a real supervisorctl check for a supervisord worker, or an explicit disable otherwise.
             'healthcheck' => $this->spec->resolvedWorkerHealthcheck()->toArray(),
         ];
+
+        // The worker (and its consumer fan-out) must not start until the app color is genuinely READY.
+        // Co-booting them lets a cold-start consumer stampede — offset-reset replays + empty-group
+        // rebalances against a single broker — saturate the broker the app needs while booting, so the
+        // app cannot answer /health/ready inside the readiness gate and the cutover aborts. Gating the
+        // worker on the app's readiness healthcheck holds it (Compose waits for 'service_healthy') until
+        // the gate is already satisfiable. When the app healthcheck is disabled (custom non-HTTP app)
+        // there is no readiness signal to wait on, so fall back to the prior co-boot behaviour.
+        if (!$appHealthcheck->disabled) {
+            $workerService['depends_on'] = [
+                sprintf('app-%s', $this->color->value) => ['condition' => 'service_healthy'],
+            ];
+        }
 
         if ($this->spec->envFiles !== []) {
             $appService['env_file'] = $this->spec->envFiles;

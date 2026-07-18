@@ -37,6 +37,9 @@ final readonly class RuntimeServiceSpec
      * @param list<FileSecret>      $fileSecrets   file-shaped secrets (G8) tmpfs-mounted RO into the color
      * @param ?WorkerHealthcheck    $workerHealthcheck override for the worker service healthcheck (GAP-G);
      *                    null ⇒ resolved by {@see resolvedWorkerHealthcheck()} (supervisord check or disable)
+     * @param ?AppHealthcheck       $appHealthcheck override for the app service readiness healthcheck; null ⇒
+     *                    resolved by {@see resolvedAppHealthcheck()} to an HTTP /health/ready probe on the
+     *                    container port. The worker gates on this via depends_on (see {@see \Vortos\Deploy\Compose\ComposeFile}).
      */
     public function __construct(
         public array $command = self::DEFAULT_COMMAND,
@@ -47,6 +50,7 @@ final readonly class RuntimeServiceSpec
         public array $networks = ['vortos-net'],
         public array $fileSecrets = [],
         public ?WorkerHealthcheck $workerHealthcheck = null,
+        public ?AppHealthcheck $appHealthcheck = null,
     ) {
         $this->assertStringList('command', $command, allowEmpty: false);
         $this->assertStringList('workerCommand', $workerCommand, allowEmpty: false);
@@ -107,6 +111,16 @@ final readonly class RuntimeServiceSpec
             : WorkerHealthcheck::disabled();
     }
 
+    /**
+     * The app service readiness healthcheck. Defaults to an HTTP probe of the canonical /health/ready
+     * contract on the container port — the signal the worker gates on so its consumer fan-out cannot
+     * race the app's readiness. Override with {@see AppHealthcheck::disabled()} for a non-HTTP app.
+     */
+    public function resolvedAppHealthcheck(): AppHealthcheck
+    {
+        return $this->appHealthcheck ?? AppHealthcheck::httpReadiness($this->containerPort);
+    }
+
     private function workerRunsSupervisord(): bool
     {
         foreach ($this->workerCommand as $arg) {
@@ -130,6 +144,7 @@ final readonly class RuntimeServiceSpec
             'networks' => $this->networks,
             'file_secrets' => array_map(static fn (FileSecret $s): array => $s->toArray(), $this->fileSecrets),
             'worker_healthcheck' => $this->resolvedWorkerHealthcheck()->toArray(),
+            'app_healthcheck' => $this->resolvedAppHealthcheck()->toArray(),
         ];
     }
 

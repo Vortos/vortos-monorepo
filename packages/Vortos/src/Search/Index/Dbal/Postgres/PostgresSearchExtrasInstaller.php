@@ -58,18 +58,28 @@ final class PostgresSearchExtrasInstaller
     }
 
     /**
-     * Enable tenant row-level security. The app must set the per-request GUC
-     * `app.current_tenant` (the same one vortos-tenant / the audit spine use) for reads to see
-     * their org's rows. FORCE applies the policy to the table owner too.
+     * Enable + FORCE tenant row-level security and (re)create the isolation policy.
+     *
+     * The predicate is deliberately **permissive when the GUC is unset/empty**: the trusted
+     * write paths — the indexing consumer and the backfill command — never set
+     * `app.current_tenant`, so they must be able to write rows for every tenant, while a request
+     * path that DID set the GUC (via the same middleware the audit spine uses) is confined to
+     * its org for both reads (USING) and writes (WITH CHECK). `current_setting(..., true)` is
+     * missing-safe (returns NULL when unset). FORCE applies the policy to the table owner too.
      */
     public function enableRls(): void
     {
+        $predicate =
+            "(current_setting('app.current_tenant', true) IS NULL"
+            . " OR current_setting('app.current_tenant', true) = ''"
+            . " OR tenant_id = current_setting('app.current_tenant', true))";
+
         $this->connection->executeStatement("ALTER TABLE {$this->table} ENABLE ROW LEVEL SECURITY");
         $this->connection->executeStatement("ALTER TABLE {$this->table} FORCE ROW LEVEL SECURITY");
         $this->connection->executeStatement("DROP POLICY IF EXISTS vortos_search_tenant_isolation ON {$this->table}");
         $this->connection->executeStatement(
             "CREATE POLICY vortos_search_tenant_isolation ON {$this->table} "
-            . "USING (tenant_id = current_setting('app.current_tenant', true))",
+            . "USING {$predicate} WITH CHECK {$predicate}",
         );
     }
 

@@ -1,120 +1,122 @@
 {
-  "name": "fortizan/squaura",
-  "type": "project",
-  "minimum-stability": "dev",
-  "prefer-stable": true,
-  "repositories": [
-    {
-      "type": "path",
-      "url": "./packages/Vortos",
-      "options": {
-        "symlink": true
-      }
+    "name": "fortizan/squaura",
+    "type": "project",
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "repositories": [
+        {
+            "type": "path",
+            "url": "./packages/Vortos",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "path",
+            "url": "./packages/Vortos/src/Make",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
+    "require": {
+        "vortos/vortos": "@dev",
+        "doctrine/orm": "^3.5",
+        "doctrine/dbal": "^4.4",
+        "symfony/cache": "^8.0",
+        "symfony/var-exporter": "^7.0",
+        "doctrine/migrations": "^3.9",
+        "mongodb/mongodb": "^2.1",
+        "symfony/uid": "^8.0",
+        "koco/messenger-kafka": "^0.18.0",
+        "symfony/amqp-messenger": "^8.0",
+        "symfony/redis-messenger": "^8.0",
+        "symfony/doctrine-messenger": "^8.0",
+        "symfony/serializer": "^8.0",
+        "symfony/property-access": "^8.0",
+        "psr/simple-cache": "^3.0",
+        "firebase/php-jwt": "^7.0",
+        "symfony/validator": "^7.0",
+        "open-telemetry/sdk": "^1.0",
+        "open-telemetry/exporter-otlp": "^1.0",
+        "guzzlehttp/guzzle": "^7.0",
+        "aws/aws-sdk-php": "^3.382",
+        "paddlehq/paddle-php-sdk": "^1.0",
+        "twig/twig": "^3.0",
+        "dragonmantank/cron-expression": "^3.3"
     },
-    {
-      "type": "path",
-      "url": "./packages/Vortos/src/Make",
-      "options": {
-        "symlink": true
-      }
+    "require-dev": {
+        "vortos/vortos-make": "@dev",
+        "phpunit/phpunit": "^11.0",
+        "kwn/php-rdkafka-stubs": "^2.0",
+        "open-telemetry/api": "^1.8",
+        "phpstan/phpstan": "^2.1",
+        "phpbench/phpbench": "^1.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/",
+            "App\\Migrations\\": "migrations/",
+            "Vortos\\Migration\\": "packages/Vortos/src/Migration/",
+            "Vortos\\Debug\\": "packages/Vortos/src/Debug/",
+            "Vortos\\PersistenceOrm\\": "packages/Vortos/src/PersistenceOrm/",
+            "Vortos\\FeatureFlags\\": "packages/Vortos/src/FeatureFlags/",
+            "Vortos\\FeatureFlagsAdmin\\": "packages/Vortos/src/FeatureFlagsAdmin/",
+            "Vortos\\Docker\\": "packages/Vortos/src/Docker/",
+            "Vortos\\Setup\\": "packages/Vortos/src/Setup/",
+            "Vortos\\Metrics\\": "packages/Vortos/src/Metrics/",
+            "Vortos\\Config\\": "packages/Vortos/src/Config/",
+            "Vortos\\Security\\": "packages/Vortos/src/Security/",
+            "Vortos\\Mcp\\": "packages/Vortos/src/Mcp/",
+            "Vortos\\Observability\\": "packages/Vortos/src/Observability/",
+            "Vortos\\AwsSes\\": "packages/Vortos/src/AwsSes/",
+            "Vortos\\ObjectStore\\": "packages/Vortos/src/ObjectStore/",
+            "Vortos\\Paddle\\": "packages/Vortos/src/Paddle/",
+            "Vortos\\Iac\\": "packages/Vortos/src/Iac/",
+            "Vortos\\Tenant\\": "packages/Vortos/src/Tenant/",
+            "Vortos\\OpsKit\\": "packages/Vortos/src/OpsKit/",
+            "Vortos\\Health\\": "packages/Vortos/src/Health/",
+            "Vortos\\Release\\": "packages/Vortos/src/Release/",
+            "Vortos\\Secrets\\": "packages/Vortos/src/Secrets/",
+            "Vortos\\Deploy\\": "packages/Vortos/src/Deploy/",
+            "Vortos\\Backup\\": "packages/Vortos/src/Backup/",
+            "Vortos\\Pipeline\\": "packages/Vortos/src/Pipeline/",
+            "Vortos\\Alerts\\": "packages/Vortos/src/Alerts/",
+            "Vortos\\Analytics\\": "packages/Vortos/src/Analytics/",
+            "Vortos\\AnalyticsPosthog\\": "packages/Vortos/src/AnalyticsPosthog/",
+            "Vortos\\DeployK8s\\": "packages/Vortos/src/DeployK8s/",
+            "Vortos\\Scheduler\\": "packages/Vortos/src/Scheduler/",
+            "Vortos\\SchedulerAdmin\\": "packages/Vortos/src/SchedulerAdmin/",
+            "Vortos\\Audit\\": "packages/Vortos/src/Audit/",
+            "Vortos\\AuditAdmin\\": "packages/Vortos/src/AuditAdmin/",
+            "Cron\\": "vendor/dragonmantank/cron-expression/src/Cron/",
+            "Vortos\\Push\\": "packages/Vortos/src/Push/",
+            "Vortos\\Sse\\": "packages/Vortos/src/Sse/"
+        },
+        "exclude-from-classmap": [
+            "packages/Vortos/src/OpsKit/Tests/Fixtures/Lint/",
+            "packages/Vortos/src/Health/Tests/Fixtures/",
+            "packages/Vortos/src/Release/Tests/Fixtures/"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {}
+    },
+    "scripts": {
+        "post-create-project-cmd": [
+            "@php bin/welcome.php"
+        ],
+        "post-install-cmd": [
+            "php tools/link-packages.php"
+        ],
+        "post-update-cmd": [
+            "php tools/link-packages.php"
+        ],
+        "analyse": "phpstan analyse --memory-limit=2G",
+        "analyse:baseline": "phpstan analyse --generate-baseline=phpstan-baseline.neon --memory-limit=2G --allow-empty-baseline"
+    },
+    "scripts-descriptions": {
+        "analyse": "Run PHPStan static analysis (level 6, production code) \u2014 run inside the backend Docker container",
+        "analyse:baseline": "Regenerate the PHPStan baseline of pre-existing findings"
     }
-  ],
-  "require": {
-    "vortos/vortos": "@dev",
-    "doctrine/orm": "^3.5",
-    "doctrine/dbal": "^4.4",
-    "symfony/cache": "^8.0",
-    "symfony/var-exporter": "^7.0",
-    "doctrine/migrations": "^3.9",
-    "mongodb/mongodb": "^2.1",
-    "symfony/uid": "^8.0",
-    "koco/messenger-kafka": "^0.18.0",
-    "symfony/amqp-messenger": "^8.0",
-    "symfony/redis-messenger": "^8.0",
-    "symfony/doctrine-messenger": "^8.0",
-    "symfony/serializer": "^8.0",
-    "symfony/property-access": "^8.0",
-    "psr/simple-cache": "^3.0",
-    "firebase/php-jwt": "^7.0",
-    "symfony/validator": "^7.0",
-    "open-telemetry/sdk": "^1.0",
-    "open-telemetry/exporter-otlp": "^1.0",
-    "guzzlehttp/guzzle": "^7.0",
-    "aws/aws-sdk-php": "^3.382",
-    "paddlehq/paddle-php-sdk": "^1.0",
-    "twig/twig": "^3.0",
-    "dragonmantank/cron-expression": "^3.3"
-  },
-  "require-dev": {
-    "vortos/vortos-make": "@dev",
-    "phpunit/phpunit": "^11.0",
-    "kwn/php-rdkafka-stubs": "^2.0",
-    "open-telemetry/api": "^1.8",
-    "phpstan/phpstan": "^2.1",
-    "phpbench/phpbench": "^1.3"
-  },
-  "autoload": {
-    "psr-4": {
-      "App\\": "src/",
-      "App\\Migrations\\": "migrations/",
-      "Vortos\\Migration\\": "packages/Vortos/src/Migration/",
-      "Vortos\\Debug\\": "packages/Vortos/src/Debug/",
-      "Vortos\\PersistenceOrm\\": "packages/Vortos/src/PersistenceOrm/",
-      "Vortos\\FeatureFlags\\": "packages/Vortos/src/FeatureFlags/",
-      "Vortos\\FeatureFlagsAdmin\\": "packages/Vortos/src/FeatureFlagsAdmin/",
-      "Vortos\\Docker\\": "packages/Vortos/src/Docker/",
-      "Vortos\\Setup\\": "packages/Vortos/src/Setup/",
-      "Vortos\\Metrics\\": "packages/Vortos/src/Metrics/",
-      "Vortos\\Config\\": "packages/Vortos/src/Config/",
-      "Vortos\\Security\\": "packages/Vortos/src/Security/",
-      "Vortos\\Mcp\\": "packages/Vortos/src/Mcp/",
-      "Vortos\\Observability\\": "packages/Vortos/src/Observability/",
-      "Vortos\\AwsSes\\": "packages/Vortos/src/AwsSes/",
-      "Vortos\\ObjectStore\\": "packages/Vortos/src/ObjectStore/",
-      "Vortos\\Paddle\\": "packages/Vortos/src/Paddle/",
-      "Vortos\\Iac\\": "packages/Vortos/src/Iac/",
-      "Vortos\\Tenant\\": "packages/Vortos/src/Tenant/",
-      "Vortos\\OpsKit\\": "packages/Vortos/src/OpsKit/",
-      "Vortos\\Health\\": "packages/Vortos/src/Health/",
-      "Vortos\\Release\\": "packages/Vortos/src/Release/",
-      "Vortos\\Secrets\\": "packages/Vortos/src/Secrets/",
-      "Vortos\\Deploy\\": "packages/Vortos/src/Deploy/",
-      "Vortos\\Backup\\": "packages/Vortos/src/Backup/",
-      "Vortos\\Pipeline\\": "packages/Vortos/src/Pipeline/",
-      "Vortos\\Alerts\\": "packages/Vortos/src/Alerts/",
-      "Vortos\\Analytics\\": "packages/Vortos/src/Analytics/",
-      "Vortos\\AnalyticsPosthog\\": "packages/Vortos/src/AnalyticsPosthog/",
-      "Vortos\\DeployK8s\\": "packages/Vortos/src/DeployK8s/",
-      "Vortos\\Scheduler\\": "packages/Vortos/src/Scheduler/",
-      "Vortos\\SchedulerAdmin\\": "packages/Vortos/src/SchedulerAdmin/",
-      "Vortos\\Audit\\": "packages/Vortos/src/Audit/",
-      "Vortos\\AuditAdmin\\": "packages/Vortos/src/AuditAdmin/",
-      "Cron\\": "vendor/dragonmantank/cron-expression/src/Cron/"
-    },
-    "exclude-from-classmap": [
-      "packages/Vortos/src/OpsKit/Tests/Fixtures/Lint/",
-      "packages/Vortos/src/Health/Tests/Fixtures/",
-      "packages/Vortos/src/Release/Tests/Fixtures/"
-    ]
-  },
-  "autoload-dev": {
-    "psr-4": {}
-  },
-  "scripts": {
-    "post-create-project-cmd": [
-      "@php bin/welcome.php"
-    ],
-    "post-install-cmd": [
-      "php tools/link-packages.php"
-    ],
-    "post-update-cmd": [
-      "php tools/link-packages.php"
-    ],
-    "analyse": "phpstan analyse --memory-limit=2G",
-    "analyse:baseline": "phpstan analyse --generate-baseline=phpstan-baseline.neon --memory-limit=2G --allow-empty-baseline"
-  },
-  "scripts-descriptions": {
-    "analyse": "Run PHPStan static analysis (level 6, production code) — run inside the backend Docker container",
-    "analyse:baseline": "Regenerate the PHPStan baseline of pre-existing findings"
-  }
 }

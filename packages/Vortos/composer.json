@@ -33,6 +33,8 @@
         "vortos/vortos-persistence-mongo": "MongoDB read repository support — requires ext-mongodb",
         "vortos/vortos-mcp": "MCP server for AI clients — optional development assistant integration",
         "vortos/vortos-aws-ses": "AWS SES email delivery with transactional outbox, suppression lists, webhooks, and observability",
+        "vortos/vortos-push": "Web Push notification delivery (VAPID + RFC 8291 aes128gcm) behind a driver-based sender contract",
+        "vortos/vortos-sse": "Server-Sent Events realtime signalling (Redis-backed per-channel version + bounded SSE stream helper)",
         "vortos/vortos-object-store": "S3-compatible object storage package with first-class Cloudflare R2 defaults",
         "vortos/vortos-paddle": "Paddle billing integration — subscriptions, webhooks, catalog, and customer management",
         "vortos/vortos-iac": "Terraform (.tf.json) export of framework resource declarations — Kafka topics, object-store buckets"

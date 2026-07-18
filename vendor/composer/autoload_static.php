@@ -58,12 +58,14 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             'Vortos\\Tracing\\' => 15,
             'Vortos\\Tenant\\' => 14,
+            'Vortos\\Sse\\' => 11,
             'Vortos\\Setup\\' => 13,
             'Vortos\\Security\\' => 16,
             'Vortos\\Secrets\\' => 15,
             'Vortos\\Scheduler\\' => 17,
             'Vortos\\SchedulerAdmin\\' => 22,
             'Vortos\\Release\\' => 15,
+            'Vortos\\Push\\' => 12,
             'Vortos\\Pipeline\\' => 16,
             'Vortos\\Persistence\\' => 19,
             'Vortos\\PersistenceOrm\\' => 22,
@@ -271,6 +273,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Tenant',
         ),
+        'Vortos\\Sse\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Sse',
+        ),
         'Vortos\\Setup\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Setup',
@@ -294,6 +300,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Release\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Release',
+        ),
+        'Vortos\\Push\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Push',
         ),
         'Vortos\\Pipeline\\' =>
         array (

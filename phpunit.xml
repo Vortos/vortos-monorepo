@@ -114,6 +114,12 @@
         <testsuite name="Paddle">
             <directory>packages/Vortos/src/Paddle/Tests</directory>
         </testsuite>
+        <testsuite name="Push">
+            <directory>packages/Vortos/src/Push/Tests</directory>
+        </testsuite>
+        <testsuite name="Sse">
+            <directory>packages/Vortos/src/Sse/Tests</directory>
+        </testsuite>
         <testsuite name="Persistence">
             <directory>packages/Vortos/src/Persistence/Tests</directory>
         </testsuite>

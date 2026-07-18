@@ -1,0 +1,28 @@
+{
+    "name": "vortos/vortos-push",
+    "description": "Vortos push-notification delivery — Web Push (VAPID + RFC 8291 aes128gcm) with a driver-based sender contract",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Push\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "ext-openssl": "*",
+        "ext-curl": "*",
+        "firebase/php-jwt": "^7.0",
+        "vortos/vortos-foundation": "^1.0",
+        "vortos/vortos-logger": "^1.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Push\\DependencyInjection\\PushPackage",
+            "order": 90
+        }
+    }
+}

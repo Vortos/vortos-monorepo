@@ -85,7 +85,7 @@ final class DbalSearchReader implements SearchReaderInterface
             : 'updated_at DESC';
 
         $sql = sprintf(
-            'SELECT doc_type, entity_id, title, subtitle, deeplink, meta, %s AS rank FROM %s WHERE %s ORDER BY %s LIMIT %d',
+            'SELECT doc_type, entity_id, tenant_id, title, subtitle, deeplink, meta, %s AS rank FROM %s WHERE %s ORDER BY %s LIMIT %d',
             $rankSelect,
             $this->table,
             implode(' AND ', $where), // always ≥1 clause: the member-visibility filter is unconditional
@@ -111,6 +111,7 @@ final class DbalSearchReader implements SearchReaderInterface
                     deeplink: (string) ($row['deeplink'] ?? ''),
                     score: (float) ($row['rank'] ?? 0),
                     meta: $meta,
+                    tenantId: (string) ($row['tenant_id'] ?? ''),
                 );
             },
             $rows,

@@ -12,7 +12,11 @@ namespace Vortos\Search\Query;
 final class SearchHit implements \JsonSerializable
 {
     /**
-     * @param array<string,scalar|null> $meta app payload stored at index time (icon/status hints)
+     * @param array<string,scalar|null> $meta     app payload stored at index time (icon/status hints)
+     * @param string                    $tenantId owning org of the row. For an org-scoped search this
+     *                                            is just the caller's own org; it matters for a
+     *                                            superuser cross-org (platform) search, where results
+     *                                            span tenants and the console must label each by org.
      */
     public function __construct(
         public readonly string $type,
@@ -22,6 +26,7 @@ final class SearchHit implements \JsonSerializable
         public readonly string $deeplink,
         public readonly float $score,
         public readonly array $meta = [],
+        public readonly string $tenantId = '',
     ) {
     }
 
@@ -36,6 +41,7 @@ final class SearchHit implements \JsonSerializable
             'deeplink' => $this->deeplink,
             'score'    => $this->score,
             'meta'     => $this->meta,
+            'tenant'   => $this->tenantId,
         ];
     }
 }

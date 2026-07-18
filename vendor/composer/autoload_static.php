@@ -62,6 +62,7 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\Setup\\' => 13,
             'Vortos\\Security\\' => 16,
             'Vortos\\Secrets\\' => 15,
+            'Vortos\\Search\\' => 14,
             'Vortos\\Scheduler\\' => 17,
             'Vortos\\SchedulerAdmin\\' => 22,
             'Vortos\\Release\\' => 15,
@@ -288,6 +289,10 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\Secrets\\' =>
         array (
             0 => __DIR__ . '/../..' . '/packages/Vortos/src/Secrets',
+        ),
+        'Vortos\\Search\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Search',
         ),
         'Vortos\\Scheduler\\' =>
         array (

@@ -1,0 +1,36 @@
+{
+    "name": "vortos/vortos-search",
+    "description": "Vortos Search — enterprise-grade, event-fed unified global search. One tenant-scoped, RLS-isolated search_document projection fed from domain events via a discoverable SearchableProjection contract (add a type = add one class). Database-agnostic driver abstraction (portable LIKE default, opt-in Postgres full-text + trigram fuzzy), permission- and owner-aware ranked query, Redis-cached, with backfill/rebuild. The app owns what is searchable and where results deep-link; the framework owns the engine.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\Search\\": ""
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "psr/clock": "^1.0",
+        "psr/log": "^3.0",
+        "symfony/dependency-injection": "^7.0 || ^8.0",
+        "vortos/vortos-foundation": "^1.0"
+    },
+    "suggest": {
+        "doctrine/dbal": "Required for the default DBAL search index writer + reader.",
+        "ext-redis": "Caches hot, normalised queries per tenant+principal (short TTL).",
+        "vortos/vortos-messaging": "Kafka-decoupled indexing — domain events fan out to SearchableProjection implementations on a dedicated consumer group.",
+        "vortos/vortos-tenant": "DB-enforced org isolation of the search index via row-level security on search_document.",
+        "vortos/vortos-authorization": "Resolves the caller's permissions so results the caller cannot open are never returned.",
+        "vortos/vortos-observability": "Index-upsert, query-count and query-latency metrics.",
+        "vortos/vortos-scheduler": "Drives the periodic index backfill/reconcile safety-net."
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "extra": {
+        "vortos": {
+            "package": "Vortos\\Search\\DependencyInjection\\SearchPackage",
+            "order": 110
+        }
+    }
+}

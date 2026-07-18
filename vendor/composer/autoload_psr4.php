@@ -13,6 +13,7 @@ return array(
     'Vortos\\Setup\\' => array($baseDir . '/packages/Vortos/src/Setup'),
     'Vortos\\Security\\' => array($baseDir . '/packages/Vortos/src/Security'),
     'Vortos\\Secrets\\' => array($baseDir . '/packages/Vortos/src/Secrets'),
+    'Vortos\\Search\\' => array($baseDir . '/packages/Vortos/src/Search'),
     'Vortos\\Scheduler\\' => array($baseDir . '/packages/Vortos/src/Scheduler'),
     'Vortos\\SchedulerAdmin\\' => array($baseDir . '/packages/Vortos/src/SchedulerAdmin'),
     'Vortos\\Release\\' => array($baseDir . '/packages/Vortos/src/Release'),

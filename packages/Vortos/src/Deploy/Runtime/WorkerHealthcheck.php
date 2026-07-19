@@ -106,17 +106,31 @@ final readonly class WorkerHealthcheck
     }
 
     /**
-     * The enterprise default for a supervisord worker: healthy only when supervisord is reachable AND
-     * every managed program is RUNNING (no STARTING/FATAL/BACKOFF/EXITED/STOPPED). Runs 'supervisorctl'
-     * against the shipped config so it finds the rootless socket the worker's supervisord binds.
+     * The enterprise default for a supervisord worker. Healthy ⇔ supervisord is reachable, at least
+     * one managed program is RUNNING, and NO program is in a genuinely-failed terminal state
+     * (FATAL/BACKOFF/UNKNOWN).
+     *
+     * This deliberately tolerates transient/benign states so the worker is not reported "unhealthy"
+     * forever for the wrong reasons — the failure mode of the previous implementation, which ran
+     * supervisorctl TWICE (two racy snapshots) and, via `! … | grep -qvE RUNNING`, flagged the whole
+     * worker on ANY line that lacked "RUNNING": a trailing blank line, a stderr/warning line, a
+     * briefly-STARTING program during boot, or a legitimately-EXITED one-shot. Here supervisorctl runs
+     * ONCE, its stdout is inspected for specific tokens, and only FATAL/BACKOFF/UNKNOWN (a program that
+     * crashed and cannot recover) marks the container unhealthy. STARTING is covered by start_period +
+     * retries; an unreachable supervisord yields empty stdout → no RUNNING match → unhealthy.
      */
     public static function supervisord(string $configPath = self::SUPERVISORD_CONFIG): self
     {
-        $status = sprintf('supervisorctl -c %s status', $configPath);
-
-        // Healthy ⇔ at least one program reports RUNNING AND no program reports a non-RUNNING state.
-        // A supervisord that is unreachable yields empty output → the first clause fails → unhealthy.
-        $test = sprintf('%s | grep -qE "\\bRUNNING\\b" && ! %s | grep -qvE "\\bRUNNING\\b"', $status, $status);
+        // Single snapshot; exit code is ignored (supervisorctl returns non-zero when any program is
+        // merely not-RUNNING, which is not the same as "worker is broken") — the decision is made from
+        // stdout tokens instead.
+        $test = sprintf(
+            'S=$(supervisorctl -c %s status 2>/dev/null); '
+            . 'echo "$S" | grep -qE "\\bRUNNING\\b" || exit 1; '
+            . 'echo "$S" | grep -qE "\\b(FATAL|BACKOFF|UNKNOWN)\\b" && exit 1; '
+            . 'exit 0',
+            $configPath,
+        );
 
         return self::command(['CMD-SHELL', $test]);
     }

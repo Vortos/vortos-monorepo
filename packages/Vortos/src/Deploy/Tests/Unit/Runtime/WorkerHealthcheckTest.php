@@ -33,16 +33,21 @@ final class WorkerHealthcheckTest extends TestCase
         ], $hc->toArray());
     }
 
-    public function test_supervisord_default_checks_all_programs_running(): void
+    public function test_supervisord_default_is_a_robust_single_snapshot_check(): void
     {
         $array = WorkerHealthcheck::supervisord()->toArray();
+        $script = $array['test'][1];
 
         $this->assertSame('CMD-SHELL', $array['test'][0]);
-        $this->assertStringContainsString('supervisorctl -c /etc/supervisord.conf status', $array['test'][1]);
-        // Healthy only when a RUNNING program exists AND no non-RUNNING program does.
-        $this->assertStringContainsString('grep -qE "\bRUNNING\b"', $array['test'][1]);
-        $this->assertStringContainsString('! ', $array['test'][1]);
-        $this->assertStringContainsString('grep -qvE "\bRUNNING\b"', $array['test'][1]);
+        $this->assertStringContainsString('supervisorctl -c /etc/supervisord.conf status', $script);
+        // Requires at least one RUNNING program (also proves supervisord is reachable).
+        $this->assertStringContainsString('grep -qE "\bRUNNING\b" || exit 1', $script);
+        // Fails ONLY on genuinely-crashed states — not on any non-RUNNING line.
+        $this->assertStringContainsString('grep -qE "\b(FATAL|BACKOFF|UNKNOWN)\b" && exit 1', $script);
+        // Single snapshot: supervisorctl status must be invoked exactly once (no racy double-run).
+        $this->assertSame(1, substr_count($script, 'supervisorctl -c'));
+        // The brittle "any non-RUNNING line = unhealthy" form must be gone.
+        $this->assertStringNotContainsString('grep -qvE', $script);
         $this->assertSame(3, $array['retries']);
     }
 

@@ -112,7 +112,7 @@ final readonly class WorkerHealthcheck
      *
      * This deliberately tolerates transient/benign states so the worker is not reported "unhealthy"
      * forever for the wrong reasons — the failure mode of the previous implementation, which ran
-     * supervisorctl TWICE (two racy snapshots) and, via `! … | grep -qvE RUNNING`, flagged the whole
+     * supervisorctl TWICE (two racy snapshots) and, via a negated "grep -qvE RUNNING", flagged the whole
      * worker on ANY line that lacked "RUNNING": a trailing blank line, a stderr/warning line, a
      * briefly-STARTING program during boot, or a legitimately-EXITED one-shot. Here supervisorctl runs
      * ONCE, its stdout is inspected for specific tokens, and only FATAL/BACKOFF/UNKNOWN (a program that

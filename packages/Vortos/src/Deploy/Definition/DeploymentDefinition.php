@@ -37,6 +37,16 @@ final readonly class DeploymentDefinition
          * mistaken for a failed one. Overridable per-app in config/deploy.php.
          */
         public int $healthGateTimeoutSeconds = 180,
+        /**
+         * How long the freshly-staged color must stay CONTINUOUSLY ready before traffic is cut over to
+         * it. This is the zero-downtime guarantee at the cutover boundary: the app's /health/ready can
+         * be non-monotonic during warmup (it reports ready, then dips back under boot/consumer-fan-out
+         * contention), so switching on the first ready hands 100% of traffic to a color that then drops
+         * out from under the edge. Holding for a stabilization window means the color is genuinely
+         * settled — past its flappy warmup — before it ever receives production traffic. 0 disables it
+         * (switch on first ready, legacy behavior).
+         */
+        public int $healthGateStabilizationSeconds = 45,
         public bool $autoPublishMigrations = false,
         /** R8-2: null → defer to VORTOS_BACKUP_TOOLCHAIN_EXTERNAL; true/false → config wins. */
         public ?bool $backupToolchainExternal = null,
@@ -85,6 +95,7 @@ final readonly class DeploymentDefinition
         bool $autoRollback = true,
         int $workerDrainDeadlineSeconds = 25,
         int $healthGateTimeoutSeconds = 180,
+        int $healthGateStabilizationSeconds = 45,
         array $envOverrides = [],
         string $edgeRouter = 'caddy',
         string $canaryAnalyzer = 'null',
@@ -103,6 +114,7 @@ final readonly class DeploymentDefinition
             ->autoRollback($autoRollback)
             ->workerDrainDeadlineSeconds($workerDrainDeadlineSeconds)
             ->healthGateTimeoutSeconds($healthGateTimeoutSeconds)
+            ->healthGateStabilizationSeconds($healthGateStabilizationSeconds)
             ->edgeRouter($edgeRouter)
             ->canaryAnalyzer($canaryAnalyzer)
             ->workerTopology($workerTopology);
@@ -135,6 +147,7 @@ final readonly class DeploymentDefinition
             'strategy' => $this->strategy->value,
             'worker_drain_deadline_seconds' => $this->workerDrainDeadlineSeconds,
             'health_gate_timeout_seconds' => $this->healthGateTimeoutSeconds,
+            'health_gate_stabilization_seconds' => $this->healthGateStabilizationSeconds,
             'worker_topology' => $this->workerTopology->value,
             'runtime_service' => $this->runtimeService->toArray(),
         ];

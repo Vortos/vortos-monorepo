@@ -55,6 +55,36 @@ final class AbstractCapacityProbeTest extends TestCase
         self::assertFalse($probe->capabilities()->supports(HealthCapability::DependencyCheck));
     }
 
+    public function testKindCanBeOverriddenToMonitoringForSingleReplicaTopologies(): void
+    {
+        // Same threshold semantics, but the result is Monitoring-kind — so the readiness aggregator
+        // (which selects probesOfKind(Readiness)) never sees it, and a capacity spike can't eject the
+        // sole serving color.
+        $probe = new DiskCapacityProbe(
+            new InMemoryCapacityReader(diskUsedPct: 99.0),
+            kind: ProbeKind::Monitoring,
+        );
+
+        self::assertSame(ProbeKind::Monitoring, $probe->kind());
+        $result = $probe->check();
+        self::assertSame(ProbeStatus::Fail, $result->status);
+        self::assertSame(ProbeKind::Monitoring, $result->kind);
+    }
+
+    public function testKindDefaultsToReadinessForBackwardCompatibility(): void
+    {
+        $probe = new DiskCapacityProbe(new InMemoryCapacityReader(diskUsedPct: 10.0));
+
+        self::assertSame(ProbeKind::Readiness, $probe->kind());
+    }
+
+    public function testRejectsLivenessKind(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new DiskCapacityProbe(new InMemoryCapacityReader(), kind: ProbeKind::Liveness);
+    }
+
     public function testRejectsWarnPctOutOfRange(): void
     {
         $this->expectException(InvalidArgumentException::class);

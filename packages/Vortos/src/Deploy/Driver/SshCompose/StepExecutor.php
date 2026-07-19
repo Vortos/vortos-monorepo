@@ -235,18 +235,25 @@ final class StepExecutor
         $color = ActiveColor::from($colorValue);
         $endpoint = $this->composeFactory->endpointFor($color);
         $timeout = (float) ($step->params['timeout_seconds'] ?? 60);
+        $stabilization = (float) ($step->params['stabilization_seconds'] ?? 0);
 
-        // forTimeout() derives the attempt ceiling from the timeout so the wall-clock deadline is the
-        // real bound — a generous timeout (to survive a cold start) is never silently clamped back to
-        // ~60s by a fixed 30-attempt cap.
-        $budget = GateBudget::forTimeout($timeout);
+        // withStabilization() gives the color up to $timeout to first report ready, then requires it to
+        // hold ready continuously for ~$stabilization before the gate passes — so traffic never cuts
+        // over to a color that is only momentarily ready and still flapping under warmup. forTimeout()'s
+        // deadline-derived attempt ceiling still applies (a generous timeout is never clamped to ~60s).
+        $budget = GateBudget::withStabilization($timeout, $stabilization);
         $result = $this->readinessGate->awaitReady($color, $endpoint, $budget);
 
         if (!$result->passed) {
             throw DeployAbortedException::healthGateFailed($color->value, $result->attempts);
         }
 
-        return sprintf('healthy after %d attempts (%.1fs)', $result->attempts, $result->elapsed);
+        return sprintf(
+            'healthy after %d attempts (%.1fs, %ds stabilization)',
+            $result->attempts,
+            $result->elapsed,
+            (int) $stabilization,
+        );
     }
 
     private function handleCanarySloGate(DeployStep $step): string

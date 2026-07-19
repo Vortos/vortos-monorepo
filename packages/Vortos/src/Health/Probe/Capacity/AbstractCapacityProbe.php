@@ -13,9 +13,16 @@ use Vortos\Health\Probe\ProbeResult;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
 
 /**
- * Tri-state capacity probe: `< warnPct` passes, `[warnPct, criticalPct)` degrades
- * readiness (drains the node, never fails liveness), `>= criticalPct` fails (§3
- * capacity). Readiness-only — never on the liveness hot path.
+ * Tri-state capacity probe: `< warnPct` passes, `[warnPct, criticalPct)` degrades,
+ * `>= criticalPct` fails (§3 capacity). Never on the liveness hot path.
+ *
+ * The probe's KIND is configurable (default {@see ProbeKind::Readiness}) precisely because gating
+ * readiness on capacity is only safe when there is somewhere to drain TO. In a single-active-replica
+ * topology (e.g. blue/green where exactly one color serves) a capacity-driven readiness failure
+ * ejects the ONLY upstream — turning a transient CPU/memory spike (a fresh color's warmup, or a
+ * steady-state burst) into a total outage instead of shedding load to a peer. Such deployments set
+ * the kind to {@see ProbeKind::Monitoring}: capacity is still measured, surfaced, and alertable — it
+ * just no longer decides whether the sole node receives traffic.
  */
 abstract class AbstractCapacityProbe implements HealthProbeInterface
 {
@@ -23,6 +30,7 @@ abstract class AbstractCapacityProbe implements HealthProbeInterface
         protected readonly CapacityReaderInterface $reader,
         protected readonly float $warnPct = 85.0,
         protected readonly float $criticalPct = 95.0,
+        private readonly ProbeKind $kind = ProbeKind::Readiness,
     ) {
         if ($warnPct <= 0.0 || $warnPct > 100.0) {
             throw new InvalidArgumentException('Capacity probe warnPct must be in (0, 100].');
@@ -33,6 +41,10 @@ abstract class AbstractCapacityProbe implements HealthProbeInterface
         if ($warnPct >= $criticalPct) {
             throw new InvalidArgumentException('Capacity probe warnPct must be < criticalPct.');
         }
+        if ($kind === ProbeKind::Liveness) {
+            // Capacity must never gate liveness — a loaded-but-alive process must not be killed.
+            throw new InvalidArgumentException('Capacity probe kind must not be Liveness.');
+        }
     }
 
     /** The undecorated reading from the reader seam, or null when undeterminable. */
@@ -40,7 +52,7 @@ abstract class AbstractCapacityProbe implements HealthProbeInterface
 
     public function kind(): ProbeKind
     {
-        return ProbeKind::Readiness;
+        return $this->kind;
     }
 
     public function check(): ProbeResult

@@ -38,11 +38,13 @@ final class HttpReadinessGate implements ReadinessGateInterface
         $start = microtime(true);
         $attempts = 0;
         $lastStatus = null;
+        $consecutivePasses = 0;
         $deadline = $start + $budget->timeout;
 
         while ($attempts < $budget->maxAttempts && microtime(true) < $deadline) {
             $attempts++;
 
+            $probeReady = false;
             try {
                 $request = $this->requestFactory->createRequest(
                     'GET',
@@ -57,17 +59,29 @@ final class HttpReadinessGate implements ReadinessGateInterface
                     $data = json_decode($body, true);
 
                     $status = $data['status'] ?? null;
-                    if (is_string($status) && in_array($status, self::READY_STATUSES, true)) {
-                        return new GateResult(
-                            passed: true,
-                            attempts: $attempts,
-                            elapsed: microtime(true) - $start,
-                            lastStatusCode: $lastStatus,
-                        );
-                    }
+                    $probeReady = is_string($status) && in_array($status, self::READY_STATUSES, true);
                 }
             } catch (ClientExceptionInterface) {
-                // Connection refused, timeout — keep polling
+                // Connection refused, timeout — treated as a failed probe below.
+            }
+
+            if ($probeReady) {
+                $consecutivePasses++;
+
+                // Traffic only switches once the color has held ready across the whole stabilization
+                // streak — so a color that reports ready once and then flaps back to 503 under warmup
+                // contention never triggers a cutover it can't sustain.
+                if ($consecutivePasses >= $budget->requiredConsecutivePasses) {
+                    return new GateResult(
+                        passed: true,
+                        attempts: $attempts,
+                        elapsed: microtime(true) - $start,
+                        lastStatusCode: $lastStatus,
+                    );
+                }
+            } else {
+                // Any dip resets the streak: stability means CONSECUTIVE readiness, not cumulative.
+                $consecutivePasses = 0;
             }
 
             if ($attempts < $budget->maxAttempts && microtime(true) < $deadline) {

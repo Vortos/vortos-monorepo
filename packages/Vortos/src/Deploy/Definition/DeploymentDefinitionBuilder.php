@@ -31,6 +31,7 @@ final class DeploymentDefinitionBuilder
     private string $builderCacheMaxAge = '168h';
     private int $workerDrainDeadlineSeconds = 25;
     private int $healthGateTimeoutSeconds = 180;
+    private int $healthGateStabilizationSeconds = 45;
     private string $edgeRouter = 'caddy';
     private string $canaryAnalyzer = 'null';
     private WorkerTopology $workerTopology = WorkerTopology::RideColor;
@@ -190,6 +191,18 @@ final class DeploymentDefinitionBuilder
 
         $clone = clone $this;
         $clone->healthGateTimeoutSeconds = $seconds;
+
+        return $clone;
+    }
+
+    public function healthGateStabilizationSeconds(int $seconds): self
+    {
+        if ($seconds < 0) {
+            throw new \InvalidArgumentException(sprintf('Health gate stabilization must be >= 0s, got %d.', $seconds));
+        }
+
+        $clone = clone $this;
+        $clone->healthGateStabilizationSeconds = $seconds;
 
         return $clone;
     }
@@ -397,6 +410,7 @@ final class DeploymentDefinitionBuilder
             definitionHash: 'sha256:' . $hash,
             workerDrainDeadlineSeconds: $this->workerDrainDeadlineSeconds,
             healthGateTimeoutSeconds: $this->healthGateTimeoutSeconds,
+            healthGateStabilizationSeconds: $this->healthGateStabilizationSeconds,
             edgeRouter: $this->edgeRouter,
             canaryAnalyzer: $this->canaryAnalyzer,
             runtimeService: $this->getRuntimeServiceSpec(),
@@ -444,6 +458,7 @@ final class DeploymentDefinitionBuilder
             'strategy' => $strategy->value,
             'worker_drain_deadline_seconds' => $this->workerDrainDeadlineSeconds,
             'health_gate_timeout_seconds' => $this->healthGateTimeoutSeconds,
+            'health_gate_stabilization_seconds' => $this->healthGateStabilizationSeconds,
             'worker_topology' => $this->workerTopology->value,
             'runtime_service' => $this->getRuntimeServiceSpec()->toArray(),
         ];

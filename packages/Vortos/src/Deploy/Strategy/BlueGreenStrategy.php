@@ -78,7 +78,11 @@ final class BlueGreenStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::CheckHealth,
                 sprintf('Wait for %s /health/ready', $stagedColor->value),
-                ['color' => $stagedColor->value, 'timeout_seconds' => $context->definition->healthGateTimeoutSeconds],
+                [
+                    'color' => $stagedColor->value,
+                    'timeout_seconds' => $context->definition->healthGateTimeoutSeconds,
+                    'stabilization_seconds' => $context->definition->healthGateStabilizationSeconds,
+                ],
             ),
         ]);
 

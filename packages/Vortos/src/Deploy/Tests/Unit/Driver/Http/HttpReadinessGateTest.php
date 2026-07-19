@@ -55,6 +55,83 @@ final class HttpReadinessGateTest extends TestCase
 
         self::assertSame($expectedPass, $result->passed);
     }
+
+    public function test_stabilization_requires_consecutive_passes_and_a_flap_resets_the_streak(): void
+    {
+        // ready, ready, FLAP, ready, ready, ready — with a 3-consecutive requirement the streak only
+        // completes on the final probe (the first two are wasted by the dip). This is the exact
+        // scenario that took prod down: a color that reports ready then flaps must NOT be cut over to.
+        $client = new SequencedStubClient([
+            [200, '{"status":"pass"}'],
+            [200, '{"status":"pass"}'],
+            [503, '{"status":"fail"}'],
+            [200, '{"status":"pass"}'],
+            [200, '{"status":"pass"}'],
+            [200, '{"status":"pass"}'],
+        ]);
+
+        $gate = new HttpReadinessGate($client, new StubRequestFactory());
+
+        $result = $gate->awaitReady(
+            ActiveColor::Blue,
+            new ColorEndpoint('app-blue', 8080),
+            new GateBudget(timeout: 5.0, interval: 0.001, maxAttempts: 10, requiredConsecutivePasses: 3),
+        );
+
+        self::assertTrue($result->passed);
+        self::assertSame(6, $result->attempts, 'must take all 6 probes: the mid-sequence flap resets the streak');
+    }
+
+    public function test_stabilization_fails_when_the_color_never_holds_the_streak(): void
+    {
+        // Perpetual flap: never 3-in-a-row within the attempt budget → the gate fails (and the caller
+        // aborts + rolls back) rather than cutting over to an unstable color.
+        $client = new SequencedStubClient([
+            [200, '{"status":"pass"}'],
+            [503, '{"status":"fail"}'],
+            [200, '{"status":"pass"}'],
+            [503, '{"status":"fail"}'],
+            [200, '{"status":"pass"}'],
+            [503, '{"status":"fail"}'],
+        ]);
+
+        $gate = new HttpReadinessGate($client, new StubRequestFactory());
+
+        $result = $gate->awaitReady(
+            ActiveColor::Blue,
+            new ColorEndpoint('app-blue', 8080),
+            new GateBudget(timeout: 5.0, interval: 0.001, maxAttempts: 6, requiredConsecutivePasses: 3),
+        );
+
+        self::assertFalse($result->passed);
+    }
+
+    public function test_with_stabilization_budget_derives_required_passes(): void
+    {
+        $budget = GateBudget::withStabilization(timeout: 180.0, stabilizationSeconds: 45.0, interval: 3.0);
+
+        // ~45s / 3s interval → at least 15 consecutive passes required before cutover.
+        self::assertGreaterThanOrEqual(15, $budget->requiredConsecutivePasses);
+        // Deadline must cover cold-start wait AND the stabilization hold.
+        self::assertGreaterThanOrEqual(180.0 + 45.0, $budget->timeout);
+    }
+}
+
+final class SequencedStubClient implements ClientInterface
+{
+    private int $index = 0;
+
+    /** @param list<array{0: int, 1: string}> $sequence */
+    public function __construct(private readonly array $sequence) {}
+
+    public function sendRequest(RequestInterface $request): ResponseInterface
+    {
+        $i = min($this->index, count($this->sequence) - 1);
+        $this->index++;
+        [$status, $body] = $this->sequence[$i];
+
+        return new StubResponse($status, $body);
+    }
 }
 
 final class StubClient implements ClientInterface

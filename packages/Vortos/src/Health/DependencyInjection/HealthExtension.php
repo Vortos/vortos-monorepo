@@ -32,6 +32,7 @@ use Vortos\Health\Probe\Capacity\MemoryCapacityProbe;
 use Vortos\Health\Probe\Cert\CertExpiryProbe;
 use Vortos\Health\Probe\Cert\CertExpiryThresholds;
 use Vortos\Health\Probe\Cert\CertInspectorInterface;
+use Vortos\Health\Probe\ProbeKind;
 use Vortos\Health\Probe\Cert\StreamCertInspector;
 use Vortos\Health\Probe\HealthProbeInterface;
 use Vortos\Health\Probe\HealthProbeRegistry;
@@ -117,11 +118,19 @@ final class HealthExtension extends Extension
         $warnPct = (float) ($_ENV['HEALTH_CAPACITY_WARN_PCT'] ?? 85.0);
         $criticalPct = (float) ($_ENV['HEALTH_CAPACITY_CRITICAL_PCT'] ?? 95.0);
 
+        // Whether capacity (disk/memory/cpu) GATES readiness. Default true = legacy behavior. Single
+        // active-replica topologies (blue/green with one serving color) set this false: gating the sole
+        // node's readiness on a transient CPU/memory spike has nowhere to drain to and self-inflicts an
+        // outage, so capacity becomes Monitoring-kind — still measured and alertable, never a traffic gate.
+        $capacityGatesReadiness = filter_var($_ENV['HEALTH_CAPACITY_READINESS'] ?? true, \FILTER_VALIDATE_BOOL);
+        $capacityKind = $capacityGatesReadiness ? ProbeKind::Readiness : ProbeKind::Monitoring;
+
         $container->register(DiskCapacityProbe::class, DiskCapacityProbe::class)
             ->setArgument('$reader', new Reference(CapacityReaderInterface::class))
             ->setArgument('$path', (string) ($_ENV['HEALTH_DISK_PATH'] ?? '/'))
             ->setArgument('$warnPct', $warnPct)
             ->setArgument('$criticalPct', $criticalPct)
+            ->setArgument('$kind', $capacityKind)
             ->addTag(CollectHealthProbesPass::TAG, ['key' => 'disk-capacity'])
             ->setPublic(false);
 
@@ -129,6 +138,7 @@ final class HealthExtension extends Extension
             ->setArgument('$reader', new Reference(CapacityReaderInterface::class))
             ->setArgument('$warnPct', $warnPct)
             ->setArgument('$criticalPct', $criticalPct)
+            ->setArgument('$kind', $capacityKind)
             ->addTag(CollectHealthProbesPass::TAG, ['key' => 'memory-capacity'])
             ->setPublic(false);
 
@@ -136,6 +146,7 @@ final class HealthExtension extends Extension
             ->setArgument('$reader', new Reference(CapacityReaderInterface::class))
             ->setArgument('$warnPct', $warnPct)
             ->setArgument('$criticalPct', $criticalPct)
+            ->setArgument('$kind', $capacityKind)
             ->addTag(CollectHealthProbesPass::TAG, ['key' => 'cpu-load'])
             ->setPublic(false);
     }

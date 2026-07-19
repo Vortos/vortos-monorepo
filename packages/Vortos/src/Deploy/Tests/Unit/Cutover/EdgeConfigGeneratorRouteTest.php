@@ -74,8 +74,40 @@ final class EdgeConfigGeneratorRouteTest extends TestCase
         $handler = $this->generator->generateForRoute($this->route(ActiveColor::Blue, 8080, 'api.example.com'))
             ['apps']['http']['servers']['app']['routes'][0]['handle'][0];
 
-        self::assertArrayNotHasKey('load_balancing', $handler);
         self::assertCount(1, $handler['upstreams']);
+        // A single upstream has no weighted selection policy...
+        self::assertArrayNotHasKey('selection_policy', $handler['load_balancing']);
+        // ...but it MUST still carry the hold-and-retry window so a warmup blip on the sole
+        // upstream is retried rather than surfaced to the client as a 503 (zero-downtime cutover).
+        self::assertSame('15s', $handler['load_balancing']['try_duration']);
+        self::assertSame('250ms', $handler['load_balancing']['try_interval']);
+    }
+
+    public function test_single_upstream_retry_window_is_configurable(): void
+    {
+        $generator = new EdgeConfigGenerator(8080, '30s', '500ms');
+        $handler = $generator->generateForRoute($this->route(ActiveColor::Blue, 8080, 'api.example.com'))
+            ['apps']['http']['servers']['app']['routes'][0]['handle'][0];
+
+        self::assertSame('30s', $handler['load_balancing']['try_duration']);
+        self::assertSame('500ms', $handler['load_balancing']['try_interval']);
+    }
+
+    public function test_weighted_route_also_carries_the_retry_window(): void
+    {
+        $desired = new DesiredRoute(
+            env: 'production',
+            activeColor: ActiveColor::Blue,
+            upstream: new ColorEndpoint('app-blue', 9000),
+            weight: 70,
+            domain: 'api.example.com',
+        );
+
+        $handler = $this->generator->generateForRoute($desired)['apps']['http']['servers']['app']['routes'][0]['handle'][0];
+
+        self::assertSame('weighted_round_robin', $handler['load_balancing']['selection_policy']['policy']);
+        self::assertSame('15s', $handler['load_balancing']['try_duration']);
+        self::assertSame('250ms', $handler['load_balancing']['try_interval']);
     }
 
     private function route(ActiveColor $color, int $port, ?string $domain): DesiredRoute

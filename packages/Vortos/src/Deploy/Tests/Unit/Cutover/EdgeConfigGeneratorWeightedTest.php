@@ -55,10 +55,12 @@ final class EdgeConfigGeneratorWeightedTest extends TestCase
 
         $handler = $config['apps']['http']['servers']['app']['routes'][0]['handle'][0];
 
-        // Backward compat: single upstream, no load_balancing key
-        self::assertArrayNotHasKey('load_balancing', $handler);
+        // Collapses to a single upstream (no weighted selection policy), but still carries the
+        // hold-and-retry window so a warmup blip never surfaces to the client as a 503.
         self::assertCount(1, $handler['upstreams']);
         self::assertSame('app-blue:8080', $handler['upstreams'][0]['dial']);
+        self::assertArrayNotHasKey('selection_policy', $handler['load_balancing']);
+        self::assertSame('15s', $handler['load_balancing']['try_duration']);
     }
 
     public function test_0_100_emits_single_green_upstream(): void
@@ -67,9 +69,10 @@ final class EdgeConfigGeneratorWeightedTest extends TestCase
 
         $handler = $config['apps']['http']['servers']['app']['routes'][0]['handle'][0];
 
-        self::assertArrayNotHasKey('load_balancing', $handler);
         self::assertCount(1, $handler['upstreams']);
         self::assertSame('app-green:8080', $handler['upstreams'][0]['dial']);
+        self::assertArrayNotHasKey('selection_policy', $handler['load_balancing']);
+        self::assertSame('15s', $handler['load_balancing']['try_duration']);
     }
 
     public function test_dial_port_comes_from_the_runtime_spec(): void

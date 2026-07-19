@@ -60,7 +60,7 @@ final class RollingStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::CheckHealth,
                 'Verify health after each node update',
-                ['timeout_seconds' => 60],
+                ['timeout_seconds' => $context->definition->healthGateTimeoutSeconds],
             ),
         ]);
 

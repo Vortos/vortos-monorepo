@@ -29,6 +29,14 @@ final readonly class DeploymentDefinition
         public bool $autoRollback,
         public string $definitionHash,
         public int $workerDrainDeadlineSeconds = 25,
+        /**
+         * How long the blue/green health gate waits for the freshly-staged color to report
+         * /health/ready before aborting + rolling back. The default is deliberately generous
+         * (beats a cold start comfortably) because the gate returns the instant the color is ready —
+         * a large budget never slows a warm boot, it only stops a slow cold start from being
+         * mistaken for a failed one. Overridable per-app in config/deploy.php.
+         */
+        public int $healthGateTimeoutSeconds = 180,
         public bool $autoPublishMigrations = false,
         /** R8-2: null → defer to VORTOS_BACKUP_TOOLCHAIN_EXTERNAL; true/false → config wins. */
         public ?bool $backupToolchainExternal = null,
@@ -76,6 +84,7 @@ final readonly class DeploymentDefinition
         Arch $arch = Arch::Arm64,
         bool $autoRollback = true,
         int $workerDrainDeadlineSeconds = 25,
+        int $healthGateTimeoutSeconds = 180,
         array $envOverrides = [],
         string $edgeRouter = 'caddy',
         string $canaryAnalyzer = 'null',
@@ -93,6 +102,7 @@ final readonly class DeploymentDefinition
             ->arch($arch->value)
             ->autoRollback($autoRollback)
             ->workerDrainDeadlineSeconds($workerDrainDeadlineSeconds)
+            ->healthGateTimeoutSeconds($healthGateTimeoutSeconds)
             ->edgeRouter($edgeRouter)
             ->canaryAnalyzer($canaryAnalyzer)
             ->workerTopology($workerTopology);
@@ -124,6 +134,7 @@ final readonly class DeploymentDefinition
             'secrets' => $this->secrets,
             'strategy' => $this->strategy->value,
             'worker_drain_deadline_seconds' => $this->workerDrainDeadlineSeconds,
+            'health_gate_timeout_seconds' => $this->healthGateTimeoutSeconds,
             'worker_topology' => $this->workerTopology->value,
             'runtime_service' => $this->runtimeService->toArray(),
         ];

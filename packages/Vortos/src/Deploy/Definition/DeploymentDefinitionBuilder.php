@@ -30,6 +30,7 @@ final class DeploymentDefinitionBuilder
     private int $pruneImagesKeep = 2;
     private string $builderCacheMaxAge = '168h';
     private int $workerDrainDeadlineSeconds = 25;
+    private int $healthGateTimeoutSeconds = 180;
     private string $edgeRouter = 'caddy';
     private string $canaryAnalyzer = 'null';
     private WorkerTopology $workerTopology = WorkerTopology::RideColor;
@@ -177,6 +178,18 @@ final class DeploymentDefinitionBuilder
     {
         $clone = clone $this;
         $clone->workerDrainDeadlineSeconds = $seconds;
+
+        return $clone;
+    }
+
+    public function healthGateTimeoutSeconds(int $seconds): self
+    {
+        if ($seconds < 1) {
+            throw new \InvalidArgumentException(sprintf('Health gate timeout must be >= 1s, got %d.', $seconds));
+        }
+
+        $clone = clone $this;
+        $clone->healthGateTimeoutSeconds = $seconds;
 
         return $clone;
     }
@@ -383,6 +396,7 @@ final class DeploymentDefinitionBuilder
             builderCacheMaxAge: $this->builderCacheMaxAge,
             definitionHash: 'sha256:' . $hash,
             workerDrainDeadlineSeconds: $this->workerDrainDeadlineSeconds,
+            healthGateTimeoutSeconds: $this->healthGateTimeoutSeconds,
             edgeRouter: $this->edgeRouter,
             canaryAnalyzer: $this->canaryAnalyzer,
             runtimeService: $this->getRuntimeServiceSpec(),
@@ -429,6 +443,7 @@ final class DeploymentDefinitionBuilder
             'secrets' => $this->secrets,
             'strategy' => $strategy->value,
             'worker_drain_deadline_seconds' => $this->workerDrainDeadlineSeconds,
+            'health_gate_timeout_seconds' => $this->healthGateTimeoutSeconds,
             'worker_topology' => $this->workerTopology->value,
             'runtime_service' => $this->getRuntimeServiceSpec()->toArray(),
         ];

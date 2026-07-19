@@ -70,7 +70,7 @@ final class CanaryStrategy implements DeployStrategyInterface
             new DeployStep(
                 StepAction::CheckHealth,
                 sprintf('Wait for %s /health/ready', $stagedColor->value),
-                ['color' => $stagedColor->value, 'timeout_seconds' => 60],
+                ['color' => $stagedColor->value, 'timeout_seconds' => $context->definition->healthGateTimeoutSeconds],
             ),
         ]);
 

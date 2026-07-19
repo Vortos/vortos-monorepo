@@ -14,8 +14,24 @@ final class EdgeConfigGenerator
      *                           config/deploy.php so the edge dial can never drift from the compose
      *                           expose port (watch-list: was hardcoded 8081 vs the 8080 spec default).
      */
+    /**
+     * @param string $proxyTryDuration how long a request will keep retrying to find an available
+     *                                  upstream before giving up with 502/503. This is the zero-downtime
+     *                                  lever: during a fresh color's warmup the active health-check can
+     *                                  briefly mark the sole upstream down; without a try window Caddy
+     *                                  returns 503 to the client on the first empty-pool request. With
+     *                                  it, the request is HELD and retried across the health-check
+     *                                  interval, so a warmup blip never surfaces to the public.
+     * @param string $proxyTryInterval how long to wait between those upstream-selection retries.
+     * @param string $activeHealthInterval how often the edge actively probes the upstream's readiness.
+     * @param string $activeHealthTimeout per-probe timeout for the active health-check.
+     */
     public function __construct(
         private readonly int $containerPort = RuntimeServiceSpec::DEFAULT_CONTAINER_PORT,
+        private readonly string $proxyTryDuration = '15s',
+        private readonly string $proxyTryInterval = '250ms',
+        private readonly string $activeHealthInterval = '10s',
+        private readonly string $activeHealthTimeout = '5s',
     ) {}
 
     /** Build from the app's runtime spec so the edge dial port is the single source of truth. */
@@ -146,16 +162,14 @@ final class EdgeConfigGenerator
     {
         return [
             'handler' => 'reverse_proxy',
+            // Hold-and-retry so a warmup blip on the (single) upstream never surfaces as a public 503:
+            // if the active health-check has momentarily pulled the color out of the pool, the request
+            // waits up to try_duration for it to return instead of failing on an empty pool.
+            'load_balancing' => $this->loadBalancing(),
             'upstreams' => [
                 ['dial' => $dial],
             ],
-            'health_checks' => [
-                'active' => [
-                    'uri' => '/health/ready',
-                    'interval' => '10s',
-                    'timeout' => '5s',
-                ],
-            ],
+            'health_checks' => $this->healthChecks(),
             'flush_interval' => -1,
         ];
     }
@@ -169,19 +183,43 @@ final class EdgeConfigGenerator
             'handler' => 'reverse_proxy',
             'load_balancing' => [
                 'selection_policy' => ['policy' => 'weighted_round_robin'],
-            ],
+            ] + $this->loadBalancing(),
             'upstreams' => [
                 ['dial' => $dialA, 'weight' => $weightA],
                 ['dial' => $dialB, 'weight' => $weightB],
             ],
-            'health_checks' => [
-                'active' => [
-                    'uri' => '/health/ready',
-                    'interval' => '10s',
-                    'timeout' => '5s',
-                ],
-            ],
+            'health_checks' => $this->healthChecks(),
             'flush_interval' => -1,
+        ];
+    }
+
+    /**
+     * The hold-and-retry policy shared by every generated proxy handler. try_duration is the
+     * zero-downtime guarantee: a request that finds no healthy upstream (e.g. the fresh color is
+     * mid-warmup and the active check has it briefly marked down) is retried for this long rather
+     * than returning 503 to the client.
+     *
+     * @return array<string, string>
+     */
+    private function loadBalancing(): array
+    {
+        return [
+            'try_duration' => $this->proxyTryDuration,
+            'try_interval' => $this->proxyTryInterval,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function healthChecks(): array
+    {
+        return [
+            'active' => [
+                'uri' => '/health/ready',
+                'interval' => $this->activeHealthInterval,
+                'timeout' => $this->activeHealthTimeout,
+            ],
         ];
     }
 

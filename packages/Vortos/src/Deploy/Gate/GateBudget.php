@@ -28,4 +28,23 @@ final readonly class GateBudget
             throw new \InvalidArgumentException('Gate per-request timeout must be positive.');
         }
     }
+
+    /**
+     * Build a budget whose ONLY effective bound is the wall-clock timeout. The historical default
+     * capped maxAttempts at 30, so a raised timeout (e.g. 180s to beat a cold start) was silently
+     * clamped back to ~60s by the attempt ceiling — the gate gave up long before the deadline and
+     * a slow-but-healthy cold start was misreported as a failure. Deriving maxAttempts from
+     * timeout/interval (plus a small margin) makes the timeout the real bound, as intended.
+     */
+    public static function forTimeout(float $timeout, float $interval = 2.0, float $perRequestTimeout = 5.0): self
+    {
+        $attempts = (int) ceil($timeout / $interval) + 2;
+
+        return new self(
+            timeout: $timeout,
+            interval: $interval,
+            maxAttempts: max(1, $attempts),
+            perRequestTimeout: $perRequestTimeout,
+        );
+    }
 }

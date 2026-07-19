@@ -236,7 +236,10 @@ final class StepExecutor
         $endpoint = $this->composeFactory->endpointFor($color);
         $timeout = (float) ($step->params['timeout_seconds'] ?? 60);
 
-        $budget = new GateBudget(timeout: $timeout);
+        // forTimeout() derives the attempt ceiling from the timeout so the wall-clock deadline is the
+        // real bound — a generous timeout (to survive a cold start) is never silently clamped back to
+        // ~60s by a fixed 30-attempt cap.
+        $budget = GateBudget::forTimeout($timeout);
         $result = $this->readinessGate->awaitReady($color, $endpoint, $budget);
 
         if (!$result->passed) {

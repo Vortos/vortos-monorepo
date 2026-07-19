@@ -119,7 +119,17 @@ final class SshComposeTarget implements DeployTargetInterface
         $planHash = $plan->planHash->toString();
 
         $existingRun = $this->stateStore->find($envValue, $planHash);
-        if ($existingRun !== null && $existingRun->status === DeployStatus::Completed) {
+
+        // A prior run for this exact plan is a trustworthy "already deployed, nothing to do"
+        // short-circuit ONLY when the LIVE release actually serves the desired digest. CurrentRelease
+        // is recorded solely after a verify-live edge cutover, so cross-checking it against the
+        // completed run closes the phantom-success hole: a run left marked Completed whose image never
+        // became live (or has since been rolled back) no longer reports success in a few seconds —
+        // it re-runs the deploy for real.
+        if ($existingRun !== null
+            && $existingRun->status === DeployStatus::Completed
+            && $this->liveReleaseMatches($envValue, $existingRun->desiredDigest)
+        ) {
             return new TargetStatus(
                 color: ActiveColor::from((string) ($this->extractPromotedColor($existingRun) ?? ActiveColor::None->value)),
                 imageDigest: $existingRun->desiredDigest,
@@ -128,7 +138,15 @@ final class SshComposeTarget implements DeployTargetInterface
             );
         }
 
-        $run = $existingRun ?? new DeployRun(
+        // Resume an interrupted run's checkpoints ONLY when it was genuinely mid-flight
+        // (Pending/Running). A Failed run has already been auto-rolled-back, so its checkpointed
+        // "completed" cutover/health steps no longer reflect reality — silently skipping them would
+        // release a half-state. A Completed-but-not-live run (phantom) is equally untrustworthy. Both
+        // start over from a clean slate rather than resuming stale progress.
+        $resumable = $existingRun !== null
+            && ($existingRun->status === DeployStatus::Pending || $existingRun->status === DeployStatus::Running);
+
+        $run = $resumable ? $existingRun : new DeployRun(
             runId: $this->generateRunId(),
             env: $envValue,
             planHash: $planHash,
@@ -138,7 +156,9 @@ final class SshComposeTarget implements DeployTargetInterface
             status: DeployStatus::Pending,
         );
 
-        if ($existingRun === null) {
+        if (!$resumable) {
+            // begin() overwrites the single (env, planHash) slot, so a fresh run cleanly supersedes a
+            // failed/phantom prior run for the same plan.
             $this->stateStore->begin($run);
         }
 
@@ -190,6 +210,23 @@ final class SshComposeTarget implements DeployTargetInterface
             healthStatus: 'ok',
             checkedAt: new \DateTimeImmutable(),
         );
+    }
+
+    /**
+     * True only when the env's live release (recorded exclusively after a verify-live edge cutover)
+     * actually serves $desiredDigest. This is the invariant that makes the "already deployed"
+     * short-circuit honest: recorded run state alone can lie (a Completed run whose image never went
+     * live, or was rolled back), but CurrentRelease reflects what the edge verifiably cut over to.
+     */
+    private function liveReleaseMatches(string $env, string $desiredDigest): bool
+    {
+        if ($desiredDigest === '') {
+            return false;
+        }
+
+        $live = $this->releaseStore->currentRelease($env);
+
+        return $live !== null && $live->imageDigest === $desiredDigest;
     }
 
     /**

@@ -33,21 +33,25 @@ final class WorkerHealthcheckTest extends TestCase
         ], $hc->toArray());
     }
 
-    public function test_supervisord_default_is_a_robust_single_snapshot_check(): void
+    public function test_supervisord_default_is_a_robust_variable_free_check(): void
     {
         $array = WorkerHealthcheck::supervisord()->toArray();
         $script = $array['test'][1];
 
         $this->assertSame('CMD-SHELL', $array['test'][0]);
         $this->assertStringContainsString('supervisorctl -c /etc/supervisord.conf status', $script);
-        // Requires at least one RUNNING program (also proves supervisord is reachable).
-        $this->assertStringContainsString('grep -qE "\bRUNNING\b" || exit 1', $script);
-        // Fails ONLY on genuinely-crashed states — not on any non-RUNNING line.
-        $this->assertStringContainsString('grep -qE "\b(FATAL|BACKOFF|UNKNOWN)\b" && exit 1', $script);
-        // Single snapshot: supervisorctl status must be invoked exactly once (no racy double-run).
-        $this->assertSame(1, substr_count($script, 'supervisorctl -c'));
+        // Requires at least one RUNNING program (also proves supervisord is reachable)...
+        $this->assertStringContainsString('grep -qE "\bRUNNING\b"', $script);
+        // ...and fails ONLY on genuinely-crashed states — not on any non-RUNNING line.
+        $this->assertStringContainsString('! ', $script);
+        $this->assertStringContainsString('grep -qE "\b(FATAL|BACKOFF|UNKNOWN)\b"', $script);
         // The brittle "any non-RUNNING line = unhealthy" form must be gone.
         $this->assertStringNotContainsString('grep -qvE', $script);
+        // No shell variables / command substitution: Docker Compose would eat the '$' during its own
+        // interpolation of the compose file, silently reducing the probe to an empty-string check.
+        $this->assertStringNotContainsString('$(', $script);
+        $this->assertStringNotContainsString('$S', $script);
+        $this->assertStringNotContainsString('`', $script);
         $this->assertSame(3, $array['retries']);
     }
 

@@ -121,15 +121,21 @@ final readonly class WorkerHealthcheck
      */
     public static function supervisord(string $configPath = self::SUPERVISORD_CONFIG): self
     {
-        // Single snapshot; exit code is ignored (supervisorctl returns non-zero when any program is
-        // merely not-RUNNING, which is not the same as "worker is broken") — the decision is made from
-        // stdout tokens instead.
+        // Healthy ⇔ at least one program is RUNNING (which also proves supervisord is reachable) AND no
+        // program is in a genuinely-failed terminal state (FATAL/BACKOFF/UNKNOWN). Everything else —
+        // a briefly-STARTING program, a one-shot that EXITED, blank/warning lines — is tolerated.
+        //
+        // The test is written WITHOUT shell variables or command substitution ON PURPOSE. The healthcheck
+        // string is embedded in the compose file that "docker compose up" reads, and Compose performs its
+        // own dollar-VAR interpolation on that file — so an "S=$(...); echo $S" form has its $S eaten by
+        // Compose (it expands the undefined var to empty) and the probe silently checks an empty string.
+        // Two piped supervisorctl calls avoid any dollar sign; the second snapshot being a few ms apart is
+        // benign for a 30s-interval liveness probe. Backticks are likewise avoided (NoShellExec arch gate).
+        $status = sprintf('supervisorctl -c %s status 2>/dev/null', $configPath);
         $test = sprintf(
-            'S=$(supervisorctl -c %s status 2>/dev/null); '
-            . 'echo "$S" | grep -qE "\\bRUNNING\\b" || exit 1; '
-            . 'echo "$S" | grep -qE "\\b(FATAL|BACKOFF|UNKNOWN)\\b" && exit 1; '
-            . 'exit 0',
-            $configPath,
+            '%s | grep -qE "\\bRUNNING\\b" && ! %s | grep -qE "\\b(FATAL|BACKOFF|UNKNOWN)\\b"',
+            $status,
+            $status,
         );
 
         return self::command(['CMD-SHELL', $test]);

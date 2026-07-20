@@ -137,6 +137,67 @@ final class StepExecutorTest extends TestCase
         $this->assertSame(6, $run->completedStepCount());
     }
 
+    public function test_decommission_phase_tears_down_previous_color(): void
+    {
+        // The Decommission phase: confirm the newly-promoted (green) color is serving, THEN reap the
+        // previous (blue) color — a single `docker compose -p vortos-app-blue down` that removes blue's
+        // app AND worker together.
+        $plan = new DeployPlan(
+            phases: [
+                new DeployPhase(PhaseKind::Decommission, [
+                    new DeployStep(StepAction::CheckHealth, 'Confirm green serving', ['color' => 'green', 'timeout_seconds' => 10]),
+                    new DeployStep(StepAction::StopContainer, 'Tear down blue', ['color' => 'blue']),
+                ]),
+            ],
+            definitionHash: 'sha256:def',
+        );
+
+        $run = $this->makeRun($plan->planHash->toString());
+        $this->executor->execute($plan, $run, $this->makeDigestImage());
+
+        $argvs = array_map(static fn (array $c): array => $c['argv'], $this->runner->calls);
+        $this->assertContains(
+            ['docker', 'compose', '-p', 'vortos-app-blue', 'down'],
+            $argvs,
+            'Decommission must tear down the previous (blue) color.',
+        );
+        $this->assertSame(2, $run->completedStepCount());
+    }
+
+    public function test_failed_post_cutover_health_aborts_before_teardown(): void
+    {
+        // Safety property: if the promoted color is NOT serving after cutover, the post-cutover health
+        // re-check throws and the deploy aborts BEFORE the StopContainer — so the old color is left
+        // running and rollback can route back to it.
+        $this->gate->shouldPass = false;
+
+        $plan = new DeployPlan(
+            phases: [
+                new DeployPhase(PhaseKind::Decommission, [
+                    new DeployStep(StepAction::CheckHealth, 'Confirm green serving', ['color' => 'green', 'timeout_seconds' => 10]),
+                    new DeployStep(StepAction::StopContainer, 'Tear down blue', ['color' => 'blue']),
+                ]),
+            ],
+            definitionHash: 'sha256:def',
+        );
+
+        $run = $this->makeRun($plan->planHash->toString());
+
+        try {
+            $this->executor->execute($plan, $run, $this->makeDigestImage());
+            $this->fail('Expected DeployAbortedException when post-cutover health fails.');
+        } catch (DeployAbortedException) {
+            // expected
+        }
+
+        $argvs = array_map(static fn (array $c): array => $c['argv'], $this->runner->calls);
+        $this->assertNotContains(
+            ['docker', 'compose', '-p', 'vortos-app-blue', 'down'],
+            $argvs,
+            'The old color must NOT be torn down when the post-cutover health check fails.',
+        );
+    }
+
     public function test_resumes_from_completed_steps(): void
     {
         $digest = 'sha256:' . str_repeat('ab', 32);

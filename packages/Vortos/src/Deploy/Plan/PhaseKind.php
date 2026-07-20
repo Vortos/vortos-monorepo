@@ -14,6 +14,7 @@ enum PhaseKind: string
     case Smoke = 'smoke';
     case Cutover = 'cutover';
     case Promote = 'promote';
+    case Decommission = 'decommission';
     case ContractGuard = 'contract-guard';
     case Rollback = 'rollback';
 }

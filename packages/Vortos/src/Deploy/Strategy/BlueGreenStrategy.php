@@ -9,6 +9,7 @@ use Vortos\Deploy\Plan\DeployPhase;
 use Vortos\Deploy\Plan\DeployStep;
 use Vortos\Deploy\Plan\PhaseKind;
 use Vortos\Deploy\Plan\StepAction;
+use Vortos\Deploy\Target\ActiveColor;
 use Vortos\Deploy\Target\DeployCapability;
 use Vortos\OpsKit\Driver\Capability\RequiredCapabilities;
 
@@ -114,6 +115,42 @@ final class BlueGreenStrategy implements DeployStrategyInterface
                 ['color' => $stagedColor->value, 'image_digest' => $digest, 'image_repository' => $repository],
             ),
         ]);
+
+        // Decommission the previous color — the final phase, and the ONLY point at which the old color is
+        // torn down. Historically blue-green emitted no teardown at all, so the previous color (and, on a
+        // ride-color topology, its entire worker fleet) kept running indefinitely after every deploy —
+        // idle-polling Kafka and doubling broker load until a later deploy happened to reuse the slot.
+        //
+        // Teardown is strictly gated: it runs only after StageColor + HealthGate (with stabilization) +
+        // Smoke + Cutover + Promote have all succeeded, AND after a final post-cutover CheckHealth confirms
+        // the newly-promoted color is genuinely serving live traffic. If that re-check fails the step throws
+        // and the deploy aborts BEFORE any StopContainer — so the old color is left running and autoRollback
+        // can route back to it. The old color's image is retained (see pruneImages keep) for fast rollback.
+        $decommissionSteps = [
+            new DeployStep(
+                StepAction::CheckHealth,
+                sprintf('Confirm promoted %s is serving before reaping old color', $stagedColor->value),
+                [
+                    'color' => $stagedColor->value,
+                    'timeout_seconds' => $context->definition->healthGateTimeoutSeconds,
+                    'stabilization_seconds' => 0,
+                ],
+            ),
+        ];
+
+        // Only reap when there is a real previous color. On a bootstrap deploy the active color is None
+        // (opposite() staged Blue), so there is nothing to tear down — skip the StopContainer entirely
+        // rather than emit a no-op teardown of a vortos-app-none project that never existed.
+        $previousColor = $context->currentState->activeColor;
+        if ($previousColor !== ActiveColor::None && $previousColor !== $stagedColor) {
+            $decommissionSteps[] = new DeployStep(
+                StepAction::StopContainer,
+                sprintf('Tear down previous color %s (app + worker)', $previousColor->value),
+                ['color' => $previousColor->value],
+            );
+        }
+
+        $phases[] = new DeployPhase(PhaseKind::Decommission, $decommissionSteps);
 
         return $phases;
     }

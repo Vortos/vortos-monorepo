@@ -11,6 +11,32 @@ final readonly class PhaseOrderPolicy
     {
         $this->assertWorkersBeforeCutover($phases);
         $this->assertWorkersBeforeStageColor($phases);
+        $this->assertDecommissionIsLast($phases);
+    }
+
+    /**
+     * Decommission tears down the previous color and must be the terminal phase — it may run only after
+     * StageColor/HealthGate/Smoke/Cutover/Promote have all succeeded. Any phase after it would act on a
+     * topology from which the old color has already been removed.
+     *
+     * @param list<DeployPhase> $phases
+     */
+    private function assertDecommissionIsLast(array $phases): void
+    {
+        $decommissionIndex = null;
+
+        foreach ($phases as $i => $phase) {
+            if ($phase->kind === PhaseKind::Decommission) {
+                $decommissionIndex = $i;
+            }
+        }
+
+        if ($decommissionIndex !== null && $decommissionIndex !== count($phases) - 1) {
+            throw new \LogicException(
+                'Phase ordering violation: Decommission must be the final phase. '
+                . 'Tearing down the previous color before every gate has passed is unsafe.',
+            );
+        }
     }
 
     /** @param list<DeployPhase> $phases */

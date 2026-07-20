@@ -79,9 +79,54 @@ final class DeployPlannerTest extends TestCase
             PhaseKind::Smoke,
             PhaseKind::Cutover,
             PhaseKind::Promote,
+            PhaseKind::Decommission,
         ];
 
         self::assertSame($expected, $kinds);
+    }
+
+    public function test_blue_green_decommissions_previous_color_as_final_phase(): void
+    {
+        $planner = $this->createPlanner();
+        $plan = $planner->plan($this->makeContext(color: ActiveColor::Blue));
+
+        $last = $plan->phases[array_key_last($plan->phases)];
+        self::assertSame(PhaseKind::Decommission, $last->kind, 'Decommission must be the final phase.');
+
+        // Step 0: post-cutover health re-check on the newly-promoted (green) color — the gate that makes
+        // teardown safe. Step 1: tear down the previous (blue) color.
+        self::assertSame(\Vortos\Deploy\Plan\StepAction::CheckHealth, $last->steps[0]->action);
+        self::assertSame('green', $last->steps[0]->params['color']);
+
+        self::assertSame(\Vortos\Deploy\Plan\StepAction::StopContainer, $last->steps[1]->action);
+        self::assertSame('blue', $last->steps[1]->params['color'], 'Must tear down the OLD color, never the promoted one.');
+    }
+
+    public function test_blue_green_first_deploy_skips_stop_but_keeps_health_recheck(): void
+    {
+        $context = new DeployContext(
+            definition: DeploymentDefinition::create()->build(),
+            desiredManifest: new BuildManifest(
+                buildId: 'build-1',
+                gitSha: 'abc1234',
+                imageRepository: 'ghcr.io/acme/app',
+                imageDigest: 'sha256:' . str_repeat('a', 64),
+                targetArch: Arch::Arm64,
+                environment: 'prod',
+                schemaFingerprint: new SchemaFingerprint(['m001']),
+                createdAt: new \DateTimeImmutable('2026-01-01'),
+            ),
+            currentState: CurrentDeployState::firstDeploy(),
+        );
+
+        $plan = $this->createPlanner()->plan($context);
+
+        $last = $plan->phases[array_key_last($plan->phases)];
+        self::assertSame(PhaseKind::Decommission, $last->kind);
+        // On a bootstrap deploy the previous color is None — there is nothing to reap, so only the
+        // post-cutover health re-check is emitted (no no-op teardown of a nonexistent vortos-app-none).
+        self::assertCount(1, $last->steps);
+        self::assertSame(\Vortos\Deploy\Plan\StepAction::CheckHealth, $last->steps[0]->action);
     }
 
     public function test_blue_green_stages_opposite_color(): void

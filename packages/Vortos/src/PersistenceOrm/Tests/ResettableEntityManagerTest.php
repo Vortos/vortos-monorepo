@@ -4,17 +4,22 @@ declare(strict_types=1);
 
 namespace Vortos\PersistenceOrm\Tests;
 
+use Doctrine\Common\EventManager;
 use Doctrine\DBAL\Connection;
+use Doctrine\ORM\Configuration;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\Query\FilterCollection;
+use Doctrine\Persistence\Mapping\Driver\MappingDriver;
 use PHPUnit\Framework\TestCase;
 use Vortos\PersistenceOrm\EntityManager\ResettableEntityManager;
 
 /**
  * Unit tests for ResettableEntityManager.
  *
- * The closed-EM reset path (where EntityManager::create() rebuilds the inner EM)
- * requires a real DBAL connection and is covered by integration tests.
+ * The closed-EM reset path rebuilds the inner EM. It was previously assumed to need a real
+ * connection and was left to integration tests — that gap let a Doctrine ORM 3 incompatibility
+ * (`EntityManager::create()` was removed in 3.0) ship and take production down, so the rebuild
+ * is now asserted here directly.
  */
 final class ResettableEntityManagerTest extends TestCase
 {
@@ -115,5 +120,37 @@ final class ResettableEntityManagerTest extends TestCase
         $em->method('getConnection')->willReturn($conn);
 
         (new ResettableEntityManager($em))->reset();
+    }
+
+    /**
+     * Regression: a closed inner EM must actually be rebuilt.
+     *
+     * The rebuild previously used the ORM 2 static factory `EntityManager::create()`, removed in
+     * ORM 3. Because reset() is the only path that recovers a closed EM and it fataled before
+     * reassigning the inner instance, the EM stayed closed for the life of a FrankenPHP worker
+     * thread and every later request on it failed with "The EntityManager is closed."
+     */
+    public function test_reset_rebuilds_a_closed_entity_manager(): void
+    {
+        $config = new Configuration();
+        $config->setMetadataDriverImpl($this->createMock(MappingDriver::class));
+        $config->setProxyDir(sys_get_temp_dir());
+        $config->setProxyNamespace('VortosTestProxies');
+
+        $filters = $this->createMock(FilterCollection::class);
+        $filters->method('getEnabledFilters')->willReturn([]);
+
+        $inner = $this->createMock(EntityManager::class);
+        $inner->method('isOpen')->willReturn(false);
+        $inner->method('getFilters')->willReturn($filters);
+        $inner->method('getConnection')->willReturn($this->createMock(Connection::class));
+        $inner->method('getConfiguration')->willReturn($config);
+        $inner->method('getEventManager')->willReturn(new EventManager());
+
+        $wrapper = new ResettableEntityManager($inner);
+        $wrapper->reset();
+
+        // Rebuilt from the same Configuration, so the wrapper is usable again.
+        $this->assertTrue($wrapper->isOpen());
     }
 }

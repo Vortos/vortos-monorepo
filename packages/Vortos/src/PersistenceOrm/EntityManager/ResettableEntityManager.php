@@ -60,7 +60,7 @@ final class ResettableEntityManager implements EntityManagerInterface, ResetInte
             $conn = $this->inner->getConnection();
             $conn->close();
 
-            $this->inner = EntityManager::create(
+            $this->inner = new EntityManager(
                 $conn,
                 $this->inner->getConfiguration(),
                 $this->inner->getEventManager(),

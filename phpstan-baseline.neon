@@ -4477,12 +4477,6 @@ parameters:
 			path: packages/Vortos/src/PersistenceOrm/DependencyInjection/PersistenceOrmPackage.php
 
 		-
-			message: '#^Call to an undefined static method Doctrine\\ORM\\EntityManager\:\:create\(\)\.$#'
-			identifier: staticMethod.notFound
-			count: 1
-			path: packages/Vortos/src/PersistenceOrm/EntityManager/ResettableEntityManager.php
-
-		-
 			message: '#^Method Vortos\\PersistenceOrm\\EntityManager\\ResettableEntityManager\:\:getRepository\(\) should return Doctrine\\ORM\\EntityRepository\<T of object\> but returns Doctrine\\ORM\\EntityRepository\<Vortos\\PersistenceOrm\\EntityManager\\T\>\.$#'
 			identifier: return.type
 			count: 1

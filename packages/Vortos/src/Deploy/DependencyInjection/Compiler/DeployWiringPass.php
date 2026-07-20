@@ -17,7 +17,9 @@ use Vortos\Deploy\Runner\DeployRunner;
 use Vortos\Deploy\Runner\RollbackRunner;
 use Vortos\Deploy\State\ContractSoakLedgerInterface;
 use Vortos\Deploy\State\CurrentReleaseStoreInterface;
+use Vortos\Deploy\Contract\FlagGateReadiness;
 use Vortos\Deploy\Contract\ManualReadiness;
+use Vortos\Deploy\Contract\SoakWindowReadiness;
 use Vortos\Deploy\Target\DeployTargetRegistry;
 use Vortos\Migration\Schema\MigrationPhaseReaderInterface;
 use Vortos\Release\Migration\AppliedMigrationSetReaderInterface;
@@ -60,7 +62,7 @@ final class DeployWiringPass implements CompilerPassInterface
             $container->register(DeployPreflightStateBuilder::class, DeployPreflightStateBuilder::class)
                 ->setArgument('$appliedReader', new Reference(AppliedMigrationSetReaderInterface::class))
                 ->setArgument('$phaseReader', new Reference(MigrationPhaseReaderInterface::class))
-                ->setArgument('$contractReadiness', new Reference(ManualReadiness::class))
+                ->setArgument('$contractReadiness', new Reference(self::contractReadinessDriver()))
                 ->setArgument('$soakLedger', new Reference(ContractSoakLedgerInterface::class))
                 ->setArgument('$releaseStore', new Reference(CurrentReleaseStoreInterface::class))
                 ->setPublic(false);
@@ -119,5 +121,37 @@ final class DeployWiringPass implements CompilerPassInterface
                 $runnerDef->setArgument('$autoPublisher', new Reference(\Vortos\Deploy\Runtime\MigrationAutoPublisher::class));
             }
         }
+    }
+
+    /**
+     * The contract-readiness driver the preflight state builder resolves against, selected by
+     * DEPLOY_CONTRACT_READINESS.
+     *
+     * All three drivers are registered and tagged, and ContractReadinessRegistry is built over the
+     * locator — but this wiring previously referenced ManualReadiness unconditionally, and
+     * ManualReadiness::isCleared() always returns false. The --force-contract escape hatch its
+     * own reason() string points at was never implemented. The net effect was that a Contract-phase
+     * migration could never be deployed at all: DeployPlanner threw ContractInSameDeployException
+     * on every attempt, forever, with no way through.
+     *
+     * Default stays manual so the fail-closed posture is unchanged for anyone who has not opted
+     * in; soak-window is the driver that actually lets contract migrations land once they have
+     * soaked (see DEPLOY_SOAK_DURATION_SECONDS / DEPLOY_SOAK_REQUIRED_DEPLOY_COUNT).
+     *
+     * @return class-string
+     */
+    private static function contractReadinessDriver(): string
+    {
+        $configured = $_ENV['DEPLOY_CONTRACT_READINESS'] ?? 'manual';
+
+        return match ($configured) {
+            'soak-window' => SoakWindowReadiness::class,
+            'flag-gate'   => FlagGateReadiness::class,
+            'manual'      => ManualReadiness::class,
+            default       => throw new \InvalidArgumentException(sprintf(
+                'Unknown DEPLOY_CONTRACT_READINESS "%s". Expected one of: manual, soak-window, flag-gate.',
+                is_string($configured) ? $configured : get_debug_type($configured),
+            )),
+        };
     }
 }

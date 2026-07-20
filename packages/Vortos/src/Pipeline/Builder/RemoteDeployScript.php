@@ -201,6 +201,13 @@ final class RemoteDeployScript
             $lines[] = $dockerRun . sprintf('vortos:deploy:materialize-file-secrets --env=%s --json', $envExpr);
         }
 
+        // App/package-supplied install + seed steps. These run after provision (so the schema they
+        // depend on exists) and before cutover (so the new color never serves traffic against a
+        // half-installed schema). Idempotent by contract — they run on every deploy.
+        foreach ($definition->preCutoverCommands as $command) {
+            $lines[] = $dockerRun . $command;
+        }
+
         $lines[] = $dockerRun . sprintf(
             'deploy --env=%s --yes --json --image-repository=%s --image-digest=%s',
             $envExpr,

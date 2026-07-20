@@ -26,6 +26,9 @@ final readonly class PipelineDefinition
      *                    before the stage command — e.g. `cp .env.example .env` so the DI container can
      *                    compile `%env()%` references. This is what lets the generated CI replace a real ci.yml.
      */
+    /**
+     * @param list<string> $preCutoverCommands
+     */
     public function __construct(
         public string $emitter = 'github',
         public string $phpVersion = '8.5',
@@ -97,6 +100,23 @@ final readonly class PipelineDefinition
         //    bools above; `warn` guards on tool presence and never fails the build. ──
         public QualityMode $staticAnalysisMode = QualityMode::Enforce,
         public QualityMode $agnosticismMode = QualityMode::Enforce,
+        // ── Extra pre-cutover console commands ──
+        // Console commands run in the deploy one-shot on the target, after migrations/provision and
+        // before the cutover. This is the seam for install/seed steps that the fixed sequence can't
+        // know about: package installers whose portable migration can't express engine-specific DDL
+        // (e.g. `vortos:search:pg:install`), and app-level seeds (e.g. `vortos:auth:seed --prune`).
+        //
+        // Without this seam those commands had to be hand-added to the *generated* workflow file,
+        // where the next regeneration silently dropped them. A missing `vortos:search:pg:install`
+        // took production down on 2026-07-20: the search table existed with no `search_vector`
+        // column, every search query threw, and the resulting closed EntityManagers poisoned worker
+        // threads until the whole app 500'd.
+        //
+        // Each entry is the console command only (no `php bin/console` prefix, no docker wrapper) —
+        // the emitter supplies both. Commands must be idempotent: they run on every deploy.
+        //
+        // @var list<string>
+        public array $preCutoverCommands = [],
     ) {
         if ($emitter === '') {
             throw new \InvalidArgumentException('Pipeline emitter must be non-empty.');
@@ -135,6 +155,31 @@ final readonly class PipelineDefinition
                     'Runtime file-secret dirs must be tmpfs paths under /run/ or /dev/shm/ (so plaintext '
                     . 'never persists to disk); got "%s".',
                     is_string($dir) ? $dir : get_debug_type($dir),
+                ));
+            }
+        }
+
+        foreach ($preCutoverCommands as $command) {
+            if (trim($command) === '') {
+                throw new \InvalidArgumentException('Pre-cutover commands must be non-empty strings.');
+            }
+
+            // Emitted verbatim into the remote deploy heredoc. Anything that could break out of the
+            // command (or be eaten by shell/Compose interpolation) is rejected at definition time
+            // rather than producing a subtly broken generated workflow.
+            if (preg_match('/[\r\n`$;&|<>()]/', $command) === 1) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Pre-cutover commands must be a bare console command without shell metacharacters '
+                    . '(no newlines, $, backticks, ; & | < > or parentheses); got "%s".',
+                    $command,
+                ));
+            }
+
+            if (str_starts_with(trim($command), 'php ') || str_contains($command, 'bin/console')) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Pre-cutover commands must be the console command only — the emitter adds the '
+                    . '`php bin/console` prefix and the docker wrapper; got "%s".',
+                    $command,
                 ));
             }
         }

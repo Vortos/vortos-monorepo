@@ -60,6 +60,8 @@ final class PipelineDefinitionBuilder
     private bool $emitAgnosticism = true;
     private QualityMode $staticAnalysisMode = QualityMode::Enforce;
     private QualityMode $agnosticismMode = QualityMode::Enforce;
+    /** @var list<string> */
+    private array $preCutoverCommands = [];
 
     public static function create(): self
     {
@@ -413,6 +415,24 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    /**
+     * Console commands run on the target after provision and before cutover — the seam for package
+     * installers whose portable migration cannot express engine-specific DDL (e.g.
+     * `vortos:search:pg:install`) and app-level seeds (e.g. `vortos:auth:seed --prune`).
+     *
+     * Pass the bare console command; the emitter adds `php bin/console` and the docker wrapper.
+     * Commands must be idempotent — they run on every deploy.
+     *
+     * @param list<string> $commands
+     */
+    public function preCutoverCommands(array $commands): self
+    {
+        $clone = clone $this;
+        $clone->preCutoverCommands = $commands;
+
+        return $clone;
+    }
+
     public function agnosticismMode(QualityMode $mode): self
     {
         $clone = clone $this;
@@ -464,6 +484,7 @@ final class PipelineDefinitionBuilder
             emitAgnosticism: $this->emitAgnosticism,
             staticAnalysisMode: $this->staticAnalysisMode,
             agnosticismMode: $this->agnosticismMode,
+            preCutoverCommands: $this->preCutoverCommands,
         );
     }
 }

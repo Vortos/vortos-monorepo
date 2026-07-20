@@ -338,4 +338,73 @@ final class RemoteDeployScriptTest extends TestCase
             self::assertSame('GITHUB_TOKEN', $name);
         }
     }
+
+    // ── Pre-cutover command seam ─────────────────────────────────────────────────
+
+    public function test_no_pre_cutover_commands_by_default(): void
+    {
+        $script = $this->script($this->definition(false));
+
+        $this->assertStringNotContainsString('vortos:search:pg:install', $script);
+    }
+
+    /**
+     * Package installers whose portable migration cannot express engine-specific DDL (and app-level
+     * seeds) must be emittable from the definition. Previously the generated workflow had no seam
+     * for them, so they were hand-added to the generated file and silently lost on regeneration —
+     * a missing `vortos:search:pg:install` took production down on 2026-07-20.
+     */
+    public function test_pre_cutover_commands_are_emitted_before_cutover(): void
+    {
+        $definition = new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            preCutoverCommands: ['vortos:search:pg:install', 'vortos:auth:seed --prune'],
+        );
+
+        $script = $this->script($definition);
+
+        $install = strpos($script, 'vortos:search:pg:install');
+        $seed = strpos($script, 'vortos:auth:seed --prune');
+        $provision = strpos($script, 'vortos:deploy:provision');
+        $cutover = strpos($script, 'php bin/console deploy --env=');
+
+        $this->assertNotFalse($install);
+        $this->assertNotFalse($seed);
+
+        // After provision (the schema they depend on exists) and before cutover (the new color must
+        // never serve traffic against a half-installed schema).
+        $this->assertGreaterThan($provision, $install);
+        $this->assertLessThan($cutover, $install);
+        $this->assertLessThan($cutover, $seed);
+
+        // Order within the list is preserved.
+        $this->assertLessThan($seed, $install);
+    }
+
+    public function test_pre_cutover_commands_reject_shell_metacharacters(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/shell metacharacters/');
+
+        new PipelineDefinition(
+            environments: ['production'],
+            preCutoverCommands: ['vortos:search:pg:install; rm -rf /'],
+        );
+    }
+
+    public function test_pre_cutover_commands_reject_console_prefix(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/console command only/');
+
+        new PipelineDefinition(
+            environments: ['production'],
+            preCutoverCommands: ['php bin/console vortos:search:pg:install'],
+        );
+    }
 }

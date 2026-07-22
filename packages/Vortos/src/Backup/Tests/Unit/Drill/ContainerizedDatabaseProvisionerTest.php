@@ -83,9 +83,34 @@ final class ContainerizedDatabaseProvisionerTest extends TestCase
         $spec = $runtime->lastSpec;
         $this->assertNotNull($spec);
         $this->assertArrayHasKey(ContainerizedDatabaseProvisioner::ORPHAN_LABEL, $spec->labels);
-        $this->assertSame('/var/lib/postgresql/data', $spec->tmpfsPath);
+        // PostgreSQL 18 expects a single mount at /var/lib/postgresql; the pre-18 path
+        // (/var/lib/postgresql/data) makes an 18+ container abort during startup.
+        $this->assertSame('/var/lib/postgresql', $spec->tmpfsPath);
         // Credentials must be generated per drill, never a fixed default.
         $this->assertNotSame('postgres', $spec->env['POSTGRES_PASSWORD'] ?? 'postgres');
+    }
+
+    /**
+     * REGRESSION (first production drill, 2026-07-22): durability tuning was passed as PGOPTIONS,
+     * but `fsync` is postmaster-level and cannot be set per session, so the image's initdb step died
+     * with "parameter fsync cannot be changed now" and the container exited before accepting a
+     * connection. It must go on the server command line instead, and must never come back as env.
+     */
+    public function test_durability_tuning_is_a_server_command_not_pgoptions(): void
+    {
+        $runtime = new FakeContainerRuntime(failReady: true);
+        $provisioner = new ContainerizedDatabaseProvisioner($runtime, readyTimeoutSeconds: 0);
+
+        try {
+            $provisioner->provision(DatabaseEngine::Postgres);
+        } catch (\Throwable) {
+        }
+
+        $spec = $runtime->lastSpec;
+        $this->assertNotNull($spec);
+        $this->assertArrayNotHasKey('PGOPTIONS', $spec->env);
+        $this->assertContains('fsync=off', $spec->command);
+        $this->assertSame('postgres', $spec->command[0] ?? null);
     }
 
     /** Mounting the real Docker socket into an app container is root-on-host; refuse it outright. */

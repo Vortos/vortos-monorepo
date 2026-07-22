@@ -73,6 +73,7 @@ final class DockerEngineContainerRuntime implements ContainerRuntimeInterface
                 array_values($spec->env),
             ),
             'Labels' => $spec->labels,
+            'Cmd' => $spec->command !== [] ? $spec->command : null,
             'HostConfig' => [
                 // Disposable by construction: never restart, and take the anonymous volumes with it.
                 'RestartPolicy' => ['Name' => 'no'],

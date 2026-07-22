@@ -62,6 +62,15 @@ final class ContainerizedDatabaseProvisioner implements DrillEnvironmentProvisio
         private readonly ?string $network = null,
         private readonly int $readyTimeoutSeconds = 120,
         private readonly int $tmpfsSizeBytes = 2147483648,
+        /**
+         * Where the image expects its data directory to be mounted. PostgreSQL 18 moved this: the
+         * official image now wants a single mount at `/var/lib/postgresql` and places the cluster in
+         * a subdirectory, so mounting at the old `/var/lib/postgresql/data` makes an 18+ container
+         * abort at startup ("This is usually the result of upgrading the Docker image without
+         * upgrading the underlying database"). Override to `/var/lib/postgresql/data` when pinning
+         * the drill image to 17 or earlier.
+         */
+        private readonly string $dataMountPath = '/var/lib/postgresql',
     ) {
     }
 
@@ -95,13 +104,17 @@ final class ContainerizedDatabaseProvisioner implements DrillEnvironmentProvisio
                 'POSTGRES_DB' => self::DB_NAME,
                 'POSTGRES_USER' => self::DB_USER,
                 'POSTGRES_PASSWORD' => $password,
-                // The drill database is destroyed minutes from now and never serves a request; skip
-                // the fsync durability the restore does not need and halve the restore time.
-                'PGOPTIONS' => '-c fsync=off -c full_page_writes=off -c synchronous_commit=off',
             ],
             labels: [self::ORPHAN_LABEL => '1'],
             network: $this->network,
-            tmpfsPath: '/var/lib/postgresql/data',
+            // Durability tuning belongs on the server command line, NOT in PGOPTIONS: fsync is a
+            // postmaster-level setting that cannot be changed per session, so passing it through the
+            // environment makes the image's own initdb step fail ("parameter fsync cannot be changed
+            // now") and the container exits before it ever accepts a connection. The drill database
+            // is destroyed minutes from now and never serves a request, so trading durability for
+            // restore speed here is free.
+            command: ['postgres', '-c', 'fsync=off', '-c', 'full_page_writes=off', '-c', 'synchronous_commit=off'],
+            tmpfsPath: $this->dataMountPath,
             tmpfsSizeBytes: $this->tmpfsSizeBytes,
         ));
 

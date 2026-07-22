@@ -26,7 +26,16 @@ use RuntimeException;
  */
 final class DockerEngineContainerRuntime implements ContainerRuntimeInterface
 {
-    private const API_VERSION = 'v1.43';
+    /**
+     * Fallback only. The real version is negotiated from the daemon at first use — see
+     * {@see apiVersion()}. Pinning a constant here is what broke the first production drill: the
+     * hardcoded `v1.43` was rejected outright by a newer daemon ("client version 1.43 is too old,
+     * minimum supported API version is 1.44"), and a pin can only ever rot in that direction as
+     * hosts are upgraded.
+     */
+    private const FALLBACK_API_VERSION = 'v1.44';
+
+    private ?string $negotiatedVersion = null;
 
     public function __construct(
         private readonly string $endpoint,
@@ -152,7 +161,49 @@ final class DockerEngineContainerRuntime implements ContainerRuntimeInterface
      */
     private function request(string $method, string $path, ?array $payload = null): array
     {
-        $url = rtrim($this->httpEndpoint(), '/') . '/' . self::API_VERSION . $path;
+        return $this->rawRequest($method, '/' . $this->apiVersion() . $path, $payload);
+    }
+
+    /**
+     * Ask the daemon what version it speaks, once per instance.
+     *
+     * The Engine API rejects a client version older than its minimum outright, so a hardcoded
+     * constant is a latent failure that triggers on someone else's schedule — whenever the host's
+     * Docker is upgraded, which for a weekly drill means the breakage is discovered by the drill
+     * failing rather than by anything watching. `/version` is inside the socket-proxy's existing
+     * allowlist (VERSION=1), so this costs one cheap call and no new privilege.
+     */
+    private function apiVersion(): string
+    {
+        if ($this->negotiatedVersion !== null) {
+            return $this->negotiatedVersion;
+        }
+
+        try {
+            [$status, $body] = $this->rawRequest('GET', '/version');
+            if ($status < 400) {
+                $decoded = json_decode($body, true);
+                $version = is_array($decoded) ? ($decoded['ApiVersion'] ?? null) : null;
+                if (is_string($version) && preg_match('/^\d+\.\d+$/', $version) === 1) {
+                    return $this->negotiatedVersion = 'v' . $version;
+                }
+            }
+        } catch (\Throwable) {
+            // Fall through to the pinned fallback — a failed negotiation must not be fatal on its
+            // own; the subsequent real call will surface a far more useful error.
+        }
+
+        return $this->negotiatedVersion = self::FALLBACK_API_VERSION;
+    }
+
+    /**
+     * @param array<string, mixed>|null $payload
+     *
+     * @return array{0: int, 1: string} [status, body]
+     */
+    private function rawRequest(string $method, string $path, ?array $payload = null): array
+    {
+        $url = rtrim($this->httpEndpoint(), '/') . $path;
 
         $ch = curl_init($url);
         if ($ch === false) {
@@ -174,7 +225,8 @@ final class DockerEngineContainerRuntime implements ContainerRuntimeInterface
         $body = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
-        curl_close($ch);
+        // No curl_close(): a no-op since PHP 8.0 and deprecated in 8.5 — the handle is released
+        // when $ch goes out of scope.
 
         if ($body === false) {
             throw new RuntimeException(sprintf('Docker Engine API request failed (%s %s): %s', $method, $path, $error));

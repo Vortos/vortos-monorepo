@@ -105,6 +105,30 @@ final class ContainerizedDatabaseProvisionerTest extends TestCase
     }
 
     /**
+     * REGRESSION (first production drill, 2026-07-22): the API version was a hardcoded `v1.43` and
+     * the daemon rejected it — "client version 1.43 is too old. Minimum supported API version is
+     * 1.44". A pinned constant can only rot as hosts are upgraded, and for a weekly drill the
+     * breakage surfaces as a failed drill rather than anything watching. The version is now
+     * negotiated from the daemon's /version, with a modern fallback when that cannot be reached.
+     */
+    public function test_api_version_falls_back_to_a_supported_version_when_negotiation_fails(): void
+    {
+        // Unroutable port: negotiation cannot succeed, so the fallback must be used and must not be
+        // the version the daemon already rejects.
+        $runtime = new DockerEngineContainerRuntime('tcp://127.0.0.1:1', timeoutSeconds: 1);
+
+        $reflection = new \ReflectionMethod($runtime, 'apiVersion');
+        $version = $reflection->invoke($runtime);
+
+        $this->assertMatchesRegularExpression('/^v\d+\.\d+$/', $version);
+        $this->assertGreaterThanOrEqual(
+            1.44,
+            (float) substr($version, 1),
+            'the fallback must be at least the minimum the current Docker Engine accepts',
+        );
+    }
+
+    /**
      * BK-12 regression. The old substring guard passed this DSN cleanly because it contains none of
      * 'production' / 'prod-db' / 'primary-db' — while `write_db` was in fact the production primary.
      * This is the real production DSN from the 2026-07 audit.

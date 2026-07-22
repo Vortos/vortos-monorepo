@@ -15,6 +15,7 @@ use Vortos\Backup\Event\BackupEventSinkInterface;
 use Vortos\Backup\Runtime\BackupLifecycleRunnerInterface;
 use Vortos\Backup\Runtime\BackupWorker;
 use Vortos\Backup\Runtime\InMemoryScheduleStateStore;
+use Vortos\Backup\Runtime\ScheduleState;
 use Vortos\Backup\Schedule\BackupSchedule;
 use Vortos\Backup\Schedule\BackupScheduleType;
 
@@ -23,13 +24,12 @@ final class BackupWorkerTest extends TestCase
     public function test_fires_a_due_schedule_and_rebases_watermark(): void
     {
         $runner = new RecordingLifecycleRunner();
-        $state = new InMemoryScheduleStateStore();
+        $state = $this->warmStore('nightly', '2024-01-01 00:00:00');
         $worker = new BackupWorker(
             [$this->schedule('0 */6 * * *')],
             $runner,
             $state,
             $this->clock('2024-01-01 06:00:00'),
-            startedAt: $this->at('2024-01-01 05:59:00'),
         );
 
         $log = $worker->tick($this->at('2024-01-01 06:00:00'));
@@ -48,9 +48,8 @@ final class BackupWorkerTest extends TestCase
         $worker = new BackupWorker(
             [$this->schedule('0 */6 * * *')],
             $runner,
-            new InMemoryScheduleStateStore(),
+            $this->warmStore('nightly', '2024-01-01 00:00:00'),
             $this->clock('2024-01-01 05:30:00'),
-            startedAt: $this->at('2024-01-01 05:00:00'),
         );
 
         $worker->tick($this->at('2024-01-01 05:30:00'));
@@ -58,16 +57,85 @@ final class BackupWorkerTest extends TestCase
         $this->assertCount(0, $runner->executed);
     }
 
+    /**
+     * REGRESSION (prod incident 2026-07-07 → 07-22): a worker with no watermark must fire once and
+     * establish one. Deriving a baseline from "now" instead made `nextDueAfter()` permanently future,
+     * so the worker ticked silently for 15 days and took zero backups. Every pre-existing test in this
+     * file passed `startedAt` explicitly, which is exactly why the cold path was never exercised.
+     */
+    public function test_cold_start_with_no_watermark_fires_immediately(): void
+    {
+        $runner = new RecordingLifecycleRunner();
+        $state = new InMemoryScheduleStateStore();
+        $worker = new BackupWorker(
+            [$this->schedule('0 */6 * * *')],
+            $runner,
+            $state,
+            // Deliberately a time that is NOT a cron occurrence: due-ness must come from the absent
+            // watermark, not from happening to land on the cron minute.
+            $this->clock('2024-01-01 03:17:00'),
+        );
+
+        $log = $worker->tick($this->at('2024-01-01 03:17:00'));
+
+        $this->assertCount(1, $runner->executed, 'a cold start must run, not wait for the next cron');
+        $this->assertStringContainsString('fired', $log[0]['result']);
+        $this->assertEquals(
+            $this->at('2024-01-01 03:17:00'),
+            $state->get('nightly')->lastFiredAt,
+            'the cold-start run must persist a watermark so the next tick is warm',
+        );
+    }
+
+    /**
+     * The deadlock itself: tick repeatedly on a cold store and assert it does not stay silent. Under
+     * the old `$state->lastFiredAt ?? $now` baseline this loops forever with zero executions.
+     */
+    public function test_cold_start_does_not_deadlock_across_repeated_ticks(): void
+    {
+        $runner = new RecordingLifecycleRunner();
+        $worker = new BackupWorker(
+            [$this->schedule('0 */6 * * *')],
+            $runner,
+            new InMemoryScheduleStateStore(),
+            $this->clock('2024-01-01 03:17:00'),
+        );
+
+        $t = $this->at('2024-01-01 03:17:00');
+        for ($i = 0; $i < 20; $i++) {
+            $worker->tick($t);
+            $t = $t->modify('+30 seconds'); // the production tick interval
+        }
+
+        $this->assertCount(1, $runner->executed, 'exactly one cold-start run, then re-based and quiet');
+    }
+
+    /** A lost watermark (ephemeral state store) degrades to one extra run per restart — never silence. */
+    public function test_lost_watermark_reruns_once_rather_than_going_silent(): void
+    {
+        $runner = new RecordingLifecycleRunner();
+        $schedule = [$this->schedule('0 */6 * * *')];
+
+        $w1 = new BackupWorker($schedule, $runner, new InMemoryScheduleStateStore(), $this->clock('2024-01-01 03:17:00'));
+        $w1->tick($this->at('2024-01-01 03:17:00'));
+
+        // "Container recreated": brand-new (empty) store, as if var/ was discarded.
+        $w2 = new BackupWorker($schedule, $runner, new InMemoryScheduleStateStore(), $this->clock('2024-01-01 03:20:00'));
+        $w2->tick($this->at('2024-01-01 03:20:00'));
+
+        $this->assertCount(2, $runner->executed);
+    }
+
     public function test_restart_does_not_double_fire_via_persisted_watermark(): void
     {
         $runner = new RecordingLifecycleRunner();
-        $state = new InMemoryScheduleStateStore(); // shared across "restarts"
+        $state = $this->warmStore('nightly', '2024-01-01 00:00:00'); // shared across "restarts"
 
-        $w1 = new BackupWorker([$this->schedule('0 */6 * * *')], $runner, $state, $this->clock('2024-01-01 06:00:00'), startedAt: $this->at('2024-01-01 05:00:00'));
+        $w1 = new BackupWorker([$this->schedule('0 */6 * * *')], $runner, $state, $this->clock('2024-01-01 06:00:00'));
         $w1->tick($this->at('2024-01-01 06:00:00'));
 
         // "Restart": new worker, same store, same minute — must not re-fire.
-        $w2 = new BackupWorker([$this->schedule('0 */6 * * *')], $runner, $state, $this->clock('2024-01-01 06:00:00'), startedAt: $this->at('2024-01-01 06:00:00'));
+        $w2 = new BackupWorker([$this->schedule('0 */6 * * *')], $runner, $state, $this->clock('2024-01-01 06:00:00'));
         $w2->tick($this->at('2024-01-01 06:00:00'));
 
         $this->assertCount(1, $runner->executed);
@@ -76,14 +144,13 @@ final class BackupWorkerTest extends TestCase
     public function test_failure_backs_off_then_retries(): void
     {
         $runner = new RecordingLifecycleRunner(failTimes: 1);
-        $state = new InMemoryScheduleStateStore();
+        $state = $this->warmStore('nightly', '2024-01-01 05:00:00');
         $worker = new BackupWorker(
             [$this->schedule('0 * * * *')],
             $runner,
             $state,
             $this->clock('2024-01-01 06:00:00'),
             baseBackoffSeconds: 30,
-            startedAt: $this->at('2024-01-01 05:59:00'),
         );
 
         // First tick: fails, schedules a retry.
@@ -106,12 +173,11 @@ final class BackupWorkerTest extends TestCase
         $worker = new BackupWorker(
             [$this->schedule('0 * * * *')],
             $runner,
-            new InMemoryScheduleStateStore(),
+            $this->warmStore('nightly', '2024-01-01 05:00:00'),
             $this->clock('2024-01-01 06:00:00'),
             events: $events,
             maxRetries: 3,
             baseBackoffSeconds: 1,
-            startedAt: $this->at('2024-01-01 05:59:00'),
         );
 
         // Drive ticks past the backoff windows until retries exhaust.
@@ -123,6 +189,15 @@ final class BackupWorkerTest extends TestCase
 
         $this->assertNotEmpty($events->events);
         $this->assertSame(BackupEvent::TYPE_FAILED, $events->events[array_key_last($events->events)]->type);
+    }
+
+    /** A store already carrying a watermark — i.e. the warm path, where cron timing governs. */
+    private function warmStore(string $scheduleName, string $lastFiredAt): InMemoryScheduleStateStore
+    {
+        $store = new InMemoryScheduleStateStore();
+        $store->put($scheduleName, new ScheduleState(lastFiredAt: $this->at($lastFiredAt)));
+
+        return $store;
     }
 
     private function schedule(string $cron): BackupSchedule

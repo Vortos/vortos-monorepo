@@ -27,6 +27,13 @@ final readonly class BackupEvent
     public const TYPE_REPLICATION_FAILED = 'backup.replication_failed';
     public const TYPE_IMMUTABILITY_VIOLATION = 'backup.immutability_violation';
 
+    /**
+     * The dead-man's counterpart to {@see TYPE_FAILED}. `backup.failed` says "a run was attempted and
+     * threw"; this says "no run has succeeded in far too long", which is the only one of the two that
+     * can be raised when the worker is not running at all. See {@see \Vortos\Backup\Health\BackupFreshnessInspector}.
+     */
+    public const TYPE_STALE = 'backup.stale';
+
     public function __construct(
         public string $type,
         public BackupEventSeverity $severity,
@@ -62,6 +69,29 @@ final readonly class BackupEvent
             $at,
             null,
             $error,
+        );
+    }
+
+    /**
+     * Raised when the newest catalogued backup is older than the cadence allows — including the
+     * "never taken one" case, which is reported at the same Critical severity because an environment
+     * that has never been backed up is not less urgent than one that stopped.
+     */
+    public static function stale(
+        DatabaseEngine $engine,
+        string $environment,
+        string $detail,
+        DateTimeImmutable $at,
+    ): self {
+        return new self(
+            self::TYPE_STALE,
+            BackupEventSeverity::Critical,
+            $engine,
+            $environment,
+            sprintf('Backups are stale for %s/%s.', $engine->value, $environment),
+            $at,
+            null,
+            $detail,
         );
     }
 

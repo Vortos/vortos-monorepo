@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\Config;
 
-use DateTimeImmutable;
-use Vortos\Backup\Runtime\CronDueEvaluator;
+use Vortos\Backup\Schedule\CadenceInterval;
 
 /**
  * R8-6 (A7): derive a sensible `hourly` retention bucket from a declared backup cadence, so a
@@ -27,7 +26,7 @@ final class RetentionDerivation
     private const WINDOW_HOURS = 48;
 
     public function __construct(
-        private readonly CronDueEvaluator $evaluator = new CronDueEvaluator(),
+        private readonly CadenceInterval $cadence = new CadenceInterval(),
     ) {
     }
 
@@ -37,7 +36,7 @@ final class RetentionDerivation
      */
     public function hourlyFor(string $cron): int
     {
-        $intervalHours = $this->shortestIntervalHours($cron);
+        $intervalHours = $this->cadence->shortestIntervalHours($cron);
 
         if ($intervalHours === null || $intervalHours >= 24.0) {
             return 0;
@@ -46,36 +45,5 @@ final class RetentionDerivation
         $hourly = (int) ceil(self::WINDOW_HOURS / $intervalHours);
 
         return max(1, min(self::MAX_HOURLY, $hourly));
-    }
-
-    /**
-     * The shortest gap (in hours) between consecutive fires over a representative window, or null when
-     * fewer than two fires occur in the window (cadence is slower than the window).
-     */
-    private function shortestIntervalHours(string $cron): ?float
-    {
-        // A fixed, deterministic reference — a plain UTC week start — so derivation is pure.
-        $cursor = new DateTimeImmutable('2024-01-01 00:00:00', new \DateTimeZone('UTC'));
-        $end = $cursor->modify('+' . self::WINDOW_HOURS . ' hours');
-
-        $previous = null;
-        $shortest = null;
-
-        for ($i = 0; $i < self::MAX_HOURLY * 4; $i++) {
-            $next = $this->evaluator->nextDueAfter($cron, $cursor);
-            if ($next > $end) {
-                break;
-            }
-
-            if ($previous !== null) {
-                $gapHours = ($next->getTimestamp() - $previous->getTimestamp()) / 3600.0;
-                $shortest = $shortest === null ? $gapHours : min($shortest, $gapHours);
-            }
-
-            $previous = $next;
-            $cursor = $next;
-        }
-
-        return $shortest;
     }
 }

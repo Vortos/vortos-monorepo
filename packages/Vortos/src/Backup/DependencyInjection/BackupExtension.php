@@ -105,6 +105,16 @@ final class BackupExtension extends Extension
         $mongoUri = (string) ($_ENV['VORTOS_BACKUP_MONGO_URI'] ?? '');
         $keyProviderName = (string) ($_ENV['VORTOS_BACKUP_KEY_PROVIDER'] ?? '');
         $drillDsn = (string) ($_ENV['VORTOS_BACKUP_DRILL_DSN'] ?? '');
+        // Container-mode drill config. DOCKER_HOST must be the least-privilege socket-proxy endpoint
+        // (tcp://docker-socket-proxy:2375) — DockerEngineContainerRuntime refuses a raw socket.
+        $drillDockerHost = (string) ($_ENV['VORTOS_BACKUP_DRILL_DOCKER_HOST'] ?? '');
+        // Pin to the production server version: a drill against a different major tests a migration
+        // you are not planning to perform.
+        $drillImage = (string) ($_ENV['VORTOS_BACKUP_DRILL_IMAGE'] ?? 'postgres:18-alpine');
+        // The shared network the drill container must join so the backup node can reach it by name.
+        $drillNetwork = (string) ($_ENV['VORTOS_BACKUP_DRILL_NETWORK'] ?? '');
+        $drillAllowSharedHost = filter_var($_ENV['VORTOS_BACKUP_DRILL_ALLOW_SHARED_HOST'] ?? false, FILTER_VALIDATE_BOOL);
+        $primaryDsn = (string) ($_ENV['VORTOS_WRITE_DB_DSN'] ?? '');
         $secondaryStoreName = (string) ($_ENV['VORTOS_BACKUP_SECONDARY_STORE'] ?? '');
         $objectLockDays = (int) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_DAYS'] ?? 0);
         $objectLockMode = (string) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_MODE'] ?? 'compliance');
@@ -292,16 +302,47 @@ final class BackupExtension extends Extension
             ->addTag(CollectInvariantChecksPass::TAG)
             ->setPublic(false);
 
-        // Restore drills need an ephemeral-database provisioner, which only binds when a drill
-        // DSN is configured. Registering DrillRunner unconditionally left its $provisioner port
-        // unbound and broke every console/worker boot on a stock backup install. Register the
-        // whole drill stack only when the DSN is present; the command below stays visible and
-        // fails loudly when it is not.
-        if ($drillDsn !== '') {
+        // Restore drills need an ephemeral-database provisioner, which only binds when one of the two
+        // provisioning modes is configured. Registering DrillRunner unconditionally left its
+        // $provisioner port unbound and broke every console/worker boot on a stock backup install.
+        // Register the whole drill stack only when a mode is selected; the command below stays visible
+        // and fails loudly when it is not.
+        //
+        // Two modes, and the container one is what you want in production:
+        //  • CONTAINER (VORTOS_BACKUP_DRILL_DOCKER_HOST) — restore into a disposable, clean Postgres
+        //    container. Proves the backup reconstitutes on a *fresh* server, which is the only version
+        //    of the question a disaster actually asks, and keeps the restore off the primary entirely.
+        //  • SAME-SERVER (VORTOS_BACKUP_DRILL_DSN) — `CREATE DATABASE` on a server you nominate.
+        //    Cheap and dependency-free, appropriate for local dev; in production it tends to end up
+        //    pointed at the primary, so it now guards on topology rather than on DSN spelling.
+        // Container mode wins when both are set.
+        if ($drillDockerHost !== '') {
+            $container->register(\Vortos\Backup\Drill\Container\DockerEngineContainerRuntime::class)
+                ->setArgument('$endpoint', $drillDockerHost)
+                ->setPublic(false);
+            $container->setAlias(
+                \Vortos\Backup\Drill\Container\ContainerRuntimeInterface::class,
+                \Vortos\Backup\Drill\Container\DockerEngineContainerRuntime::class,
+            )->setPublic(false);
+
+            $container->register(\Vortos\Backup\Drill\Driver\Postgres\ContainerizedDatabaseProvisioner::class)
+                ->setArgument('$runtime', new Reference(\Vortos\Backup\Drill\Container\ContainerRuntimeInterface::class))
+                ->setArgument('$image', $drillImage)
+                ->setArgument('$network', $drillNetwork !== '' ? $drillNetwork : null)
+                ->setPublic(false);
+            $container->setAlias(DrillEnvironmentProvisionerInterface::class, \Vortos\Backup\Drill\Driver\Postgres\ContainerizedDatabaseProvisioner::class);
+        } elseif ($drillDsn !== '') {
             $container->register(\Vortos\Backup\Drill\Driver\Postgres\EphemeralDatabaseProvisioner::class)
                 ->setArgument('$drillDsn', $drillDsn)
+                // Hand the guard the real write-DB connection so it can compare topology instead of
+                // pattern-matching the DSN string (which passed a production primary in practice).
+                ->setArgument('$primaryDsn', $primaryDsn !== '' ? $primaryDsn : null)
+                ->setArgument('$allowSharedHost', $drillAllowSharedHost)
                 ->setPublic(false);
             $container->setAlias(DrillEnvironmentProvisionerInterface::class, \Vortos\Backup\Drill\Driver\Postgres\EphemeralDatabaseProvisioner::class);
+        }
+
+        if ($drillDockerHost !== '' || $drillDsn !== '') {
 
             $container->register(DrillRunner::class, DrillRunner::class)
                 ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
@@ -373,9 +414,43 @@ final class BackupExtension extends Extension
 
         // ── R8-6: containerized backup worker (A8) — the framework-owned runtime that fires the whole
         //    declared lifecycle on its crons, replacing host cron on a lean deploy. ──
+        //
+        // DEPLOY REQUIREMENT: this path must be on storage that outlives the container. It is the
+        // worker's watermark; losing it is a cold start. Since alpha-258 a cold start runs the
+        // schedule once rather than going silent (see BackupWorker::isDue()), so an ephemeral path
+        // degrades to "one extra backup per container recreate" instead of the silent 15-day outage it
+        // caused in production on 2026-07-07 — but it should still be a mounted volume.
         $container->register(\Vortos\Backup\Runtime\ScheduleStateStoreInterface::class, \Vortos\Backup\Runtime\FileScheduleStateStore::class)
             ->setArgument('$path', $projectDir . '/var/backup-schedule-state.json')
             ->setPublic(false);
+
+        // ── Freshness: the catalog-derived dead-man check (the counterpart to `backup.failed`) ──
+        $container->register(\Vortos\Backup\Schedule\CadenceInterval::class, \Vortos\Backup\Schedule\CadenceInterval::class)
+            ->setArgument('$evaluator', new Reference(\Vortos\Backup\Runtime\CronDueEvaluator::class))
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\Health\BackupFreshnessInspector::class, \Vortos\Backup\Health\BackupFreshnessInspector::class)
+            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$schedules', new Reference(BackupScheduleRegistry::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$cadence', new Reference(\Vortos\Backup\Schedule\CadenceInterval::class))
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\Console\BackupFreshnessCommand::class, \Vortos\Backup\Console\BackupFreshnessCommand::class)
+            ->setArgument('$inspector', new Reference(\Vortos\Backup\Health\BackupFreshnessInspector::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
+            ->addTag('console.command')->setPublic(false);
+
+        // Only when vortos-health is installed — vortos-backup must not hard-depend on it. The probe
+        // is MONITORING kind, so it reaches /health/monitor and the off-host monitor tick without ever
+        // being able to fail a readiness gate or roll back a deploy.
+        if (interface_exists(\Vortos\Health\Probe\HealthProbeInterface::class)) {
+            $container->register(\Vortos\Backup\Health\BackupFreshnessProbe::class, \Vortos\Backup\Health\BackupFreshnessProbe::class)
+                ->setArgument('$inspector', new Reference(\Vortos\Backup\Health\BackupFreshnessInspector::class))
+                ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
+                ->setPublic(false);
+        }
 
         $container->register(\Vortos\Backup\Runtime\CronDueEvaluator::class, \Vortos\Backup\Runtime\CronDueEvaluator::class)
             ->setPublic(false);

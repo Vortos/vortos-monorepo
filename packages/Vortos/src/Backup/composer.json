@@ -25,7 +25,8 @@
     },
     "suggest": {
         "ext-pgsql": "For Postgres backups (requires pg_dump/pg_basebackup binaries on the host)",
-        "ext-mongodb": "For Mongo backups (requires the mongodump binary on the host)"
+        "ext-mongodb": "For Mongo backups (requires the mongodump binary on the host)",
+        "vortos/vortos-health": "Surfaces the catalog-derived backup-freshness dead-man check as an off-gate /health/monitor probe, so stale backups are visible to an external uptime monitor"
     },
     "extra": {
         "vortos": {

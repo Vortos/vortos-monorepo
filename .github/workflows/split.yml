@@ -7,14 +7,31 @@ on:
     tags:
       - '*'
 
+# Least privilege by default. The `split` job pushes to the per-package repos using its own PAT
+# (MONOREPO_SPLIT_TOKEN), NOT the workflow's GITHUB_TOKEN, so no job needs a write-scoped default
+# token. Any future job that needs more must opt in explicitly at the job level.
+permissions:
+  contents: read
+
 jobs:
+  pin-lint:
+    # Supply-chain gate: every action in every workflow must be pinned to an immutable commit SHA.
+    # This guards against a future hand-edit reintroducing a mutable `@v4`/`@main` tag (the privileged
+    # `split` job below holds a PAT that can push to ~45 package repos, so an unpinned action here is
+    # a direct path to that token).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - name: Lint action pins
+        run: bash tools/ci/lint-action-pins.sh
+
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # v2
         with:
           php-version: '8.5'
           extensions: redis
@@ -30,10 +47,10 @@ jobs:
     needs: tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # v2
         with:
           php-version: '8.5'
           extensions: redis, opcache
@@ -50,10 +67,10 @@ jobs:
     needs: tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5
         with:
           node-version: '20'
           cache: 'npm'
@@ -72,7 +89,7 @@ jobs:
         working-directory: packages/feature-flags-admin
 
   split:
-    needs: [tests, ui-build]
+    needs: [pin-lint, tests, ui-build]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -180,11 +197,11 @@ jobs:
             split_repository: 'vortos-audit-admin'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
           fetch-depth: 0
 
-      - uses: danharrin/monorepo-split-github-action@v2.4.5
+      - uses: danharrin/monorepo-split-github-action@14e42e2437f674b8987c1f50ca3689116aea1893  # v2.4.5
         env:
           GITHUB_TOKEN: ${{ secrets.MONOREPO_SPLIT_TOKEN }}
         with:

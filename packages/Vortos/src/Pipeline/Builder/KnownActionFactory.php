@@ -64,6 +64,20 @@ final class KnownActionFactory
         return new PinnedAction('anchore', 'sbom-action', 'e22c389904149dbc22b58101806040fa8d37a610', 'v0.24.0');
     }
 
+    public static function cosignInstaller(): PinnedAction
+    {
+        // Keyless (Sigstore/Fulcio) image signing in the build job. v3.9.1 (Node 20 runtime). SHA is the
+        // dereferenced commit for refs/tags/v3.9.1, verified against sigstore/cosign-installer upstream.
+        return new PinnedAction('sigstore', 'cosign-installer', '398d4b0eeef1380460a10c8013a76f728fb906ac', 'v3.9.1');
+    }
+
+    public static function trivyImageScan(): PinnedAction
+    {
+        // CVE scan-and-fail gate on the pushed image. v0.36.0. SHA is the dereferenced commit for
+        // refs/tags/v0.36.0, verified against aquasecurity/trivy-action upstream.
+        return new PinnedAction('aquasecurity', 'trivy-action', 'ed142fd0673e97e23eac54620cfb913e5ce36c25', 'v0.36.0');
+    }
+
     /** @return list<PinnedAction> */
     public static function all(): array
     {
@@ -77,6 +91,8 @@ final class KnownActionFactory
             self::dockerLogin(),
             self::buildPush(),
             self::sbomAttest(),
+            self::cosignInstaller(),
+            self::trivyImageScan(),
         ];
     }
 }

@@ -347,6 +347,120 @@ final class PipelineBuilderBuildStageTest extends TestCase
         $this->assertTrue($hasSbom);
     }
 
+    public function test_cve_scan_gate_emitted_when_enabled(): void
+    {
+        $pipeline = $this->buildPipeline(new PipelineDefinition(
+            imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            emitScanGate: true,
+        ));
+        $build = $this->findStage($pipeline, StageKind::Build);
+        $this->assertNotNull($build);
+
+        $scan = null;
+        foreach ($build->steps as $step) {
+            if ($step instanceof ActionStep && $step->action->repo === 'trivy-action') {
+                $scan = $step;
+                break;
+            }
+        }
+        $this->assertNotNull($scan, 'CVE scan gate step should be present when emitScanGate is on.');
+        // Fail-closed gate: non-zero exit on findings, scanning the exact pushed digest.
+        $this->assertSame('1', $scan->with['exit-code'] ?? null);
+        $this->assertSame('HIGH,CRITICAL', $scan->with['severity'] ?? null);
+        $this->assertStringContainsString('@${{ steps.build.outputs.digest }}', $scan->with['image-ref'] ?? '');
+    }
+
+    public function test_cve_scan_gate_omitted_when_disabled(): void
+    {
+        $pipeline = $this->buildPipeline(new PipelineDefinition(
+            imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            emitScanGate: false,
+        ));
+        $build = $this->findStage($pipeline, StageKind::Build);
+        $this->assertNotNull($build);
+
+        foreach ($build->steps as $step) {
+            if ($step instanceof ActionStep) {
+                $this->assertNotSame('trivy-action', $step->action->repo);
+            }
+        }
+    }
+
+    public function test_sign_and_verify_steps_emitted_when_enabled(): void
+    {
+        $pipeline = $this->buildPipeline(new PipelineDefinition(
+            imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            emitSign: true,
+        ));
+        $build = $this->findStage($pipeline, StageKind::Build);
+        $this->assertNotNull($build);
+
+        $hasInstaller = false;
+        $sign = null;
+        $verify = null;
+        foreach ($build->steps as $step) {
+            if ($step instanceof ActionStep && $step->action->repo === 'cosign-installer') {
+                $hasInstaller = true;
+            }
+            if ($step instanceof CommandStep && $step->id === 'sign') {
+                $sign = $step;
+            }
+            if ($step instanceof CommandStep && $step->id === 'verify') {
+                $verify = $step;
+            }
+        }
+        $this->assertTrue($hasInstaller, 'Cosign installer step should be present when emitSign is on.');
+        $this->assertNotNull($sign);
+        $this->assertNotNull($verify);
+        $this->assertStringContainsString('cosign sign --yes', $sign->run);
+        $this->assertStringContainsString('cosign verify', $verify->run);
+        // Keyless trust anchor: verify pins BOTH the certificate identity (this repo/workflow) and the
+        // GitHub OIDC issuer, so an image signed by any other identity fails the gate.
+        $this->assertStringContainsString('--certificate-identity-regexp', $verify->run);
+        $this->assertStringContainsString('--certificate-oidc-issuer', $verify->run);
+        $this->assertStringContainsString('token.actions.githubusercontent.com', $verify->run);
+    }
+
+    public function test_sign_enables_id_token_permission_without_oidc(): void
+    {
+        $pipeline = $this->buildPipeline(new PipelineDefinition(
+            imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            emitSign: true,
+        ));
+        $build = $this->findStage($pipeline, StageKind::Build);
+        $this->assertNotNull($build);
+
+        // Keyless Fulcio signing needs id-token:write even though the deploy posture is not OIDC.
+        $perms = $build->permissions->toArray();
+        $this->assertSame('write', $perms['id-token'] ?? null);
+    }
+
+    public function test_sign_and_scan_omitted_by_default(): void
+    {
+        $pipeline = $this->buildPipeline(new PipelineDefinition(
+            imageRepository: 'ghcr.io/org/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+        ));
+        $build = $this->findStage($pipeline, StageKind::Build);
+        $this->assertNotNull($build);
+
+        foreach ($build->steps as $step) {
+            if ($step instanceof CommandStep) {
+                $this->assertNotSame('sign', $step->id);
+                $this->assertNotSame('verify', $step->id);
+            }
+            if ($step instanceof ActionStep) {
+                $this->assertNotSame('cosign-installer', $step->action->repo);
+                $this->assertNotSame('trivy-action', $step->action->repo);
+            }
+        }
+    }
+
     public function test_sbom_step_omitted_when_disabled(): void
     {
         $pipeline = $this->buildPipeline(new PipelineDefinition(

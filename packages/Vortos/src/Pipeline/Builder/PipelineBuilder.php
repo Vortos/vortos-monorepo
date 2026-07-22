@@ -324,6 +324,51 @@ final class PipelineBuilder
             );
         }
 
+        // G2 — CVE scan gate: fail the build (exit-code 1) if the freshly pushed image carries a
+        // fixable HIGH/CRITICAL vulnerability. Scans by digest so the exact artifact that will deploy
+        // is what is inspected. `ignore-unfixed` keeps the gate actionable (only vulns with an
+        // available fix block the release); flip it off to enforce a stricter posture.
+        if ($definition->emitScanGate) {
+            $steps[] = new ActionStep(
+                'Scan image for vulnerabilities (CVE gate)',
+                KnownActionFactory::trivyImageScan(),
+                [
+                    'image-ref' => $digestRef,
+                    'format' => 'table',
+                    'exit-code' => '1',
+                    'severity' => 'HIGH,CRITICAL',
+                    'ignore-unfixed' => 'true',
+                ],
+            );
+        }
+
+        // F2 — keyless supply-chain signing: sign the image by digest with an ephemeral Sigstore/Fulcio
+        // certificate bound to THIS workflow's OIDC identity (no long-lived key material), then verify
+        // the signature in-place. Because the deploy job pulls the identical digest, a signature that
+        // fails to verify here fails the build and the cutover never runs. The certificate identity is
+        // this repo+workflow; the issuer is GitHub's OIDC provider.
+        if ($definition->emitSign) {
+            $identityRegexp = '^${{ github.server_url }}/${{ github.repository }}/';
+            $oidcIssuer = 'https://token.actions.githubusercontent.com';
+
+            $steps[] = new ActionStep('Install Cosign', KnownActionFactory::cosignInstaller());
+            $steps[] = new CommandStep(
+                'Sign image (keyless, Sigstore)',
+                sprintf('cosign sign --yes %s', $digestRef),
+                id: 'sign',
+            );
+            $steps[] = new CommandStep(
+                'Verify image signature',
+                sprintf(
+                    'cosign verify --certificate-identity-regexp "%s" --certificate-oidc-issuer "%s" %s',
+                    $identityRegexp,
+                    $oidcIssuer,
+                    $digestRef,
+                ),
+                id: 'verify',
+            );
+        }
+
         $semverTagStep = new CommandStep(
             'Tag with release version',
             "docker buildx imagetools create --tag {$repo}:\${{ github.ref_name }} {$digestRef}",
@@ -347,7 +392,9 @@ final class PipelineBuilder
 
         $permissions = $basePermissions->merge($loginProvider->requiredPermissions());
 
-        if ($definition->oidc) {
+        // id-token: write is needed either for OIDC registry/deploy federation OR for keyless Cosign
+        // signing (Fulcio exchanges the workflow's OIDC token for a short-lived signing certificate).
+        if ($definition->oidc || $definition->emitSign) {
             $permissions = $permissions->with(
                 new Permission(PermissionScope::IdToken, PermissionAccess::Write),
             );

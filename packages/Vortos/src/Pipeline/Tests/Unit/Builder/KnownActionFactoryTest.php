@@ -27,9 +27,22 @@ final class KnownActionFactoryTest extends TestCase
         }
     }
 
-    public function test_all_returns_nine_actions(): void
+    public function test_all_returns_every_known_action(): void
     {
-        $this->assertCount(9, KnownActionFactory::all());
+        // checkout, setup-php, setup-node, monorepo-split, buildx, qemu, docker-login, build-push,
+        // sbom-action, cosign-installer, trivy-action.
+        $this->assertCount(11, KnownActionFactory::all());
+    }
+
+    public function test_supply_chain_actions_present(): void
+    {
+        $cosign = KnownActionFactory::cosignInstaller();
+        $this->assertSame('sigstore', $cosign->owner);
+        $this->assertSame('cosign-installer', $cosign->repo);
+
+        $trivy = KnownActionFactory::trivyImageScan();
+        $this->assertSame('aquasecurity', $trivy->owner);
+        $this->assertSame('trivy-action', $trivy->repo);
     }
 
     public function test_checkout_owner_and_repo(): void

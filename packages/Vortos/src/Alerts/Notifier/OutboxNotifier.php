@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Vortos\Alerts\Notifier;
 
 use Throwable;
-use Vortos\Observability\Buffer\BoundedSpool;
+use Vortos\Observability\Buffer\SpoolInterface;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
 
 /**
- * Decorator over the resolved driver (§3.6): writes to a {@see BoundedSpool}-backed
+ * Decorator over the resolved driver (§3.6): writes to a {@see SpoolInterface}-backed
  * crash-safe outbox keyed by idempotency key, drains via the real driver, re-spools
  * the undelivered remainder on failure (mirrors `OutboxMarkerEmitter` /
  * `GlitchtipErrorSink::flush()` exactly). A notifier outage **cannot** block/fail the
@@ -19,7 +19,7 @@ final class OutboxNotifier implements NotifierInterface
 {
     public function __construct(
         private readonly NotifierInterface $inner,
-        private readonly BoundedSpool $spool,
+        private readonly SpoolInterface $spool,
         private readonly DeliveryDedupeStoreInterface $dedupe = new InMemoryDeliveryDedupeStore(),
     ) {}
 

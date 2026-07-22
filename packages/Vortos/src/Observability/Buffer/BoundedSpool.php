@@ -24,7 +24,7 @@ use RuntimeException;
  *
  * Record frame (all integers big-endian): `len(4) | crc32(4) | enqueuedAtMs(8) | payload(len)`.
  */
-final class BoundedSpool
+final class BoundedSpool implements SpoolInterface
 {
     /** len(4) + crc32(4) + enqueuedAtMs(8). */
     private const HEADER_BYTES = 16;

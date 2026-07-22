@@ -153,11 +153,36 @@ final class AlertsExtension extends Extension
             $definition->setArgument($arg, $value);
         }
 
+        // SHARED SPOOL WHERE POSSIBLE. A file spool is private to one container, which is lossy the
+        // moment there is more than one: blue-green destroys the retiring color (and any alert it had
+        // queued for retry) on cutover, and an HTTP color running FrankenPHP has no drainer process at
+        // all, so its spool is written and never read. Backing the queue with Redis makes it a
+        // property of the system rather than of a process — one drainer anywhere flushes what any
+        // container enqueued, and the queue outlives the process that wrote it. Falls back to the
+        // file spool only when no Redis is configured (single-process/dev deploys).
         $spoolId = 'vortos.alerts.outbox_spool.' . $key;
-        $container->register($spoolId, BoundedSpool::class)
-            ->setArgument('$path', $spoolDir . '/outbox-' . $key . '.spool')
-            ->setArgument('$maxBytes', $spoolMaxBytes)
-            ->setPublic(false);
+        $redisDsn = (string) ($_ENV['VORTOS_ALERTS_SPOOL_DSN'] ?? $_ENV['VORTOS_CACHE_DSN'] ?? $_ENV['REDIS_DSN'] ?? '');
+
+        if ($redisDsn !== '' && class_exists(\Redis::class) && class_exists(\Vortos\Cache\Adapter\RedisConnectionFactory::class)) {
+            $redisId = 'vortos.alerts.spool_redis';
+            if (!$container->hasDefinition($redisId)) {
+                $container->register($redisId, \Redis::class)
+                    ->setFactory([\Vortos\Cache\Adapter\RedisConnectionFactory::class, 'fromDsn'])
+                    ->setArgument('$dsn', $redisDsn)
+                    ->setPublic(false);
+            }
+
+            $container->register($spoolId, \Vortos\Observability\Buffer\RedisSpool::class)
+                ->setArgument('$redis', new Reference($redisId))
+                ->setArgument('$key', ($_ENV['VORTOS_CACHE_PREFIX'] ?? '') . 'alerts:outbox:' . $key)
+                ->setArgument('$maxRecords', (int) ($_ENV['VORTOS_ALERTS_SPOOL_MAX_RECORDS'] ?? 10000))
+                ->setPublic(false);
+        } else {
+            $container->register($spoolId, BoundedSpool::class)
+                ->setArgument('$path', $spoolDir . '/outbox-' . $key . '.spool')
+                ->setArgument('$maxBytes', $spoolMaxBytes)
+                ->setPublic(false);
+        }
 
         $outboxId = 'vortos.alerts.notifier.' . $key;
         $container->register($outboxId, OutboxNotifier::class)

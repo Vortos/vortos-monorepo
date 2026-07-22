@@ -480,6 +480,25 @@ final class AlertsExtension extends Extension
             ->setPublic(true)
             ->addTag('console.command');
 
+        // The outbox retains failed deliveries for retry, which is worthless unless something drains
+        // it — and nothing did, so a transient webhook failure meant a permanently lost alert. Ship
+        // the drainer as a supervised worker program so the retry path exists by default rather than
+        // depending on every deploy remembering to wire it. Guarded on vortos-docker being installed
+        // (vortos-alerts must not hard-depend on it) and on the same opt-in flag the other supervised
+        // workers use, so a non-containerized deploy is unaffected.
+        if (class_exists(\Vortos\Docker\Worker\WorkerProcessDefinition::class)
+            && filter_var($_ENV['VORTOS_ALERTS_DRAIN_SUPERVISED'] ?? true, FILTER_VALIDATE_BOOL)
+        ) {
+            $container->register('vortos.alerts.drain_process', \Vortos\Docker\Worker\WorkerProcessDefinition::class)
+                ->setArgument('$name', 'alerts-drain')
+                ->setArgument('$command', 'php bin/console vortos:alerts:drain --loop')
+                ->setArgument('$description', 'Vortos alert delivery outbox drainer (retry path for failed notifications)')
+                ->setArgument('$stopwaitsecs', 30)
+                ->setArgument('$drainDeadline', 10)
+                ->addTag(\Vortos\Docker\DependencyInjection\DockerExtension::WORKER_TAG)
+                ->setPublic(false);
+        }
+
         $container->register(RotationShowCommand::class, RotationShowCommand::class)
             ->setArgument('$rotation', new Reference(OnCallRotation::class))
             ->setPublic(true)

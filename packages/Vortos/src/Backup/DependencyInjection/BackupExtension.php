@@ -74,6 +74,9 @@ use Vortos\Backup\Service\BackupRunner;
 use Vortos\Backup\Service\EncryptionSeam\EnvelopeStreamTransform;
 use Vortos\Backup\Service\EncryptionSeam\IdentityStreamTransform;
 use Vortos\Backup\Service\EncryptionSeam\StreamTransformInterface;
+use Vortos\Backup\Service\EncryptionSeam\StreamTransformFactoryInterface;
+use Vortos\Backup\Service\EncryptionSeam\IdentityStreamTransformFactory;
+use Vortos\Backup\Service\EncryptionSeam\EnvelopeStreamTransformFactory;
 use Vortos\Backup\Service\IntegrityVerifier;
 use Vortos\Backup\Service\RetentionEnforcer;
 use Vortos\Backup\Service\SystemClock;
@@ -115,6 +118,13 @@ final class BackupExtension extends Extension
         $drillNetwork = (string) ($_ENV['VORTOS_BACKUP_DRILL_NETWORK'] ?? '');
         $drillAllowSharedHost = filter_var($_ENV['VORTOS_BACKUP_DRILL_ALLOW_SHARED_HOST'] ?? false, FILTER_VALIDATE_BOOL);
         $primaryDsn = (string) ($_ENV['VORTOS_WRITE_DB_DSN'] ?? '');
+        // Tables a restored drill database must contain rows in, comma-separated. Left empty the
+        // row_count invariant is a no-op that passes regardless of what was restored.
+        $drillRowCountTables = array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) ($_ENV['VORTOS_BACKUP_DRILL_ROW_COUNT_TABLES'] ?? '')),
+        ), static fn (string $t): bool => $t !== ''));
+        $drillRowCountMinRows = max(1, (int) ($_ENV['VORTOS_BACKUP_DRILL_ROW_COUNT_MIN'] ?? 1));
         $secondaryStoreName = (string) ($_ENV['VORTOS_BACKUP_SECONDARY_STORE'] ?? '');
         $objectLockDays = (int) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_DAYS'] ?? 0);
         $objectLockMode = (string) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_MODE'] ?? 'compliance');
@@ -228,6 +238,44 @@ final class BackupExtension extends Extension
         $container->register(IdentityStreamTransform::class, IdentityStreamTransform::class)->setPublic(false);
         $container->setAlias(StreamTransformInterface::class, IdentityStreamTransform::class)->setPublic(false);
 
+        // ── At-rest encryption (Block 20), selected by configuration ──
+        //
+        // Historically `StreamTransformInterface` was hard-aliased to the no-op above and
+        // `EnvelopeStreamTransform` was never registered at all, so encryption was documented as
+        // "seam-ready" while being unreachable from any configuration. The factory seam makes it
+        // selectable: the runner asks for a transform once it knows the dump's codec (which the
+        // envelope binds into its authenticated header), and the choice is made here.
+        //
+        // KEY CUSTODY IS DELIBERATELY SEPARATE FROM THE SECRETS STORE. This registers its own
+        // AgeKeyProvider keyed on VORTOS_BACKUP_AGE_PUBLIC_KEY rather than reusing the box's
+        // VORTOS_SECRETS_AGE_PUBLIC_KEY identity. Reusing it would mean the key that decrypts the
+        // backups lives on the machine being backed up: fine against a leaked bucket, worthless
+        // against a compromised host, since the attacker would hold both ciphertext and key. Only
+        // the PUBLIC key is needed to write backups, so the private identity can — and should —
+        // stay off-host entirely, supplied at restore time via the identity env var.
+        $container->register(IdentityStreamTransformFactory::class, IdentityStreamTransformFactory::class)
+            ->setArgument('$transform', new Reference(IdentityStreamTransform::class))
+            ->setPublic(false);
+
+        $backupAgePublicKey = (string) ($_ENV['VORTOS_BACKUP_AGE_PUBLIC_KEY'] ?? '');
+
+        if ($backupAgePublicKey !== '' && class_exists(\Vortos\Secrets\Driver\Age\AgeKeyProvider::class)) {
+            $container->register('vortos.backup.key_provider', \Vortos\Secrets\Driver\Age\AgeKeyProvider::class)
+                ->setArgument('$publicKey', $backupAgePublicKey)
+                ->setArgument('$identitySeedEnvVar', (string) ($_ENV['VORTOS_BACKUP_AGE_IDENTITY_ENV'] ?? 'VORTOS_BACKUP_AGE_IDENTITY'))
+                ->setPublic(false);
+
+            $container->register(EnvelopeStreamTransformFactory::class, EnvelopeStreamTransformFactory::class)
+                ->setArgument('$keyProvider', new Reference('vortos.backup.key_provider'))
+                ->setArgument('$cipher', new Reference(EnvelopeStreamCipher::class))
+                ->setArgument('$providerName', 'age')
+                ->setPublic(false);
+
+            $container->setAlias(StreamTransformFactoryInterface::class, EnvelopeStreamTransformFactory::class)->setPublic(false);
+        } else {
+            $container->setAlias(StreamTransformFactoryInterface::class, IdentityStreamTransformFactory::class)->setPublic(false);
+        }
+
         $container->register(IntegrityVerifier::class, IntegrityVerifier::class)->setPublic(false);
         $container->register(BackupLock::class, BackupLock::class)
             ->setArgument('$lockDir', $lockDir)
@@ -271,7 +319,7 @@ final class BackupExtension extends Extension
             ->setArgument('$catalog', new Reference(BackupCatalogRepositoryInterface::class))
             ->setArgument('$verifier', new Reference(IntegrityVerifier::class))
             ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
-            ->setArgument('$transform', new Reference(StreamTransformInterface::class))
+            ->setArgument('$transforms', new Reference(StreamTransformFactoryInterface::class))
             ->setArgument('$lock', new Reference(BackupLock::class))
             ->setArgument('$clock', new Reference(SystemClock::class))
             ->setArgument('$storeKey', $storeKey)
@@ -292,7 +340,13 @@ final class BackupExtension extends Extension
             ->setPublic(false);
         $container->setAlias(DrillReportStoreInterface::class, DbalDrillReportStore::class)->setPublic(false);
 
+        // The drill's strongest invariant, and it was silently vacuous: registered with no tables, so
+        // `check()` short-circuits to pass("no tables configured") and a restore that produced an
+        // entirely empty schema still passed the drill. Configure the tables that must be non-empty
+        // and it becomes a real assertion about the restored data.
         $container->register(RowCountInvariant::class, RowCountInvariant::class)
+            ->setArgument('$tables', $drillRowCountTables)
+            ->setArgument('$minRows', $drillRowCountMinRows)
             ->addTag(CollectInvariantChecksPass::TAG)
             ->setPublic(false);
         $container->register(ReferentialIntegrityInvariant::class, ReferentialIntegrityInvariant::class)

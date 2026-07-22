@@ -72,7 +72,7 @@ final class DrillRunnerTest extends TestCase
         $stores = new BackupStoreRegistry(new ServiceLocator(['object-store' => fn () => $store]));
 
         $runner = new BackupRunner(
-            $targets, $stores, $this->catalog, new IntegrityVerifier(), $this->events, $transform,
+            $targets, $stores, $this->catalog, new IntegrityVerifier(), $this->events, new \Vortos\Backup\Tests\Support\FixedStreamTransformFactory($transform),
             new BackupLock(sys_get_temp_dir() . '/drill-test-' . bin2hex(random_bytes(4))),
             new FixedClock(new DateTimeImmutable('2026-06-24 02:00:00')),
             'object-store', 'backups',

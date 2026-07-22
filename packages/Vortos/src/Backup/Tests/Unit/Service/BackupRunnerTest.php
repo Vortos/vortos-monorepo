@@ -54,7 +54,7 @@ final class BackupRunnerTest extends TestCase
             $this->catalog,
             new IntegrityVerifier(),
             $this->events,
-            new IdentityStreamTransform(),
+            new \Vortos\Backup\Tests\Support\FixedStreamTransformFactory(new IdentityStreamTransform()),
             new BackupLock($this->lockDir),
             new \Vortos\Backup\Tests\Support\FixedClock(new DateTimeImmutable('2026-06-23 02:00:00')),
             'object-store',

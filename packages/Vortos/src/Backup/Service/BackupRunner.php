@@ -19,7 +19,7 @@ use Vortos\Backup\Port\BackupStoreInterface;
 use Vortos\Backup\Port\BackupStoreRegistry;
 use Vortos\Backup\Port\BackupTargetRegistry;
 use Vortos\Backup\Service\EncryptionSeam\EnvelopeStreamTransform;
-use Vortos\Backup\Service\EncryptionSeam\StreamTransformInterface;
+use Vortos\Backup\Service\EncryptionSeam\StreamTransformFactoryInterface;
 
 /**
  * Orchestrates a single backup, fail-closed end-to-end:
@@ -39,7 +39,7 @@ final class BackupRunner
         private readonly BackupCatalogRepositoryInterface $catalog,
         private readonly IntegrityVerifier $verifier,
         private readonly BackupEventSinkInterface $events,
-        private readonly StreamTransformInterface $transform,
+        private readonly StreamTransformFactoryInterface $transforms,
         private readonly BackupLock $lock,
         private readonly ClockInterface $clock,
         private readonly string $storeKey,
@@ -69,8 +69,12 @@ final class BackupRunner
             // format is internally compressed → codec None; mongodump --gzip → Gzip).
             $storeKey = $this->objectKey($request, $id, $dump->codec);
 
+            // Built here, not injected: the envelope binds engine/kind/codec into its authenticated
+            // header, and the codec is only settled once the target has produced the dump.
+            $transform = $this->transforms->forBackup($dump->engine, $dump->kind, $dump->codec);
+
             $piped = new BackupStream(
-                $this->transform->transform($dump->resource()),
+                $transform->transform($dump->resource()),
                 $dump->engine,
                 $dump->kind,
                 $dump->codec,
@@ -93,8 +97,8 @@ final class BackupRunner
                 $dump->codec,
             );
 
-            $encryption = $this->transform instanceof EnvelopeStreamTransform
-                ? $this->transform->lastMetadata()
+            $encryption = $transform instanceof EnvelopeStreamTransform
+                ? $transform->lastMetadata()
                 : null;
 
             $artifact = new BackupArtifact(

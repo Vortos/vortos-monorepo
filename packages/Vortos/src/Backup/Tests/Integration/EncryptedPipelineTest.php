@@ -66,7 +66,7 @@ final class EncryptedPipelineTest extends TestCase
             $this->catalog,
             new IntegrityVerifier(),
             $this->events,
-            $transform,
+            new \Vortos\Backup\Tests\Support\FixedStreamTransformFactory($transform),
             new BackupLock(sys_get_temp_dir() . '/vortos-enc-test-' . bin2hex(random_bytes(4))),
             new FixedClock(new DateTimeImmutable('2026-06-24 02:00:00')),
             'object-store',

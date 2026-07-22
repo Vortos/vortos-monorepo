@@ -8,6 +8,7 @@ use Throwable;
 use Vortos\Health\Probe\HealthProbeInterface;
 use Vortos\Health\Probe\ProbeKind;
 use Vortos\Health\Probe\ProbeResult;
+use Vortos\OpsKit\Attribute\AsDriver;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
 
 /**
@@ -32,6 +33,7 @@ use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
  * Reports the single worst target: with several environments in one catalog, one stale target must
  * not be averaged away by healthy neighbours.
  */
+#[AsDriver('backup-freshness')]
 final class BackupFreshnessProbe implements HealthProbeInterface
 {
     public function __construct(

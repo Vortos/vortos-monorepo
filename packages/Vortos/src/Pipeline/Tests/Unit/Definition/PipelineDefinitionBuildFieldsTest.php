@@ -160,6 +160,47 @@ final class PipelineDefinitionBuildFieldsTest extends TestCase
         $this->assertSame($digest, $def->baseImageDigest);
     }
 
+    /**
+     * @return iterable<string, array{string, mixed}>
+     */
+    public static function shellMetacharFieldProvider(): iterable
+    {
+        // Each is a field interpolated verbatim into the generated remote deploy script / docker run;
+        // a shell metacharacter must fail closed at definition time (F5).
+        yield 'remoteDeployDir command-sub'   => ['remoteDeployDir', '/opt/$(id)'];
+        yield 'remoteDeployDir backtick'      => ['remoteDeployDir', '/opt/`id`'];
+        yield 'appNetwork semicolon'          => ['appNetwork', 'net;rm -rf /'];
+        yield 'appNetwork pipe'               => ['appNetwork', 'a|b'];
+        yield 'runtimeEnvFiles metachar'      => ['runtimeEnvFiles', ['/opt/vortos/$(x).env']];
+        yield 'runtimeFileSecretDirs metachar' => ['runtimeFileSecretDirs', ['/run/`x`']];
+        yield 'sealedEnvFile metachar'        => ['sealedEnvFile', 'deploy/$(x).sealed'];
+        yield 'sealedEnvRevealScript metachar' => ['sealedEnvRevealScript', 'deploy/open;.php'];
+    }
+
+    #[DataProvider('shellMetacharFieldProvider')]
+    public function test_shell_metacharacters_rejected_in_path_fields(string $field, mixed $value): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('metacharacter');
+
+        new PipelineDefinition(...[$field => $value]);
+    }
+
+    public function test_legitimate_paths_accepted(): void
+    {
+        $def = new PipelineDefinition(
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            runtimeEnvFiles: ['/opt/vortos/.env.prod'],
+            runtimeFileSecretDirs: ['/run/vortos-secrets'],
+            sealedEnvFile: 'deploy/secrets/env.prod.sealed',
+            sealedEnvRevealScript: 'deploy/secrets/open-env.php',
+        );
+
+        $this->assertSame('/opt/vortos', $def->remoteDeployDir);
+        $this->assertSame('deploy/secrets/env.prod.sealed', $def->sealedEnvFile);
+    }
+
     public function test_to_array_includes_new_fields(): void
     {
         $def = new PipelineDefinition(

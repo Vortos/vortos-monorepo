@@ -52,8 +52,9 @@ reference standard for this codebase.
 
 ## FINDINGS
 
-> **Progress log (2026-07-22):** F1, F2, G1, G2, G3, G4 **DONE**; F6 verified-safe. New finding
-> **F7** (bogus SupplyChainActions SHAs) found & fixed during F2. Remaining open: F3, F4, F5, G5.
+> **Progress log (2026-07-22):** F1, F2, F4, F5, G1, G2, G3, G4 **DONE**; F6 verified-safe; F7 fixed.
+> F3 = ops-only (no safe code change); G5 = deferred by design (needs per-secret policy first — a
+> blanket rotation cron would break deploys). All code findings that can be safely fixed are fixed.
 
 ### F1 — ✅ DONE (2026-07-22) — Hand-authored workflows bypass framework pinning + least-privilege
 The framework generates perfect workflows, but human-written ones don't follow the same rules.
@@ -141,7 +142,7 @@ pinned to nothing. **Fixed** to the same verified SHAs as `KnownActionFactory` (
 Follow-up worth considering: extend the contract test / pin-verify to assert upstream existence for
 `SupplyChainActions::all()` too (not just format), and dedupe the two registries.
 
-### F3 — LOW — Long-lived standing secrets on the Docker Hub path
+### F3 — ⚠️ OPS-ONLY (no code change) — Long-lived standing secrets on the Docker Hub path
 `deploy.yml` uses `DOCKER_TOKEN` + `VORTOS_DEPLOY_SSH_KEY` + `VORTOS_AGE_IDENTITY` (all long-lived
 GitHub secrets). Framework supports OIDC zero-standing-secret
 (`Pipeline/Tests/Architecture/OidcZeroStandingSecretTest.php`) but Docker Hub can't consume it —
@@ -150,14 +151,35 @@ accepted registry limitation, not a defect.
 `Secrets/Service/RotationManager.php` (`rotateIfDue`); evaluate migrating primary registry to GHCR to
 unlock the OIDC path already built.
 
-### F4 — LOW — `FileSecretStore` temp-file permission race
+### F4 — ✅ DONE (2026-07-22) — `FileSecretStore` temp-file permission race
+**RESOLVED:** `Secrets/Driver/File/FileSecretStore.php::save()` now wraps the temp-file write in
+`umask(0077)` (restored in a `finally`), so the file is created **0600 from the first byte** instead
+of being written at the umask default (often 0644) and chmod-ed after — closing the world/group-read
+window (the dir is not guaranteed 0700 if it pre-existed). Also unlinks the temp file if the atomic
+rename fails. Proven with a standalone test: under a loose 0022 umask the old path yields 0644, the
+new path yields 0600. PHPStan clean. (Secrets unit suite needs the sodium ext, absent in this local
+CLI — but the change is on the non-crypto file-write path.)
+Original finding text below for reference.
+--- original ---
+### F4 (orig) — LOW — `FileSecretStore` temp-file permission race
 `packages/Vortos/src/Secrets/Driver/File/FileSecretStore.php` (`save()`): writes temp via
 `file_put_contents` (default umask, possibly 0644) then `chmod 0600` after. Brief world-readable
 window. **Ciphertext only — no plaintext exposure**, and the parent dir is 0700, so minor.
 **Fix:** create the temp file with restrictive mode up front (e.g. `fopen`+`chmod` before write, or
 set umask), so it is never group/world-readable even momentarily.
 
-### F5 — LOW (defense-in-depth) — `RemoteDeployScript` interpolates config paths into shell unescaped
+### F5 — ✅ DONE (2026-07-22) — `RemoteDeployScript` interpolates config paths into shell unescaped
+**RESOLVED at the config boundary (fail-closed), not by escaping at emit time** — `escapeshellarg`
+would corrupt the `${{ }}` GitHub expressions and bash var-expansions embedded in the same generated
+lines. `PipelineDefinition`'s constructor now rejects whitespace AND shell metacharacters
+(`` ` `` `$ ; & | < > ( ) " ' \ * ? ! { } [ ]`) in every field interpolated verbatim into the remote
+script / `docker run`: `remoteDeployDir`, `appNetwork`, `runtimeEnvFiles`, `runtimeFileSecretDirs`,
+and — previously **unvalidated** — `sealedEnvFile` and `sealedEnvRevealScript`. Shared
+`hasShellMetachar()` helper. 9 new tests (data-provider of injection attempts + a legit-path case).
+Full Pipeline suite green (562); full-project PHPStan clean (my files contribute 0 errors).
+Original finding text below.
+--- original ---
+### F5 (orig) — LOW (defense-in-depth) — `RemoteDeployScript` interpolates config paths into shell unescaped
 `packages/Vortos/src/Deploy/Builder/RemoteDeployScript.php`: `deployDir`, `appNetwork`,
 `runtimeEnvFiles`, `sealedEnvRevealScript`, `preCutoverCommands` are concatenated directly into
 generated bash. These are **developer config, not runtime attacker input**, so not exploitable
@@ -199,7 +221,20 @@ pins + local actions.
 Resolved as part of F1: `backup-image.yml` now resolves the app tag to its content digest and builds
 `FROM` the digest.
 
-### G5 — Secret rotation is on-demand, not scheduled
+### G5 — ⚠️ DEFERRED BY DESIGN (2026-07-22) — Secret rotation is on-demand, not scheduled
+**Not blind-wired on purpose.** `SecretMetadata` stores NO per-secret rotation policy (only key,
+versions, currentVersionId), and `RotationManager::rotateIfDue` takes a policy argument. A scheduled
+"rotate all due" would therefore apply ONE blanket policy to EVERY secret in the provider — including
+externally-managed ones. Auto-rotating the age KEK (`VORTOS_AGE_IDENTITY`) would invalidate every
+sealed envelope and **break deploys**; rotating the Docker token would break registry auth. That is
+the opposite of bulletproof.
+**Prerequisite design (do first):** add an opt-in rotation policy per secret (e.g. a
+`RotationPolicy` persisted in `SecretMetadata`, or an explicit allowlist of rotatable keys). THEN add
+a `secrets:rotate-due` command that enumerates `SecretsProviderInterface::list()` and only rotates
+keys that carry a policy, and register it on the Vortos Scheduler. Only app-managed secrets in the
+provider are candidates — the deploy KEK and Docker token stay operator-rotated (see F3).
+
+### G5 (orig) — Secret rotation is on-demand, not scheduled
 `Secrets/Service/RotationManager.php::rotateIfDue` exists but no scheduled invocation wires it to a
 cadence. **Fix:** register a Vortos Scheduler job to call rotation on policy interval.
 

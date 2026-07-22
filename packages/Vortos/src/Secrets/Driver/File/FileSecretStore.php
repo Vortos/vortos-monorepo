@@ -49,12 +49,26 @@ final class FileSecretStore implements SecretStoreInterface
         $json = json_encode($envelope->toArray(), JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT);
 
         $tempPath = $this->path . '.' . bin2hex(random_bytes(8)) . '.tmp';
-        if (file_put_contents($tempPath, $json) === false) {
+
+        // Create the temp file 0600 *from the first byte* by forcing the umask for the write, rather
+        // than writing at the umask-default mode (often 0644) and chmod-ing after — that left a window
+        // where the file was group/world-readable, and the dir is not guaranteed to be 0700 if it
+        // pre-existed. umask is process-scoped and restored in a finally, and the write is synchronous
+        // (no yield between set and restore), so it is safe under the long-lived FrankenPHP workers.
+        $previousUmask = umask(0077);
+        try {
+            $written = file_put_contents($tempPath, $json);
+        } finally {
+            umask($previousUmask);
+        }
+        if ($written === false) {
             throw new RuntimeException('Failed to write secret store temp file: ' . $tempPath);
         }
+        // Belt-and-braces: normalise to 0600 in case an inherited umask was already stricter/looser.
         chmod($tempPath, 0600);
 
         if (!rename($tempPath, $this->path)) {
+            @unlink($tempPath);
             throw new RuntimeException('Failed to atomically replace secret store at: ' . $this->path);
         }
     }

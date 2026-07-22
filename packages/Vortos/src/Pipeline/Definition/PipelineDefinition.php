@@ -129,34 +129,52 @@ final readonly class PipelineDefinition
             ));
         }
 
-        if ($remoteDeployDir === '' || preg_match('/\s/', $remoteDeployDir) === 1) {
-            throw new \InvalidArgumentException('Remote deploy dir must be a non-empty path without whitespace.');
+        if ($remoteDeployDir === '' || self::hasShellMetachar($remoteDeployDir)) {
+            throw new \InvalidArgumentException(
+                'Remote deploy dir must be a non-empty path with no whitespace or shell metacharacters '
+                . '(it is interpolated verbatim into the generated remote deploy script).',
+            );
         }
 
-        if ($appNetwork === '' || preg_match('/\s/', $appNetwork) === 1) {
-            throw new \InvalidArgumentException('App network must be a non-empty name without whitespace.');
+        if ($appNetwork === '' || self::hasShellMetachar($appNetwork)) {
+            throw new \InvalidArgumentException(
+                'App network must be a non-empty name with no whitespace or shell metacharacters.',
+            );
         }
 
         foreach ($runtimeEnvFiles as $file) {
-            if (!is_string($file) || $file === '' || !str_starts_with($file, '/') || preg_match('/\s/', $file) === 1) {
+            if (!is_string($file) || $file === '' || !str_starts_with($file, '/') || self::hasShellMetachar($file)) {
                 throw new \InvalidArgumentException(sprintf(
-                    'Runtime env-file paths must be non-empty absolute paths without whitespace (they are '
-                    . 'bind-mounted into the deploy one-shot at the same absolute path the nested cutover '
-                    . 'compose references); got "%s".',
+                    'Runtime env-file paths must be non-empty absolute paths with no whitespace or shell '
+                    . 'metacharacters (they are bind-mounted into the deploy one-shot at the same absolute '
+                    . 'path the nested cutover compose references); got "%s".',
                     is_string($file) ? $file : get_debug_type($file),
                 ));
             }
         }
 
         foreach ($runtimeFileSecretDirs as $dir) {
-            if (!is_string($dir) || preg_match('/\s/', $dir) === 1
+            if (!is_string($dir) || self::hasShellMetachar($dir)
                 || (!str_starts_with($dir, '/run/') && !str_starts_with($dir, '/dev/shm/'))) {
                 throw new \InvalidArgumentException(sprintf(
-                    'Runtime file-secret dirs must be tmpfs paths under /run/ or /dev/shm/ (so plaintext '
-                    . 'never persists to disk); got "%s".',
+                    'Runtime file-secret dirs must be tmpfs paths under /run/ or /dev/shm/ with no '
+                    . 'whitespace or shell metacharacters (so plaintext never persists to disk); got "%s".',
                     is_string($dir) ? $dir : get_debug_type($dir),
                 ));
             }
+        }
+
+        // Sealed-env paths are interpolated into the deploy one-shot's `docker run` command line; a
+        // shell metacharacter here would break out of it. Reject at definition time (fail closed).
+        if ($sealedEnvFile !== null && ($sealedEnvFile === '' || self::hasShellMetachar($sealedEnvFile))) {
+            throw new \InvalidArgumentException(
+                'Sealed env-file path must be a non-empty path with no whitespace or shell metacharacters.',
+            );
+        }
+        if ($sealedEnvRevealScript === '' || self::hasShellMetachar($sealedEnvRevealScript)) {
+            throw new \InvalidArgumentException(
+                'Sealed env reveal-script path must be a non-empty path with no whitespace or shell metacharacters.',
+            );
         }
 
         foreach ($preCutoverCommands as $command) {
@@ -234,6 +252,17 @@ final readonly class PipelineDefinition
         // and pull-agent must never emit an id-token deploy job. An explicit oidc() always wins; when
         // the posture is unknown (custom credential) the default stays conservative (false).
         $this->oidc = $oidc ?? ($posture?->emitsOidc() ?? false);
+    }
+
+    /**
+     * True if the value contains whitespace or any shell metacharacter. Config path/name fields are
+     * interpolated verbatim into the generated remote deploy script and `docker run` command lines,
+     * so anything that could break out of a word (or be eaten by shell/Compose interpolation) is
+     * rejected at definition time rather than producing a subtly broken — or injectable — workflow.
+     */
+    private static function hasShellMetachar(string $value): bool
+    {
+        return preg_match('/[\s`$;&|<>()"\x27\\\\*?!{}\[\]]/', $value) === 1;
     }
 
     public function hasBuildStage(): bool

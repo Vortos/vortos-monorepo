@@ -89,6 +89,59 @@ final class WorkerRegistrationCheckTest extends TestCase
         self::assertSame(PreflightStatus::Skip, $check->check($this->context())->status);
     }
 
+    /**
+     * Workers are placed across containers on purpose — the scheduler daemon must run on exactly one
+     * node. Demanding every registered worker in the worker color's config would require a second
+     * scheduler and fail a correct deployment, so a worker placed in a sibling container's config
+     * counts as placed.
+     */
+    public function test_worker_placed_in_a_sibling_container_config_passes(): void
+    {
+        $previous = $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] ?? null;
+        $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] = '/etc/supervisord.scheduler.conf';
+
+        try {
+            $check = new WorkerRegistrationCheck(
+                $this->registry('alerts-drain', 'scheduler-daemon'),
+                static fn (string $p): ?string => $p === '/etc/supervisord.scheduler.conf'
+                    ? "[program:scheduler-daemon]\ncommand=x\n"
+                    : "[program:alerts-drain]\ncommand=y\n",
+            );
+
+            self::assertSame(PreflightStatus::Pass, $check->check($this->context())->status);
+        } finally {
+            if ($previous === null) {
+                unset($_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS']);
+            } else {
+                $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] = $previous;
+            }
+        }
+    }
+
+    public function test_worker_in_no_config_at_all_still_fails(): void
+    {
+        $previous = $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] ?? null;
+        $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] = '/etc/supervisord.scheduler.conf';
+
+        try {
+            $check = new WorkerRegistrationCheck(
+                $this->registry('alerts-drain', 'scheduler-daemon'),
+                static fn (string $p): ?string => "[program:scheduler-daemon]\ncommand=x\n",
+            );
+
+            $finding = $check->check($this->context());
+
+            self::assertSame(PreflightStatus::Fail, $finding->status);
+            self::assertStringContainsString('alerts-drain', $finding->detail);
+        } finally {
+            if ($previous === null) {
+                unset($_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS']);
+            } else {
+                $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] = $previous;
+            }
+        }
+    }
+
     public function test_non_supervisord_worker_command_is_skipped(): void
     {
         $finding = $this->check(

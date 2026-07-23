@@ -27,7 +27,7 @@ final class WorkerInstallCommand extends Command
     {
         $this
             ->addOption('worker', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Worker name to install. Omit to install all registered workers.')
-            ->addOption('path', null, InputOption::VALUE_REQUIRED, 'Supervisor config path relative to project root.', SupervisorFileManager::DEFAULT_PATH)
+            ->addOption('path', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Supervisor config path relative to project root. Repeatable with --check: a worker satisfies the check by appearing in ANY of the given configs.', [SupervisorFileManager::DEFAULT_PATH])
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Preview changes without writing.')
             ->addOption('check', null, InputOption::VALUE_NONE, 'Fail (exit 1) if the committed config does not match the registered workers. For CI.');
     }
@@ -38,16 +38,24 @@ final class WorkerInstallCommand extends Command
 
         try {
             $selected = $this->registry->selected((array) $input->getOption('worker'));
+            /** @var list<string> $paths */
+            $paths = array_values(array_filter((array) $input->getOption('path')));
 
             if ((bool) $input->getOption('check')) {
-                return $this->check($io, $selected, (string) $input->getOption('path'));
+                return $this->check($io, $selected, $paths);
+            }
+
+            if (\count($paths) > 1) {
+                $io->error('--path is only repeatable with --check; installing needs exactly one target config.');
+
+                return Command::FAILURE;
             }
 
             $result = $this->manager->install(
                 (string) getcwd(),
                 $selected,
                 (bool) $input->getOption('dry-run'),
-                (string) $input->getOption('path'),
+                $paths[0] ?? SupervisorFileManager::DEFAULT_PATH,
             );
         } catch (\InvalidArgumentException $e) {
             $io->error($e->getMessage());
@@ -73,36 +81,71 @@ final class WorkerInstallCommand extends Command
      * can never stop a build — which is how a worker registered in code reached no supervisor
      * program and nobody noticed until the queue it drains had silently backed up. `--check` turns
      * the same plan into a failed build, and names the workers so the fix is a copy-paste.
+     *
+     * Coverage, not per-file completeness. Workers are placed across containers on purpose — the
+     * scheduler daemon belongs on exactly ONE node, so demanding it in every supervisor config would
+     * push a second scheduler onto the worker color. A worker is only missing when it appears in
+     * NONE of the given configs; staleness is still reported per file, since a diverged block is
+     * about the file that holds it.
+     *
+     * @param list<string> $paths
      */
-    private function check(SymfonyStyle $io, WorkerProcessRegistry $selected, string $path): int
+    private function check(SymfonyStyle $io, WorkerProcessRegistry $selected, array $paths): int
     {
-        $drift = $this->manager->drift((string) getcwd(), $selected, $path);
-        $missing = $drift['missing'];
-        $stale = $drift['stale'];
+        $paths = $paths === [] ? [SupervisorFileManager::DEFAULT_PATH] : $paths;
+        $cwd = (string) getcwd();
 
-        if ($missing === [] && $stale === []) {
-            $io->success(sprintf('%s matches the registered workers.', $path));
+        $placed = [];
+        $staleByPath = [];
+
+        foreach ($paths as $path) {
+            $drift = $this->manager->drift($cwd, $selected, $path);
+
+            if ($drift['stale'] !== []) {
+                $staleByPath[$path] = $drift['stale'];
+            }
+
+            foreach ($selected->all() as $definition) {
+                if (!\in_array($definition->name, $drift['missing'], true)) {
+                    $placed[$definition->name] = true;
+                }
+            }
+        }
+
+        $unplaced = [];
+        foreach ($selected->all() as $definition) {
+            if (!isset($placed[$definition->name])) {
+                $unplaced[] = $definition->name;
+            }
+        }
+
+        if ($unplaced === [] && $staleByPath === []) {
+            $io->success(sprintf(
+                'All %d registered worker(s) are placed in: %s',
+                \count($selected->all()),
+                implode(', ', $paths),
+            ));
 
             return Command::SUCCESS;
         }
 
-        if ($missing !== []) {
+        if ($unplaced !== []) {
             $io->error(sprintf(
-                "%s has no supervisor program for: %s\nThese workers are registered but would never start.",
-                $path,
-                implode(', ', $missing),
+                "No supervisor config contains a program for: %s\nThese workers are registered but "
+                . "would never start. Configs checked: %s",
+                implode(', ', $unplaced),
+                implode(', ', $paths),
             ));
         }
 
-        if ($stale !== []) {
-            $io->error(sprintf(
-                '%s has out-of-date blocks for: %s',
-                $path,
-                implode(', ', $stale),
-            ));
+        foreach ($staleByPath as $path => $stale) {
+            $io->error(sprintf('%s has out-of-date blocks for: %s', $path, implode(', ', $stale)));
         }
 
-        $io->writeln(sprintf('Fix: php bin/console vortos:worker:install --path=%s', $path));
+        $io->writeln(sprintf(
+            'Fix: php bin/console vortos:worker:install --path=%s [--worker=<name>]',
+            $paths[0],
+        ));
 
         return Command::FAILURE;
     }

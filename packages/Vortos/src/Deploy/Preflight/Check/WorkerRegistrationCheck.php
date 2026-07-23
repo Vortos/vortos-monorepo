@@ -31,11 +31,18 @@ use Vortos\Docker\Worker\WorkerProcessRegistry;
  * build-time concern (--check reports it as stale) and is deliberately not a deploy blocker —
  * a diverged comment should not stop a rollout.
  *
+ * Coverage, not per-file completeness. Workers are placed across containers deliberately: the
+ * scheduler daemon must run on exactly ONE node, so requiring every registered worker in the worker
+ * color's config would demand a second scheduler and fail a correct deployment. Images that supervise
+ * workers in more than one container list the other configs in VORTOS_WORKER_SUPERVISOR_CONFIGS
+ * (comma-separated, paths as they exist inside the image); a worker satisfies this check by appearing
+ * in any of them.
+ *
  * Scope guards (Pass/Skip, never a false Fail):
  *   - no worker registry available (vortos-docker not installed) → Skip
  *   - no workers registered → Pass (nothing to drop)
  *   - workerCommand does not invoke supervisord → Skip (programs are not how this app runs workers)
- *   - the referenced config is not present in this context → Skip (can't judge)
+ *   - none of the referenced configs are present in this context → Skip (can't judge)
  */
 final class WorkerRegistrationCheck implements PreflightCheckInterface
 {
@@ -100,18 +107,38 @@ final class WorkerRegistrationCheck implements PreflightCheckInterface
             );
         }
 
-        $config = ($this->configReader)($configPath);
-        if ($config === null) {
+        $paths = array_values(array_unique(array_merge([$configPath], $this->additionalConfigPaths())));
+
+        $configs = [];
+        foreach ($paths as $path) {
+            $contents = ($this->configReader)($path);
+            if ($contents !== null) {
+                $configs[$path] = $contents;
+            }
+        }
+
+        if ($configs === []) {
             return PreflightFinding::skip(
                 $this->id(),
                 $this->category(),
-                sprintf('supervisor config "%s" not present in this context; cannot verify worker programs', $configPath),
+                sprintf(
+                    'no supervisor config present in this context (looked in: %s); cannot verify worker programs',
+                    implode(', ', $paths),
+                ),
             );
         }
 
         $missing = [];
         foreach ($this->registry->all() as $definition) {
-            if (!$this->hasProgram($config, $definition->supervisorProgramName())) {
+            $placed = false;
+            foreach ($configs as $contents) {
+                if ($this->hasProgram($contents, $definition->supervisorProgramName())) {
+                    $placed = true;
+                    break;
+                }
+            }
+
+            if (!$placed) {
                 $missing[] = $definition->name;
             }
         }
@@ -122,24 +149,43 @@ final class WorkerRegistrationCheck implements PreflightCheckInterface
                 $this->category(),
                 'registered workers have no supervisor program and would never start',
                 sprintf(
-                    'config "%s" has no [program:] stanza for: %s. These are registered as workers but '
+                    'no [program:] stanza for: %s in any of %s. These are registered as workers but '
                     . 'the image will not run them — the work they own is silently not done.',
-                    $configPath,
                     implode(', ', $missing),
+                    implode(', ', array_keys($configs)),
                 ),
-                sprintf(
-                    'Regenerate and commit the config: php bin/console vortos:worker:install --path=<repo path to %s>. '
-                    . 'Add vortos:worker:install --check to CI so the next omission fails the build instead of the deploy.',
-                    basename($configPath),
-                ),
+                'Regenerate and commit the config: php bin/console vortos:worker:install --path=<repo path to the '
+                . 'config that should own them>. Add vortos:worker:install --check to CI so the next omission fails '
+                . 'the build instead of the deploy. If the worker belongs to another container, list that '
+                . 'container config in VORTOS_WORKER_SUPERVISOR_CONFIGS.',
             );
         }
 
         return PreflightFinding::pass(
             $this->id(),
             $this->category(),
-            sprintf('all %d registered worker(s) have a program in "%s"', \count($this->registry->all()), $configPath),
+            sprintf(
+                'all %d registered worker(s) have a program in: %s',
+                \count($this->registry->all()),
+                implode(', ', array_keys($configs)),
+            ),
         );
+    }
+
+    /**
+     * Supervisor configs for containers other than the worker color, as they exist inside the image.
+     *
+     * @return list<string>
+     */
+    private function additionalConfigPaths(): array
+    {
+        $raw = trim((string) ($_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] ?? ''));
+
+        if ($raw === '') {
+            return [];
+        }
+
+        return array_values(array_filter(array_map('trim', explode(',', $raw))));
     }
 
     /**

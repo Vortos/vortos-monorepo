@@ -276,6 +276,16 @@ final class BackupExtension extends Extension
             $container->setAlias(StreamTransformFactoryInterface::class, IdentityStreamTransformFactory::class)->setPublic(false);
         }
 
+        // Whatever wrote the backup has to be what reads it back. When the dedicated backup keypair
+        // is configured the read path must resolve THAT provider — the generic KeyProviderInterface
+        // is the box's secrets-store identity, a different key entirely, so a restore or drill wired
+        // to it looks for a key that was never used and reports "no key provider configured" even on
+        // a host holding the correct identity. Falls back to the generic provider when no backup
+        // keypair is configured, which is the unencrypted/shared-identity case.
+        $backupKeyProviderRef = $container->hasDefinition('vortos.backup.key_provider')
+            ? new Reference('vortos.backup.key_provider')
+            : new Reference(KeyProviderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE);
+
         $container->register(IntegrityVerifier::class, IntegrityVerifier::class)->setPublic(false);
         $container->register(BackupLock::class, BackupLock::class)
             ->setArgument('$lockDir', $lockDir)
@@ -330,7 +340,7 @@ final class BackupExtension extends Extension
         $container->register(RestoreCoordinator::class, RestoreCoordinator::class)
             ->setArgument('$targets', new Reference(RestoreTargetRegistry::class))
             ->setArgument('$cipher', new Reference(EnvelopeStreamCipher::class))
-            ->setArgument('$keyProvider', new Reference(KeyProviderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$keyProvider', $backupKeyProviderRef)
             ->setPublic(false);
 
         // ── Drill ──
@@ -408,7 +418,7 @@ final class BackupExtension extends Extension
                 ->setArgument('$clock', new Reference(SystemClock::class))
                 ->setArgument('$invariantChecks', [])
                 ->setArgument('$storeKey', $storeKey)
-                ->setArgument('$keyProvider', new Reference(KeyProviderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                ->setArgument('$keyProvider', $backupKeyProviderRef)
                 ->setPublic(false);
         }
 

@@ -41,6 +41,42 @@ final class SupervisorFileManager
         return new SupervisorInstallResult($plan, !$dryRun && $plan->hasChanges());
     }
 
+    /**
+     * Which registered workers the config on disk does not currently reflect.
+     *
+     * `planInstall()` answers "would the file change", which is enough to write but not enough to
+     * report: a build that fails on drift has to name the worker that would silently never run.
+     * Split by kind because the two failures read differently — `missing` is a worker the container
+     * has no program for at all (registered in code, absent from the image: it simply never starts),
+     * `stale` is a program whose generated body has diverged from the definition (wrong command,
+     * wrong drain deadline).
+     *
+     * @return array{missing: list<string>, stale: list<string>}
+     */
+    public function drift(string $projectRoot, WorkerProcessRegistry $registry, ?string $path = null): array
+    {
+        $absolutePath = $this->absolutePath($projectRoot, $path);
+        $current = is_file($absolutePath) ? (string) file_get_contents($absolutePath) : '';
+
+        $missing = [];
+        $stale = [];
+
+        foreach ($registry->all() as $definition) {
+            $pattern = $this->blockPattern($definition->name);
+
+            if (preg_match($pattern, $current, $matches) !== 1) {
+                $missing[] = $definition->name;
+                continue;
+            }
+
+            if (rtrim($matches[0]) !== rtrim($definition->managedBlock())) {
+                $stale[] = $definition->name;
+            }
+        }
+
+        return ['missing' => $missing, 'stale' => $stale];
+    }
+
     /** @param string[] $names */
     public function planRemove(string $projectRoot, array $names, ?string $path = null): SupervisorPlan
     {

@@ -28,7 +28,8 @@ final class WorkerInstallCommand extends Command
         $this
             ->addOption('worker', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Worker name to install. Omit to install all registered workers.')
             ->addOption('path', null, InputOption::VALUE_REQUIRED, 'Supervisor config path relative to project root.', SupervisorFileManager::DEFAULT_PATH)
-            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Preview changes without writing.');
+            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Preview changes without writing.')
+            ->addOption('check', null, InputOption::VALUE_NONE, 'Fail (exit 1) if the committed config does not match the registered workers. For CI.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -37,6 +38,11 @@ final class WorkerInstallCommand extends Command
 
         try {
             $selected = $this->registry->selected((array) $input->getOption('worker'));
+
+            if ((bool) $input->getOption('check')) {
+                return $this->check($io, $selected, (string) $input->getOption('path'));
+            }
+
             $result = $this->manager->install(
                 (string) getcwd(),
                 $selected,
@@ -60,5 +66,44 @@ final class WorkerInstallCommand extends Command
         ));
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * The gate. `--dry-run` exits 0 whether or not changes are pending, so it can report drift but
+     * can never stop a build — which is how a worker registered in code reached no supervisor
+     * program and nobody noticed until the queue it drains had silently backed up. `--check` turns
+     * the same plan into a failed build, and names the workers so the fix is a copy-paste.
+     */
+    private function check(SymfonyStyle $io, WorkerProcessRegistry $selected, string $path): int
+    {
+        $drift = $this->manager->drift((string) getcwd(), $selected, $path);
+        $missing = $drift['missing'];
+        $stale = $drift['stale'];
+
+        if ($missing === [] && $stale === []) {
+            $io->success(sprintf('%s matches the registered workers.', $path));
+
+            return Command::SUCCESS;
+        }
+
+        if ($missing !== []) {
+            $io->error(sprintf(
+                "%s has no supervisor program for: %s\nThese workers are registered but would never start.",
+                $path,
+                implode(', ', $missing),
+            ));
+        }
+
+        if ($stale !== []) {
+            $io->error(sprintf(
+                '%s has out-of-date blocks for: %s',
+                $path,
+                implode(', ', $stale),
+            ));
+        }
+
+        $io->writeln(sprintf('Fix: php bin/console vortos:worker:install --path=%s', $path));
+
+        return Command::FAILURE;
     }
 }

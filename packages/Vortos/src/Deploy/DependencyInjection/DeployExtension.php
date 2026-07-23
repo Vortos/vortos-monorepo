@@ -41,6 +41,7 @@ use Vortos\Deploy\Preflight\Check\DeployStateDurabilityCheck;
 use Vortos\Deploy\Preflight\Check\DriverSetCheck;
 use Vortos\Deploy\Preflight\Check\EnvFileReadabilityCheck;
 use Vortos\Deploy\Preflight\Check\RootlessWorkerCheck;
+use Vortos\Deploy\Preflight\Check\WorkerRegistrationCheck;
 use Vortos\Deploy\Preflight\Check\PendingMigrationPhaseCheck;
 use Vortos\Deploy\Preflight\Check\SchemaCompatibilityCheck;
 use Vortos\Deploy\Preflight\Check\FileSecretsCheck;
@@ -1082,6 +1083,14 @@ final class DeployExtension extends Extension
         // GAP-B: fail closed when the worker's supervisord config is rootful in the single-image
         // (RideColor) model, where the image runs as a non-root user and can't drop privileges.
         $container->register(RootlessWorkerCheck::class, RootlessWorkerCheck::class)
+            ->addTag(self::PREFLIGHT_CHECK_TAG)
+            ->setPublic(false);
+
+        // Fail closed when a worker is registered in code but has no program in the supervisor
+        // config baked into the image. Registration alone does not make a worker run — the config
+        // is a committed file — so without this a dropped worker deploys green and drains nothing.
+        $container->register(WorkerRegistrationCheck::class, WorkerRegistrationCheck::class)
+            ->setArgument('$registry', new Reference(WorkerProcessRegistry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag(self::PREFLIGHT_CHECK_TAG)
             ->setPublic(false);
 

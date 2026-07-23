@@ -516,7 +516,7 @@ final class AlertsExtension extends Extension
         ) {
             $container->register('vortos.alerts.drain_process', \Vortos\Docker\Worker\WorkerProcessDefinition::class)
                 ->setArgument('$name', 'alerts-drain')
-                ->setArgument('$command', 'php bin/console vortos:alerts:drain --loop')
+                ->setArgument('$command', \Vortos\Docker\Worker\WorkerConsole::command('vortos:alerts:drain --loop --interval=30'))
                 ->setArgument('$description', 'Vortos alert delivery outbox drainer (retry path for failed notifications)')
                 ->setArgument('$stopwaitsecs', 30)
                 ->setArgument('$drainDeadline', 10)

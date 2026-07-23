@@ -44,6 +44,57 @@ final class SupervisorFileManagerTest extends TestCase
         $this->assertStringContainsString('command=php bin/console vortos:ses:outbox:relay', $contents);
     }
 
+    /**
+     * The gate behind `vortos:worker:install --check`. A worker registered in code but absent from
+     * the committed config never starts, and until this existed nothing failed: `--dry-run` reports
+     * the drift and still exits 0, so it could never stop a build.
+     */
+    public function test_drift_reports_a_registered_worker_with_no_block(): void
+    {
+        $path = $this->projectDir . '/docker/worker/supervisord.conf';
+        mkdir(dirname($path), 0755, true);
+        file_put_contents($path, "[supervisord]\nnodaemon=true\n");
+
+        $drift = (new SupervisorFileManager())->drift($this->projectDir, new WorkerProcessRegistry([
+            new WorkerProcessDefinition('alerts-drain', 'php bin/console vortos:alerts:drain --loop', 'Drain alerts.'),
+        ]));
+
+        $this->assertSame(['alerts-drain'], $drift['missing']);
+        $this->assertSame([], $drift['stale']);
+    }
+
+    public function test_drift_reports_a_block_whose_body_diverged_as_stale(): void
+    {
+        $manager = new SupervisorFileManager();
+        $manager->install($this->projectDir, new WorkerProcessRegistry([
+            new WorkerProcessDefinition('alerts-drain', 'php bin/console vortos:alerts:drain --loop', 'Drain alerts.'),
+        ]));
+
+        // Same worker, command changed in code but never reinstalled.
+        $drift = $manager->drift($this->projectDir, new WorkerProcessRegistry([
+            new WorkerProcessDefinition('alerts-drain', 'php bin/console vortos:alerts:drain --loop --interval=30', 'Drain alerts.'),
+        ]));
+
+        $this->assertSame([], $drift['missing']);
+        $this->assertSame(['alerts-drain'], $drift['stale']);
+    }
+
+    public function test_drift_is_clean_immediately_after_install(): void
+    {
+        $manager = new SupervisorFileManager();
+        $registry = new WorkerProcessRegistry([
+            new WorkerProcessDefinition('alerts-drain', 'php bin/console vortos:alerts:drain --loop', 'Drain alerts.'),
+            new WorkerProcessDefinition('messaging-outbox-relay', 'php bin/console vortos:outbox:relay', 'Relay events.'),
+        ]);
+
+        $manager->install($this->projectDir, $registry);
+
+        $this->assertSame(
+            ['missing' => [], 'stale' => []],
+            $manager->drift($this->projectDir, $registry),
+        );
+    }
+
     public function test_install_is_idempotent(): void
     {
         $manager = new SupervisorFileManager();

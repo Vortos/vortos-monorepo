@@ -5,10 +5,26 @@ declare(strict_types=1);
 namespace Vortos\Backup\DR;
 
 use Vortos\Backup\Domain\ObjectLockPolicy;
+use Vortos\Backup\Domain\RetentionPolicy;
 use Vortos\Backup\Drill\DrillReportStoreInterface;
+use Vortos\Backup\Schedule\BackupSchedule;
+use Vortos\Backup\Schedule\BackupScheduleType;
 
+/**
+ * The DR runbook is read during an outage, by someone who cannot verify its claims. Every statement
+ * it makes must come from live configuration — a runbook that describes an intended setup rather
+ * than the real one is worse than no runbook, because it is trusted.
+ *
+ * This previously asserted three things it never checked: a key provider read from an env var that
+ * nothing sets (so encrypted installs reported "none"), the name of a wrap-key variable the code does
+ * not use, and a fixed drill cadence regardless of what was scheduled. All three now derive from the
+ * same values that drive the runtime.
+ */
 final class DrRunbookGenerator
 {
+    /**
+     * @param list<BackupSchedule> $schedules the lifecycle schedules actually declared in config
+     */
     public function __construct(
         private readonly RecoveryObjectives $objectives,
         private readonly ?ObjectLockPolicy $lockPolicy,
@@ -16,6 +32,10 @@ final class DrRunbookGenerator
         private readonly string $primaryStore,
         private readonly ?string $secondaryStore,
         private readonly string $keyProviderName,
+        private readonly array $schedules = [],
+        private readonly ?RetentionPolicy $retentionPolicy = null,
+        private readonly string $identityEnvVar = 'VORTOS_BACKUP_AGE_IDENTITY',
+        private readonly string $recipientEnvVar = 'VORTOS_BACKUP_AGE_PUBLIC_KEY',
     ) {}
 
     public function generate(string $environment): string
@@ -51,9 +71,28 @@ final class DrRunbookGenerator
 
         $lines[] = '## Key Custody';
         $lines[] = '';
-        $lines[] = sprintf('- **Key provider:** `%s`', $this->keyProviderName);
-        $lines[] = '- **Wrap key (public):** `VORTOS_BACKUP_AGE_RECIPIENT` (on app host)';
-        $lines[] = '- **Unwrap identity (private):** `VORTOS_BACKUP_AGE_IDENTITY` (**off-host**, restore/drill host only)';
+
+        if ($this->keyProviderName === 'none') {
+            $lines[] = '- **Backups are NOT encrypted.** Anyone who can read the store can read the data.';
+            $lines[] = sprintf('- To enable: set `%s` to an age recipient generated with `age-keygen`.', $this->recipientEnvVar);
+        } else {
+            $identityPresent = trim((string) ($_ENV[$this->identityEnvVar] ?? getenv($this->identityEnvVar) ?: '')) !== '';
+
+            $lines[] = sprintf('- **Key provider:** `%s`', $this->keyProviderName);
+            $lines[] = sprintf('- **Wrap key (public):** `%s` — encrypts; safe to keep beside the data.', $this->recipientEnvVar);
+            $lines[] = sprintf(
+                '- **Unwrap identity (private):** `%s` — %s',
+                $this->identityEnvVar,
+                $identityPresent
+                    ? '**PRESENT on this host.** Restores and drills run unattended here; the trade is that '
+                        . 'a compromise of this host yields both the ciphertext and the key, so immutability '
+                        . 'on the store is the control that still holds.'
+                    : '**NOT on this host.** Supply it out-of-band at restore time; until then no backup here '
+                        . 'can be decrypted, including by a drill.',
+            );
+            $lines[] = '- **Losing every copy of the identity makes every encrypted backup unrecoverable.** '
+                . 'There is no recovery path — keep an offline copy.';
+        }
         $lines[] = '';
 
         if ($this->lockPolicy !== null) {
@@ -67,19 +106,86 @@ final class DrRunbookGenerator
 
         $lines[] = '## Restore Steps';
         $lines[] = '';
-        $lines[] = '1. Ensure `VORTOS_BACKUP_AGE_IDENTITY` is set on the restore host.';
-        $lines[] = '2. Ensure `VORTOS_BACKUP_DRILL_DSN` points to the target (non-production) database.';
-        $lines[] = '3. Run: `vortos backup:restore --engine=postgres --env=' . $environment . ' --confirm`';
-        $lines[] = '4. Verify: `vortos backup:drill --engine=postgres --env=' . $environment . '`';
+        if ($this->keyProviderName !== 'none') {
+            $lines[] = sprintf('1. Ensure `%s` is set on the restore host.', $this->identityEnvVar);
+        } else {
+            $lines[] = '1. No key material needed — these backups are unencrypted.';
+        }
+        $lines[] = sprintf(
+            '2. Choose the artifact: `vortos backup:list --engine=postgres --env=%s`',
+            $environment,
+        );
+        $lines[] = sprintf(
+            '3. Restore into a NEW database — pass `--destination` explicitly. Restoring over the live '
+            . 'database is a separate, riskier operation that requires stopping the app first:'
+            . "\n   `vortos backup:restore --engine=postgres --env=%s --artifact-id=<id> "
+            . '--destination=<dsn-of-new-db> --confirm`',
+            $environment,
+        );
+        $lines[] = sprintf(
+            '4. Prove it independently: `vortos backup:drill --engine=postgres --env=%s`',
+            $environment,
+        );
         $lines[] = '';
 
-        $lines[] = '## Drill Schedule';
+        $lines[] = '## Lifecycle Schedule';
         $lines[] = '';
-        $lines[] = '- **Daily shallow decrypt-verify:** confirms KEK/cipher integrity without full restore.';
-        $lines[] = '- **Weekly full drill:** provision → restore → invariant checks → measured RTO.';
+        if ($this->schedules === []) {
+            $lines[] = '- **No schedules declared.** Nothing runs on its own: backup, retention and drill are '
+                . 'manual until a schedule is configured.';
+        } else {
+            foreach ($this->schedules as $schedule) {
+                $lines[] = sprintf(
+                    '- **%s** (`%s`) — `%s`%s',
+                    ucfirst($schedule->type->value),
+                    $schedule->name,
+                    $schedule->cron,
+                    $schedule->type === BackupScheduleType::Drill
+                        ? ': provision → restore → invariant checks → measured RTO. This is the only check that '
+                            . 'proves a backup restores; `backup:verify` proves only that the bytes are intact.'
+                        : '',
+                );
+            }
+
+            if (!$this->hasSchedule(BackupScheduleType::Drill)) {
+                $lines[] = '- **WARNING: no restore drill is scheduled.** Nothing verifies that these backups '
+                    . 'can actually be restored.';
+            }
+        }
         $lines[] = '';
+
+        if ($this->retentionPolicy !== null) {
+            $lines[] = '## Retention';
+            $lines[] = '';
+            $lines[] = sprintf(
+                '- Keeps %d hourly, %d daily, %d weekly, %d monthly, %d yearly%s.',
+                $this->retentionPolicy->hourly,
+                $this->retentionPolicy->daily,
+                $this->retentionPolicy->weekly,
+                $this->retentionPolicy->monthly,
+                $this->retentionPolicy->yearly,
+                $this->retentionPolicy->maxAgeDays !== null
+                    ? sprintf('; nothing older than %d days', $this->retentionPolicy->maxAgeDays)
+                    : '',
+            );
+            $lines[] = '- Anything outside this policy is DELETED from the store. If the store enforces '
+                . 'immutability, deletes inside the locked window are refused rather than failing — expect '
+                . 'a non-zero `Refused` count and storage to grow until the lock expires.';
+            $lines[] = '';
+        }
 
         return implode("\n", $lines) . "\n";
+    }
+
+    private function hasSchedule(BackupScheduleType $type): bool
+    {
+        foreach ($this->schedules as $schedule) {
+            if ($schedule->type === $type) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function humanDuration(int $seconds): string

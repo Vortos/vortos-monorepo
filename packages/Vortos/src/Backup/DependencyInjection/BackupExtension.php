@@ -106,7 +106,15 @@ final class BackupExtension extends Extension
         $keyPrefix = (string) ($_ENV['VORTOS_BACKUP_KEY_PREFIX'] ?? 'backups');
         $lockDir = (string) ($_ENV['VORTOS_BACKUP_LOCK_DIR'] ?? ($projectDir . '/var/backup-locks'));
         $mongoUri = (string) ($_ENV['VORTOS_BACKUP_MONGO_URI'] ?? '');
+        // The DR runbook reports this, and it must match reality: encryption is switched on by
+        // VORTOS_BACKUP_AGE_PUBLIC_KEY, so reading a separate VORTOS_BACKUP_KEY_PROVIDER (which
+        // nothing sets) made every encrypted install report its key provider as "none" — in the one
+        // document someone reads during an outage. Derive it from the same signal that wires the
+        // cipher; the explicit var stays as an override for non-age providers.
         $keyProviderName = (string) ($_ENV['VORTOS_BACKUP_KEY_PROVIDER'] ?? '');
+        if ($keyProviderName === '' && trim((string) ($_ENV['VORTOS_BACKUP_AGE_PUBLIC_KEY'] ?? '')) !== '') {
+            $keyProviderName = 'age';
+        }
         $drillDsn = (string) ($_ENV['VORTOS_BACKUP_DRILL_DSN'] ?? '');
         // Container-mode drill config. DOCKER_HOST must be the least-privilege socket-proxy endpoint
         // (tcp://docker-socket-proxy:2375) — DockerEngineContainerRuntime refuses a raw socket.
@@ -442,6 +450,10 @@ final class BackupExtension extends Extension
             ->setArgument('$rtoSeconds', $rtoSeconds)
             ->setPublic(false);
 
+        $container->register('vortos.backup.declared_schedules', 'array')
+            ->setFactory([new Reference(\Vortos\Backup\Config\BackupConfigLoader::class), 'schedules'])
+            ->setPublic(false);
+
         $container->register(DrRunbookGenerator::class, DrRunbookGenerator::class)
             ->setArgument('$objectives', new Reference(RecoveryObjectives::class))
             ->setArgument('$lockPolicy', $lockPolicy)
@@ -449,6 +461,11 @@ final class BackupExtension extends Extension
             ->setArgument('$primaryStore', $storeKey)
             ->setArgument('$secondaryStore', $secondaryStoreName !== '' ? $secondaryStoreName : null)
             ->setArgument('$keyProviderName', $keyProviderName !== '' ? $keyProviderName : 'none')
+            // Real declared schedules and retention, so the runbook cannot advertise a drill cadence
+            // the app never configured.
+            ->setArgument('$schedules', new Reference('vortos.backup.declared_schedules'))
+            ->setArgument('$retentionPolicy', new Reference(RetentionPolicy::class))
+            ->setArgument('$identityEnvVar', (string) ($_ENV['VORTOS_BACKUP_AGE_IDENTITY_ENV'] ?? 'VORTOS_BACKUP_AGE_IDENTITY'))
             ->setPublic(false);
 
         // ── Catalog manifest (D9 self-recovery) ──

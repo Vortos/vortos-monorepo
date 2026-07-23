@@ -42,6 +42,8 @@ final class DeploymentDefinitionBuilder
     private array $appCommand = RuntimeServiceSpec::DEFAULT_COMMAND;
     /** @var list<string> */
     private array $workerCommand = RuntimeServiceSpec::DEFAULT_WORKER_COMMAND;
+    /** @var list<string> */
+    private array $siblingSupervisorConfigs = [];
     private int $containerPort = RuntimeServiceSpec::DEFAULT_CONTAINER_PORT;
     /** @var list<string> */
     private array $envFiles = [RuntimeServiceSpec::DEFAULT_ENV_FILE];
@@ -262,6 +264,26 @@ final class DeploymentDefinitionBuilder
         return $clone;
     }
 
+    /**
+     * Supervisor configs for containers OTHER than the worker color — a scheduler sidecar, a backup
+     * node — as absolute paths inside the image.
+     *
+     * Workers are split across containers on purpose: a scheduler daemon must run on exactly one
+     * node, so a worker being absent from the worker color's config is not by itself a fault.
+     * Declaring the sibling configs lets the doctor tell "placed on another node" from "placed
+     * nowhere" instead of demanding every registered worker on the color and failing a correct
+     * deployment.
+     *
+     * @param list<string> $configs
+     */
+    public function siblingSupervisorConfigs(array $configs): self
+    {
+        $clone = clone $this;
+        $clone->siblingSupervisorConfigs = array_values($configs);
+
+        return $clone;
+    }
+
     /** The internal port the app serves on (edge dials app-<color>:<port>; colors publish no host ports). */
     public function containerPort(int $port): self
     {
@@ -350,6 +372,7 @@ final class DeploymentDefinitionBuilder
             fileSecrets: $this->fileSecrets,
             workerHealthcheck: $this->workerHealthcheck,
             appHealthcheck: $this->appHealthcheck,
+            siblingSupervisorConfigs: $this->siblingSupervisorConfigs,
         );
     }
 

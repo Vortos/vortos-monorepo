@@ -42,6 +42,7 @@ use Vortos\Authorization\Middleware\ControllerPermissionMap;
 use Vortos\Authorization\Ownership\Contract\OwnerResolverInterface;
 use Vortos\Authorization\Ownership\Middleware\OwnershipMiddleware;
 use Vortos\Authorization\Ownership\OwnerResolverRegistry;
+use Vortos\Authorization\Permission\PermissionImplicationExpander;
 use Vortos\Authorization\Permission\PermissionRegistry;
 use Vortos\Authorization\Resolver\DatabasePermissionResolver;
 use Vortos\Authorization\Resolver\NullAuthorizationCacheInvalidator;
@@ -119,8 +120,13 @@ final class AuthorizationExtension extends Extension
         $container->register(PermissionRegistry::class, PermissionRegistry::class)
             ->setArgument('$permissions', [])
             ->setArgument('$defaultGrants', [])
+            ->setArgument('$implications', [])
             ->setShared(true)->setPublic(true);
         $container->setAlias(PermissionRegistryInterface::class, PermissionRegistry::class)->setPublic(true);
+
+        $container->register(PermissionImplicationExpander::class, PermissionImplicationExpander::class)
+            ->setArgument('$registry', new Reference(PermissionRegistryInterface::class))
+            ->setShared(true)->setPublic(true);
 
         $tracingReference = interface_exists('Vortos\\Tracing\\Contract\\TracingInterface')
             && $container->hasAlias('Vortos\\Tracing\\Contract\\TracingInterface')
@@ -333,6 +339,7 @@ final class AuthorizationExtension extends Extension
                     : null,
             )
             ->setArgument('$tracer', new Reference(AuthorizationTracer::class))
+            ->setArgument('$implications', new Reference(PermissionImplicationExpander::class))
             ->setShared(true)
             ->setPublic(false);
 

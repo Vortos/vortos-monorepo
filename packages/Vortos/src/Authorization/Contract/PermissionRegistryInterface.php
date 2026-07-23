@@ -21,4 +21,12 @@ interface PermissionRegistryInterface
      * @return array<string, string[]>
      */
     public function defaultGrants(): array;
+
+    /**
+     * Direct implications declared by catalogs: permission => permissions it
+     * carries. Resolved transitively by PermissionImplicationExpander.
+     *
+     * @return array<string, string[]>
+     */
+    public function implications(): array;
 }

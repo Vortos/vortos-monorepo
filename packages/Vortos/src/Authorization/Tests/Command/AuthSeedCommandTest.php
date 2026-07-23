@@ -127,10 +127,12 @@ final class FakeRegistry implements PermissionRegistryInterface
     /**
      * @param string[]                $all
      * @param array<string, string[]> $defaultGrants
+     * @param array<string, string[]> $implications
      */
     public function __construct(
         private readonly array $all,
         private readonly array $defaultGrants,
+        private readonly array $implications = [],
     ) {
     }
 
@@ -152,5 +154,10 @@ final class FakeRegistry implements PermissionRegistryInterface
     public function defaultGrants(): array
     {
         return $this->defaultGrants;
+    }
+
+    public function implications(): array
+    {
+        return $this->implications;
     }
 }

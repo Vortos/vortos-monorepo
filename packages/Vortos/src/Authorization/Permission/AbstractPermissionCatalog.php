@@ -16,6 +16,11 @@ abstract class AbstractPermissionCatalog implements PermissionCatalogInterface
         return [];
     }
 
+    public static function implies(): array
+    {
+        return [];
+    }
+
     /**
      * @return array{label: string, description: ?string, dangerous: bool, bypassable: bool, policyRequired: bool, selfEnforced: bool}
      */

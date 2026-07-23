@@ -8,6 +8,7 @@ use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Authorization\Contract\PermissionResolverInterface;
 use Vortos\Authorization\Contract\RolePermissionStoreInterface;
 use Vortos\Authorization\Contract\UserRoleStoreInterface;
+use Vortos\Authorization\Permission\PermissionImplicationExpander;
 use Vortos\Authorization\Permission\ResolvedPermissions;
 use Vortos\Authorization\Temporal\Contract\TemporalPermissionStoreInterface;
 use Vortos\Authorization\Tracing\AuthorizationTracer;
@@ -22,6 +23,7 @@ final class DatabasePermissionResolver implements PermissionResolverInterface
         private readonly RoleVoter $roleVoter,
         private readonly ?TemporalPermissionStoreInterface $temporalStore = null,
         private readonly ?AuthorizationTracer $tracer = null,
+        private readonly ?PermissionImplicationExpander $implications = null,
     ) {
     }
 
@@ -73,6 +75,12 @@ final class DatabasePermissionResolver implements PermissionResolverInterface
 
         $temporalGrants = $this->temporalStore?->activeGrantsForUser($identity->id()) ?? [];
         array_push($permissions, ...$temporalGrants);
+
+        // Grants stay as stored; what they carry is derived here, so a new
+        // prerequisite permission never requires rewriting anyone's role.
+        if ($this->implications !== null) {
+            $permissions = $this->implications->expand($permissions);
+        }
 
         return new ResolvedPermissions(
             $identity->id(),

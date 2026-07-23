@@ -18,13 +18,14 @@ final class PermissionRegistryPass implements CompilerPassInterface
 {
     public function process(ContainerBuilder $container): void
     {
-        [$permissions, $defaultGrants] = $this->discoverPermissions($container);
+        [$permissions, $defaultGrants, $implications] = $this->discoverPermissions($container);
         $controllerMap = $this->buildControllerPermissionMap($container, $permissions);
 
         if ($container->hasDefinition(PermissionRegistry::class)) {
             $container->getDefinition(PermissionRegistry::class)
                 ->setArgument('$permissions', $permissions)
-                ->setArgument('$defaultGrants', $defaultGrants);
+                ->setArgument('$defaultGrants', $defaultGrants)
+                ->setArgument('$implications', $implications);
         }
 
         if ($container->hasDefinition(ControllerPermissionMap::class)) {
@@ -34,12 +35,13 @@ final class PermissionRegistryPass implements CompilerPassInterface
     }
 
     /**
-     * @return array{0: array<string, array<string, mixed>>, 1: array<string, string[]>}
+     * @return array{0: array<string, array<string, mixed>>, 1: array<string, string[]>, 2: array<string, string[]>}
      */
     private function discoverPermissions(ContainerBuilder $container): array
     {
         $permissions = [];
         $defaultGrants = [];
+        $implications = [];
         // Grants are resolved in a SECOND pass (below) against the COMPLETE permission set.
         // A one-pass loop could only grant permissions declared by catalogs already iterated,
         // so an app catalog granting a framework-owned permission (e.g. platform.superadmin →
@@ -123,6 +125,7 @@ final class PermissionRegistryPass implements CompilerPassInterface
                 'class' => $class,
                 'resource' => $resource,
                 'grants' => $this->catalogGrants($class),
+                'implies' => $this->catalogImplications($class),
                 'catalogPermissions' => $catalogPermissions,
             ];
         }
@@ -156,6 +159,72 @@ final class PermissionRegistryPass implements CompilerPassInterface
             }
         }
 
+        // Pass 3 — implications, resolved against the complete permission set for
+        // the same reason grants are: a catalog may imply a permission another
+        // catalog owns (an org-admin capability implying a platform read).
+        foreach ($pendingGrants as $pending) {
+            foreach ($pending['implies'] as $holder => $implied) {
+                $holderPermission = $pending['catalogPermissions'][$holder]
+                    ?? $this->normalizePermission($pending['resource'], $holder, $pending['class']);
+
+                if (!isset($permissions[$holderPermission])) {
+                    throw new \LogicException(sprintf(
+                        'Permission catalog "%s" declares an implication for unknown permission "%s".',
+                        $pending['class'],
+                        $holder,
+                    ));
+                }
+
+                if (!is_array($implied)) {
+                    throw new \LogicException(sprintf(
+                        'Permission catalog "%s" must declare implications for "%s" as an array.',
+                        $pending['class'],
+                        $holder,
+                    ));
+                }
+
+                foreach ($implied as $target) {
+                    if (!is_string($target)) {
+                        throw new \LogicException(sprintf(
+                            'Permission catalog "%s" has a non-string implication for "%s".',
+                            $pending['class'],
+                            $holder,
+                        ));
+                    }
+
+                    $targetPermission = $pending['catalogPermissions'][$target]
+                        ?? $this->normalizePermission($pending['resource'], $target, $pending['class']);
+
+                    if (!isset($permissions[$targetPermission])) {
+                        throw new \LogicException(sprintf(
+                            'Permission catalog "%s" implies unknown permission "%s" from "%s".',
+                            $pending['class'],
+                            $target,
+                            $holder,
+                        ));
+                    }
+
+                    if ($targetPermission === $holderPermission) {
+                        throw new \LogicException(sprintf(
+                            'Permission catalog "%s" declares "%s" as implying itself.',
+                            $pending['class'],
+                            $holderPermission,
+                        ));
+                    }
+
+                    $implications[$holderPermission][$targetPermission] = true;
+                }
+            }
+        }
+
+        foreach ($implications as $holder => $impliedIndex) {
+            $implications[$holder] = array_keys($impliedIndex);
+            sort($implications[$holder]);
+        }
+
+        ksort($implications);
+        $this->assertNoImplicationCycle($implications);
+
         ksort($permissions);
 
         foreach ($defaultGrants as $role => $grantIndex) {
@@ -165,7 +234,64 @@ final class PermissionRegistryPass implements CompilerPassInterface
 
         ksort($defaultGrants);
 
-        return [$permissions, $defaultGrants];
+        return [$permissions, $defaultGrants, $implications];
+    }
+
+    /**
+     * A cycle means two capabilities each claim to carry the other, which makes
+     * revocation meaningless. Caught at compile time so it can never reach a
+     * resolver.
+     *
+     * @param array<string, string[]> $implications
+     */
+    private function assertNoImplicationCycle(array $implications): void
+    {
+        $state = [];
+
+        $visit = function (string $permission, array $path) use (&$visit, $implications, &$state): void {
+            if (($state[$permission] ?? null) === 'done') {
+                return;
+            }
+
+            if (($state[$permission] ?? null) === 'open') {
+                $cycle = array_slice($path, array_search($permission, $path, true));
+                throw new \LogicException(sprintf(
+                    'Permission implications form a cycle: %s.',
+                    implode(' → ', [...$cycle, $permission]),
+                ));
+            }
+
+            $state[$permission] = 'open';
+            $path[] = $permission;
+
+            foreach ($implications[$permission] ?? [] as $implied) {
+                $visit($implied, $path);
+            }
+
+            $state[$permission] = 'done';
+        };
+
+        foreach (array_keys($implications) as $permission) {
+            $visit($permission, []);
+        }
+    }
+
+    /**
+     * @return array<string, string[]>
+     */
+    private function catalogImplications(string $class): array
+    {
+        if (!is_subclass_of($class, PermissionCatalogInterface::class)) {
+            return [];
+        }
+
+        $implies = $class::implies();
+
+        if (!is_array($implies)) {
+            throw new \LogicException(sprintf('Permission catalog "%s" implies() must return an array.', $class));
+        }
+
+        return $implies;
     }
 
     /**

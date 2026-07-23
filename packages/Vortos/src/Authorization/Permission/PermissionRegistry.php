@@ -24,10 +24,12 @@ final class PermissionRegistry implements PermissionRegistryInterface
      *     catalogClass: string
      * }> $permissions
      * @param array<string, string[]> $defaultGrants
+     * @param array<string, string[]> $implications
      */
     public function __construct(
         private readonly array $permissions,
         private readonly array $defaultGrants = [],
+        private readonly array $implications = [],
     ) {
     }
 
@@ -68,5 +70,10 @@ final class PermissionRegistry implements PermissionRegistryInterface
     public function defaultGrants(): array
     {
         return $this->defaultGrants;
+    }
+
+    public function implications(): array
+    {
+        return $this->implications;
     }
 }

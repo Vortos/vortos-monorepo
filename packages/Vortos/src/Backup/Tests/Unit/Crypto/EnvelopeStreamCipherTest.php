@@ -59,6 +59,59 @@ final class EnvelopeStreamCipherTest extends TestCase
         return static fn (WrappedKey $w): DataKey => DataKey::fromRaw($dek);
     }
 
+    /**
+     * The bug that made every encrypted production backup permanently undecryptable.
+     *
+     * The write path sealed whatever fread() returned, so a short-reading source produced
+     * VARIABLE-sized chunks, while the read path reads a FIXED CHUNK_SIZE + abytes per chunk. The
+     * framing desynchronised at the first short read and every chunk after it failed authentication
+     * — reported as "Backup undecryptable: auth", indistinguishable from tampering.
+     *
+     * It survived a full crypto suite because every other test here feeds php://temp, which always
+     * returns the full request until EOF. Real sources do not: the plaintext is a pg_dump PIPE and
+     * the ciphertext is an object-store DOWNLOAD, and both short-read constantly. Multi-chunk is
+     * essential — a payload under one chunk cannot desynchronise.
+     */
+    public function test_roundtrip_when_the_plaintext_source_short_reads(): void
+    {
+        $payload = str_repeat('A', EnvelopeStreamCipher::CHUNK_SIZE * 4 + 517);
+
+        $source = fopen(ShortReadStreamWrapper::urlFor($payload), 'rb');
+        self::assertIsResource($source);
+
+        $dek = sodium_crypto_secretstream_xchacha20poly1305_keygen();
+        [$encrypted] = $this->cipher->encrypt(
+            $source,
+            $dek,
+            'age',
+            'default',
+            'test-wrapped',
+            CompressionCodec::None,
+            DatabaseEngine::Postgres,
+            BackupKind::LogicalFull,
+        );
+
+        $decrypted = $this->cipher->decryptStream($encrypted, $this->unwrapFactory($dek));
+
+        $this->assertSame($payload, stream_get_contents($decrypted));
+    }
+
+    /** The same hazard on the read path: an object-store download short-reads too. */
+    public function test_roundtrip_when_the_envelope_source_short_reads(): void
+    {
+        $payload = str_repeat('B', EnvelopeStreamCipher::CHUNK_SIZE * 3 + 91);
+
+        [$encrypted, $dek] = $this->encryptPayload($payload);
+        $envelopeBytes = stream_get_contents($encrypted);
+
+        $shortReading = fopen(ShortReadStreamWrapper::urlFor($envelopeBytes), 'rb');
+        self::assertIsResource($shortReading);
+
+        $decrypted = $this->cipher->decryptStream($shortReading, $this->unwrapFactory($dek));
+
+        $this->assertSame($payload, stream_get_contents($decrypted));
+    }
+
     public function test_encrypt_decrypt_roundtrip_empty(): void
     {
         [$encrypted, $dek] = $this->encryptPayload('');

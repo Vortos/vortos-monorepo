@@ -66,8 +66,14 @@ final class EnvelopeStreamCipher
 
         fwrite($stream, $encoded);
 
-        $pending = fread($plaintext, self::CHUNK_SIZE);
-        if ($pending === false || $pending === '') {
+        // readExact, never a bare fread: a stream is allowed to return fewer bytes than asked for,
+        // and a pipe from pg_dump does so constantly. Sealing whatever fread happened to return wrote
+        // VARIABLE-sized chunks, while the read path below reads a FIXED CHUNK_SIZE + abytes per
+        // chunk — so the framing desynchronised at the first short read and every chunk after it
+        // failed its AEAD tag ("Backup undecryptable: auth"). The unit tests never caught it because
+        // php://temp always returns the full request until EOF; only real pipes short-read.
+        $pending = $this->readExact($plaintext, self::CHUNK_SIZE);
+        if ($pending === '') {
             $pending = null;
         }
 
@@ -82,8 +88,8 @@ final class EnvelopeStreamCipher
         } else {
             $isFirst = true;
             while ($pending !== null) {
-                $next = fread($plaintext, self::CHUNK_SIZE);
-                $isLast = ($next === false || $next === '');
+                $next = $this->readExact($plaintext, self::CHUNK_SIZE);
+                $isLast = ($next === '');
                 $tag = $isLast
                     ? SODIUM_CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL
                     : SODIUM_CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE;
@@ -141,8 +147,10 @@ final class EnvelopeStreamCipher
         $sawFinal = false;
 
         while (!feof($envelope)) {
-            $cipherChunk = fread($envelope, $cipherChunkSize);
-            if ($cipherChunk === false || $cipherChunk === '') {
+            // Same reason as the write path: an object-store download short-reads, and a partial
+            // cipher chunk fails authentication indistinguishably from tampering.
+            $cipherChunk = $this->readExact($envelope, $cipherChunkSize);
+            if ($cipherChunk === '') {
                 break;
             }
 
@@ -208,8 +216,10 @@ final class EnvelopeStreamCipher
         $sawFinal = false;
 
         while (!feof($envelope)) {
-            $cipherChunk = fread($envelope, $cipherChunkSize);
-            if ($cipherChunk === false || $cipherChunk === '') {
+            // Same reason as the write path: an object-store download short-reads, and a partial
+            // cipher chunk fails authentication indistinguishably from tampering.
+            $cipherChunk = $this->readExact($envelope, $cipherChunkSize);
+            if ($cipherChunk === '') {
                 break;
             }
 

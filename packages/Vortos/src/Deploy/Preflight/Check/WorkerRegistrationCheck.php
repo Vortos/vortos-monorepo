@@ -34,9 +34,9 @@ use Vortos\Docker\Worker\WorkerProcessRegistry;
  * Coverage, not per-file completeness. Workers are placed across containers deliberately: the
  * scheduler daemon must run on exactly ONE node, so requiring every registered worker in the worker
  * color's config would demand a second scheduler and fail a correct deployment. Images that supervise
- * workers in more than one container list the other configs in VORTOS_WORKER_SUPERVISOR_CONFIGS
- * (comma-separated, paths as they exist inside the image); a worker satisfies this check by appearing
- * in any of them.
+ * workers in more than one container declare the other configs as
+ * RuntimeServiceSpec::siblingSupervisorConfigs in config/deploy.php; a worker satisfies this check by
+ * appearing in any of them.
  *
  * Scope guards (Pass/Skip, never a false Fail):
  *   - no worker registry available (vortos-docker not installed) → Skip
@@ -107,7 +107,10 @@ final class WorkerRegistrationCheck implements PreflightCheckInterface
             );
         }
 
-        $paths = array_values(array_unique(array_merge([$configPath], $this->additionalConfigPaths())));
+        $paths = array_values(array_unique(array_merge(
+            [$configPath],
+            $context->definition->runtimeService->siblingSupervisorConfigs,
+        )));
 
         $configs = [];
         foreach ($paths as $path) {
@@ -157,7 +160,7 @@ final class WorkerRegistrationCheck implements PreflightCheckInterface
                 'Regenerate and commit the config: php bin/console vortos:worker:install --path=<repo path to the '
                 . 'config that should own them>. Add vortos:worker:install --check to CI so the next omission fails '
                 . 'the build instead of the deploy. If the worker belongs to another container, list that '
-                . 'container config in VORTOS_WORKER_SUPERVISOR_CONFIGS.',
+                . 'container config as a siblingSupervisorConfigs entry in config/deploy.php.',
             );
         }
 
@@ -170,22 +173,6 @@ final class WorkerRegistrationCheck implements PreflightCheckInterface
                 implode(', ', array_keys($configs)),
             ),
         );
-    }
-
-    /**
-     * Supervisor configs for containers other than the worker color, as they exist inside the image.
-     *
-     * @return list<string>
-     */
-    private function additionalConfigPaths(): array
-    {
-        $raw = trim((string) ($_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] ?? ''));
-
-        if ($raw === '') {
-            return [];
-        }
-
-        return array_values(array_filter(array_map('trim', explode(',', $raw))));
     }
 
     /**

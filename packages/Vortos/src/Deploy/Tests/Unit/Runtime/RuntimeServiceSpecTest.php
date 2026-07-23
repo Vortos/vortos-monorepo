@@ -76,7 +76,30 @@ final class RuntimeServiceSpecTest extends TestCase
                 'retries' => 20,
                 'start_period' => '10s',
             ],
+            // Single-container default: no sibling supervisor configs to consider.
+            'sibling_supervisor_configs' => [],
         ], $spec->toArray());
+    }
+
+    /**
+     * Workers are split across containers on purpose, so the doctor needs to know which other
+     * supervisor configs exist to tell "placed elsewhere" from "placed nowhere". Image layout, so it
+     * is declared config — never an env var, never a secret.
+     */
+    public function test_sibling_supervisor_configs_round_trip(): void
+    {
+        $spec = new RuntimeServiceSpec(siblingSupervisorConfigs: ['/etc/supervisord.scheduler.conf']);
+
+        $this->assertSame(['/etc/supervisord.scheduler.conf'], $spec->siblingSupervisorConfigs);
+        $this->assertSame(['/etc/supervisord.scheduler.conf'], $spec->toArray()['sibling_supervisor_configs']);
+    }
+
+    public function test_rejects_relative_sibling_supervisor_config(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('absolute paths inside the image');
+
+        new RuntimeServiceSpec(siblingSupervisorConfigs: ['docker/backup/supervisord.scheduler.conf']);
     }
 
     public function test_rejects_empty_command(): void

@@ -28,6 +28,8 @@ use Vortos\Release\Schema\SchemaFingerprint;
  */
 final class WorkerRegistrationCheckTest extends TestCase
 {
+    private const SIBLING_CONFIG = '/etc/supervisord.scheduler.conf';
+
     public function test_registered_worker_missing_a_program_fails_closed(): void
     {
         $finding = $this->check(
@@ -97,49 +99,29 @@ final class WorkerRegistrationCheckTest extends TestCase
      */
     public function test_worker_placed_in_a_sibling_container_config_passes(): void
     {
-        $previous = $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] ?? null;
-        $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] = '/etc/supervisord.scheduler.conf';
+        $check = new WorkerRegistrationCheck(
+            $this->registry('alerts-drain', 'scheduler-daemon'),
+            static fn (string $p): ?string => $p === self::SIBLING_CONFIG
+                ? "[program:scheduler-daemon]\ncommand=x\n"
+                : "[program:alerts-drain]\ncommand=y\n",
+        );
 
-        try {
-            $check = new WorkerRegistrationCheck(
-                $this->registry('alerts-drain', 'scheduler-daemon'),
-                static fn (string $p): ?string => $p === '/etc/supervisord.scheduler.conf'
-                    ? "[program:scheduler-daemon]\ncommand=x\n"
-                    : "[program:alerts-drain]\ncommand=y\n",
-            );
+        $finding = $check->check($this->context(siblingConfigs: [self::SIBLING_CONFIG]));
 
-            self::assertSame(PreflightStatus::Pass, $check->check($this->context())->status);
-        } finally {
-            if ($previous === null) {
-                unset($_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS']);
-            } else {
-                $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] = $previous;
-            }
-        }
+        self::assertSame(PreflightStatus::Pass, $finding->status);
     }
 
     public function test_worker_in_no_config_at_all_still_fails(): void
     {
-        $previous = $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] ?? null;
-        $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] = '/etc/supervisord.scheduler.conf';
+        $check = new WorkerRegistrationCheck(
+            $this->registry('alerts-drain', 'scheduler-daemon'),
+            static fn (string $p): ?string => "[program:scheduler-daemon]\ncommand=x\n",
+        );
 
-        try {
-            $check = new WorkerRegistrationCheck(
-                $this->registry('alerts-drain', 'scheduler-daemon'),
-                static fn (string $p): ?string => "[program:scheduler-daemon]\ncommand=x\n",
-            );
+        $finding = $check->check($this->context(siblingConfigs: [self::SIBLING_CONFIG]));
 
-            $finding = $check->check($this->context());
-
-            self::assertSame(PreflightStatus::Fail, $finding->status);
-            self::assertStringContainsString('alerts-drain', $finding->detail);
-        } finally {
-            if ($previous === null) {
-                unset($_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS']);
-            } else {
-                $_ENV['VORTOS_WORKER_SUPERVISOR_CONFIGS'] = $previous;
-            }
-        }
+        self::assertSame(PreflightStatus::Fail, $finding->status);
+        self::assertStringContainsString('alerts-drain', $finding->detail);
     }
 
     public function test_non_supervisord_worker_command_is_skipped(): void
@@ -188,8 +170,11 @@ final class WorkerRegistrationCheckTest extends TestCase
         return $registry;
     }
 
-    /** @param list<string>|null $workerCommand */
-    private function context(?array $workerCommand = null): PreflightContext
+    /**
+     * @param list<string>|null $workerCommand
+     * @param list<string>      $siblingConfigs
+     */
+    private function context(?array $workerCommand = null, array $siblingConfigs = []): PreflightContext
     {
         $definition = new DeploymentDefinition(
             host: 'ssh-compose',
@@ -205,6 +190,7 @@ final class WorkerRegistrationCheckTest extends TestCase
             definitionHash: 'test-hash',
             runtimeService: new RuntimeServiceSpec(
                 workerCommand: $workerCommand ?? RuntimeServiceSpec::DEFAULT_WORKER_COMMAND,
+                siblingSupervisorConfigs: $siblingConfigs,
             ),
             workerTopology: WorkerTopology::RideColor,
         );

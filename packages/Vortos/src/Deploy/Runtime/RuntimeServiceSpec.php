@@ -40,6 +40,14 @@ final readonly class RuntimeServiceSpec
      * @param ?AppHealthcheck       $appHealthcheck override for the app service readiness healthcheck; null ⇒
      *                    resolved by {@see resolvedAppHealthcheck()} to an HTTP /health/ready probe on the
      *                    container port. The worker gates on this via depends_on (see {@see \Vortos\Deploy\Compose\ComposeFile}).
+     * @param list<string> $siblingSupervisorConfigs supervisor configs for containers OTHER than the worker
+     *                    color (a scheduler sidecar, a backup node), as absolute paths inside the image.
+     *                    Declared so the doctor can tell "this worker is placed on another node" from
+     *                    "this worker is placed nowhere" — workers are split across containers on purpose
+     *                    (a scheduler daemon must run on exactly one node), and without this the worker
+     *                    registration gate would demand every registered worker on the worker color and
+     *                    fail a correct deployment. Purely a statement about the image's layout: it is
+     *                    committed config, never a secret, and never an env var.
      */
     public function __construct(
         public array $command = self::DEFAULT_COMMAND,
@@ -51,11 +59,23 @@ final readonly class RuntimeServiceSpec
         public array $fileSecrets = [],
         public ?WorkerHealthcheck $workerHealthcheck = null,
         public ?AppHealthcheck $appHealthcheck = null,
+        public array $siblingSupervisorConfigs = [],
     ) {
         $this->assertStringList('command', $command, allowEmpty: false);
         $this->assertStringList('workerCommand', $workerCommand, allowEmpty: false);
         $this->assertStringList('envFiles', $envFiles, allowEmpty: true);
         $this->assertStringList('networks', $networks, allowEmpty: false);
+        $this->assertStringList('siblingSupervisorConfigs', $siblingSupervisorConfigs, allowEmpty: true);
+
+        foreach ($siblingSupervisorConfigs as $config) {
+            if (!str_starts_with($config, '/')) {
+                throw new \InvalidArgumentException(sprintf(
+                    'RuntimeServiceSpec.siblingSupervisorConfigs entries must be absolute paths inside the '
+                    . 'image (the doctor reads them from the one-shot, not from a checkout); got "%s".',
+                    $config,
+                ));
+            }
+        }
 
         if ($containerPort < 1 || $containerPort > 65535) {
             throw new \InvalidArgumentException(sprintf(
@@ -145,6 +165,7 @@ final readonly class RuntimeServiceSpec
             'file_secrets' => array_map(static fn (FileSecret $s): array => $s->toArray(), $this->fileSecrets),
             'worker_healthcheck' => $this->resolvedWorkerHealthcheck()->toArray(),
             'app_healthcheck' => $this->resolvedAppHealthcheck()->toArray(),
+            'sibling_supervisor_configs' => $this->siblingSupervisorConfigs,
         ];
     }
 

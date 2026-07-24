@@ -34,6 +34,18 @@ final readonly class PayloadWithOptional
     ) {}
 }
 
+// Required-but-nullable: no default, so the constructor demands the argument,
+// but the type permits null. Mirrors real domain events like PaymentCompleted
+// ($transactionId) and InvitationSent ($personalMessage).
+final readonly class PayloadWithRequiredNullable
+{
+    public function __construct(
+        public string $id,
+        public ?string $note,
+        public ?PayloadWithScalars $inner,
+    ) {}
+}
+
 final class JsonSerializerTest extends TestCase
 {
     private JsonSerializer $serializer;
@@ -107,6 +119,36 @@ final class JsonSerializerTest extends TestCase
     {
         $this->expectException(DeserializationException::class);
         $this->serializer->deserialize('{"count":1}', PayloadWithScalars::class);
+    }
+
+    public function test_deserialize_accepts_null_for_required_nullable_param(): void
+    {
+        // Regression: a present key with a null value is a supplied argument.
+        // isset() treated `"note":null` as absent and threw for the required
+        // (no-default) nullable param, failing the whole event.
+        $json = json_encode(['id' => 'x', 'note' => null, 'inner' => null]);
+        $result = $this->serializer->deserialize($json, PayloadWithRequiredNullable::class);
+
+        $this->assertSame('x', $result->id);
+        $this->assertNull($result->note);
+        $this->assertNull($result->inner);
+    }
+
+    public function test_deserialize_preserves_non_null_nullable_values(): void
+    {
+        $json = json_encode(['id' => 'x', 'note' => 'hello', 'inner' => ['name' => 'n', 'count' => 3]]);
+        $result = $this->serializer->deserialize($json, PayloadWithRequiredNullable::class);
+
+        $this->assertSame('hello', $result->note);
+        $this->assertInstanceOf(PayloadWithScalars::class, $result->inner);
+        $this->assertSame('n', $result->inner->name);
+    }
+
+    public function test_deserialize_still_throws_when_required_key_absent(): void
+    {
+        // A genuinely absent key (not just null) must still fail for a no-default param.
+        $this->expectException(DeserializationException::class);
+        $this->serializer->deserialize(json_encode(['id' => 'x', 'note' => null]), PayloadWithRequiredNullable::class);
     }
 
     public function test_serialize_nested_object_roundtrip(): void

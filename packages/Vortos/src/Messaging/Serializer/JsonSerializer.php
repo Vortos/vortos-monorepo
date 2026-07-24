@@ -88,23 +88,29 @@ final class JsonSerializer implements SerializerInterface
             foreach ($params as $param) {
                 $paramName = $param->getName();
 
-                if (isset($data[$paramName])) {
+                // array_key_exists (not isset): a present key with a null value is a
+                // supplied argument, not a missing one. isset() treated `"x":null` as
+                // absent, so a required-but-nullable param (`?string $x` with no default)
+                // wrongly threw "Missing required parameter" and the whole event failed
+                // to deserialize — silently dropping every consumer downstream of it.
+                if (array_key_exists($paramName, $data)) {
+                    $value     = $data[$paramName];
                     $paramType = $param->getType();
 
-                    if ($paramType instanceof ReflectionNamedType && !$paramType->isBuiltin()) {
+                    if ($value !== null && $paramType instanceof ReflectionNamedType && !$paramType->isBuiltin()) {
                         $nestedClass = $paramType->getName();
 
-                        if (is_array($data[$paramName])) {
-                            $args[] = $this->deserialize(json_encode($data[$paramName]), $nestedClass, $depth + 1);
+                        if (is_array($value)) {
+                            $args[] = $this->deserialize(json_encode($value), $nestedClass, $depth + 1);
                         } elseif (method_exists($nestedClass, 'fromString')) {
-                            $args[] = $nestedClass::fromString($data[$paramName]);
+                            $args[] = $nestedClass::fromString($value);
                         } elseif (method_exists($nestedClass, 'fromRfc4122')) {
-                            $args[] = $nestedClass::fromRfc4122($data[$paramName]);
+                            $args[] = $nestedClass::fromRfc4122($value);
                         } else {
-                            $args[] = new $nestedClass($data[$paramName]);
+                            $args[] = new $nestedClass($value);
                         }
                     } else {
-                        $args[] = $data[$paramName];
+                        $args[] = $value;
                     }
                 } elseif ($param->isOptional()) {
                     $args[] = $param->getDefaultValue();

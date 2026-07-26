@@ -8,7 +8,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Auth\RateLimit\Attribute\RateLimit;
 use Vortos\Auth\RateLimit\Contract\RateLimitPolicyInterface;
-use Vortos\Auth\RateLimit\Middleware\RateLimitMiddleware;
+use Vortos\Auth\RateLimit\RateLimitService;
 use Vortos\Auth\RateLimit\RateLimitScope;
 
 /**
@@ -22,7 +22,7 @@ final class RateLimitCompilerPass implements CompilerPassInterface
 {
     public function process(ContainerBuilder $container): void
     {
-        if (!$container->hasDefinition(RateLimitMiddleware::class)) return;
+        if (!$container->hasDefinition(RateLimitService::class)) return;
 
         $routeMap = [];
         $policyServiceIds = [];
@@ -80,7 +80,8 @@ final class RateLimitCompilerPass implements CompilerPassInterface
             $policyRefs[$class] = new Reference($serviceId);
         }
 
-        $container->getDefinition(RateLimitMiddleware::class)
+        // The service holds the map; the two pipeline middlewares delegate to it.
+        $container->getDefinition(RateLimitService::class)
             ->setArgument('$routeMap', $routeMap)
             ->setArgument('$policies', $policyRefs);
 

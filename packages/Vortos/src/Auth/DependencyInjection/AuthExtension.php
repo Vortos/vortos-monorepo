@@ -32,7 +32,9 @@ use Vortos\Auth\Quota\Resolver\GlobalQuotaResolver;
 use Vortos\Auth\Quota\Resolver\UserQuotaResolver;
 use Vortos\Auth\Quota\Storage\RedisQuotaStore;
 use Vortos\Auth\RateLimit\CircuitBreaker\RateLimitCircuitBreaker;
-use Vortos\Auth\RateLimit\Middleware\RateLimitMiddleware;
+use Vortos\Auth\RateLimit\Middleware\IpGlobalRateLimitMiddleware;
+use Vortos\Auth\RateLimit\Middleware\UserRateLimitMiddleware;
+use Vortos\Auth\RateLimit\RateLimitService;
 use Vortos\Auth\RateLimit\RateLimitFailureConfig;
 use Vortos\Auth\RateLimit\RateLimitFailureMode;
 use Vortos\Auth\RateLimit\Storage\RedisRateLimitStore;
@@ -350,23 +352,48 @@ final class AuthExtension extends Extension
                 ])
                 ->setShared(true)->setPublic(true);
 
-            // Rate limit middleware
-            $container->register(RateLimitMiddleware::class, RateLimitMiddleware::class)
+            // Rate limiting.
+            //
+            // Enforcement lives in RateLimitService and is driven by two pipeline
+            // middlewares, because the HTTP kernel runs a Vortos\Http\Pipeline and does
+            // not dispatch Symfony kernel events. A rate limiter registered as a
+            // kernel.event_subscriber compiles, wires, and never executes — see the
+            // RegisterMiddlewarePass, which collects Vortos\Http\Contract\MiddlewareInterface
+            // implementations and nothing else.
+            //
+            // The split into two middlewares is deliberate, not cosmetic: IP and Global
+            // scopes must be enforced before authentication (an unauthenticated flood is
+            // exactly what they exist to stop), while the User scope can only be enforced
+            // once identity is resolved. One middleware cannot sit at both points in the
+            // chain. Their orders (RATE_LIMIT_IP, RATE_LIMIT_USER) place them accordingly.
+            $container->register(RateLimitService::class, RateLimitService::class)
                 ->setArguments([
                     new Reference(CurrentUserProvider::class),
                     new Reference(ResilientRateLimitStore::class),
                     [], // routeMap — filled by RateLimitCompilerPass
                     [], // policies — filled by RateLimitCompilerPass
                     $rateLimitFailureConfig,
-                    $resolved['rate_limit_headers'],
                     $resolved['problem_details'],
                     new Reference(IpResolverInterface::class),
                     new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                     new Reference('vortos.logger.security', ContainerInterface::NULL_ON_INVALID_REFERENCE),
                     new Reference(TracingInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 ])
-                ->setShared(true)->setPublic(true)
-                ->addTag('kernel.event_subscriber');
+                ->setShared(true)->setPublic(true);
+
+            $container->register(IpGlobalRateLimitMiddleware::class, IpGlobalRateLimitMiddleware::class)
+                ->setArguments([
+                    new Reference(RateLimitService::class),
+                    $resolved['rate_limit_headers'],
+                ])
+                ->setShared(true)->setPublic(true);
+
+            $container->register(UserRateLimitMiddleware::class, UserRateLimitMiddleware::class)
+                ->setArguments([
+                    new Reference(RateLimitService::class),
+                    $resolved['rate_limit_headers'],
+                ])
+                ->setShared(true)->setPublic(true);
 
             // Quota middleware
             $container->register(QuotaMiddleware::class, QuotaMiddleware::class)

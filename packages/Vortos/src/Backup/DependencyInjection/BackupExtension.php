@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\DependencyInjection;
 
+use Psr\Clock\ClockInterface;
+use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Backup\Observability\BackupFreshnessCollector;
+use Vortos\Metrics\Contract\MetricsCollectorInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -221,6 +226,8 @@ final class BackupExtension extends Extension
             ->setArgument('$table', $catalogTable)
             ->setPublic(false);
         $container->setAlias(BackupCatalogReadModelInterface::class, DbalBackupCatalogReadModel::class)->setPublic(false);
+
+        $this->registerFreshnessCollector($container);
 
         // ── Event seam (Block-17-ready) ──
         $container->register(LoggingBackupEventSink::class, LoggingBackupEventSink::class)
@@ -647,4 +654,27 @@ final class BackupExtension extends Extension
 
         return filter_var($value, \FILTER_VALIDATE_BOOL);
     }
+
+    /**
+     * Backup freshness gauges. Registered only when vortos-metrics is installed; tagged as an
+     * ordinary metrics collector so whatever already drives the operational collectors — the
+     * Prometheus scrape, or the framework's scheduled collect under a push adapter — refreshes it
+     * too. No driver of its own, and nothing for an app to remember to wire.
+     */
+    private function registerFreshnessCollector(ContainerBuilder $container): void
+    {
+        if (!interface_exists(MetricsCollectorInterface::class)) {
+            return;
+        }
+
+        $container->register(BackupFreshnessCollector::class, BackupFreshnessCollector::class)
+            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$clock', new Reference(ClockInterface::class))
+            ->setArgument('$engines', [DatabaseEngine::Postgres, DatabaseEngine::Mongo])
+            ->setArgument('$environment', (string) ($_ENV['APP_ENV'] ?? 'prod'))
+            ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('vortos.metrics_collector')
+            ->setPublic(false);
+    }
+
 }

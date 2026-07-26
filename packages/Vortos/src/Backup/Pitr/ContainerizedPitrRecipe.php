@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\Pitr;
 
+use Vortos\Backup\Domain\BackupKind;
+
 /**
  * Emits a containerized point-in-time-recovery (WAL shipping) recipe.
  *
@@ -45,7 +47,7 @@ final class ContainerizedPitrRecipe
             'docker/backup/wal-shipper.sh' => $this->walShipper($vol, $environment, $shipIntervalSeconds),
             'docker/backup/base-backup.sh' => $this->baseBackup($environment, $baseBackupIntervalSeconds),
             'docker-compose.pitr.yaml' => $this->composeFragment($vol, $backendService, $postgresService),
-            'PITR_RECIPE.md' => $this->readme($vol, $postgresService, $backendService),
+            'PITR_RECIPE.md' => $this->readme($vol, $postgresService, $backendService, $environment),
         ];
     }
 
@@ -92,6 +94,13 @@ final class ContainerizedPitrRecipe
 
     private function baseBackup(string $env, int $interval): string
     {
+        // The kind comes from BackupKind, never a literal. The emitted script used `--kind=base`,
+        // which is not a member of that enum — backup:run rejected it on every single iteration.
+        // Paired with the `|| true` below, that produced a base-backup worker which looked alive,
+        // logged nothing anyone read, and had never once written a base backup. Without base
+        // backups the shipped WAL segments are unrestorable, so PITR was decorative end to end.
+        $kind = BackupKind::PhysicalBase->value;
+
         return <<<SH
         #!/bin/sh
         # Vortos scheduled base backup — runs in the backend/app image.
@@ -100,7 +109,12 @@ final class ContainerizedPitrRecipe
         INTERVAL="$interval"
 
         while true; do
-            php bin/console vortos:backup:run --env="\$ENV" --kind=base || true
+            # `|| true` keeps the supervision loop alive across a transient failure, but the
+            # failure must not be silent: without this echo a permanently broken base backup is
+            # indistinguishable from a healthy one. Backup freshness alerting is what turns this
+            # line into a page.
+            php bin/console vortos:backup:run --env="\$ENV" --kind=$kind \
+                || echo "vortos: base backup FAILED (env=\$ENV kind=$kind) — PITR is not restorable until this succeeds" >&2
             sleep "\$INTERVAL"
         done
 
@@ -140,7 +154,7 @@ final class ContainerizedPitrRecipe
         YAML;
     }
 
-    private function readme(string $vol, string $postgres, string $backend): string
+    private function readme(string $vol, string $postgres, string $backend, string $env): string
     {
         return <<<MD
         # Containerized PITR recipe
@@ -156,6 +170,29 @@ final class ContainerizedPitrRecipe
         3. Recreate the stack; confirm segments appear in `$vol` and are shipped, then removed.
 
         The archive_command never invokes PHP, so it works with any stock Postgres image.
+
+        ## The environment name must match your catalog — check this before trusting PITR
+
+        These scripts were generated with `--env=$env`. **That string is a namespace in the backup
+        catalog, not a label.** WAL segments and base backups shipped under `$env` are only visible
+        to a restore that asks for `$env`.
+
+        If your scheduled logical backups run under a different name — `production` while these say
+        `prod` is the easy mistake, since they are generated independently — you get two disjoint
+        catalogs. Every component reports success, `backup:list` looks healthy for the environment
+        you happen to query, and the mismatch surfaces only during a restore, when the base backup
+        the WAL needs is filed under a name nobody is looking in.
+
+        Verify with one command before you rely on any of this:
+
+        ```
+        php bin/console backup:list --engine=postgres --env=$env
+        ```
+
+        It must show BOTH `physical_base` and `wal_segment` entries alongside your `logical_full`
+        ones. If it shows only logical backups, the environment names do not agree — regenerate
+        with the correct `--env` rather than editing the scripts by hand, so the next regeneration
+        does not undo the fix.
         MD;
     }
 }

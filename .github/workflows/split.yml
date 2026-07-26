@@ -201,6 +201,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The meta-package ships the source tree that the container globs for service
+      # discovery, while PSR-4 loads each class from its own split package. A floating
+      # `^1.0` therefore lets discovery and implementation resolve to different releases
+      # — an install was seen with 43 packages at alpha-269 and framework at alpha-270.
+      # Pinning at release time makes them the same commit by construction.
+      - name: Pin meta-package requires to this release
+        if: matrix.package.split_repository == 'vortos-framework' && github.ref_type == 'tag'
+        run: php tools/ci/pin-meta-requires.php "${{ github.ref_name }}"
+
       - uses: danharrin/monorepo-split-github-action@14e42e2437f674b8987c1f50ca3689116aea1893  # v2.4.5
         env:
           GITHUB_TOKEN: ${{ secrets.MONOREPO_SPLIT_TOKEN }}

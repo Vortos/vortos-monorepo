@@ -20,6 +20,9 @@
     </php>
 
     <testsuites>
+        <testsuite name="Tools">
+            <directory>tools/ci/Tests</directory>
+        </testsuite>
         <testsuite name="Search">
             <directory>packages/Vortos/src/Search/Tests</directory>
         </testsuite>

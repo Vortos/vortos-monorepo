@@ -12,6 +12,12 @@ return static function (ContainerConfigurator $configurator): void {
         ->autowire()
         ->autoconfigure();
 
+    // ../src/ is this package's own copy of the framework tree. It looks redundant next
+    // to the split packages and it is NOT: this glob is how the container discovers which
+    // Vortos services exist, while PSR-4 loads each class from its own vortos-* package.
+    // Deleting the copy unregisters every framework service; letting the two resolve to
+    // different releases registers classes that cannot be loaded, or ships classes that are
+    // never registered. tools/ci/pin-meta-requires.php pins them to one release at split time.
     $services->load('Vortos\\', '../src/')
         ->exclude([
             '../src/Container/',

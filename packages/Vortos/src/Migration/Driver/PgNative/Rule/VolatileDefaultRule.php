@@ -56,6 +56,15 @@ final class VolatileDefaultRule implements SafetyRuleInterface
         if (preg_match('/\bDEFAULT\s+(.+?)(?:\s*(?:NOT\s+NULL|NULL|,|;|\)|$))/i', $statement->raw, $defaultMatch)) {
             $defaultExpr = trim($defaultMatch[1]);
 
+            // DEFAULT NULL is not a default at all — it is the absence of one, spelled out.
+            // Postgres stores no default for it and never rewrites the table, on every
+            // version including pre-11. Flagging it sent people to #[AllowFullTableRewrite]
+            // to silence a rewrite that could not happen, which teaches the habit of opting
+            // out of this rule for the cases where it is real.
+            if (strcasecmp($defaultExpr, 'NULL') === 0) {
+                return;
+            }
+
             if ($this->isVolatile($defaultExpr)) {
                 yield new SafetyDiagnostic(
                     ruleId: $this->id(),

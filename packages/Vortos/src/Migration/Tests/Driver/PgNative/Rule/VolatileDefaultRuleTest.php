@@ -153,4 +153,52 @@ final class VolatileDefaultRuleTest extends TestCase
     {
         return new MigrationArtifact('TestMigration', null, MigrationPhase::Expand, $sql, [], false);
     }
+
+    /**
+     * DEFAULT NULL is the absence of a default, spelled out. Postgres stores no default
+     * and never rewrites the table, so flagging it pushed authors toward
+     * #[AllowFullTableRewrite] for a rewrite that cannot happen — and toward opting out of
+     * this rule by habit, including where it is real.
+     */
+    public function test_ignores_default_null_on_a_hot_table(): void
+    {
+        $sql = 'ALTER TABLE users ADD COLUMN external_ticket_id VARCHAR(64) DEFAULT NULL';
+        $target = new TargetSchemaSnapshot([
+            'users' => new TableStat(estimatedRows: 500_000, totalBytes: 1_073_741_824, hasData: true),
+        ]);
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact([$sql]),
+            $target,
+            new ParsedStatement($sql, 0),
+        ));
+
+        $this->assertSame([], $diags);
+    }
+
+    public function test_ignores_default_null_when_no_snapshot_is_available(): void
+    {
+        $sql = 'ALTER TABLE users ADD COLUMN closed_at TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL';
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact([$sql]),
+            null,
+            new ParsedStatement($sql, 0),
+        ));
+
+        $this->assertSame([], $diags);
+    }
+
+    public function test_still_flags_a_real_constant_default_beside_a_null_one(): void
+    {
+        $sql = "ALTER TABLE users ADD COLUMN status VARCHAR(20) DEFAULT 'active'";
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact([$sql]),
+            null,
+            new ParsedStatement($sql, 0),
+        ));
+
+        $this->assertCount(1, $diags);
+    }
 }

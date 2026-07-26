@@ -68,6 +68,12 @@ use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Messaging\Runtime\ConsumerLagReporter;
+use Vortos\Messaging\Integration\Alerts\DbalQueueBacklogProvider;
+use Vortos\Alerts\Integration\Messaging\QueueBacklogProviderInterface;
+use Vortos\Alerts\DependencyInjection\AlertsExtension;
+use Doctrine\DBAL\Connection;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Symfony\Component\Messenger\MessageBus;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
@@ -124,6 +130,7 @@ final class MessagingExtension extends Extension
         $outboxConfig['table'] = $prefix . $outboxConfig['table'];
         $this->registerOutbox($container, $outboxConfig);
         $this->registerDeadLetterWriter($container, $prefix . $resolvedConfig['dlq']['table']);
+        $this->registerQueueBacklogProvider($container, $outboxConfig['table'], $prefix . $resolvedConfig['dlq']['table']);
         $this->registerInMemoryDriver($container);
         $this->registerKafkaDrivers($container);
         $this->registerEventBus($container);
@@ -457,8 +464,22 @@ final class MessagingExtension extends Extension
             ->setAutowired(true)
             ->setPublic(false);
 
+        // Consumer lag/liveness metric semantics. Degrades to a no-op when the metrics package is
+        // absent (null telemetry), so the consumer path is unchanged for apps without metrics.
+        $container->register(ConsumerLagReporter::class, ConsumerLagReporter::class)
+            ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setShared(true)
+            ->setPublic(false);
+
         $container->register(KafkaConsumerFactory::class, KafkaConsumerFactory::class)
             ->setAutowired(true)
+            // Consumer lag/liveness sampling. Both degrade to null when the metrics package is
+            // absent, in which case KafkaConsumer skips sampling entirely and the poll loop is
+            // byte-for-byte what it was before. The flusher is required alongside the telemetry:
+            // ConsumerRunner only drains from its per-message callback, so an idle consumer would
+            // otherwise never export its lag sample and would read as dead.
+            ->setArgument('$lagReporter', new Reference(ConsumerLagReporter::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$metricsFlusher', new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
     }
 
@@ -476,6 +497,26 @@ final class MessagingExtension extends Extension
         $container->register(InMemoryConsumer::class, InMemoryConsumer::class)
             ->setAutowired(true)
             ->setAutoconfigured(true)
+            ->setPublic(false);
+    }
+
+    /**
+     * Supplies outbox/DLQ backlog readings to vortos-alerts, when that package is installed.
+     *
+     * Guarded on interface existence so vortos-messaging never hard-depends on vortos-alerts, and
+     * on a DBAL connection being available — without one there is nothing to count.
+     */
+    private function registerQueueBacklogProvider(ContainerBuilder $container, string $outboxTable, string $dlqTable): void
+    {
+        if (!interface_exists(QueueBacklogProviderInterface::class) || !$container->has(Connection::class)) {
+            return;
+        }
+
+        $container->register(DbalQueueBacklogProvider::class, DbalQueueBacklogProvider::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$outboxTable', $outboxTable)
+            ->setArgument('$deadLetterTable', $dlqTable)
+            ->addTag(AlertsExtension::BACKLOG_PROVIDER_TAG)
             ->setPublic(false);
     }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Alerts\Integration\Health;
 
+use Vortos\Alerts\Integration\AlertSourceInterface;
 use DateTimeImmutable;
 use Vortos\Alerts\AlertDispatcherInterface;
 use Vortos\Alerts\DispatchResult;
@@ -21,7 +22,7 @@ use Vortos\Health\Probe\HealthProbeRegistry;
  * a rule is configured); this source only fires on a definitive expiry measurement.
  * Registered only when `vortos-health` is installed (class-existence guarded).
  */
-final class CertExpiryAlertSource
+final class CertExpiryAlertSource implements AlertSourceInterface
 {
     public function __construct(
         private readonly HealthProbeRegistry $probes,

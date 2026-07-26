@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Vortos\Messaging\Driver\Kafka\Factory;
 
 use Vortos\Messaging\Driver\Kafka\Runtime\KafkaConsumer;
+use Vortos\Messaging\Driver\Kafka\Runtime\RdKafkaWatermarkReader;
+use Vortos\Metrics\Contract\FlushableMetricsInterface;
 use Vortos\Messaging\Registry\ConsumerRegistry;
 use Vortos\Messaging\Registry\TransportRegistry;
+use Vortos\Messaging\Runtime\ConsumerLagReporter;
 use Vortos\Tracing\Contract\TracingInterface;
 use Psr\Log\LoggerInterface;
 
@@ -25,7 +28,9 @@ final class KafkaConsumerFactory
         private ConsumerRegistry $consumerRegistry,
         private TransportRegistry $transportRegistry,
         private LoggerInterface $logger,
-        private ?TracingInterface $tracer = null
+        private ?TracingInterface $tracer = null,
+        private ?ConsumerLagReporter $lagReporter = null,
+        private ?FlushableMetricsInterface $metricsFlusher = null
     ) {}
 
     public function create(string $consumerName): KafkaConsumer
@@ -120,11 +125,15 @@ final class KafkaConsumerFactory
         $topics = [$transportConfig['subscription']['topic']];
 
         return new KafkaConsumer(
-            $rdKafkaConsumer, 
-            $topics, 
-            $asyncCommit, 
+            $rdKafkaConsumer,
+            $topics,
+            $asyncCommit,
             $this->logger,
-            $this->tracer
+            $this->tracer,
+            $this->lagReporter,
+            (string) $consumerConfig['groupId'],
+            $this->metricsFlusher,
+            new RdKafkaWatermarkReader($rdKafkaConsumer),
         );
 
     }

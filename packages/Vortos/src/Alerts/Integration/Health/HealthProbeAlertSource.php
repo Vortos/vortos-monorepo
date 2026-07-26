@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Alerts\Integration\Health;
 
+use Vortos\Alerts\Integration\AlertSourceInterface;
 use DateTimeImmutable;
 use Vortos\Alerts\AlertDispatcherInterface;
 use Vortos\Alerts\DispatchResult;
@@ -19,7 +20,7 @@ use Vortos\Health\Probe\ProbeStatus;
  * `health_probe_failing` rules. A rule names the probe via its `probe` label.
  * Registered only when `vortos-health` is installed (class-existence guarded).
  */
-final class HealthProbeAlertSource
+final class HealthProbeAlertSource implements AlertSourceInterface
 {
     public function __construct(
         private readonly HealthProbeRegistry $probes,

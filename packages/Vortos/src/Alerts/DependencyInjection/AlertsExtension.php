@@ -4,11 +4,24 @@ declare(strict_types=1);
 
 namespace Vortos\Alerts\DependencyInjection;
 
+use Psr\Clock\ClockInterface;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
+use Vortos\Alerts\Integration\AlertSourceInterface;
+use Vortos\Alerts\Integration\Messaging\QueueBacklogAlertSource;
+use Vortos\Alerts\Integration\Messaging\QueueBacklogProviderInterface;
+use Vortos\Alerts\Runtime\AlertSourceTicker;
+use Vortos\Alerts\Schedule\EvaluateAlertSourcesCommand;
+use Vortos\Alerts\Schedule\EvaluateAlertSourcesHandler;
+use Vortos\Alerts\Schedule\EvaluateAlertSourcesSchedule;
+use Vortos\Cqrs\Command\CommandBusInterface;
+use Vortos\Scheduler\DependencyInjection\Compiler\StaticSchedulePass;
 use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
@@ -72,6 +85,16 @@ use Vortos\Observability\Slo\SloRegistry;
 
 final class AlertsExtension extends Extension
 {
+    /**
+     * Tag for {@see \Vortos\Alerts\Integration\AlertSourceInterface} implementations. Tagged
+     * sources are handed to AlertSourceTicker, which the framework schedules — registering a source
+     * without this tag leaves it inert.
+     */
+    public const SOURCE_TAG = 'vortos.alerts.source';
+
+    /** Tag for {@see QueueBacklogProviderInterface} implementations contributed by other packages. */
+    public const BACKLOG_PROVIDER_TAG = 'vortos.alerts.queue_backlog_provider';
+
     public function getAlias(): string
     {
         return 'vortos_alerts';
@@ -91,10 +114,16 @@ final class AlertsExtension extends Extension
         $this->registerBackupIntegration($container);
         $this->registerDeployIntegration($container);
         $this->registerAudit($container);
+        $this->registerQueueBacklogIntegration($container);
+        $this->registerSourceTicker($container);
         $this->registerCommands($container);
 
         $container->registerForAutoconfiguration(NotifierInterface::class)
             ->addTag(CollectNotifiersPass::TAG);
+
+        // Any source an app or another package registers is ticked automatically.
+        $container->registerForAutoconfiguration(AlertSourceInterface::class)
+            ->addTag(self::SOURCE_TAG);
     }
 
     private function registerNotifierSeam(ContainerBuilder $container): void
@@ -349,7 +378,63 @@ final class AlertsExtension extends Extension
             ->setArgument('$evaluator', new Reference(AlertRuleEvaluator::class))
             ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
             ->setArgument('$provider', new Reference(SloBurnRateProviderInterface::class))
+            ->addTag(self::SOURCE_TAG)
             ->setPublic(true);
+    }
+
+    /**
+     * Queue backlog (outbox depth, DLQ depth, oldest stuck message) as an alertable signal.
+     *
+     * The source is always registered; it simply has nothing to evaluate until some package
+     * implements {@see QueueBacklogProviderInterface} — vortos-messaging ships providers for the
+     * outbox and dead-letter tables.
+     */
+    private function registerQueueBacklogIntegration(ContainerBuilder $container): void
+    {
+        $container->register(QueueBacklogAlertSource::class, QueueBacklogAlertSource::class)
+            ->setArgument('$providers', new TaggedIteratorArgument(self::BACKLOG_PROVIDER_TAG))
+            ->setArgument('$rules', new Reference(AlertRuleSet::class))
+            ->setArgument('$evaluator', new Reference(AlertRuleEvaluator::class))
+            ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
+            ->addTag(self::SOURCE_TAG)
+            ->setPublic(true);
+
+        $container->registerForAutoconfiguration(QueueBacklogProviderInterface::class)
+            ->addTag(self::BACKLOG_PROVIDER_TAG);
+    }
+
+    /**
+     * The driver the alerting pipeline was missing: something that actually calls tick().
+     *
+     * The scheduled command is wired only when vortos-scheduler and vortos-cqrs are both installed.
+     * Without them the ticker is still available for an app to drive from its own cron — but
+     * nothing fires by itself, which is the state this whole seam exists to end.
+     */
+    private function registerSourceTicker(ContainerBuilder $container): void
+    {
+        $container->register(AlertSourceTicker::class, AlertSourceTicker::class)
+            ->setArgument('$sources', new TaggedIteratorArgument(self::SOURCE_TAG))
+            ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setShared(true)
+            ->setPublic(true);
+
+        if (!interface_exists(CommandBusInterface::class) || !class_exists(StaticSchedulePass::class)) {
+            return;
+        }
+
+        $container->register(EvaluateAlertSourcesCommand::class, EvaluateAlertSourcesCommand::class)
+            ->setPublic(false);
+
+        $container->register(EvaluateAlertSourcesHandler::class, EvaluateAlertSourcesHandler::class)
+            ->setArgument('$ticker', new Reference(AlertSourceTicker::class))
+            ->setArgument('$clock', new Reference(ClockInterface::class))
+            ->setArgument('$env', (string) ($_ENV['APP_ENV'] ?? 'prod'))
+            ->addTag('vortos.command_handler')
+            ->setPublic(true);
+
+        $container->register(EvaluateAlertSourcesSchedule::class, EvaluateAlertSourcesSchedule::class)
+            ->addTag(StaticSchedulePass::TAG)
+            ->setPublic(false);
     }
 
     private function registerHealthIntegration(ContainerBuilder $container): void
@@ -363,6 +448,7 @@ final class AlertsExtension extends Extension
             ->setArgument('$rules', new Reference(AlertRuleSet::class))
             ->setArgument('$evaluator', new Reference(AlertRuleEvaluator::class))
             ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
+            ->addTag(self::SOURCE_TAG)
             ->setPublic(true);
 
         // Block 18: capacity (disk/RAM/CPU) and cert-expiry probes are ordinary
@@ -373,6 +459,7 @@ final class AlertsExtension extends Extension
             ->setArgument('$rules', new Reference(AlertRuleSet::class))
             ->setArgument('$evaluator', new Reference(AlertRuleEvaluator::class))
             ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
+            ->addTag(self::SOURCE_TAG)
             ->setPublic(true);
 
         $container->register(\Vortos\Alerts\Integration\Health\CertExpiryAlertSource::class, \Vortos\Alerts\Integration\Health\CertExpiryAlertSource::class)
@@ -380,6 +467,7 @@ final class AlertsExtension extends Extension
             ->setArgument('$rules', new Reference(AlertRuleSet::class))
             ->setArgument('$evaluator', new Reference(AlertRuleEvaluator::class))
             ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
+            ->addTag(self::SOURCE_TAG)
             ->setPublic(true);
 
         if (class_exists(\Vortos\Health\Uptime\UptimeMonitorRegistry::class) && $container->has(\Vortos\Health\Uptime\UptimeMonitorRegistry::class)) {
@@ -408,6 +496,7 @@ final class AlertsExtension extends Extension
                 ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
                 ->setArgument('$streaks', new Reference(\Vortos\Alerts\Integration\Health\UptimeUnknownStreakStoreInterface::class))
                 ->setArgument('$blindDetectorThreshold', (int) ($_ENV['ALERTS_UPTIME_BLIND_DETECTOR_THRESHOLD'] ?? 3))
+                ->addTag(self::SOURCE_TAG)
                 ->setPublic(true);
         }
     }

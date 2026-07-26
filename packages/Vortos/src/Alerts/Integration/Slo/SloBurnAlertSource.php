@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Alerts\Integration\Slo;
 
+use Vortos\Alerts\Integration\AlertSourceInterface;
 use DateTimeImmutable;
 use Vortos\Alerts\AlertDispatcherInterface;
 use Vortos\Alerts\DispatchResult;
@@ -17,7 +18,7 @@ use Vortos\Observability\Slo\SloRegistry;
  * applies `slo_burn` rules (§3.7). Registered only when `vortos-observability`'s SLO
  * seam is present (it always is — Alerts requires Observability).
  */
-final class SloBurnAlertSource
+final class SloBurnAlertSource implements AlertSourceInterface
 {
     public function __construct(
         private readonly SloRegistry $sloRegistry,

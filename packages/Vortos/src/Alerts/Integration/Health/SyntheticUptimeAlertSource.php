@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Alerts\Integration\Health;
 
+use Vortos\Alerts\Integration\AlertSourceInterface;
 use DateTimeImmutable;
 use Vortos\Alerts\AlertDispatcherInterface;
 use Vortos\Alerts\DispatchResult;
@@ -27,7 +28,7 @@ use Vortos\Health\Uptime\UptimeMonitorRegistry;
  * meta-alert (§5.4) — the failure mode that defeats most monitoring. Registered
  * only when `vortos-health` is installed (class-existence guarded).
  */
-final class SyntheticUptimeAlertSource
+final class SyntheticUptimeAlertSource implements AlertSourceInterface
 {
     public function __construct(
         private readonly UptimeMonitorRegistry $monitors,

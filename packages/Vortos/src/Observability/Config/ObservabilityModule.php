@@ -8,10 +8,12 @@ enum ObservabilityModule: string
 {
     case Auth = 'auth';
     case Authorization = 'authorization';
+    case Backup = 'backup';
     case Cache = 'cache';
     case Config = 'config';
     case Cqrs = 'cqrs';
     case Debug = 'debug';
+    case Deploy = 'deploy';
     case Docker = 'docker';
     case Domain = 'domain';
     case FeatureFlags = 'feature_flags';

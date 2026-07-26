@@ -26,4 +26,10 @@ enum MetricLabel: string
     case Period = 'period';
     case Feature = 'feature';
     case Flag = 'flag';
+    case Topic = 'topic';
+    case Partition = 'partition';
+    case ConsumerGroup = 'consumer_group';
+    case Program = 'program';
+    case Engine = 'engine';
+    case Environment = 'environment';
 }

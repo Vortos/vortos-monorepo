@@ -46,6 +46,26 @@ final class MessagingMetricDefinitions implements MetricDefinitionProviderInterf
                 ['consumer', 'event'],
                 self::DURATION_BUCKETS_MS,
             ),
+            // Consumer-side liveness + lag. Emitted from inside the running consumer process, not
+            // by an external broker exporter: a broker-side exporter reports a group's lag whether
+            // or not anything is alive to consume it, which is precisely the failure mode these are
+            // here to catch. Because the source IS the consumer, the absence of these series is
+            // itself the signal that the consumer is gone.
+            MetricDefinition::gauge(
+                'messaging_consumer_lag',
+                'Messages between the consumer group committed offset and the partition high watermark.',
+                ['consumer', 'consumer_group', 'topic', 'partition'],
+            ),
+            MetricDefinition::counter(
+                'messaging_consumer_poll_cycles_total',
+                'Total broker poll cycles completed by a consumer — a flat rate means the consumer is stalled or dead.',
+                ['consumer'],
+            ),
+            MetricDefinition::gauge(
+                'messaging_consumer_assigned_partitions',
+                'Partitions currently assigned to this consumer — zero means it is subscribed but starved of an assignment.',
+                ['consumer', 'consumer_group'],
+            ),
             MetricDefinition::gauge(
                 'outbox_backlog_size',
                 'Current number of outbox messages grouped by transport and status.',

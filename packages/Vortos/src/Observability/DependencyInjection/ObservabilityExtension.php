@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Observability\DependencyInjection;
 
+use Vortos\Observability\Command\GenerateDashboardCommand;
+use Vortos\Observability\Dashboard\GrafanaDashboardBuilder;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
@@ -246,6 +248,15 @@ final class ObservabilityExtension extends Extension
         $container->register(GenerateCollectorConfigCommand::class, GenerateCollectorConfigCommand::class)
             ->setArgument('$publisher', new Reference(CollectorConfigPublisher::class))
             ->setArgument('$defaultSink', (string) ($_ENV['OBSERVABILITY_METRICS_SINK'] ?? 'grafana'))
+            ->setPublic(true)
+            ->addTag('console.command');
+
+        // Dashboards-as-code. Stateless generator; no services to inject beyond its own catalog.
+        $container->register(GrafanaDashboardBuilder::class, GrafanaDashboardBuilder::class)
+            ->setPublic(false);
+
+        $container->register(GenerateDashboardCommand::class, GenerateDashboardCommand::class)
+            ->setArgument('$builder', new Reference(GrafanaDashboardBuilder::class))
             ->setPublic(true)
             ->addTag('console.command');
 

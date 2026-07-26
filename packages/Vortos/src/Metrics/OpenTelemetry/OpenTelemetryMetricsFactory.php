@@ -8,6 +8,7 @@ use OpenTelemetry\Contrib\Otlp\MetricExporter;
 use OpenTelemetry\Contrib\Otlp\OtlpHttpTransportFactory;
 use OpenTelemetry\SDK\Common\Attribute\Attributes;
 use OpenTelemetry\SDK\Metrics\Data\Temporality;
+use OpenTelemetry\SDK\Metrics\Exemplar\ExemplarFilter\WithSampledTraceExemplarFilter;
 use OpenTelemetry\SDK\Metrics\MeterProvider;
 use OpenTelemetry\SDK\Metrics\MetricReader\ExportingReader;
 use OpenTelemetry\SDK\Resource\ResourceInfo;
@@ -77,6 +78,15 @@ final class OpenTelemetryMetricsFactory
         $provider = MeterProvider::builder()
             ->setResource($resource)
             ->addReader($reader)
+            // Exemplars attach the trace id of a sampled request to the metric point it produced,
+            // which is what turns "p99 latency spiked" into one click through to the exact trace
+            // that was slow. Without them the two signals are already being collected but cannot be
+            // joined, and every latency investigation restarts from scratch in the trace explorer.
+            //
+            // WithSampledTrace, not All: an exemplar is only useful if the trace it points at was
+            // actually kept. Recording exemplars for unsampled spans produces links that dead-end,
+            // and costs cardinality for nothing.
+            ->setExemplarFilter(new WithSampledTraceExemplarFilter())
             ->build();
 
         return new OpenTelemetryMetrics(

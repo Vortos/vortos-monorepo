@@ -21,6 +21,16 @@ enum FrameworkMetric: string
     case MessagingMessagesConsumedTotal = 'messaging_messages_consumed_total';
     case MessagingMessageRetriesTotal = 'messaging_message_retries_total';
     case MessagingMessageDurationMs = 'messaging_message_duration_ms';
+    case MessagingConsumerLag = 'messaging_consumer_lag';
+    case MessagingConsumerPollCyclesTotal = 'messaging_consumer_poll_cycles_total';
+    case MessagingConsumerAssignedPartitions = 'messaging_consumer_assigned_partitions';
+    case BackupPresent = 'backup_present';
+    case BackupLastSuccessAgeSeconds = 'backup_last_success_age_seconds';
+    case BackupLastSuccessSizeBytes = 'backup_last_success_size_bytes';
+    case SupervisorProgramUp = 'supervisor_program_up';
+    case SupervisorProgramUptimeSeconds = 'supervisor_program_uptime_seconds';
+    case SupervisorProgramRestartsTotal = 'supervisor_program_restarts_total';
+    case SupervisorProgramMemoryBytes = 'supervisor_program_memory_bytes';
     case OutboxBacklogSize = 'outbox_backlog_size';
     case OutboxOldestPendingAgeSeconds = 'outbox_oldest_pending_age_seconds';
     case DlqBacklogSize = 'dlq_backlog_size';

@@ -22,7 +22,8 @@
         "promphp/prometheus_client_php": "Required for Prometheus adapter",
         "vortos/vortos-cache": "Required for Redis-backed Prometheus storage (FrankenPHP multi-process)",
         "vortos/vortos-cqrs": "Required for CQRS command metrics auto-instrumentation",
-        "vortos/vortos-messaging": "Required for event bus metrics auto-instrumentation"
+        "vortos/vortos-messaging": "Required for event bus metrics auto-instrumentation",
+        "vortos/vortos-scheduler": "Required to refresh the operational outbox/DLQ gauges on a cadence under push adapters"
     },
     "extra": {
         "vortos": {

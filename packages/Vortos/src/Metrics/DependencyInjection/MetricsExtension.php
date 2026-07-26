@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Metrics\DependencyInjection;
 
 use Prometheus\CollectorRegistry;
+use Psr\Log\LoggerInterface;
 use Prometheus\Storage\APC;
 use Prometheus\Storage\InMemory;
 use Prometheus\Storage\Redis;
@@ -21,6 +22,7 @@ use Vortos\Metrics\Adapter\OpenTelemetryMetrics;
 use Vortos\Metrics\Adapter\PrometheusMetrics;
 use Vortos\Metrics\Adapter\StatsDFlushListener;
 use Vortos\Metrics\Adapter\StatsDMetrics;
+use Vortos\Metrics\AutoInstrumentation\BackupMetricDefinitions;
 use Vortos\Metrics\AutoInstrumentation\CacheMetricDefinitions;
 use Vortos\Metrics\AutoInstrumentation\CqrsMetricDefinitions;
 use Vortos\Metrics\AutoInstrumentation\HttpMetricDefinitions;
@@ -28,6 +30,7 @@ use Vortos\Metrics\AutoInstrumentation\HttpMetricsListener;
 use Vortos\Metrics\AutoInstrumentation\MessagingMetricDefinitions;
 use Vortos\Metrics\AutoInstrumentation\PersistenceMetricDefinitions;
 use Vortos\Metrics\AutoInstrumentation\SecurityMetricDefinitions;
+use Vortos\Metrics\AutoInstrumentation\SupervisorMetricDefinitions;
 use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\Contract\MetricsInterface;
@@ -38,8 +41,18 @@ use Vortos\Metrics\Definition\MetricDefinitionRegistryFactory;
 use Vortos\Metrics\Definition\MetricDefinitionRegistry;
 use Vortos\Metrics\Http\MetricsController;
 use Vortos\Metrics\OpenTelemetry\OpenTelemetryMetricsFactory;
-use Vortos\Observability\Config\ObservabilityModule;
+use Vortos\Metrics\Command\SupervisorMetricsCommand;
+use Vortos\Metrics\Supervisor\ProcSupervisorCommandRunner;
+use Vortos\Metrics\Supervisor\SupervisorCommandRunnerInterface;
+use Vortos\Metrics\Supervisor\SupervisorMetricsReporter;
+use Vortos\Metrics\Supervisor\SupervisorStatusReader;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
+use Vortos\Metrics\Schedule\CollectOperationalMetricsCommand;
+use Vortos\Metrics\Schedule\CollectOperationalMetricsHandler;
+use Vortos\Metrics\Schedule\OperationalMetricsCollectSchedule;
+use Vortos\Cqrs\Command\CommandBusInterface;
+use Vortos\Scheduler\DependencyInjection\Compiler\StaticSchedulePass;
+use Vortos\Observability\Config\ObservabilityModule;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
 
@@ -157,6 +170,104 @@ final class MetricsExtension extends Extension
 
         $this->registerAutoInstrumentation($container, $resolved);
         $this->registerCollectorCommand($container);
+        $this->registerCollectSchedule($container, $adapter);
+        $this->registerSupervisorMetrics($container);
+    }
+
+    /**
+     * In-container supervisord collector: program up/down, uptime, respawns and RSS.
+     *
+     * Registered unconditionally — with a NoOp adapter the reporter's telemetry no-ops, so the
+     * command exists but is inert rather than absent and mysterious. The supervised-program
+     * definition is added only when vortos-docker is installed, so `vortos:worker:install` writes
+     * the stanza into every containerised app's supervisor config instead of each app remembering
+     * to hand-add it.
+     */
+    private function registerSupervisorMetrics(ContainerBuilder $container): void
+    {
+        $container->register(ProcSupervisorCommandRunner::class, ProcSupervisorCommandRunner::class)
+            ->setPublic(false);
+
+        $container->setAlias(SupervisorCommandRunnerInterface::class, ProcSupervisorCommandRunner::class)
+            ->setPublic(false);
+
+        $container->register(SupervisorStatusReader::class, SupervisorStatusReader::class)
+            ->setArgument('$runner', new Reference(SupervisorCommandRunnerInterface::class))
+            ->setPublic(false);
+
+        $container->register(SupervisorMetricsReporter::class, SupervisorMetricsReporter::class)
+            ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register(SupervisorMetricsCommand::class, SupervisorMetricsCommand::class)
+            ->setArgument('$reader', new Reference(SupervisorStatusReader::class))
+            ->setArgument('$reporter', new Reference(SupervisorMetricsReporter::class))
+            ->setArgument('$metricsFlusher', new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('console.command')
+            ->setPublic(true);
+
+        if (!class_exists(\Vortos\Docker\Worker\WorkerProcessDefinition::class)
+            || !filter_var($_ENV['VORTOS_SUPERVISOR_METRICS_ENABLED'] ?? true, FILTER_VALIDATE_BOOL)
+        ) {
+            return;
+        }
+
+        $container->register('vortos.metrics.supervisor_process', \Vortos\Docker\Worker\WorkerProcessDefinition::class)
+            ->setArgument('$name', 'supervisor-metrics')
+            ->setArgument('$command', \Vortos\Docker\Worker\WorkerConsole::command('vortos:metrics:supervisor --interval=15'))
+            ->setArgument('$description', 'Publishes supervisord program state, restarts and memory as metrics')
+            // Holds no messages and commits no offsets, so there is nothing to drain: a short stop
+            // budget keeps it from delaying a worker-colour rollout.
+            ->setArgument('$stopwaitsecs', 5)
+            ->setArgument('$drainDeadline', 5)
+            ->addTag(\Vortos\Docker\DependencyInjection\DockerExtension::WORKER_TAG)
+            ->setPublic(false);
+    }
+
+    /**
+     * Cadence for the operational gauges (outbox/DLQ backlog + oldest-age), which are pull-shaped:
+     * something has to ASK for them. The Prometheus adapter already does — MetricsController runs
+     * every tagged collector on each scrape — so a schedule there would only double the query load.
+     * Push adapters have no scraper, so without this the gauges never reach the backend at all.
+     *
+     * Wired only when vortos-scheduler and vortos-cqrs are both installed; an app without them can
+     * still drive the collectors with `vortos:metrics:collect` from its own cron.
+     */
+    private function registerCollectSchedule(ContainerBuilder $container, MetricsAdapter $adapter): void
+    {
+        $isPushAdapter = match ($adapter) {
+            MetricsAdapter::OpenTelemetry, MetricsAdapter::StatsD => true,
+            MetricsAdapter::Prometheus, MetricsAdapter::NoOp      => false,
+        };
+
+        if (!$isPushAdapter) {
+            return;
+        }
+
+        // interface_exists / class_exists are pure autoload checks — reliable inside load(), unlike
+        // container hasAlias() gates which read false under MergeExtensionConfigurationPass isolation.
+        if (!interface_exists(CommandBusInterface::class) || !class_exists(StaticSchedulePass::class)) {
+            return;
+        }
+
+        // Registered purely so SchedulableCommandPass's attribute scan (which only inspects
+        // already-registered definitions) discovers #[SchedulableCommand]; CommandHydrator
+        // instantiates the command by reflection, never via the container.
+        $container->register(CollectOperationalMetricsCommand::class, CollectOperationalMetricsCommand::class)
+            ->setPublic(false);
+
+        $container->register(CollectOperationalMetricsHandler::class, CollectOperationalMetricsHandler::class)
+            ->setArgument('$collectors', new TaggedIteratorArgument('vortos.metrics_collector'))
+            ->setArgument('$metrics', new Reference(MetricsInterface::class))
+            ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('vortos.command_handler')
+            ->setPublic(true);
+
+        $container->register(OperationalMetricsCollectSchedule::class, OperationalMetricsCollectSchedule::class)
+            ->addTag(StaticSchedulePass::TAG)
+            ->setPublic(false);
     }
 
     private function registerNoOp(ContainerBuilder $container): void
@@ -328,12 +439,14 @@ final class MetricsExtension extends Extension
         // Built-in metric definition providers — collected at compile time by MetricDefinitionsCompilerPass.
         // External modules (e.g. vortos-feature-flags) register their own providers with the same tag.
         foreach ([
+            BackupMetricDefinitions::class,
             CacheMetricDefinitions::class,
             CqrsMetricDefinitions::class,
             HttpMetricDefinitions::class,
             MessagingMetricDefinitions::class,
             PersistenceMetricDefinitions::class,
             SecurityMetricDefinitions::class,
+            SupervisorMetricDefinitions::class,
         ] as $providerClass) {
             $container->register($providerClass, $providerClass)
                 ->addTag(MetricDefinitionProviderInterface::TAG)

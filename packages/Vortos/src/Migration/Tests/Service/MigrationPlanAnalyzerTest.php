@@ -193,6 +193,7 @@ final class MigrationPlanAnalyzerTest extends TestCase
             public function __construct(private readonly array $sql) {}
 
             public function extractFromClass(string $className): array { return $this->sql; }
+            public function extractFromClassMethod(string $className, string $method): array { return $method === 'up' ? $this->sql : []; }
             public function extractFromSource(string $source): array { return $this->sql; }
         };
 
@@ -265,6 +266,7 @@ final class MigrationPlanAnalyzerTest extends TestCase
 
         $extractor = new class implements MigrationSqlExtractorInterface {
             public function extractFromClass(string $c): array { return []; }
+            public function extractFromClassMethod(string $c, string $m): array { return []; }
             public function extractFromSource(string $s): array { return []; }
         };
 

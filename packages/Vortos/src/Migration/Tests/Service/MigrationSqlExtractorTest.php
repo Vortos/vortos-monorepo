@@ -130,4 +130,62 @@ final class MigrationSqlExtractorTest extends TestCase
         $this->assertStringContainsString('CREATE TABLE foo', $result[0]);
         $this->assertStringContainsString('CREATE INDEX idx_foo', $result[1]);
     }
+
+    /**
+     * The regression this class was rewritten for. A regex that captured one string literal
+     * returned only the head of a concatenated statement — valid-looking SQL missing the
+     * table it acts on, which the safety analyzer then passed as harmless.
+     */
+    public function test_joins_a_statement_split_across_concatenated_literals(): void
+    {
+        $source = <<<'PHP'
+            $this->addSql(
+                'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_applications_consented_version'
+                . ' ON applications (consented_at_version_id)'
+            );
+        PHP;
+
+        $result = $this->extractor->extractFromSource($source);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(
+            'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_applications_consented_version'
+            . ' ON applications (consented_at_version_id)',
+            $result[0],
+        );
+    }
+
+    public function test_joins_three_way_concatenation_with_a_partial_index_predicate(): void
+    {
+        $source = <<<'PHP'
+            $this->addSql(
+                'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_applications_pending_reconsent'
+                . " ON applications (reconsent_deadline)"
+                . " WHERE consent_state = 'pending_reconsent'"
+            );
+        PHP;
+
+        $result = $this->extractor->extractFromSource($source);
+
+        $this->assertCount(1, $result);
+        $this->assertStringEndsWith("WHERE consent_state = 'pending_reconsent'", $result[0]);
+    }
+
+    /**
+     * A partially recovered statement is worse than none: it reads as valid SQL while
+     * omitting whatever the analyzer most needs to see, so a dynamic argument is dropped
+     * rather than half-resolved.
+     */
+    public function test_skips_statements_that_are_not_statically_resolvable(): void
+    {
+        $source = <<<'PHP'
+            $this->addSql('CREATE TABLE keep_me (id INT)');
+            $this->addSql('ALTER TABLE t ADD COLUMN ' . $column . ' INT');
+            $this->addSql(sprintf('DROP INDEX %s', $name));
+        PHP;
+
+        $result = $this->extractor->extractFromSource($source);
+
+        $this->assertSame(['CREATE TABLE keep_me (id INT)'], $result);
+    }
 }

@@ -1161,6 +1161,19 @@ final class DeployExtension extends Extension
                 ->setArgument('$toolchainExternal', self::envFlag($_ENV['VORTOS_BACKUP_TOOLCHAIN_EXTERNAL'] ?? null))
                 ->addTag(self::PREFLIGHT_CHECK_TAG)
                 ->setPublic(false);
+
+            // Separate gate, deliberately: the toolchain check asks whether pg_basebackup is
+            // INSTALLED, this asks whether it can CONNECT. Both failed independently in production
+            // — binary present and correct while PostgreSQL refused the replication connection, so
+            // physical base backups had never once succeeded and the archived WAL had nothing to
+            // replay onto.
+            $container->register(\Vortos\Deploy\Preflight\Check\BackupReplicationAccessCheck::class, \Vortos\Deploy\Preflight\Check\BackupReplicationAccessCheck::class)
+                ->setArgument('$inspector', new Reference(\Vortos\Backup\Doctor\ReplicationAccessInspector::class))
+                ->setArgument('$schedules', new Reference(\Vortos\Backup\Schedule\BackupScheduleRegistry::class))
+                ->setArgument('$configuredEngine', $_ENV['VORTOS_BACKUP_ENGINE'] ?? null)
+                ->setArgument('$dsn', (string) ($_ENV['VORTOS_WRITE_DB_DSN'] ?? ''))
+                ->addTag(self::PREFLIGHT_CHECK_TAG)
+                ->setPublic(false);
         }
 
         // ── Block 12: Fail-closed doctor (collects all tagged checks) ──

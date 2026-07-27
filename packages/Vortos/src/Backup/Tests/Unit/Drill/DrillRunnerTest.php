@@ -10,6 +10,10 @@ use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Backup\Crypto\EnvelopeStreamCipher;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\BackupRequest;
+use Vortos\Backup\Domain\SourceRef;
+use Vortos\Backup\Domain\BackupChecksum;
+use Vortos\Backup\Domain\BackupId;
+use Vortos\Backup\Domain\BackupArtifact;
 use Vortos\Backup\Domain\CompressionCodec;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Drill\DrillRunner;
@@ -157,10 +161,54 @@ final class DrillRunnerTest extends TestCase
         $this->assertSame(DatabaseEngine::Postgres, $saved->engine);
     }
 
+    public function test_it_never_drills_a_wal_segment(): void
+    {
+        // THE REGRESSION. Once continuous WAL archiving is on, a wal_segment lands roughly every
+        // sixty seconds, so "the latest artifact" is almost always one. Drilling a single WAL
+        // segment cannot restore anything — and a drill that reports a pass having proved nothing
+        // is the most dangerous component in a backup system, because it is exactly what everyone
+        // points at to justify confidence.
+        $catalog = new InMemoryCatalogRepository();
+        $catalog->record($this->catalogEntry(BackupKind::LogicalFull, '2026-07-27T00:00:00+00:00'));
+        $catalog->record($this->catalogEntry(BackupKind::WalSegment, '2026-07-27T06:00:00+00:00'));
+
+        // The newest row is the WAL segment; the newest RESTORABLE artifact is the logical full.
+        self::assertSame(
+            BackupKind::WalSegment,
+            $catalog->latest(DatabaseEngine::Postgres, 'prod')?->kind,
+        );
+
+        $picked = $catalog->latestOfKind(
+            DatabaseEngine::Postgres,
+            'prod',
+            [BackupKind::LogicalFull, BackupKind::PhysicalBase, BackupKind::MongoArchive],
+        );
+
+        self::assertSame(BackupKind::LogicalFull, $picked?->kind);
+    }
+
+    private function catalogEntry(BackupKind $kind, string $createdAt): BackupArtifact
+    {
+        $at = new DateTimeImmutable($createdAt);
+
+        return new BackupArtifact(
+            id: BackupId::generate(DatabaseEngine::Postgres, $kind, $at),
+            engine: DatabaseEngine::Postgres,
+            kind: $kind,
+            environment: 'prod',
+            createdAt: $at,
+            sizeBytes: 1024,
+            checksum: BackupChecksum::sha256(str_repeat('a', 64)),
+            storeKey: 'object-store',
+            codec: CompressionCodec::None,
+            sourceRef: SourceRef::none(),
+        );
+    }
+
     public function test_no_backup_artifact_throws(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/No backup artifact/');
+        $this->expectExceptionMessageMatches('/No restorable backup artifact/');
 
         $this->drillRunner()->run(DatabaseEngine::Postgres, 'prod');
     }

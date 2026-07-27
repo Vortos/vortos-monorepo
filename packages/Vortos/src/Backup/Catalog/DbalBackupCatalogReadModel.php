@@ -67,4 +67,29 @@ final class DbalBackupCatalogReadModel implements BackupCatalogReadModelInterfac
 
         return $row !== false ? BackupArtifact::fromArray($row) : null;
     }
+
+    /** @param non-empty-list<BackupKind> $kinds */
+    public function latestOfKind(DatabaseEngine $engine, string $environment, array $kinds): ?BackupArtifact
+    {
+        $row = $this->connection->createQueryBuilder()
+            ->select('*')
+            ->from($this->table)
+            ->where('engine = :engine')
+            ->andWhere('environment = :env')
+            ->andWhere('kind IN (:kinds)')
+            ->setParameter('engine', $engine->value)
+            ->setParameter('env', $environment)
+            ->setParameter(
+                'kinds',
+                array_map(static fn (BackupKind $k): string => $k->value, $kinds),
+                \Doctrine\DBAL\ArrayParameterType::STRING,
+            )
+            ->orderBy('created_at', 'DESC')
+            ->addOrderBy('id', 'DESC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchAssociative();
+
+        return $row !== false ? BackupArtifact::fromArray($row) : null;
+    }
 }

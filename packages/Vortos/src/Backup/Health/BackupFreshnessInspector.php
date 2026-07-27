@@ -76,7 +76,24 @@ final class BackupFreshnessInspector
             }
 
             $maxAge = $this->thresholdFor($schedule->cron);
-            $latest = $this->catalog->latest($schedule->engine, $schedule->environment);
+
+            // Match the KIND this schedule promises, never "the newest artifact".
+            //
+            // Once continuous WAL archiving is on, a wal_segment lands roughly every sixty seconds.
+            // An unfiltered lookup therefore always finds something recent and always reports
+            // fresh — even when the 6-hourly logical dump and the daily base backup have both
+            // stopped entirely. That does not merely weaken this check, it disarms it: the single
+            // alarm whose whole purpose is catching a silently-dead backup worker would report
+            // healthy forever, which is the exact 15-day outage this inspector was written for,
+            // reintroduced by a different route.
+            //
+            // Each declared schedule promises artifacts of its own kind on its own cadence, so that
+            // is what freshness must verify.
+            $latest = $this->catalog->latestOfKind(
+                $schedule->engine,
+                $schedule->environment,
+                [$schedule->kind],
+            );
 
             if ($latest === null) {
                 $results[] = new BackupFreshness(

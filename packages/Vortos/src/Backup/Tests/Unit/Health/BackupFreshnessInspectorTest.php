@@ -118,6 +118,69 @@ final class BackupFreshnessInspectorTest extends TestCase
         $this->assertCount(1, $inspector->inspect());
     }
 
+    public function test_a_stream_of_wal_segments_cannot_mask_a_dead_backup_worker(): void
+    {
+        // THE REGRESSION. Continuous WAL archiving lands a wal_segment roughly every sixty seconds.
+        // If freshness asks for "the newest artifact" it always finds one and always reports fresh
+        // — even when the 6-hourly logical dump has not run for days. That silently disarms the one
+        // alarm whose entire purpose is catching a backup worker that died quietly, which is the
+        // 15-day production outage of 2026-07 arriving again by a different route.
+        $walOnly = new class ($this->at('2026-07-27T03:59:00+00:00')) implements BackupCatalogReadModelInterface {
+            public function __construct(private readonly DateTimeImmutable $walAt) {}
+
+            public function byId(string $backupId): ?BackupArtifact { return null; }
+
+            public function list(DatabaseEngine $engine, string $environment, ?BackupKind $kind = null): array { return []; }
+
+            public function latest(DatabaseEngine $engine, string $environment): ?BackupArtifact
+            {
+                // Newest row overall: a WAL segment from one minute ago.
+                return $this->wal();
+            }
+
+            public function latestOfKind(DatabaseEngine $engine, string $environment, array $kinds): ?BackupArtifact
+            {
+                // ...but there has not been a logical_full in days.
+                return \in_array(BackupKind::WalSegment, $kinds, true) ? $this->wal() : null;
+            }
+
+            private function wal(): BackupArtifact
+            {
+                return new BackupArtifact(
+                    BackupId::generate(DatabaseEngine::Postgres, BackupKind::WalSegment, $this->walAt),
+                    DatabaseEngine::Postgres,
+                    BackupKind::WalSegment,
+                    'production',
+                    $this->walAt,
+                    16_777_216,
+                    BackupChecksum::sha256(str_repeat('b', 64)),
+                    'backups/production/postgres/wal/x',
+                    CompressionCodec::None,
+                    SourceRef::none(),
+                );
+            }
+        };
+
+        $inspector = new BackupFreshnessInspector(
+            $walOnly,
+            new BackupScheduleRegistry([
+                new BackupSchedule('platform-backup', DatabaseEngine::Postgres, BackupKind::LogicalFull, 'production', '0 */6 * * *', BackupScheduleType::Backup),
+            ]),
+            $this->clock('2026-07-27T04:00:00+00:00'),
+        );
+
+        $results = $inspector->inspect();
+
+        self::assertNotSame([], $results);
+        foreach ($results as $freshness) {
+            self::assertNotSame(
+                BackupFreshnessStatus::Fresh,
+                $freshness->status,
+                'WAL segments must not be mistaken for a successful database backup',
+            );
+        }
+    }
+
     private function inspector(?string $lastBackupAt, string $now): BackupFreshnessInspector
     {
         return new BackupFreshnessInspector(
@@ -161,6 +224,15 @@ final class BackupFreshnessInspectorTest extends TestCase
                 return $this->artifact === null ? [] : [$this->artifact];
             }
             public function latest(DatabaseEngine $engine, string $environment): ?BackupArtifact { return $this->artifact; }
+            public function latestOfKind(DatabaseEngine $engine, string $environment, array $kinds): ?BackupArtifact
+            {
+                // Filters by kind, exactly as the real catalog does. A double that ignored $kinds
+                // would let a kind-blindness bug pass unnoticed — which is the very bug this
+                // interface exists to prevent.
+                return $this->artifact !== null && \in_array($this->artifact->kind, $kinds, true)
+                    ? $this->artifact
+                    : null;
+            }
         };
     }
 

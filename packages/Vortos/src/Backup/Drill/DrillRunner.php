@@ -9,6 +9,7 @@ use Throwable;
 use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
 use Vortos\Backup\Crypto\EnvelopeStreamCipher;
 use Vortos\Backup\Domain\BackupArtifact;
+use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Event\BackupEvent;
 use Vortos\Backup\Event\BackupEventSinkInterface;
@@ -42,10 +43,24 @@ final class DrillRunner
 
     public function run(DatabaseEngine $engine, string $environment, bool $shallow = false): DrillReport
     {
-        $artifact = $this->catalog->latest($engine, $environment);
+        // Ask for the newest RESTORABLE artifact, never simply the newest row.
+        //
+        // Once continuous WAL archiving is on, a wal_segment lands roughly every sixty seconds, so
+        // "the latest artifact" is almost always a single WAL segment — something no drill can
+        // restore on its own. Drilling one would either fail for the wrong reason or, far worse,
+        // report a pass having proved nothing about whether the database can actually be recovered.
+        // A restore drill that can silently assert nothing is the most dangerous component in a
+        // backup system, because it is the thing everyone points at to justify confidence.
+        $artifact = $this->catalog->latestOfKind(
+            $engine,
+            $environment,
+            [BackupKind::LogicalFull, BackupKind::PhysicalBase, BackupKind::MongoArchive],
+        );
+
         if ($artifact === null) {
             throw new \RuntimeException(sprintf(
-                'No backup artifact found for %s/%s — cannot drill.',
+                'No restorable backup artifact (logical_full/physical_base/mongo_archive) found for '
+                . '%s/%s — cannot drill. WAL segments alone are not restorable without a base.',
                 $engine->value,
                 $environment,
             ));

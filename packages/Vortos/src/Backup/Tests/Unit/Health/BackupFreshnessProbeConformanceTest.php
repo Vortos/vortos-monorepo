@@ -52,6 +52,7 @@ final class BackupFreshnessProbeConformanceTest extends HealthProbeConformanceTe
             public function byId(string $backupId): ?BackupArtifact { return null; }
             public function list(DatabaseEngine $engine, string $environment, ?BackupKind $kind = null): array { return []; }
             public function latest(DatabaseEngine $engine, string $environment): ?BackupArtifact { return null; }
+            public function latestOfKind(DatabaseEngine $engine, string $environment, array $kinds): ?BackupArtifact { return null; }
         };
 
         $clock = new class implements ClockInterface {

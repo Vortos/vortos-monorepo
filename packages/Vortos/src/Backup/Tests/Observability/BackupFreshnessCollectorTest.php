@@ -70,6 +70,11 @@ final class BackupFreshnessCollectorTest extends TestCase
 
                 return null;
             }
+
+            public function latestOfKind(DatabaseEngine $engine, string $environment, array $kinds): ?BackupArtifact
+            {
+                return $this->latest($engine, $environment);
+            }
         };
 
         (new BackupFreshnessCollector(
@@ -164,6 +169,14 @@ final class FixedCatalog implements BackupCatalogReadModelInterface
     public function latest(DatabaseEngine $engine, string $environment): ?BackupArtifact
     {
         return $this->latest[$engine->value] ?? null;
+    }
+
+    /** @param non-empty-list<BackupKind> $kinds */
+    public function latestOfKind(DatabaseEngine $engine, string $environment, array $kinds): ?BackupArtifact
+    {
+        $artifact = $this->latest($engine, $environment);
+
+        return $artifact !== null && \in_array($artifact->kind, $kinds, true) ? $artifact : null;
     }
 }
 

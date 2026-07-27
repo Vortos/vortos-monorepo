@@ -26,4 +26,17 @@ interface BackupCatalogReadModelInterface
 
     /** The most recent verified artifact for an engine+environment, or null if none. */
     public function latest(DatabaseEngine $engine, string $environment): ?BackupArtifact;
+
+    /**
+     * The most recent artifact of one of the given kinds.
+     *
+     * Exists because {@see self::latest()} answers "the newest row", which stopped being a useful
+     * question the moment continuous WAL archiving was switched on: a `wal_segment` lands roughly
+     * every sixty seconds, so the newest row is almost always a single WAL segment rather than
+     * anything you could restore from. A restore drill asking for "the latest backup" would pick
+     * one up and either fail, or — far worse — report a pass having proved nothing.
+     *
+     * @param non-empty-list<BackupKind> $kinds
+     */
+    public function latestOfKind(DatabaseEngine $engine, string $environment, array $kinds): ?BackupArtifact;
 }

@@ -52,4 +52,16 @@ final class InMemoryCatalogRepository implements BackupCatalogRepositoryInterfac
     {
         return $this->list($engine, $environment)[0] ?? null;
     }
+
+    /** @param non-empty-list<BackupKind> $kinds */
+    public function latestOfKind(DatabaseEngine $engine, string $environment, array $kinds): ?BackupArtifact
+    {
+        foreach ($this->list($engine, $environment) as $artifact) {
+            if (\in_array($artifact->kind, $kinds, true)) {
+                return $artifact;
+            }
+        }
+
+        return null;
+    }
 }

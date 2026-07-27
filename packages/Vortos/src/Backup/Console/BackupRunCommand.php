@@ -20,9 +20,12 @@ use Vortos\Backup\Environment\DefaultEnvironment;
  * scheduled fragment ({@see \Vortos\Backup\Schedule\CronFragmentGenerator}) invokes
  * exactly this.
  */
-#[AsCommand(name: 'backup:run', description: 'Run a database backup (dump → store → verify → catalog).')]
+#[AsCommand(name: BackupRunCommand::NAME, description: 'Run a database backup (dump → store → verify → catalog).')]
 final class BackupRunCommand extends Command
 {
+    /** Single source of truth for this command's name; see BackupWalArchiveCommand::NAME. */
+    public const NAME = 'backup:run';
+
     public function __construct(
         private readonly BackupRunner $runner,
         private readonly EngineResolver $engineResolver,

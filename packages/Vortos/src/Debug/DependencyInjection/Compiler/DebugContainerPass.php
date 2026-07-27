@@ -27,7 +27,7 @@ final class DebugContainerPass implements CompilerPassInterface
                 'shared' => $definition->isShared(),
                 'lazy'   => $definition->isLazy(),
                 'tags'   => $tags,
-                'args'   => $this->summarizeArgs($definition->getArguments()),
+                'args'   => $this->summarizeArgs($definition->getArguments(), $definition->getClass()),
             ];
         }
 
@@ -41,20 +41,53 @@ final class DebugContainerPass implements CompilerPassInterface
 
         ksort($aliases);
 
+        // Positional, not named. This pass runs in AFTER_REMOVING, by which point
+        // ResolveNamedArgumentsPass has already converted named arguments to indices — a '$services'
+        // key here would simply never be resolved. 0 and 1 are $services and $aliases.
         $container->findDefinition(DebugContainerCommand::class)
-            ->setArgument('$services', $services)
-            ->setArgument('$aliases', $aliases);
+            ->setArgument(0, $services)
+            ->setArgument(1, $aliases);
     }
 
-    private function summarizeArgs(array $args): array
+    /**
+     * @param array<array-key, mixed> $args
+     * @return array<string, string>
+     */
+    private function summarizeArgs(array $args, ?string $class): array
     {
+        $names = $this->constructorParameterNames($class);
         $result = [];
 
         foreach ($args as $key => $arg) {
-            $result[$key] = $this->summarizeArg($arg);
+            // By AFTER_REMOVING the keys are positional. Recover the parameter name so the detail
+            // view still reads as '$connection' rather than '0'.
+            $label = is_int($key) && isset($names[$key]) ? '$' . $names[$key] : (string) $key;
+            $result[$label] = $this->summarizeArg($arg);
         }
 
         return $result;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function constructorParameterNames(?string $class): array
+    {
+        if ($class === null || !class_exists($class)) {
+            return [];
+        }
+
+        try {
+            $ctor = (new \ReflectionClass($class))->getConstructor();
+        } catch (\ReflectionException) {
+            return [];
+        }
+
+        if ($ctor === null) {
+            return [];
+        }
+
+        return array_map(static fn (\ReflectionParameter $p): string => $p->getName(), $ctor->getParameters());
     }
 
     private function summarizeArg(mixed $arg): string

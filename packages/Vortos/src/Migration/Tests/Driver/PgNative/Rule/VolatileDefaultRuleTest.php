@@ -149,6 +149,48 @@ final class VolatileDefaultRuleTest extends TestCase
     }
 
     /** @param list<string> $sql */
+    public function test_a_schema_qualified_table_resolves_to_the_table_not_the_schema(): void
+    {
+        // THE REGRESSION, verbatim from a blocked production deploy. The table pattern used \w+,
+        // which cannot match a dot, so "vortos.alerts_state" yielded "vortos" — the SCHEMA. No
+        // statistic exists under that name, and these rules fail closed when statistics are
+        // missing, so every schema-qualified migration was reported as touching a hot table and
+        // refused, however small it actually was. alerts_state had nine rows.
+        $sql = 'ALTER TABLE vortos.alerts_state ADD IF NOT EXISTS reminder_count INT DEFAULT 0 NOT NULL';
+
+        $snapshot = new TargetSchemaSnapshot([
+            'vortos.alerts_state' => new TableStat(estimatedRows: 9, totalBytes: 8192, hasData: true),
+        ]);
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact([$sql]),
+            $snapshot,
+            new ParsedStatement($sql, 0),
+        ));
+
+        $this->assertSame([], $diags, 'a nine-row table must not be reported as hot');
+    }
+
+    public function test_a_schema_qualified_hot_table_is_still_flagged(): void
+    {
+        // The other half: resolving the name correctly must not weaken the check. A genuinely large
+        // schema-qualified table still fails closed.
+        $sql = 'ALTER TABLE vortos.audit_events ADD COLUMN flag INT DEFAULT 0 NOT NULL';
+
+        $snapshot = new TargetSchemaSnapshot([
+            'vortos.audit_events' => new TableStat(estimatedRows: 5_000_000, totalBytes: 900_000_000, hasData: true),
+        ]);
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact([$sql]),
+            $snapshot,
+            new ParsedStatement($sql, 0),
+        ));
+
+        $this->assertCount(1, $diags);
+        $this->assertStringContainsString('vortos.audit_events', $diags[0]->message);
+    }
+
     private function artifact(array $sql): MigrationArtifact
     {
         return new MigrationArtifact('TestMigration', null, MigrationPhase::Expand, $sql, [], false);

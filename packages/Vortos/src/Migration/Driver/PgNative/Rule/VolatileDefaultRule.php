@@ -48,9 +48,19 @@ final class VolatileDefaultRule implements SafetyRuleInterface
             return;
         }
 
+        // Captures an optional schema qualifier. The previous pattern used \w+, which cannot match
+        // a dot, so "ALTER TABLE vortos.alerts_state" yielded the SCHEMA ("vortos") as the table
+        // name. No statistic exists under that name, and these rules fail closed when statistics
+        // are missing — so every schema-qualified migration was reported as touching a hot table
+        // and blocked, regardless of its actual size.
         $table = null;
-        if (preg_match('/\bALTER\s+TABLE\s+["`]?(\w+)["`]?/i', $statement->raw, $m)) {
-            $table = strtolower($m[1]);
+        if (preg_match(
+            '/\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?["`]?(?:(\w+)["`]?\s*\.\s*["`]?)?(\w+)["`]?/i',
+            $statement->raw,
+            $m,
+        )) {
+            $schema = $m[1] !== '' ? strtolower($m[1]) : null;
+            $table = $schema !== null ? $schema . '.' . strtolower($m[2]) : strtolower($m[2]);
         }
 
         if (preg_match('/\bDEFAULT\s+(.+?)(?:\s*(?:NOT\s+NULL|NULL|,|;|\)|$))/i', $statement->raw, $defaultMatch)) {

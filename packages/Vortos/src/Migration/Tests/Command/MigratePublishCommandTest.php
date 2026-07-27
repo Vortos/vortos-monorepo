@@ -388,6 +388,65 @@ PHP);
         }
     }
 
+    public function test_a_manifest_written_from_a_different_path_does_not_republish_everything(): void
+    {
+        // THE REGRESSION. The manifest key used to be the stub's path relative to the project dir,
+        // which silently made it specific to one working directory. Publishing from anywhere else
+        // — a container mounted at /app instead of /var/www/html, a different checkout — matched
+        // NOTHING, so every already-published migration looked new and the command regenerated all
+        // of them. In this project that produced 53 duplicate migrations for schema already live in
+        // production, which would have been a destructive commit had the count not looked wrong.
+        $this->makeSqlStub('Messaging', '001_vortos_outbox.sql', 'CREATE TABLE outbox (id UUID PRIMARY KEY)');
+        $this->runCommand();
+
+        $manifestPath = $this->migrationsDir . '/.vortos-published.json';
+        $manifest = json_decode((string) file_get_contents($manifestPath), true);
+        self::assertIsArray($manifest);
+        self::assertArrayHasKey('published', $manifest);
+        self::assertCount(1, $manifest['published']);
+
+        // Rewrite the single entry under an absolute, foreign-looking key exactly as older versions
+        // recorded it — the shape found in this project's production manifest.
+        $entry = reset($manifest['published']);
+        $manifest['published'] = [
+            'var/www/html/vendor/vortos/vortos-messaging/Resources/migrations/001_vortos_outbox.sql' => $entry,
+        ];
+        file_put_contents($manifestPath, (string) json_encode($manifest));
+
+        $before = glob($this->migrationsDir . '/Version*.php') ?: [];
+        $tester = $this->runCommand();
+        $after = glob($this->migrationsDir . '/Version*.php') ?: [];
+
+        self::assertSame(
+            \count($before),
+            \count($after),
+            'a manifest written from another path must not cause republication',
+        );
+        self::assertStringContainsString('already published', $tester->getDisplay());
+    }
+
+    public function test_the_manifest_key_does_not_contain_a_filesystem_path(): void
+    {
+        // The key is the stub's identity — module plus filename — so it is stable across checkouts,
+        // containers and mount points. Anything path-shaped reintroduces the bug above.
+        $this->makeSqlStub('Messaging', '001_vortos_outbox.sql', 'CREATE TABLE outbox (id UUID PRIMARY KEY)');
+        $this->runCommand();
+
+        $manifest = json_decode(
+            (string) file_get_contents($this->migrationsDir . '/.vortos-published.json'),
+            true,
+        );
+
+        self::assertIsArray($manifest);
+        self::assertArrayHasKey('published', $manifest);
+
+        foreach (array_keys($manifest['published']) as $key) {
+            self::assertStringNotContainsString('vendor/', (string) $key);
+            self::assertStringNotContainsString($this->tempDir, (string) $key);
+            self::assertSame('Messaging/001_vortos_outbox.sql', (string) $key);
+        }
+    }
+
     private function runCommand(array $options = []): CommandTester
     {
         $scanner   = new ModuleStubScanner(new ModulePathResolver($this->tempDir), $this->tempDir);

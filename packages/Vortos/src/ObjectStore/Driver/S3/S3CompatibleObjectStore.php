@@ -41,6 +41,21 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
     /** The S3/R2 hard ceiling on parts per multipart upload. */
     private const MAX_PARTS = 10_000;
 
+    /**
+     * How much of a part may stay resident before `php://temp` spills it to a temporary file.
+     *
+     * This is what decouples peak memory from the part size. 1 MiB keeps small objects entirely in
+     * memory (the overwhelming majority of callers) while capping what a 16 MiB — or 5 GiB — part
+     * can cost. The spill file is removed when the handle closes.
+     */
+    private const MAX_PART_MEMORY_BYTES = 1_048_576;
+
+    /**
+     * Read granularity from the source into the part buffer. Bounded so a single `fread` cannot
+     * pull a whole part into a PHP string, which is the allocation this design exists to avoid.
+     */
+    private const READ_CHUNK_BYTES = 262_144;
+
     public function __construct(
         private readonly S3Client $client,
         private readonly string $bucket,
@@ -67,8 +82,10 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
      * "Unable to determine stream position" on a pipe. So stream bodies are read **forward-only**
      * here: the first part is buffered (never seeking the source); if the whole stream fits in one
      * part it is sent as a single length-known `PutObject`; otherwise it escalates to a multipart
-     * upload, reading and shipping one full-sized part at a time (bounded memory, no
-     * buffer-to-disk). A failed multipart upload is aborted so no billable orphan parts survive.
+     * upload, reading and shipping one full-sized part at a time. Each part is buffered through
+     * `php://temp`, so resident memory is bounded by {@see self::MAX_PART_MEMORY_BYTES} regardless
+     * of the part size or the object size — a 10 GiB artifact costs the same RAM as a 10 MiB one.
+     * A failed multipart upload is aborted so no billable orphan parts survive.
      */
     public function put(ObjectKey|string $key, mixed $body, ?PutObjectOptions $options = null): StoredObject
     {
@@ -109,17 +126,21 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
 
         // Buffer the first part without ever seeking the source. A stream that fits in one part is
         // a single length-known PutObject — no multipart overhead, and no tell()/seek() on a pipe.
-        $firstPart = $this->readPart($stream, $this->multipartPartSizeBytes);
+        [$firstPart, $firstPartSize] = $this->readPart($stream, $this->multipartPartSizeBytes);
 
         if (feof($stream)) {
-            return $this->putSinglePart(
-                $key,
-                ObjectBody::from($firstPart, \strlen($firstPart)),
-                $options,
-            );
+            try {
+                return $this->putSinglePart(
+                    $key,
+                    ObjectBody::from($firstPart, $firstPartSize),
+                    $options,
+                );
+            } finally {
+                $this->closePart($firstPart);
+            }
         }
 
-        return $this->putMultipart($key, $options, $stream, $firstPart);
+        return $this->putMultipart($key, $options, $stream, $firstPart, $firstPartSize);
     }
 
     /**
@@ -128,10 +149,19 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
      * single `fread` on a pipe usually returns far less than requested — undersized non-final parts
      * would fail `CompleteMultipartUpload` with `EntityTooSmall`.
      *
-     * @param resource $stream
+     * Exactly one part is held at a time: each buffer is released before the next is read, so the
+     * upload costs O(part) temporary space rather than O(object).
+     *
+     * @param resource $stream    the source, read strictly forward and never seeked
+     * @param resource $firstPart already-buffered part handle; this method owns closing it
      */
-    private function putMultipart(ObjectKey $key, PutObjectOptions $options, mixed $stream, string $firstPart): StoredObject
-    {
+    private function putMultipart(
+        ObjectKey $key,
+        PutObjectOptions $options,
+        mixed $stream,
+        mixed $firstPart,
+        int $firstPartSize,
+    ): StoredObject {
         try {
             $create = $this->client->createMultipartUpload(
                 ['Bucket' => $this->bucket, 'Key' => $key->value()] + $this->objectAttributes($options),
@@ -144,6 +174,7 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
         $parts = [];
         $bytes = 0;
         $chunk = $firstPart;
+        $chunkSize = $firstPartSize;
         $partNumber = 1;
 
         try {
@@ -166,15 +197,21 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
                 ]);
 
                 $parts[] = ['PartNumber' => $partNumber, 'ETag' => (string) $uploaded['ETag']];
-                $bytes += \strlen($chunk);
+                $bytes += $chunkSize;
                 ++$partNumber;
+
+                // Release this part's buffer before reading the next, so exactly ONE part is ever
+                // held. Without this the temp files would accumulate for the whole upload and the
+                // spill-to-disk fix would simply move the exhaustion from RAM to the filesystem.
+                $this->closePart($chunk);
+                $chunk = null;
 
                 if (feof($stream)) {
                     break;
                 }
 
-                $chunk = $this->readPart($stream, $this->multipartPartSizeBytes);
-            } while ($chunk !== '');
+                [$chunk, $chunkSize] = $this->readPart($stream, $this->multipartPartSizeBytes);
+            } while ($chunkSize > 0);
 
             $complete = $this->client->completeMultipartUpload([
                 'Bucket' => $this->bucket,
@@ -183,6 +220,7 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
                 'MultipartUpload' => ['Parts' => $parts],
             ]);
         } catch (\Throwable $e) {
+            $this->closePart($chunk);
             $this->abortMultipart($key, $uploadId);
 
             if ($e instanceof AwsException) {
@@ -206,27 +244,80 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
     }
 
     /**
-     * Read up to $target bytes, accumulating across short reads (a pipe rarely fills a whole part
-     * in one `fread`). Returns fewer bytes only at end-of-stream. Never seeks.
+     * Read up to $target bytes into a SPILLING buffer, accumulating across short reads (a pipe
+     * rarely fills a whole part in one `fread`). Returns fewer bytes only at end-of-stream.
+     * Never seeks the source.
      *
-     * @param resource $stream
+     * WHY THIS RETURNS A STREAM AND NOT A STRING
+     * ------------------------------------------
+     * It used to build each part as a PHP string. That made peak memory a MULTIPLE of the part
+     * size — the accumulating buffer, the transient copy every `.=` concatenation makes, and the
+     * SDK's own copy when it turns the string into a request body — so a 16 MiB part could need
+     * ~50 MiB of headroom on top of the application baseline. Uploading a backup then died on
+     * PHP's default 128 MiB limit, and the failure had nothing to do with how large the backup
+     * was: a 105 MiB artifact and a 10 GiB one both upload in 16 MiB parts and both fell over.
+     *
+     * Raising memory_limit "fixes" that only until the part size or the baseline moves. Writing
+     * each part to `php://temp` bounds resident memory to MAX_PART_MEMORY_BYTES no matter how
+     * large the part or the object is; anything beyond that threshold spills to a temporary file
+     * that PHP removes when the handle closes. The SDK streams the part from that handle straight
+     * to the socket and takes Content-Length from fstat, so no copy is ever materialised.
+     *
+     * The source itself is still read strictly forward and never seeked, which is what keeps this
+     * usable for a pipe (a `pg_dump` on stdout has no length and cannot rewind).
+     *
+     * @param  resource $stream
+     * @return array{0: resource, 1: int} the part handle, rewound for reading, and its exact size
      */
-    private function readPart(mixed $stream, int $target): string
+    private function readPart(mixed $stream, int $target): array
     {
-        $buffer = '';
+        $part = fopen('php://temp/maxmemory:' . self::MAX_PART_MEMORY_BYTES, 'w+b');
 
-        while (\strlen($buffer) < $target && !feof($stream)) {
-            $read = fread($stream, $target - \strlen($buffer));
+        if ($part === false) {
+            throw new ObjectStoreException(
+                sprintf('%s: could not open a temporary buffer for the upload part.', $this->provider),
+            );
+        }
+
+        $written = 0;
+
+        while ($written < $target && !feof($stream)) {
+            $read = fread($stream, min(self::READ_CHUNK_BYTES, $target - $written));
+
             if ($read === false) {
+                fclose($part);
+
                 throw new ObjectStoreException(sprintf('%s: failed reading the upload stream.', $this->provider));
             }
+
             if ($read === '') {
                 break; // blocking sources return '' only at EOF
             }
-            $buffer .= $read;
+
+            if (fwrite($part, $read) === false) {
+                fclose($part);
+
+                throw new ObjectStoreException(
+                    sprintf('%s: failed buffering the upload part.', $this->provider),
+                );
+            }
+
+            $written += \strlen($read);
         }
 
-        return $buffer;
+        rewind($part);
+
+        return [$part, $written];
+    }
+
+    /**
+     * @param resource $part
+     */
+    private function closePart(mixed $part): void
+    {
+        if (\is_resource($part)) {
+            fclose($part); // php://temp discards its backing file here
+        }
     }
 
     /**

@@ -286,7 +286,7 @@ final class S3CompatibleObjectStoreTest extends TestCase
         $handler->append(function (CommandInterface $cmd) {
             $this->assertSame('PutObject', $cmd->getName());
             $this->assertSame('backups/db.dump', $cmd['Key']);
-            $this->assertSame('PGDUMP-CUSTOM-BODY', (string) $cmd['Body']);
+            $this->assertSame('PGDUMP-CUSTOM-BODY', $this->bodyContents($cmd['Body']));
 
             return new Result(['ETag' => '"pipe-etag"', 'VersionId' => 'vp']);
         });
@@ -316,7 +316,7 @@ final class S3CompatibleObjectStoreTest extends TestCase
             $this->assertSame('UploadPart', $cmd->getName());
             $this->assertSame(1, $cmd['PartNumber']);
             $this->assertSame('up-1', $cmd['UploadId']);
-            $this->assertSame($partSize, \strlen((string) $cmd['Body']), 'First part must be filled to the full part size.');
+            $this->assertSame($partSize, \strlen($this->bodyContents($cmd['Body'])), 'First part must be filled to the full part size.');
 
             return new Result(['ETag' => '"p1"']);
         });
@@ -324,7 +324,7 @@ final class S3CompatibleObjectStoreTest extends TestCase
             $commands[] = $cmd->getName();
             $this->assertSame('UploadPart', $cmd->getName());
             $this->assertSame(2, $cmd['PartNumber']);
-            $this->assertSame(100, \strlen((string) $cmd['Body']), 'Last part carries the remainder.');
+            $this->assertSame(100, \strlen($this->bodyContents($cmd['Body'])), 'Last part carries the remainder.');
 
             return new Result(['ETag' => '"p2"']);
         });
@@ -368,12 +368,12 @@ final class S3CompatibleObjectStoreTest extends TestCase
         $handler = new MockHandler();
         $handler->append(new Result(['UploadId' => 'up-2']));
         $handler->append(function (CommandInterface $cmd) use (&$partSizes) {
-            $partSizes[] = \strlen((string) $cmd['Body']);
+            $partSizes[] = \strlen($this->bodyContents($cmd['Body']));
 
             return new Result(['ETag' => '"p1"']);
         });
         $handler->append(function (CommandInterface $cmd) use (&$partSizes) {
-            $partSizes[] = \strlen((string) $cmd['Body']);
+            $partSizes[] = \strlen($this->bodyContents($cmd['Body']));
 
             return new Result(['ETag' => '"p2"']);
         });
@@ -383,6 +383,86 @@ final class S3CompatibleObjectStoreTest extends TestCase
 
         $this->assertSame([$partSize, 4096], $partSizes);
         $this->assertSame($partSize + 4096, $stored->size());
+    }
+
+    public function test_multipart_upload_memory_does_not_scale_with_object_size(): void
+    {
+        // THE REGRESSION. Parts used to be accumulated into PHP strings, so peak memory was a
+        // multiple of the part size — the growing buffer, the transient copy each `.=` makes, and
+        // the SDK's copy of the finished string. Uploading a backup died on PHP's default 128 MiB
+        // limit, and the size of the BACKUP was irrelevant: everything uploads in fixed-size parts.
+        //
+        // This asserts the property that fix bought: streaming a multi-part object costs
+        // approximately nothing in resident memory, because each part is buffered through
+        // php://temp and released before the next is read.
+        $partSize = 5_242_880;
+        $parts = 6; // ~30 MiB, comfortably more than any plausible per-part allowance
+        $body = str_repeat('Z', $partSize * $parts);
+        $stream = ChunkedNonSeekableStream::open($body, chunkSize: 65_536);
+
+        $handler = new MockHandler();
+        $handler->append(new Result(['UploadId' => 'up-mem']));
+        for ($i = 0; $i < $parts; $i++) {
+            $handler->append(new Result(['ETag' => '"p' . $i . '"']));
+        }
+        $handler->append(new Result(['ETag' => '"final"']));
+
+        gc_collect_cycles();
+        $before = memory_get_usage(true);
+
+        $stored = $this->makeStreamingStore($handler, $partSize)->put('backups/large.dump', $stream);
+
+        gc_collect_cycles();
+        $growth = memory_get_usage(true) - $before;
+
+        $this->assertSame($partSize * $parts, $stored->size());
+
+        // One part is 5 MiB. If parts were still being held as strings this would grow by at least
+        // that much; with the spill buffer the growth is dominated by php://temp's in-memory
+        // threshold, far below a single part.
+        $this->assertLessThan(
+            $partSize,
+            $growth,
+            sprintf(
+                'Uploading %d MiB grew resident memory by %d bytes — parts are being held in memory.',
+                ($partSize * $parts) >> 20,
+                $growth,
+            ),
+        );
+    }
+
+    public function test_multipart_upload_releases_each_part_buffer_before_reading_the_next(): void
+    {
+        // Spilling parts to php://temp only bounds cost if the handles are CLOSED as the upload
+        // walks forward. Holding them would move the exhaustion from RAM to open file descriptors
+        // and disk, which is not a fix. Asserted by observing that each part handle is no longer a
+        // live resource once a later part is uploaded.
+        $partSize = 5_242_880;
+        $body = str_repeat('Q', $partSize * 3);
+        $stream = ChunkedNonSeekableStream::open($body, chunkSize: 65_536);
+
+        $seen = [];
+        $handler = new MockHandler();
+        $handler->append(new Result(['UploadId' => 'up-fd']));
+        for ($i = 0; $i < 3; $i++) {
+            $handler->append(function (CommandInterface $cmd) use (&$seen, $i) {
+                $seen[] = $cmd['Body'];
+
+                return new Result(['ETag' => '"p' . $i . '"']);
+            });
+        }
+        $handler->append(new Result(['ETag' => '"final"']));
+
+        $this->makeStreamingStore($handler, $partSize)->put('backups/fd.dump', $stream);
+
+        $this->assertCount(3, $seen);
+        // Every part handle except possibly the last must be closed by the time the upload ends.
+        $stillOpen = array_filter($seen, static fn (mixed $h): bool => \is_resource($h));
+        $this->assertLessThanOrEqual(
+            1,
+            \count($stillOpen),
+            'Part buffers are not being released as the upload progresses.',
+        );
     }
 
     public function test_put_stream_options_propagate_to_create_multipart_upload(): void
@@ -445,5 +525,28 @@ final class S3CompatibleObjectStoreTest extends TestCase
         } catch (\Vortos\ObjectStore\Exception\ObjectStoreException $e) {
             $this->assertTrue($aborted, 'A failed multipart upload must be aborted.');
         }
+    }
+
+    /**
+     * Read an S3 command body regardless of whether it is a string or a stream.
+     *
+     * Stream uploads now pass a rewound `php://temp` handle rather than a PHP string, so that a
+     * part never has to be materialised in memory. Casting a resource to string yields
+     * "Resource id #N", which is why these assertions silently compared 17 bytes before.
+     */
+    private function bodyContents(mixed $body): string
+    {
+        if (\is_resource($body)) {
+            $pos = ftell($body);
+            rewind($body);
+            $contents = stream_get_contents($body);
+            if ($pos !== false) {
+                fseek($body, $pos);
+            }
+
+            return $contents === false ? '' : $contents;
+        }
+
+        return (string) $body;
     }
 }

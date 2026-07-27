@@ -452,8 +452,13 @@ final class AuditExtension extends Extension
                 ->setPublic(false);
         }
 
-        $metricsRef = interface_exists($metricsIface) && ($container->has($metricsIface) || $container->hasAlias($metricsIface))
-            ? new Reference($metricsIface)
+        // interface_exists ONLY — "is vortos-metrics installed?" is order-free. Whether its
+        // extension has REGISTERED the service yet is not, and asking here froze the answer: on a
+        // deployment where metrics were configured, audit metrics could still resolve to null and
+        // silently record nothing. NULL_ON_INVALID_REFERENCE asks the container after every
+        // extension has loaded, which is the same question answered at a time it can be answered.
+        $metricsRef = interface_exists($metricsIface)
+            ? new Reference($metricsIface, ContainerInterface::NULL_ON_INVALID_REFERENCE)
             : null;
         $container->register(AuditMetrics::class, AuditMetrics::class)
             ->setArgument('$metrics', $metricsRef)

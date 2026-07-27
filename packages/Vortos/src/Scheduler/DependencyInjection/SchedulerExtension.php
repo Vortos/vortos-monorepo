@@ -313,31 +313,14 @@ final class SchedulerExtension extends Extension
                 ->setPublic(false);
         }
 
-        // RBAC policy: real implementation when vortos-authorization is installed,
-        // NullSchedulePolicy otherwise.
-        $policyEngineClass = 'Vortos\Authorization\Engine\PolicyEngine';
-        if (class_exists($policyEngineClass) && $container->hasDefinition($policyEngineClass)) {
-            // Register resource policy and permission catalog (tagged for auto-discovery)
-            $container->register(SchedulerResourcePolicy::class, SchedulerResourcePolicy::class)
-                ->addTag('vortos.policy', ['resource' => 'scheduler'])
-                ->setPublic(false);
-
-            $container->register(SchedulerPermissionCatalog::class, SchedulerPermissionCatalog::class)
-                ->addTag('vortos.permission_catalog', ['resource' => 'scheduler'])
-                ->setPublic(false);
-
-            $container->register(SchedulePolicy::class, SchedulePolicy::class)
-                ->setArgument('$policyEngine', new Reference($policyEngineClass))
-                ->setPublic(false);
-
-            $container->setAlias(SchedulePolicyInterface::class, SchedulePolicy::class);
-        } else {
-            $container->register(NullSchedulePolicy::class, NullSchedulePolicy::class)
-                ->setArgument('$logger', new Reference(LoggerInterface::class))
-                ->setPublic(false);
-
-            $container->setAlias(SchedulePolicyInterface::class, NullSchedulePolicy::class);
-        }
+        // RBAC policy is wired by SchedulePolicyWiringPass.
+        //
+        // Deciding here meant `class_exists($engine) && $container->hasDefinition($engine)` — and
+        // hasDefinition() during load() is a race against vortos-authorization's extension. Losing
+        // it silently aliased SchedulePolicyInterface to NullSchedulePolicy, so the scheduler's
+        // authorisation checks permitted everything on a deployment that HAS authorization
+        // installed. A security control that fails open because of extension ordering is the worst
+        // version of this defect: nothing errors and nothing logs.
     }
 
     private function registerAudit(ContainerBuilder $container, array $config): void

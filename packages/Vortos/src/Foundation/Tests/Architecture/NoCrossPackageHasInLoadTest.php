@@ -106,11 +106,34 @@ final class NoCrossPackageHasInLoadTest extends TestCase
         }
 
         $imports = self::imports($source);
+        $literals = self::stringVariables($source);
         $lines = explode("\n", $source);
         $violations = [];
 
         foreach ($lines as $i => $line) {
-            if (!preg_match_all('/->(?:has|hasDefinition|hasAlias)\(\s*\\\\?([A-Za-z0-9_\\\\]+)::class/', $line, $m)) {
+            $refs = [];
+
+            if (preg_match_all('/->(?:has|hasDefinition|hasAlias)\(\s*\\\\?([A-Za-z0-9_\\\\]+)::class/', $line, $m)) {
+                $refs = $m[1];
+            }
+
+            // A has() on a VARIABLE holding a class name is the same race, and used to be invisible
+            // here. Two real defects hid behind exactly this:
+            //   AuditExtension     — $metricsIface (vortos-metrics), so audit metrics silently
+            //                        resolved to null and recorded nothing.
+            //   SchedulerExtension — $policyEngineClass (vortos-authorization), so the scheduler's
+            //                        RBAC policy silently degraded to NullSchedulePolicy: a
+            //                        security control failing OPEN because of extension ordering.
+            // Variables assigned a literal FQCN in the same file are resolved and checked.
+            if (preg_match_all('/->(?:has|hasDefinition|hasAlias)\(\s*\$([A-Za-z_][A-Za-z0-9_]*)/', $line, $vm)) {
+                foreach ($vm[1] as $variable) {
+                    if (isset($literals[$variable])) {
+                        $refs[] = $literals[$variable];
+                    }
+                }
+            }
+
+            if ($refs === []) {
                 continue;
             }
 
@@ -132,7 +155,7 @@ final class NoCrossPackageHasInLoadTest extends TestCase
             // `if (interface_exists(X)) { ...new Reference(X, NULL_ON_INVALID_REFERENCE) }`. That
             // form contains no has() and is not matched by this rule.
 
-            foreach ($m[1] as $ref) {
+            foreach ($refs as $ref) {
                 $fqcn = self::resolve($ref, $imports);
 
                 // Shared infrastructure whose CLASS is third-party but whose SERVICE is registered
@@ -172,6 +195,28 @@ final class NoCrossPackageHasInLoadTest extends TestCase
             . "inside load(). Move the cross-package decision into a CompilerPass "
             . "(PackageInterface::build()). Offenders:\n  - " . implode("\n  - ", $violations),
         );
+    }
+
+    /**
+     * Variables assigned a literal class-name string, e.g. `$engine = 'Vortos\\Foo\\Bar';`.
+     *
+     * Only literal assignments are resolved. A genuinely computed id cannot be attributed to a
+     * package and is still out of scope — but a constant string in a variable is exactly as
+     * order-dependent as writing the class inline, and hiding behind one should not exempt it.
+     *
+     * @return array<string, string> variable name => FQCN
+     */
+    private static function stringVariables(string $source): array
+    {
+        $map = [];
+
+        if (preg_match_all('/\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\'((?:[A-Za-z0-9_]+\\\\)+[A-Za-z0-9_]+)\'\s*;/', $source, $rows, \PREG_SET_ORDER)) {
+            foreach ($rows as $row) {
+                $map[$row[1]] = $row[2];
+            }
+        }
+
+        return $map;
     }
 
     private static function ownPackage(string $source): ?string

@@ -208,7 +208,7 @@ final class DrillRunnerTest extends TestCase
     public function test_no_backup_artifact_throws(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/No restorable backup artifact/');
+        $this->expectExceptionMessageMatches('/No drillable backup artifact/');
 
         $this->drillRunner()->run(DatabaseEngine::Postgres, 'prod');
     }
@@ -263,5 +263,29 @@ final class DrillRunnerTest extends TestCase
 
         $this->assertFalse($report->passed());
         $this->assertContains(BackupEvent::TYPE_DRILL_FAILED, $this->events->types());
+    }
+
+    /**
+     * The drill must never select an artifact kind its restore target cannot consume.
+     *
+     * physical_base is a tar of a data directory; restoring it is point-in-time recovery. The
+     * Postgres target runs `pg_restore` and declares point_in_time => false, so handing it a base
+     * backup fails for a reason unrelated to whether the backup is any good.
+     *
+     * This was latent rather than harmless. While object-store reads buffered the whole object, a
+     * 100 MB base could not be read back at all, so the newest RESTORABLE artifact was always a
+     * ~2.5 MB logical dump and the drill silently stayed on the working path. Fixing the read path
+     * would have made the drill start picking the base — the streaming fix breaking the very alarm
+     * meant to watch the backups.
+     *
+     * Asserted through the no-artifact error, which names exactly the kinds considered eligible.
+     */
+    public function test_physical_base_is_not_eligible_when_target_cannot_do_point_in_time(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/logical_full\/mongo_archive/');
+        $this->expectExceptionMessageMatches('/point_in_time/');
+
+        $this->drillRunner()->run(DatabaseEngine::Postgres, 'prod');
     }
 }

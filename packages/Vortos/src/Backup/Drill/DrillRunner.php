@@ -15,6 +15,7 @@ use Vortos\Backup\Event\BackupEvent;
 use Vortos\Backup\Event\BackupEventSinkInterface;
 use Vortos\Backup\Port\BackupStoreInterface;
 use Vortos\Backup\Port\BackupStoreRegistry;
+use Vortos\Backup\Restore\Capability\RestoreTargetCapability;
 use Vortos\Backup\Restore\RestoreCoordinator;
 use Vortos\Backup\Restore\RestoreRequest;
 use Vortos\Secrets\Key\KeyProviderInterface;
@@ -51,16 +52,33 @@ final class DrillRunner
         // report a pass having proved nothing about whether the database can actually be recovered.
         // A restore drill that can silently assert nothing is the most dangerous component in a
         // backup system, because it is the thing everyone points at to justify confidence.
-        $artifact = $this->catalog->latestOfKind(
-            $engine,
-            $environment,
-            [BackupKind::LogicalFull, BackupKind::PhysicalBase, BackupKind::MongoArchive],
-        );
+        //
+        // It must also never be a kind the configured restore target cannot consume.
+        //
+        // physical_base is a TAR OF A DATA DIRECTORY. Restoring it means laying the directory down
+        // and replaying WAL — point-in-time recovery. The Postgres target restores through
+        // `pg_restore`, a logical tool, and honestly declares PointInTime => false; handing it a
+        // base backup fails for a reason that has nothing to do with whether the backup is good.
+        //
+        // This mattered the moment object-store streaming was fixed. Before that a 100 MB base
+        // could not even be read back (it exhausted the memory limit), so the newest RESTORABLE
+        // artifact was always a ~2.5 MB logical dump and the drill quietly stayed on the path that
+        // worked. Fixing the read path would have made this pick the base instead and turned a
+        // green weekly drill red — the fix breaking the alarm that was supposed to watch it.
+        $candidateKinds = [BackupKind::LogicalFull, BackupKind::MongoArchive];
+
+        if ($this->targetSupportsPointInTime($engine)) {
+            $candidateKinds[] = BackupKind::PhysicalBase;
+        }
+
+        $artifact = $this->catalog->latestOfKind($engine, $environment, $candidateKinds);
 
         if ($artifact === null) {
             throw new \RuntimeException(sprintf(
-                'No restorable backup artifact (logical_full/physical_base/mongo_archive) found for '
-                . '%s/%s — cannot drill. WAL segments alone are not restorable without a base.',
+                'No drillable backup artifact (%s) found for %s/%s — cannot drill. WAL segments '
+                . 'alone are not restorable without a base, and physical_base is only drillable by '
+                . 'a restore target declaring the point_in_time capability.',
+                implode('/', array_map(static fn (BackupKind $k): string => $k->value, $candidateKinds)),
                 $engine->value,
                 $environment,
             ));
@@ -214,5 +232,23 @@ final class DrillRunner
             'password' => isset($parsed['pass']) ? urldecode($parsed['pass']) : '',
             'dbname' => ltrim($parsed['path'] ?? '/postgres', '/'),
         ];
+    }
+
+    /**
+     * Can the configured restore target actually perform a point-in-time (physical) restore?
+     *
+     * Answered from the target's own capability descriptor rather than assumed, so a future target
+     * that gains the capability starts being drilled with base backups automatically, and one that
+     * lacks it is never handed an artifact it cannot consume.
+     */
+    private function targetSupportsPointInTime(DatabaseEngine $engine): bool
+    {
+        try {
+            $target = $this->restoreCoordinator->targetFor($engine);
+        } catch (\Throwable) {
+            return false; // no target registered for this engine — nothing is drillable anyway
+        }
+
+        return $target->capabilities()->supports(RestoreTargetCapability::PointInTime);
     }
 }

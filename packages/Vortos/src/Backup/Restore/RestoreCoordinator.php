@@ -6,8 +6,10 @@ namespace Vortos\Backup\Restore;
 
 use Vortos\Backup\Crypto\EnvelopeStreamCipher;
 use Vortos\Backup\Domain\BackupArtifact;
+use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\Exception\IntegrityException;
 use Vortos\Backup\Port\BackupStoreInterface;
+use Vortos\Backup\Restore\RestoreTargetInterface;
 use Vortos\Secrets\Key\KeyProviderInterface;
 
 /**
@@ -23,6 +25,18 @@ final class RestoreCoordinator
         private readonly EnvelopeStreamCipher $cipher,
         private readonly ?KeyProviderInterface $keyProvider,
     ) {}
+
+    /**
+     * The target that would handle this engine.
+     *
+     * Exposed so callers can ask what a restore is CAPABLE of before choosing what to hand it —
+     * the drill uses it to avoid selecting a physical_base for a target that only speaks
+     * `pg_restore`, which would fail for a reason unrelated to the backup's health.
+     */
+    public function targetFor(DatabaseEngine $engine): RestoreTargetInterface
+    {
+        return $this->targets->target($engine->value);
+    }
 
     public function restore(
         BackupArtifact $artifact,

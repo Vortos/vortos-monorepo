@@ -64,7 +64,14 @@ SUBJECT="$(git -C "$ROOT" log -1 --pretty=%B)"
 SOURCE_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+
+# Leave the directory before deleting it, and never let cleanup decide the job's fate.
+#
+# The first version was `trap 'rm -rf "$WORK"' EXIT`, and the script cd's INTO $WORK to do its work.
+# Removing your own working directory leaves `rm` unable to unlink it — "cannot remove '.git':
+# Directory not empty" — and a failing EXIT trap sets the script's exit status, so a split that had
+# already completed correctly reported failure. It printed "no content change" and then exited 1.
+trap 'cd / 2>/dev/null || true; rm -rf "$WORK" 2>/dev/null || true' EXIT
 
 # The token is placed in the remote URL of a throwaway clone that is deleted on exit, and is never
 # written into the repository's own config that gets pushed.

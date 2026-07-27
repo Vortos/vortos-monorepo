@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Pipeline\Definition;
 
+use Vortos\Pipeline\Model\ReleaseTrigger;
+
 use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Model\BuildMode;
 use Vortos\Pipeline\Model\ServiceContainer;
@@ -66,6 +68,12 @@ final readonly class PipelineDefinition
         public array $testSteps = [],
         // ── Deploy/trigger branch (B3) ──
         public string $deploymentBranch = 'main',
+        /**
+         * What causes a release. Drives BOTH the `on:` block and every deploy-bearing job's `if:`,
+         * so the two cannot disagree — a workflow whose trigger matched a tag while its job
+         * condition did not ran and deployed nothing while reporting success.
+         */
+        public ReleaseTrigger $releaseTrigger = ReleaseTrigger::Branch,
         // ── Deploy-on-target coordinates (G1) ──
         public string $remoteDeployDir = '/opt/vortos',
         public string $appNetwork = 'vortos-net',

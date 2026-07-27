@@ -22,6 +22,7 @@ use Vortos\Pipeline\Model\SplitPackage;
 use Vortos\Pipeline\Model\Stage;
 use Vortos\Pipeline\Model\StageCatalog;
 use Vortos\Pipeline\Model\StageKind;
+use Vortos\Pipeline\Model\ReleaseTrigger;
 use Vortos\Pipeline\Model\Trigger;
 use Vortos\Pipeline\Model\TriggerEvent;
 use Vortos\Pipeline\Registry\CiRegistryLoginProviderInterface;
@@ -670,26 +671,42 @@ final class PipelineBuilder
                 ),
                 failFast: false,
             ),
-            condition: sprintf("github.ref == 'refs/heads/%s' || github.ref_type == 'tag'", $definition->deploymentBranch),
+            condition: $definition->releaseTrigger === ReleaseTrigger::Tag
+                ? "github.ref_type == 'tag'"
+                : sprintf("github.ref == 'refs/heads/%s' || github.ref_type == 'tag'", $definition->deploymentBranch),
         )];
     }
 
     /** @return list<Trigger> */
     private function buildTriggers(PipelineDefinition $definition): array
     {
-        return [
-            new Trigger(TriggerEvent::Push, branches: [$definition->deploymentBranch], tags: ['*']),
-            new Trigger(TriggerEvent::PullRequest),
+        // Tag-only releases must not carry a branch trigger: if the `on:` block matches a branch
+        // while the deploy job's condition matches only tags, the workflow runs and deploys
+        // nothing, reporting success. Both sides derive from the same declared mode.
+        $triggers = [
+            $definition->releaseTrigger === ReleaseTrigger::Tag
+                ? new Trigger(TriggerEvent::Push, tags: ['*'])
+                : new Trigger(TriggerEvent::Push, branches: [$definition->deploymentBranch], tags: ['*']),
         ];
+
+        if ($definition->releaseTrigger->includesPullRequests()) {
+            $triggers[] = new Trigger(TriggerEvent::PullRequest);
+        }
+
+        return $triggers;
     }
 
     /** A push to the configured deployment branch (B3). */
+    /**
+     * The condition a deploy-bearing job carries, derived from the declared release trigger.
+     *
+     * One source of truth so this can never disagree with the emitted `on:` block. When they did
+     * disagree the workflow ran on a tag and then skipped its deploy job — a green run that shipped
+     * nothing.
+     */
     private function pushToDeploymentBranchCondition(PipelineDefinition $definition): string
     {
-        return sprintf(
-            "github.ref == 'refs/heads/%s' && github.event_name == 'push'",
-            $definition->deploymentBranch,
-        );
+        return $definition->releaseTrigger->jobCondition($definition->deploymentBranch);
     }
 
     /**

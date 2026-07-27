@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Pipeline\Definition;
 
+use Vortos\Pipeline\Model\ReleaseTrigger;
+
 use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Model\BuildMode;
 use Vortos\Pipeline\Model\ServiceContainer;
@@ -46,6 +48,7 @@ final class PipelineDefinitionBuilder
     /** @var list<array{name: string, run: string}> */
     private array $testSteps = [];
     private string $deploymentBranch = 'main';
+    private ReleaseTrigger $releaseTrigger = ReleaseTrigger::Branch;
     private string $remoteDeployDir = '/opt/vortos';
     private string $appNetwork = 'vortos-net';
     /** @var list<string> */
@@ -298,6 +301,21 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    /**
+     * Release only when a tag is pushed, or on a push to the deployment branch.
+     *
+     * Expressed once here because it has to hold in two emitted places at the same time — the
+     * workflow's `on:` block and each deploy-bearing job's `if:`. Setting them separately by hand
+     * is how a regenerated pipeline ended up triggering on tags while refusing to deploy on them.
+     */
+    public function releaseTrigger(ReleaseTrigger $trigger): self
+    {
+        $clone = clone $this;
+        $clone->releaseTrigger = $trigger;
+
+        return $clone;
+    }
+
     public function deploymentBranch(string $branch): self
     {
         $clone = clone $this;
@@ -473,6 +491,7 @@ final class PipelineDefinitionBuilder
             testServiceContainers: $this->testServiceContainers,
             testSteps: $this->testSteps,
             deploymentBranch: $this->deploymentBranch,
+            releaseTrigger: $this->releaseTrigger,
             remoteDeployDir: $this->remoteDeployDir,
             appNetwork: $this->appNetwork,
             runtimeEnvFiles: $this->runtimeEnvFiles,

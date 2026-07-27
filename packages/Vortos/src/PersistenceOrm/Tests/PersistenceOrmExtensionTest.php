@@ -30,6 +30,25 @@ final class PersistenceOrmExtensionTest extends TestCase
         EntityManagerFactory::fromDsn('', [sys_get_temp_dir()]);
     }
 
+    public function test_it_never_falls_back_to_doctrines_hardcoded_localhost_redis(): void
+    {
+        // ORMSetup::createCacheInstance() ends in `$redis->connect('127.0.0.1')` when no cache is
+        // supplied and ext-redis is loaded — which it is in our images. A null metadata cache
+        // therefore made EntityManager construction depend on something listening on loopback
+        // INSIDE the container, and failed as "RedisException: Connection refused" from deep inside
+        // Doctrine, pointing nowhere near the real cause.
+        //
+        // Constructing with no cache must succeed on its own merits.
+        $em = EntityManagerFactory::fromDsn(
+            'sqlite:///:memory:',
+            [sys_get_temp_dir()],
+            devMode: false,
+            metadataCache: null,
+        );
+
+        $this->assertNotNull($em->getConfiguration()->getMetadataCache());
+    }
+
     public function test_production_proxies_are_generated_on_first_miss_not_never(): void
     {
         // Regression: ORMSetup defaults prod ($devMode === false) to

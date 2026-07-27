@@ -11,6 +11,7 @@ use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\ORMSetup;
 use Doctrine\ORM\Proxy\ProxyFactory;
 use Psr\Cache\CacheItemPoolInterface;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Vortos\PersistenceOrm\Tenant\TenantScopedEntityRegistry;
 
 /**
@@ -69,10 +70,25 @@ final class EntityManagerFactory
         // Load the precomputed tenant-scoped entity map before any query can run.
         TenantScopedEntityRegistry::load($scopedEntities);
 
+        // NEVER hand Doctrine a null cache.
+        //
+        // ORMSetup::createCacheInstance() falls back through apcu → memcached → redis when no cache
+        // is given, and its Redis branch is a hardcoded `$redis->connect('127.0.0.1')`. So on any
+        // image with ext-redis loaded — which ours is — a null cache means the EntityManager cannot
+        // be constructed unless something happens to be listening on localhost:6379 INSIDE that
+        // container. Nothing in this framework guarantees that, and the failure surfaces as
+        // "RedisException: Connection refused" from deep inside ORMSetup, which points nowhere near
+        // the real cause: no metadata cache was configured.
+        //
+        // Production normally gets a real cache patched in by OrmMetadataCachePass. This is the
+        // floor for every path that does not: an in-process ArrayAdapter, which is correct (metadata
+        // is rebuilt per process, exactly as an uncached setup intends) and, more importantly,
+        // deterministic — it cannot depend on which extensions are loaded or what is listening on a
+        // loopback port.
         $config = ORMSetup::createAttributeMetadataConfiguration(
             paths: $entityPaths,
             isDevMode: $devMode,
-            cache: $metadataCache,
+            cache: $metadataCache ?? new ArrayAdapter(),
         );
 
         // ORMSetup sets AutoGenerateProxyClasses to !isDevMode → in production

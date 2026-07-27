@@ -521,8 +521,21 @@ final class PipelineBuilder
      */
     private function sshInvocation(string $remoteScript): string
     {
+        // ServerAliveInterval is not optional here.
+        //
+        // A deploy runs long, mostly-silent steps over ONE ssh session — migrations, provisioning,
+        // the health gate, cache warmup. Cache warmup alone can sit quiet for minutes. With no
+        // keepalive, an idle NAT/firewall hop between the runner and the box drops the connection
+        // and ssh exits 255 with `client_loop: send disconnect: Broken pipe`, failing a deploy that
+        // was doing nothing wrong. Observed mid-warmup after ~4 minutes of silence.
+        //
+        // The failure is also ambiguous in the worst way: the remote script may have completed,
+        // partially completed, or not run at all, and the transport cannot say which. Keeping the
+        // channel alive removes an entire class of false deploy failures whose blast radius is
+        // "someone has to go and find out what actually happened on the box".
         $ssh = 'ssh -i ~/.ssh/vortos_deploy '
             . '-o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts '
+            . '-o ServerAliveInterval=30 -o ServerAliveCountMax=20 '
             . '-p "${VORTOS_DEPLOY_PORT:-22}" "${VORTOS_DEPLOY_USER:-deploy}@${VORTOS_DEPLOY_HOST}"';
 
         return $ssh . " 'bash -euo pipefail -s' <<'VORTOS_REMOTE'\n" . rtrim($remoteScript, "\n") . "\nVORTOS_REMOTE\n";

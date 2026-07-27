@@ -38,6 +38,7 @@ use Vortos\Deploy\Preflight\Check\CanaryAnalyzerReadyCheck;
 use Vortos\Deploy\Preflight\Check\CapabilityDescriptorCheck;
 use Vortos\Deploy\Preflight\Check\CredentialCheck;
 use Vortos\Deploy\Preflight\Check\DeployStateDurabilityCheck;
+use Vortos\Deploy\Preflight\Check\ReleaseRecordTruthfulnessCheck;
 use Vortos\Deploy\Preflight\Check\DriverSetCheck;
 use Vortos\Deploy\Preflight\Check\EnvFileReadabilityCheck;
 use Vortos\Deploy\Preflight\Check\RootlessWorkerCheck;
@@ -1101,6 +1102,16 @@ final class DeployExtension extends Extension
             ->setArgument('$pushDelivery', $deliveryMode === 'push')
             ->setArgument('$hasRemoteHost', (string) ($_ENV['VORTOS_DEPLOY_HOST'] ?? '') !== '')
             ->setArgument('$redisConfigured', ($_ENV['REDIS_DSN'] ?? $_ENV['REDIS_HOST'] ?? '') !== '')
+            ->addTag(self::PREFLIGHT_CHECK_TAG)
+            ->setPublic(false);
+
+        // Refuse a deploy when the recorded current release disagrees with what is running. A
+        // deploy re-run after a failed health gate short-circuited on idempotency, restaged nothing,
+        // and still recorded the desired digest — so the control plane asserted an image was live
+        // that ran nowhere, and every later deploy of that digest no-op'd as "already applied".
+        $container->register(ReleaseRecordTruthfulnessCheck::class, ReleaseRecordTruthfulnessCheck::class)
+            ->setArgument('$releases', new Reference(CurrentReleaseStoreInterface::class))
+            ->setArgument('$targets', new Reference(DeployTargetRegistry::class))
             ->addTag(self::PREFLIGHT_CHECK_TAG)
             ->setPublic(false);
 

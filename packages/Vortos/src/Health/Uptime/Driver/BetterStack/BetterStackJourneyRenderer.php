@@ -38,6 +38,14 @@ use Vortos\Health\Uptime\MonitorDescriptor;
  */
 final class BetterStackJourneyRenderer
 {
+    /**
+     * @param string $baseUrl absolute origin the journey's path templates hang off, e.g.
+     *        "https://api.example.com". A JourneyStep carries a PATH, deliberately — the journey
+     *        describes what to assert, not where the deployment lives — so the origin has to be
+     *        supplied here or the payload is unusable.
+     */
+    public function __construct(private readonly string $baseUrl = '') {}
+
     /** @return array<string, mixed> */
     public function render(MonitorDescriptor $descriptor): array
     {
@@ -47,7 +55,15 @@ final class BetterStackJourneyRenderer
             // `keyword` asserts the response BODY as well as the status. `status` would pass on any
             // 2xx, which is precisely the degraded case a health endpoint exists to reveal.
             'monitor_type' => 'keyword',
-            'url' => $step->pathTemplate,
+            // ABSOLUTE. This used to emit $step->pathTemplate — a bare "/health/ready".
+            //
+            // Better Stack monitors a URL, so a relative path is not a monitor it can create; and
+            // the client locates an existing monitor by matching this value against the stored
+            // `url`, which is absolute. A bare path therefore both failed to create a valid monitor
+            // AND failed to recognise the monitor already watching that endpoint — so a sync would
+            // have added a duplicate rather than updating. That is why production's monitor was
+            // made by hand and `uptime_sync` was empty: this command had never once worked.
+            'url' => $this->absoluteUrl($step->pathTemplate),
             'required_keyword' => $step->bodyContains,
             'pronounceable_name' => $this->describeCoverage($descriptor, $step),
             'check_frequency' => $descriptor->intervalSeconds,
@@ -102,5 +118,14 @@ final class BetterStackJourneyRenderer
         }
 
         return sprintf('%s (1 of %d steps: %s)', $descriptor->name, $total, $asserting->pathTemplate);
+    }
+
+    private function absoluteUrl(string $pathTemplate): string
+    {
+        if ($this->baseUrl === '' || preg_match('#^https?://#i', $pathTemplate) === 1) {
+            return $pathTemplate;
+        }
+
+        return rtrim($this->baseUrl, '/') . '/' . ltrim($pathTemplate, '/');
     }
 }

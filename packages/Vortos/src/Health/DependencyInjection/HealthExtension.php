@@ -204,7 +204,11 @@ final class HealthExtension extends Extension
             ->setArgument('$tokenEnvVar', (string) ($_ENV['UPTIME_MONITOR_BETTERSTACK_TOKEN_VAR'] ?? 'UPTIME_MONITOR_BETTERSTACK_TOKEN'))
             ->setPublic(false);
 
-        $container->register(BetterStackJourneyRenderer::class, BetterStackJourneyRenderer::class)->setPublic(false);
+        // Declared env reference: the origin is a property of the deployment, not of the build.
+        $container->setParameter('env(APP_URL)', '');
+        $container->register(BetterStackJourneyRenderer::class, BetterStackJourneyRenderer::class)
+            ->setArgument('$baseUrl', '%env(string:APP_URL)%')
+            ->setPublic(false);
 
         $container->register(BetterStackUptimeMonitor::class, BetterStackUptimeMonitor::class)
             ->setArgument('$client', new Reference(BetterStackClient::class))

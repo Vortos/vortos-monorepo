@@ -134,4 +134,49 @@ final class BetterStackJourneyRendererTest extends TestCase
         $this->expectException(MonitorSyncException::class);
         (new BetterStackJourneyRenderer())->render($descriptor);
     }
+
+    /**
+     * The payload URL must be ABSOLUTE when a base URL is configured.
+     *
+     * Better Stack monitors a URL, so "/health/ready" is not something it can create a monitor for.
+     * Worse, BetterStackClient locates an existing monitor by matching this value against the
+     * stored `url`, which is absolute — so a relative path also fails to recognise the monitor
+     * already watching that endpoint and would add a duplicate instead of updating it.
+     *
+     * That combination is why production's monitor was created by hand and `vortos.uptime_sync`
+     * was empty: `health:monitor:sync --apply` had never once succeeded.
+     */
+    public function testItRendersAnAbsoluteUrlFromTheConfiguredBase(): void
+    {
+        $descriptor = new MonitorDescriptor(
+            key: 'prod.api',
+            name: 'API',
+            journey: new SyntheticJourney('api', [
+                new JourneyStep('GET', '/health/live', 200, bodyContains: '"mode":"live"'),
+                new JourneyStep('GET', '/health/ready', 200, bodyContains: '"status":"pass"'),
+            ]),
+        );
+
+        $rendered = (new BetterStackJourneyRenderer('https://api.example.com'))->render($descriptor);
+
+        self::assertSame('https://api.example.com/health/ready', $rendered['url']);
+    }
+
+    public function testItDoesNotDoubleUpSlashesOrRewriteAnAbsolutePath(): void
+    {
+        $descriptor = new MonitorDescriptor(
+            key: 'prod.api',
+            name: 'API',
+            journey: new SyntheticJourney('api', [
+                new JourneyStep('GET', '/a', 200, bodyContains: 'x'),
+                new JourneyStep('GET', '/health/ready', 200, bodyContains: '"status":"pass"'),
+            ]),
+        );
+
+        // Trailing slash on the base must not produce a doubled separator.
+        self::assertSame(
+            'https://api.example.com/health/ready',
+            (new BetterStackJourneyRenderer('https://api.example.com/'))->render($descriptor)['url'],
+        );
+    }
 }

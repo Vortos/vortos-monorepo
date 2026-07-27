@@ -10,6 +10,7 @@ use Vortos\Paddle\Customer\Customer;
 use Vortos\Paddle\Customer\ImmediateCustomerService;
 use Vortos\Paddle\Customer\Operation\CreateCustomerRequest;
 use Vortos\Paddle\Customer\Operation\UpdateCustomerRequest;
+use Vortos\Paddle\Exception\PaddleConflictException;
 use Vortos\Paddle\ValueObject\CustomerStatus;
 use Vortos\Paddle\ValueObject\PaddleCustomerId;
 
@@ -41,6 +42,49 @@ final class ImmediateCustomerServiceTest extends TestCase
 
         $this->assertInstanceOf(PaddleCustomerId::class, $id);
         $this->assertSame('ctm_abc', $id->value);
+    }
+
+    public function test_find_or_create_returns_the_new_customer_when_none_exists(): void
+    {
+        $client = $this->createMock(PaddleApiClientInterface::class);
+        $client->method('call')->willReturn($this->makeSdkCustomer('ctm_new'));
+
+        $service = new ImmediateCustomerService($client);
+        $id      = $service->findOrCreate(new CreateCustomerRequest('john@example.com', 'John Doe'));
+
+        $this->assertSame('ctm_new', $id->value);
+    }
+
+    public function test_find_or_create_returns_the_existing_customer_on_conflict(): void
+    {
+        $client = $this->createMock(PaddleApiClientInterface::class);
+        $client->method('call')->willThrowException(new PaddleConflictException(
+            'customer email conflicts with customer of id ctm_existing_9f',
+            'customer_already_exists',
+            'conflict',
+            null,
+            'ctm_existing_9f',
+        ));
+
+        $service = new ImmediateCustomerService($client);
+        $id      = $service->findOrCreate(new CreateCustomerRequest('john@example.com', 'John Doe'));
+
+        $this->assertSame('ctm_existing_9f', $id->value);
+    }
+
+    public function test_find_or_create_rethrows_a_conflict_that_names_no_entity(): void
+    {
+        $client = $this->createMock(PaddleApiClientInterface::class);
+        $client->method('call')->willThrowException(new PaddleConflictException(
+            'something else conflicted',
+            'conflict',
+            'conflict',
+        ));
+
+        $service = new ImmediateCustomerService($client);
+
+        $this->expectException(PaddleConflictException::class);
+        $service->findOrCreate(new CreateCustomerRequest('john@example.com', 'John Doe'));
     }
 
     public function test_get_returns_mapped_customer(): void

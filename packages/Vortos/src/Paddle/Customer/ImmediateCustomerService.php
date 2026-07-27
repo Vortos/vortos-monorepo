@@ -10,6 +10,7 @@ use Vortos\Paddle\Api\PaddleApiClientInterface;
 use Vortos\Paddle\Customer\Contract\ImmediateCustomerServiceInterface;
 use Vortos\Paddle\Customer\Operation\CreateCustomerRequest;
 use Vortos\Paddle\Customer\Operation\UpdateCustomerRequest;
+use Vortos\Paddle\Exception\PaddleConflictException;
 use Vortos\Paddle\ValueObject\PaddleCustomerId;
 
 final class ImmediateCustomerService implements ImmediateCustomerServiceInterface
@@ -31,6 +32,22 @@ final class ImmediateCustomerService implements ImmediateCustomerServiceInterfac
         );
 
         return PaddleCustomerId::of($sdkCustomer->id);
+    }
+
+    public function findOrCreate(CreateCustomerRequest $request): PaddleCustomerId
+    {
+        try {
+            return $this->create($request);
+        } catch (PaddleConflictException $e) {
+            // Paddle already holds a customer for this address — which is the same
+            // answer the caller asked for, so the conflict is a hit, not a failure.
+            // A conflict that names no id is something else entirely; let it out.
+            if ($e->conflictingEntityId === null) {
+                throw $e;
+            }
+
+            return PaddleCustomerId::of($e->conflictingEntityId);
+        }
     }
 
     public function get(PaddleCustomerId $id): Customer

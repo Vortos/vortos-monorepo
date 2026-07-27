@@ -43,6 +43,7 @@ final class PaddleSdkExceptionMapper
                 $error->errorCode,
                 $error->type,
                 $error,
+                PaddleConflictException::parseEntityId($error->getMessage()),
             ),
             'request', 'unprocessable_entity' => new PaddleValidationException(
                 $error->getMessage(),

@@ -320,38 +320,19 @@ final class AlertsExtension extends Extension
             ->setArgument('$seconds', '%env(int:ALERTS_DEDUPE_WINDOW_SECONDS)%')
             ->setPublic(false);
 
-        if ($container->has(Connection::class)) {
-            $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
-                ? $container->getParameter('vortos.db.framework_table_prefix')
-                : 'vortos_';
+        // Always the in-memory fallbacks here; DurableAlertStorePass upgrades them to DBAL when a
+        // Connection exists. Choosing in load() meant asking has(Connection::class) before
+        // vortos-persistence had necessarily registered it. That pass exists precisely because this
+        // race was lost in production — dedupe state, acks and maintenance silences all silently
+        // became per-process and did not survive a restart or span the blue/green colours.
+        $container->register(InMemoryAlertStateStore::class, InMemoryAlertStateStore::class)->setPublic(false);
+        $container->setAlias(AlertStateStoreInterface::class, InMemoryAlertStateStore::class)->setPublic(false);
 
-            $container->register(DbalAlertStateStore::class, DbalAlertStateStore::class)
-                ->setArgument('$connection', new Reference(Connection::class))
-                ->setArgument('$table', $prefix . 'alerts_state')
-                ->setPublic(false);
-            $container->setAlias(AlertStateStoreInterface::class, DbalAlertStateStore::class)->setPublic(false);
+        $container->register(InMemoryAckStore::class, InMemoryAckStore::class)->setPublic(false);
+        $container->setAlias(AckStoreInterface::class, InMemoryAckStore::class)->setPublic(false);
 
-            $container->register(DbalAckStore::class, DbalAckStore::class)
-                ->setArgument('$connection', new Reference(Connection::class))
-                ->setArgument('$table', $prefix . 'alerts_acks')
-                ->setPublic(false);
-            $container->setAlias(AckStoreInterface::class, DbalAckStore::class)->setPublic(false);
-
-            $container->register(DbalMaintenanceSilenceStore::class, DbalMaintenanceSilenceStore::class)
-                ->setArgument('$connection', new Reference(Connection::class))
-                ->setArgument('$table', $prefix . 'alerts_silences')
-                ->setPublic(false);
-            $container->setAlias(MaintenanceSilenceStoreInterface::class, DbalMaintenanceSilenceStore::class)->setPublic(false);
-        } else {
-            $container->register(InMemoryAlertStateStore::class, InMemoryAlertStateStore::class)->setPublic(false);
-            $container->setAlias(AlertStateStoreInterface::class, InMemoryAlertStateStore::class)->setPublic(false);
-
-            $container->register(InMemoryAckStore::class, InMemoryAckStore::class)->setPublic(false);
-            $container->setAlias(AckStoreInterface::class, InMemoryAckStore::class)->setPublic(false);
-
-            $container->register(InMemoryMaintenanceSilenceStore::class, InMemoryMaintenanceSilenceStore::class)->setPublic(false);
-            $container->setAlias(MaintenanceSilenceStoreInterface::class, InMemoryMaintenanceSilenceStore::class)->setPublic(false);
-        }
+        $container->register(InMemoryMaintenanceSilenceStore::class, InMemoryMaintenanceSilenceStore::class)->setPublic(false);
+        $container->setAlias(MaintenanceSilenceStoreInterface::class, InMemoryMaintenanceSilenceStore::class)->setPublic(false);
     }
 
     private function registerRouting(ContainerBuilder $container): void

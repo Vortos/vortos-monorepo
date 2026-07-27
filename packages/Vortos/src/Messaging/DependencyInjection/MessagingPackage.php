@@ -27,6 +27,15 @@ final class MessagingPackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
+        // The queue-backlog provider must exist whenever a database does. The extension's own
+        // has(Connection::class) is a race against extension load order, and it lost: the alert
+        // source was registered while the provider it reads was not.
+        $container->addCompilerPass(
+            new \Vortos\Messaging\DependencyInjection\Compiler\QueueBacklogProviderPass(),
+            \Symfony\Component\DependencyInjection\Compiler\PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            -20,
+        );
+
         $container->addCompilerPass(
             new MessagingConfigCompilerPass(),
             PassConfig::TYPE_BEFORE_OPTIMIZATION,

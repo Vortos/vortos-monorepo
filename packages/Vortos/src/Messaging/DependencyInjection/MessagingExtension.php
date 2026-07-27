@@ -508,16 +508,10 @@ final class MessagingExtension extends Extension
      */
     private function registerQueueBacklogProvider(ContainerBuilder $container, string $outboxTable, string $dlqTable): void
     {
-        if (!interface_exists(QueueBacklogProviderInterface::class) || !$container->has(Connection::class)) {
-            return;
-        }
-
-        $container->register(DbalQueueBacklogProvider::class, DbalQueueBacklogProvider::class)
-            ->setArgument('$connection', new Reference(Connection::class))
-            ->setArgument('$outboxTable', $outboxTable)
-            ->setArgument('$deadLetterTable', $dlqTable)
-            ->addTag(AlertsExtension::BACKLOG_PROVIDER_TAG)
-            ->setPublic(false);
+        // Registered by QueueBacklogProviderPass instead. has(Connection::class) here asked whether
+        // vortos-persistence had registered the Connection YET, which during load() is a race — and
+        // it lost in production, leaving QueueBacklogAlertSource consuming a provider that did not
+        // exist, so queue-backlog alerting had nothing to read.
     }
 
     private function registerDeadLetterWriter(ContainerBuilder $container, string $dlqTable): void

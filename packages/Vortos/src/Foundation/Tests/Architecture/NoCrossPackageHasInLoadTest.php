@@ -43,7 +43,32 @@ final class NoCrossPackageHasInLoadTest extends TestCase
      *
      * @var array<string, list<string>>
      */
-    private const KNOWN_OFFENDERS = [];
+    private const KNOWN_OFFENDERS = [
+        // AuthExtension::hasRedisService() gates token storage, sessions and the auth audit sink on
+        // hasDefinition(\Redis::class). It is a genuine instance of this rule — vortos-cache
+        // registers that service — but it is NOT a straight swap to a compiler pass: AuthExtension
+        // also registers \Redis::class ITSELF a few lines earlier, so some call sites are
+        // self-satisfied and deterministic while others are not, and the five call sites decide how
+        // credentials are stored. Untangling that belongs in a change that can be reviewed and
+        // tested on its own, not bundled into an unrelated release.
+        //
+        // Tracked, not forgiven. This list may only ever shrink.
+        'AuthExtension.php' => ['Redis'],
+    ];
+
+    /**
+     * Third-party classes whose SERVICE is registered by a vortos package's extension.
+     *
+     * Ownership of the class is irrelevant; what matters is that another extension has to have run
+     * for the service to exist. Treating these as "not our problem" is what let the durable-storage
+     * fallbacks stay order-dependent.
+     *
+     * @var list<string>
+     */
+    private const CROSS_PACKAGE_INFRASTRUCTURE = [
+        'Doctrine\\DBAL\\Connection',
+        'Redis',
+    ];
 
     /**
      * @return iterable<string, array{string}>
@@ -109,8 +134,22 @@ final class NoCrossPackageHasInLoadTest extends TestCase
 
             foreach ($m[1] as $ref) {
                 $fqcn = self::resolve($ref, $imports);
-                if (!str_starts_with($fqcn, 'Vortos\\')) {
-                    continue; // non-vortos infra (Doctrine, Redis, PSR, …) — allowed.
+
+                // Shared infrastructure whose CLASS is third-party but whose SERVICE is registered
+                // by another vortos package's extension.
+                //
+                // These used to be exempt as "non-vortos infra". That reasoning confused who owns
+                // the class with who registers the service: Doctrine\DBAL\Connection is registered
+                // by vortos-persistence, \Redis by vortos-cache. Asking has() for either during
+                // load() is the same race as asking for any other foreign service, and losing it
+                // silently swaps durable storage for in-memory storage — state that does not
+                // survive a restart and is not shared between processes, with nothing reporting it.
+                //
+                // HealthExtension lost exactly this race in production: the uptime sync record fell
+                // back to InMemorySyncRecordStore, so `health:monitor:sync` could never observe its
+                // own last hash and re-pushed the monitor on every run.
+                if (!str_starts_with($fqcn, 'Vortos\\') && !\in_array($fqcn, self::CROSS_PACKAGE_INFRASTRUCTURE, true)) {
+                    continue; // genuinely local/PSR types — allowed.
                 }
 
                 $refPackage = explode('\\', $fqcn)[1] ?? '';

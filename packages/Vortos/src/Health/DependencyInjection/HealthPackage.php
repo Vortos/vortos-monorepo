@@ -27,6 +27,15 @@ final class HealthPackage implements PackageInterface
             -30,
         );
 
+        // The uptime sync record must be durable whenever a database exists. The extension's own
+        // has(Connection::class) is a race against extension load order and lost it in production,
+        // leaving health:monitor:sync unable to remember what it last pushed.
+        $container->addCompilerPass(
+            new \Vortos\Health\DependencyInjection\Compiler\DurableSyncRecordStorePass(),
+            \Symfony\Component\DependencyInjection\Compiler\PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            -20,
+        );
+
         CollectDriversCompilerPass::register($container, new CollectHealthProbesPass());
         CollectDriversCompilerPass::register($container, new CollectUptimeMonitorsPass());
     }

@@ -226,20 +226,12 @@ final class HealthExtension extends Extension
         $container->register(MonitorDescriptorHasher::class, MonitorDescriptorHasher::class)->setPublic(false);
         $container->register(HeartbeatPolicy::class, HeartbeatPolicy::class)->setPublic(false);
 
-        if ($container->has(Connection::class)) {
-            $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
-                ? $container->getParameter('vortos.db.framework_table_prefix')
-                : 'vortos_';
-
-            $container->register(DbalSyncRecordStore::class, DbalSyncRecordStore::class)
-                ->setArgument('$connection', new Reference(Connection::class))
-                ->setArgument('$table', $prefix . 'uptime_sync')
-                ->setPublic(false);
-            $container->setAlias(SyncRecordStoreInterface::class, DbalSyncRecordStore::class)->setPublic(false);
-        } else {
-            $container->register(InMemorySyncRecordStore::class, InMemorySyncRecordStore::class)->setPublic(false);
-            $container->setAlias(SyncRecordStoreInterface::class, InMemorySyncRecordStore::class)->setPublic(false);
-        }
+        // Always the in-memory fallback here; DurableSyncRecordStorePass upgrades it to DBAL when a
+        // Connection exists. Choosing between them in load() meant asking has(Connection::class)
+        // before vortos-persistence had necessarily registered it — a race this lost in production,
+        // leaving health:monitor:sync unable to remember the hash it last pushed.
+        $container->register(InMemorySyncRecordStore::class, InMemorySyncRecordStore::class)->setPublic(false);
+        $container->setAlias(SyncRecordStoreInterface::class, InMemorySyncRecordStore::class)->setPublic(false);
 
         $uptimeDriverKey = (string) ($_ENV['UPTIME_MONITOR_DRIVER'] ?? 'null');
 

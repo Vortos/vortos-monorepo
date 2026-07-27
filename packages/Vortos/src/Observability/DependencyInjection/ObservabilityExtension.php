@@ -77,7 +77,8 @@ final class ObservabilityExtension extends Extension
         $this->registerCollector($container);
         $this->registerHeartbeat($container);
         $this->registerMarkerSeam($container);
-        $this->registerAudit($container);
+        // Deploy audit ledger: see Compiler\DeployAuditWiringPass (cross-package Connection +
+        // declared HMAC env; asking either here is a race that silently drops the ledger).
         $this->registerSlo($container);
         $this->registerCommands($container);
 
@@ -332,64 +333,6 @@ final class ObservabilityExtension extends Extension
                 ->setArgument('$emitter', new Reference(OutboxMarkerEmitter::class))
                 ->setPublic(false);
         }
-    }
-
-    /**
-     * Block 16: tamper-evident deploy audit ledger. Guarded on a DB connection being
-     * available (same `$container->has()` discipline Deploy itself uses for its
-     * optional migration/release stack) and on Deploy being installed (audit
-     * entries are built from Deploy's domain events).
-     */
-    private function registerAudit(ContainerBuilder $container): void
-    {
-        if (!interface_exists(\Vortos\Deploy\Audit\DeployAuditSinkInterface::class)) {
-            return;
-        }
-        if (!$container->has(Connection::class)) {
-            return;
-        }
-
-        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
-            ? $container->getParameter('vortos.db.framework_table_prefix')
-            : 'vortos_';
-        $auditTable = $prefix . 'observability_deploy_audit_log';
-        $hmacKey = (string) ($_ENV['OBSERVABILITY_AUDIT_HMAC_KEY'] ?? '');
-
-        $container->register(DbalDeployAuditViewRepository::class, DbalDeployAuditViewRepository::class)
-            ->setArgument('$connection', new Reference(Connection::class))
-            ->setArgument('$table', $auditTable)
-            ->setPublic(false);
-
-        $container->setAlias(DeployAuditViewRepositoryInterface::class, DbalDeployAuditViewRepository::class)
-            ->setPublic(false);
-
-        $container->register(AuditHashChain::class, AuditHashChain::class)->setPublic(false);
-        $container->register(AuditChainVerifier::class, AuditChainVerifier::class)
-            ->setArgument('$chain', new Reference(AuditHashChain::class))
-            ->setPublic(false);
-
-        if ($hmacKey !== '') {
-            $container->register(DeployAuditProjector::class, DeployAuditProjector::class)
-                ->setArgument('$repository', new Reference(DeployAuditViewRepositoryInterface::class))
-                ->setArgument('$hmacKey', $hmacKey)
-                ->setArgument('$chain', new Reference(AuditHashChain::class))
-                ->setPublic(false);
-
-            $container->register(AuditExportService::class, AuditExportService::class)
-                ->setArgument('$repository', new Reference(DeployAuditViewRepositoryInterface::class))
-                ->setArgument('$hmacKey', $hmacKey)
-                ->setPublic(false);
-
-            $container->register(AuditExportCommand::class, AuditExportCommand::class)
-                ->setArgument('$exporter', new Reference(AuditExportService::class))
-                ->setPublic(false);
-        }
-
-        $container->register(AuditVerifyCommand::class, AuditVerifyCommand::class)
-            ->setArgument('$repository', new Reference(DeployAuditViewRepositoryInterface::class))
-            ->setArgument('$verifier', new Reference(AuditChainVerifier::class))
-            ->setArgument('$hmacKey', $hmacKey)
-            ->setPublic(false);
     }
 
     private function registerSlo(ContainerBuilder $container): void

@@ -519,8 +519,9 @@ final class ObjectStoreExtension extends Extension
             ->setPublic(false);
 
         $container->register(PublicUrlBuilder::class, PublicUrlBuilder::class)
+            // No key prefix: nothing in the read/write path applies one, so prefixing only here
+            // produced URLs pointing at a location nothing ever wrote to.
             ->setArgument('$publicBaseUrl', $config['bucket']['public_base_url'])
-            ->setArgument('$keyPrefix', $config['bucket']['key_prefix'])
             ->setShared(true)
             ->setPublic(false);
 

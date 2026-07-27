@@ -21,9 +21,20 @@ use Vortos\Backup\Environment\DefaultEnvironment;
  * this command must fail (non-zero) on any archiving error — never report a false
  * success that would let Postgres recycle an un-archived segment.
  */
-#[AsCommand(name: 'backup:wal-archive', description: 'Archive a single Postgres WAL segment (archive_command hook).')]
+#[AsCommand(name: BackupWalArchiveCommand::NAME, description: 'Archive a single Postgres WAL segment (archive_command hook).')]
 final class BackupWalArchiveCommand extends Command
 {
+    /**
+     * Single source of truth for this command's name.
+     *
+     * ContainerizedPitrRecipe emits a shipper script that invokes it, and that script previously
+     * hard-coded `vortos:backup:wal-archive` — a name that has never existed. Every invocation
+     * failed, no WAL segment was ever shipped off-host, and the worker looked healthy throughout.
+     * Referencing this constant makes that class of drift a compile error rather than a silent
+     * runtime one.
+     */
+    public const NAME = 'backup:wal-archive';
+
     public function __construct(private readonly PostgresWalArchiver $archiver)
     {
         parent::__construct();

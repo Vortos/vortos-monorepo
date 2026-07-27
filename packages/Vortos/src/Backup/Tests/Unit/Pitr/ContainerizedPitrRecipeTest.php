@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Backup\Tests\Unit\Pitr;
 
 use PHPUnit\Framework\TestCase;
+use Vortos\Backup\Console\BackupWalArchiveCommand;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Pitr\ContainerizedPitrRecipe;
 
@@ -28,8 +29,19 @@ final class ContainerizedPitrRecipeTest extends TestCase
         // The archive_command must NOT shell out to the Vortos CLI in the Postgres image.
         self::assertStringNotContainsString('backup:wal-archive', $conf);
 
-        // The shipper (app image) is where the CLI ships segments off-host.
-        self::assertStringContainsString('vortos:backup:wal-archive', $artifacts['docker/backup/wal-shipper.sh']);
+        // The shipper (app image) is where the CLI ships segments off-host. Asserted against the
+        // command's own constant, not a literal: this test previously hard-coded
+        // "vortos:backup:wal-archive" and so PASSED while the emitted script invoked a command
+        // that does not exist, shipping nothing.
+        self::assertStringContainsString(
+            BackupWalArchiveCommand::NAME,
+            $artifacts['docker/backup/wal-shipper.sh'],
+        );
+        self::assertStringNotContainsString(
+            'vortos:backup:wal-archive',
+            $artifacts['docker/backup/wal-shipper.sh'],
+            'the shipper must not invoke a command name that was never registered',
+        );
         self::assertStringContainsString('wal_archive:/wal_archive', $artifacts['docker-compose.pitr.yaml']);
     }
 

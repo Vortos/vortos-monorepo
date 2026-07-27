@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\Pitr;
 
+use Vortos\Backup\Console\BackupWalArchiveCommand;
 use Vortos\Backup\Domain\BackupKind;
 
 /**
@@ -71,6 +72,13 @@ final class ContainerizedPitrRecipe
     {
         // Runs in the app image (has the Vortos CLI). Ships each archived segment, then removes
         // the local copy only after backup:wal-archive confirms durable off-host storage.
+        //
+        // The command name is taken from the command class, never written by hand. The emitted
+        // script previously called `vortos:backup:wal-archive`, which does not exist — the command
+        // is registered as `backup:wal-archive`. Every invocation failed with Symfony's
+        // "command not found" help text, so not one WAL segment was ever shipped off-host while
+        // the shipper looked perfectly healthy and segments piled up on local disk.
+        $command = BackupWalArchiveCommand::NAME;
         return <<<SH
         #!/bin/sh
         # Vortos WAL shipper — runs in the backend/app image, mounts $vol read-write.
@@ -82,7 +90,7 @@ final class ContainerizedPitrRecipe
         while true; do
             for seg in "\$WAL_DIR"/0*; do
                 [ -e "\$seg" ] || continue
-                if php bin/console vortos:backup:wal-archive "\$seg" --env="\$ENV"; then
+                if php bin/console $command "\$seg" --env="\$ENV"; then
                     rm -f "\$seg"
                 fi
             done
@@ -161,7 +169,7 @@ final class ContainerizedPitrRecipe
 
         Postgres (`$postgres`, a PHP-less image) archives WAL to the shared `wal_archive` volume
         via a pure `cp` archive_command. The `wal-shipper` worker (extends `$backend`, so it has
-        the Vortos CLI) ships segments off-host with `vortos:backup:wal-archive`; `base-backup`
+        the Vortos CLI) ships segments off-host with `backup:wal-archive`; `base-backup`
         takes periodic base backups.
 
         ## Apply

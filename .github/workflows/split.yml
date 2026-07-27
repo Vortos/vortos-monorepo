@@ -91,6 +91,19 @@ jobs:
   split:
     needs: [pin-lint, tests, ui-build]
     runs-on: ubuntu-latest
+    # Serialise per PACKAGE REPO, not per workflow run.
+    #
+    # Pushing `main` and a tag together starts two runs, and their jobs for the same package race
+    # each other pushing `main` to that package's split repo. The loser fails with
+    # `! [remote rejected] main -> main (cannot lock ref 'refs/heads/main')`, which makes a release
+    # that mostly succeeded look failed and can leave one package's tag unpublished — so a
+    # perfectly good `composer update` then resolves to a version that does not exist yet.
+    #
+    # cancel-in-progress is false on purpose: both runs carry real work (a branch push and a tag
+    # push produce different refs downstream), so they must queue, never drop.
+    concurrency:
+      group: split-${{ matrix.package.split_repository }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:

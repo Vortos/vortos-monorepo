@@ -24,7 +24,19 @@ return new class extends AbstractModuleSchemaProvider {
 
     public function define(Schema $schema): void
     {
+        // Alter-style provider: guarded hasTable/hasColumn so it publishes correctly through the
+        // cumulative-schema diff and is a no-op when evaluated against a fresh schema that has not
+        // reached the create-cursors provider yet. Without the guard this throws during publish —
+        // caught by the framework's own "publish safe against a fresh schema" conformance test.
+        if (!$schema->hasTable($this->t('scheduler_cursors'))) {
+            return;
+        }
+
         $table = $schema->getTable($this->t('scheduler_cursors'));
+
+        if ($table->hasColumn('first_seen_at')) {
+            return;
+        }
 
         // WHY THIS COLUMN EXISTS
         //

@@ -32,8 +32,16 @@ use Vortos\Observability\Audit\AuditHashChain;
  * guess. This is the same correction DurableAlertStorePass documents for the alert stores; the
  * audit block had the identical bug and was simply never migrated with it.
  *
- * Runs after AlertsExternalDefaultsPass (-16), which registers the AuditHashChain fallback this
- * depends on when vortos-observability is absent.
+ * ORDERING
+ *
+ * Registered at -17 so it runs AFTER AlertsExternalDefaultsPass (-16), which registers the
+ * AuditHashChain fallback this depends on when vortos-observability does not provide one. Symfony
+ * sorts passes by DESCENDING priority, so the later pass is the smaller number — the opposite of
+ * the intuition, and the reason alpha-285 shipped this at -14 and fixed nothing: the guard below
+ * ran first, found no hash chain, and returned early exactly as the extension had. Verified by
+ * probe in a real application container, and pinned by AlertsPackagePassOrderTest.
+ *
+ * It must also stay ABOVE TagPreflightChecksPass (-48), which tags the deploy gate registered here.
  */
 final class AlertAuditWiringPass implements CompilerPassInterface
 {

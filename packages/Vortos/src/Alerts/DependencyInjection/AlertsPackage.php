@@ -36,6 +36,14 @@ final class AlertsPackage implements PackageInterface
         // chain. Asking for either in the extension is a race against load order — it lost that
         // race in production and the ledger was never registered at all, recording nothing while
         // alerts delivered normally. See AlertAuditWiringPass.
-        $container->addCompilerPass(new AlertAuditWiringPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -14);
+        //
+        // The priority MUST stay below AlertsExternalDefaultsPass (-16), because that pass
+        // registers the AuditHashChain fallback this one requires. Symfony runs passes in
+        // DESCENDING priority order, so a larger number runs EARLIER. This was -14 in alpha-285,
+        // which put it before the fallback rather than after: the guard found no hash chain, the
+        // pass returned early, and the ledger was still never registered. The bug the pass was
+        // written to fix survived its own fix, because the ordering was asserted in a docblock
+        // and never tested. AlertsPackagePassOrderTest now pins it.
+        $container->addCompilerPass(new AlertAuditWiringPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -17);
     }
 }

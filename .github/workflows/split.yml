@@ -223,9 +223,34 @@ jobs:
         if: matrix.package.split_repository == 'vortos-framework' && github.ref_type == 'tag'
         run: php tools/ci/pin-meta-requires.php "${{ github.ref_name }}"
 
+      # The split action is a Docker action whose Dockerfile does `FROM php:8.1-cli-alpine`, and
+      # ~55 of these jobs start at once. Docker Hub rate-limits and times out under that fan-out,
+      # which failed two releases in one hour with `DeadlineExceeded ... registry-1.docker.io`.
+      # Nothing was wrong with the code either time; a re-run passed unchanged.
+      #
+      # The action is third-party, so its Dockerfile is not ours to edit. Instead the base image is
+      # pulled here with backoff, and BuildKit is disabled for the job: the legacy builder resolves
+      # `FROM` against the local image store, so the action's build no longer contacts the registry
+      # at all. BuildKit always issues a HEAD to the registry even when the image is present
+      # locally, which is precisely the request that was timing out.
+      - name: Pre-pull the split action's base image
+        env:
+          DOCKER_BUILDKIT: '0'
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if docker pull --quiet php:8.1-cli-alpine; then
+              exit 0
+            fi
+            echo "pull attempt $attempt failed; retrying in $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
+          echo "could not pull php:8.1-cli-alpine after 5 attempts" >&2
+          exit 1
+
       - uses: danharrin/monorepo-split-github-action@14e42e2437f674b8987c1f50ca3689116aea1893  # v2.4.5
         env:
           GITHUB_TOKEN: ${{ secrets.MONOREPO_SPLIT_TOKEN }}
+          DOCKER_BUILDKIT: '0'
         with:
           package_directory: ${{ matrix.package.local_path }}
           repository_organization: 'Vortos'

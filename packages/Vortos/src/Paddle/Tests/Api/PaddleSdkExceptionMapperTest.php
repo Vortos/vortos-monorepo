@@ -63,6 +63,31 @@ final class PaddleSdkExceptionMapperTest extends TestCase
         $this->assertInstanceOf(PaddleConflictException::class, $mapped);
     }
 
+    public function test_conflict_exception_carries_the_id_named_in_the_detail(): void
+    {
+        $error = ApiError::fromErrorData([
+            'type'              => 'conflict',
+            'code'              => 'customer_already_exists',
+            'detail'            => 'customer email conflicts with customer of id ctm_01h8xce4x86p from your account',
+            'documentation_url' => 'https://paddle.com/errors',
+        ], null);
+
+        $mapped = $this->mapper->map($error);
+
+        $this->assertInstanceOf(PaddleConflictException::class, $mapped);
+        $this->assertSame('ctm_01h8xce4x86p', $mapped->conflictingEntityId);
+    }
+
+    public function test_conflict_without_an_id_in_the_detail_carries_none(): void
+    {
+        $error = $this->makeApiError('conflict');
+
+        $mapped = $this->mapper->map($error);
+
+        $this->assertInstanceOf(PaddleConflictException::class, $mapped);
+        $this->assertNull($mapped->conflictingEntityId);
+    }
+
     public function test_request_error_maps_to_validation_exception(): void
     {
         $error  = $this->makeApiError('request');

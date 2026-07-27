@@ -4,12 +4,9 @@ declare(strict_types=1);
 
 namespace Vortos\Scheduler\DependencyInjection\Compiler;
 
-use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
-use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
-use Vortos\Scheduler\Security\NullSchedulePolicy;
 use Vortos\Scheduler\Security\SchedulerPermissionCatalog;
 use Vortos\Scheduler\Security\SchedulePolicy;
 use Vortos\Scheduler\Security\SchedulePolicyInterface;
@@ -42,13 +39,18 @@ final class SchedulePolicyWiringPass implements CompilerPassInterface
 
     public function process(ContainerBuilder $container): void
     {
-        if ($container->hasAlias(SchedulePolicyInterface::class)
-            || $container->hasDefinition(SchedulePolicyInterface::class)
-        ) {
-            return; // already decided
+        // The extension has already registered NullSchedulePolicy as the alias target. This does
+        // not bail on that: the whole point is to REPLACE the fail-open fallback once the real
+        // engine is known to exist, which is only knowable here.
+        if (!class_exists(self::POLICY_ENGINE) || !$container->has(self::POLICY_ENGINE)) {
+            return; // vortos-authorization genuinely absent; the fallback is the right answer.
         }
 
-        if (class_exists(self::POLICY_ENGINE) && $container->has(self::POLICY_ENGINE)) {
+        if ($container->hasDefinition(SchedulePolicy::class)) {
+            return; // already upgraded
+        }
+
+        {
             $container->register(SchedulerResourcePolicy::class, SchedulerResourcePolicy::class)
                 ->addTag('vortos.policy', ['resource' => 'scheduler'])
                 ->setPublic(false);
@@ -62,14 +64,6 @@ final class SchedulePolicyWiringPass implements CompilerPassInterface
                 ->setPublic(false);
 
             $container->setAlias(SchedulePolicyInterface::class, SchedulePolicy::class);
-
-            return;
         }
-
-        $container->register(NullSchedulePolicy::class, NullSchedulePolicy::class)
-            ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
-            ->setPublic(false);
-
-        $container->setAlias(SchedulePolicyInterface::class, NullSchedulePolicy::class);
     }
 }

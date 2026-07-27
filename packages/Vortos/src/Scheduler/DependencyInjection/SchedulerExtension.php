@@ -313,14 +313,23 @@ final class SchedulerExtension extends Extension
                 ->setPublic(false);
         }
 
-        // RBAC policy is wired by SchedulePolicyWiringPass.
+        // The fallback only. SchedulePolicyWiringPass UPGRADES this to the real RBAC policy when
+        // vortos-authorization's engine is present.
         //
-        // Deciding here meant `class_exists($engine) && $container->hasDefinition($engine)` — and
-        // hasDefinition() during load() is a race against vortos-authorization's extension. Losing
-        // it silently aliased SchedulePolicyInterface to NullSchedulePolicy, so the scheduler's
-        // authorisation checks permitted everything on a deployment that HAS authorization
-        // installed. A security control that fails open because of extension ordering is the worst
-        // version of this defect: nothing errors and nothing logs.
+        // Deciding here meant `class_exists($engine) && $container->hasDefinition($engine)`, and
+        // hasDefinition() during load() is a race against that package's extension. Losing it
+        // silently left NullSchedulePolicy in place, so the scheduler's authorisation checks
+        // permitted everything on a deployment that HAS authorization installed — a security
+        // control failing open because of extension ordering, with nothing erroring and nothing
+        // logging.
+        //
+        // Registering the fallback here (rather than only in the pass) keeps a container built from
+        // this extension alone — as the integration tests do — complete and bootable.
+        $container->register(NullSchedulePolicy::class, NullSchedulePolicy::class)
+            ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setPublic(false);
+
+        $container->setAlias(SchedulePolicyInterface::class, NullSchedulePolicy::class);
     }
 
     private function registerAudit(ContainerBuilder $container, array $config): void

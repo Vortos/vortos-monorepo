@@ -91,7 +91,7 @@ final class DeployRunner
         }
 
         $target = $this->targets->target($definition->host);
-        $plan = $target->plan(new DeployContext($definition, $manifest, $context->currentState));
+        $plan = $target->plan(new DeployContext($definition, $manifest, $context->currentState, $request->forceContract));
         $preview = $this->planRenderer->toText($plan);
 
         if ($request->isDryRun()) {

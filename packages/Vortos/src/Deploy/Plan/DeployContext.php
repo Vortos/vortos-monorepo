@@ -13,5 +13,10 @@ final readonly class DeployContext
         public DeploymentDefinition $definition,
         public BuildManifest $desiredManifest,
         public CurrentDeployState $currentState,
+        /**
+         * Operator override for the contract-phase soak gate. Off by default; the deploy refuses a
+         * pending, uncleared contract migration unless this is explicitly set.
+         */
+        public bool $forceContract = false,
     ) {}
 }

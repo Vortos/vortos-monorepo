@@ -16,7 +16,7 @@ final class DeployPlanner
 
     public function plan(DeployContext $context): DeployPlan
     {
-        $this->phaseGate->assertNoPendingContract($context->currentState);
+        $this->phaseGate->assertNoPendingContract($context->currentState, $context->forceContract);
 
         $strategy = $this->strategies->get($context->definition->strategy);
         $phases = $strategy->phases($context);

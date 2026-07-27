@@ -83,4 +83,38 @@ final class PhaseGateTest extends TestCase
             self::assertStringContainsString('later deploy', $e->getMessage());
         }
     }
+
+    /**
+     * The soak clock only starts once a migration is PENDING, and it only becomes pending by being
+     * shipped — so the first deploy carrying a contract migration always failed, after migrate had
+     * already moved the schema but before cutover. ManualReadiness::reason() told operators to use
+     * --force-contract; the flag did not exist, so the advice could not be followed.
+     */
+    public function test_force_contract_allows_an_uncleared_contract_migration_through(): void
+    {
+        $state = new CurrentDeployState(
+            activeColor: ActiveColor::Blue,
+            currentDigest: '',
+            appliedFingerprint: SchemaFingerprint::empty(),
+            pendingContractMigrations: ['Version20260720140000'],
+        );
+
+        (new PhaseGate())->assertNoPendingContract($state, forceContract: true);
+
+        $this->addToAssertionCount(1); // not throwing is the assertion
+    }
+
+    public function test_it_still_refuses_by_default(): void
+    {
+        $state = new CurrentDeployState(
+            activeColor: ActiveColor::Blue,
+            currentDigest: '',
+            appliedFingerprint: SchemaFingerprint::empty(),
+            pendingContractMigrations: ['Version20260720140000'],
+        );
+
+        $this->expectException(ContractInSameDeployException::class);
+
+        (new PhaseGate())->assertNoPendingContract($state);
+    }
 }

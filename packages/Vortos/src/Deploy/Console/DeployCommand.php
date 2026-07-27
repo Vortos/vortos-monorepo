@@ -46,6 +46,15 @@ final class DeployCommand extends Command
         $this->addOption('image-repository', null, InputOption::VALUE_REQUIRED, 'Fully-qualified image repository to deploy (overrides the recorded manifest, e.g. ghcr.io/acme/app)');
         $this->addOption('actor', null, InputOption::VALUE_REQUIRED, 'Actor id recorded in the deploy audit trail');
         $this->addOption('auto-publish', null, InputOption::VALUE_NONE, 'Publish any un-published module migration stubs before the doctor gate (opt-in; live deploys only)');
+        $this->addOption(
+            'force-contract',
+            null,
+            InputOption::VALUE_NONE,
+            'Apply a pending contract migration that has not cleared its soak window. The soak clock '
+            . 'only starts once a migration is pending, and it only becomes pending by shipping — so '
+            . 'the first deploy carrying one always failed after migrate had moved the schema but '
+            . 'before cutover. Use with 4-eyes approval.',
+        );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -91,6 +100,7 @@ final class DeployCommand extends Command
             actorId: $actorId,
             actorIdentitySource: ActorIdentitySource::Local,
             autoPublishMigrations: (bool) $input->getOption('auto-publish'),
+            forceContract: (bool) $input->getOption('force-contract'),
         );
 
         try {

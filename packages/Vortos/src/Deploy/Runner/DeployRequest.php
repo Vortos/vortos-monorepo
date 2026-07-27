@@ -19,6 +19,15 @@ final readonly class DeployRequest
         public string $actorId = 'unknown',
         public ActorIdentitySource $actorIdentitySource = ActorIdentitySource::Local,
         /**
+         * Explicitly accept applying a pending, not-yet-soaked contract migration in THIS deploy.
+         *
+         * The soak clock only starts once a migration is pending, and it only becomes pending by
+         * being shipped — so the first deploy carrying one always failed, after migrate had already
+         * moved the schema but before cutover. ManualReadiness::reason() told operators to use
+         * --force-contract; the flag did not exist until now.
+         */
+        public bool $forceContract = false,
+        /**
          * R8-1: when true, run 'vortos:migrate:publish' in the project tree before the doctor gate so
          * newly-shipped module stubs become app migrations. Opt-in (off by default); only ever runs in
          * Live mode. The default fail-closed posture is the UnpublishedStubCheck refusing the deploy.

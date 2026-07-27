@@ -45,7 +45,11 @@ final class DbalQueueBacklogProvider implements QueueBacklogProviderInterface
     public function backlogs(): array
     {
         try {
-            return [...$this->deadLetterBacklogs(), ...$this->outboxBacklogs()];
+            return [
+                ...$this->deadLetterBacklogs(),
+                ...$this->outboxBacklogs(),
+                ...$this->exhaustedOutboxBacklogs(),
+            ];
         } catch (Throwable) {
             // A DB hiccup must not take down the whole alert tick. Returning no readings means
             // "nothing evaluated this round", never "nothing is backed up".
@@ -85,6 +89,35 @@ final class DbalQueueBacklogProvider implements QueueBacklogProviderInterface
         );
 
         return $this->toBacklogs($rows, 'outbox');
+    }
+
+    /**
+     * Rows that exhausted max_attempts and stopped — the blind spot between the other two readings.
+     *
+     * A row in this state is not `pending`, so the outbox gauge above excludes it, and it never
+     * reached the dead-letter table either. It is simply a message the system accepted, gave up on,
+     * and then stopped mentioning. Nothing measured it.
+     *
+     * This is not a theoretical gap. Production held 11 such rows for two weeks — three of them
+     * PaymentCompleted, the rest invitation events — and every dashboard was green the entire time,
+     * because "failed" is a terminal state and terminal states stop moving. Depth is the right
+     * measure here and age is not: these rows never drain, so their age only grows and any age
+     * threshold would fire forever once tripped.
+     *
+     * @return list<QueueBacklog>
+     */
+    private function exhaustedOutboxBacklogs(): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            "SELECT transport_name,
+                    COUNT(*) AS depth,
+                    MIN(created_at) AS oldest
+             FROM {$this->outboxTable}
+             WHERE status = 'failed'
+             GROUP BY transport_name",
+        );
+
+        return $this->toBacklogs($rows, 'outbox-failed');
     }
 
     /**

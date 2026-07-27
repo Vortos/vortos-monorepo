@@ -23,6 +23,7 @@ use Vortos\Security\SupplyChain\Driver\Syft\SyftSbomGenerator;
 use Vortos\Security\SupplyChain\Driver\Trivy\TrivyVulnerabilityScanner;
 use Vortos\Security\SupplyChain\Integration\Deploy\AttestationImageSigner;
 use Vortos\Security\SupplyChain\Integration\Deploy\SignatureVerificationCheck;
+use Vortos\Security\SupplyChain\Model\Signature\VerificationPolicyProvider;
 use Vortos\Security\SupplyChain\Port\ArtifactSignerInterface;
 use Vortos\Security\SupplyChain\Port\ArtifactSignerRegistry;
 use Vortos\Security\SupplyChain\Port\KevCatalogProviderInterface;
@@ -176,9 +177,23 @@ final class SupplyChainExtension
                 ->setArgument('$signerKey', $container->hasParameter('vortos.supply_chain.signer') ? $container->getParameter('vortos.supply_chain.signer') : 'null')
                 ->setShared(true)->setPublic(false);
 
+            // Declared env references, resolved at runtime — never read here. The container is
+            // compiled wherever the image is built, so an inline read would bake the build host's
+            // (empty) values in and the gate would skip forever.
+            $container->setParameter('env(VORTOS_SUPPLY_CHAIN_VERIFY_ISSUER)', '');
+            $container->setParameter('env(VORTOS_SUPPLY_CHAIN_VERIFY_SAN_REGEX)', '');
+            $container->setParameter('env(VORTOS_SUPPLY_CHAIN_VERIFY_KEY_FINGERPRINT)', '');
+
+            $container->register(VerificationPolicyProvider::class, VerificationPolicyProvider::class)
+                ->setArgument('$issuer', '%env(string:VORTOS_SUPPLY_CHAIN_VERIFY_ISSUER)%')
+                ->setArgument('$sanRegex', '%env(string:VORTOS_SUPPLY_CHAIN_VERIFY_SAN_REGEX)%')
+                ->setArgument('$publicKeyFingerprint', '%env(string:VORTOS_SUPPLY_CHAIN_VERIFY_KEY_FINGERPRINT)%')
+                ->setShared(true)->setPublic(false);
+
             $container->register(SignatureVerificationCheck::class, SignatureVerificationCheck::class)
                 ->setArgument('$signerRegistry', new Reference(ArtifactSignerRegistry::class))
                 ->setArgument('$signerKey', $container->hasParameter('vortos.supply_chain.signer') ? $container->getParameter('vortos.supply_chain.signer') : 'null')
+                ->setArgument('$policies', new Reference(VerificationPolicyProvider::class))
                 ->setShared(true)->setPublic(false);
         }
     }

@@ -9,7 +9,7 @@ use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Security\SupplyChain\Model\ArtifactDigest;
-use Vortos\Security\SupplyChain\Model\Signature\VerificationPolicy;
+use Vortos\Security\SupplyChain\Model\Signature\VerificationPolicyProvider;
 use Vortos\Security\SupplyChain\Port\ArtifactSignerRegistry;
 
 final class SignatureVerificationCheck implements PreflightCheckInterface
@@ -17,7 +17,7 @@ final class SignatureVerificationCheck implements PreflightCheckInterface
     public function __construct(
         private readonly ArtifactSignerRegistry $signerRegistry,
         private readonly string $signerKey,
-        private readonly ?VerificationPolicy $policy = null,
+        private readonly ?VerificationPolicyProvider $policies = null,
     ) {}
 
     public function id(): string
@@ -34,7 +34,20 @@ final class SignatureVerificationCheck implements PreflightCheckInterface
     {
         $imageDigest = $context->desiredManifest->imageDigest;
 
-        if ($this->policy === null) {
+        if ($this->policies !== null && $this->policies->isPartiallyConfigured()) {
+            return PreflightFinding::fail(
+                $this->id(),
+                $this->category(),
+                'Signature verification is half-configured.',
+                'Keyless verification needs BOTH an issuer and a SAN regex; exactly one is set.',
+                'Set both VORTOS_SUPPLY_CHAIN_VERIFY_ISSUER and VORTOS_SUPPLY_CHAIN_VERIFY_SAN_REGEX, '
+                . 'or clear both to disable verification deliberately.',
+            );
+        }
+
+        $policy = $this->policies?->policy();
+
+        if ($policy === null) {
             return PreflightFinding::skip(
                 $this->id(),
                 $this->category(),
@@ -54,7 +67,7 @@ final class SignatureVerificationCheck implements PreflightCheckInterface
 
         $signer = $this->signerRegistry->signer($this->signerKey);
         $digest = new ArtifactDigest($imageDigest);
-        $result = $signer->verify($digest, $this->policy);
+        $result = $signer->verify($digest, $policy);
 
         if (!$result->ok) {
             return PreflightFinding::fail(

@@ -22,6 +22,7 @@ use Vortos\Security\SupplyChain\Integration\Deploy\AttestationImageSigner;
 use Vortos\Security\SupplyChain\Integration\Deploy\SignatureVerificationCheck;
 use Vortos\Security\SupplyChain\Model\ArtifactDigest;
 use Vortos\Security\SupplyChain\Model\Signature\VerificationPolicy;
+use Vortos\Security\SupplyChain\Model\Signature\VerificationPolicyProvider;
 use Vortos\Security\SupplyChain\Port\ArtifactSignerRegistry;
 
 final class DeployIntegrationTest extends TestCase
@@ -73,9 +74,9 @@ final class DeployIntegrationTest extends TestCase
 
         $signer = new InMemoryArtifactSigner();
         $registry = $this->registryWith($signer);
-        $policy = VerificationPolicy::publicKey($signer->publicKeyFingerprint());
+        $policies = new VerificationPolicyProvider(publicKeyFingerprint: $signer->publicKeyFingerprint());
 
-        $check = new SignatureVerificationCheck($registry, 'in-memory', $policy);
+        $check = new SignatureVerificationCheck($registry, 'in-memory', $policies);
 
         self::assertSame('security.signature', $check->id());
         self::assertSame(PreflightCategory::Security, $check->category());
@@ -95,9 +96,9 @@ final class DeployIntegrationTest extends TestCase
         $signer = new InMemoryArtifactSigner();
         $signer->sign(new ArtifactDigest(self::DIGEST));
         $registry = $this->registryWith($signer);
-        $policy = VerificationPolicy::publicKey($signer->publicKeyFingerprint());
+        $policies = new VerificationPolicyProvider(publicKeyFingerprint: $signer->publicKeyFingerprint());
 
-        $check = new SignatureVerificationCheck($registry, 'in-memory', $policy);
+        $check = new SignatureVerificationCheck($registry, 'in-memory', $policies);
         $context = $this->preflightContext();
         $finding = $check->check($context);
 
@@ -148,5 +149,54 @@ final class DeployIntegrationTest extends TestCase
             currentState: CurrentDeployState::firstDeploy(),
             environment: new EnvironmentName('production'),
         );
+    }
+
+    /**
+     * Half-configured verification must FAIL, not skip.
+     *
+     * An issuer with no SAN regex (or the reverse) is someone who believes the gate is on. Skipping
+     * there ships an unverified image while the deploy report says "skipped", which reads as
+     * "nothing to do" rather than "your policy is broken".
+     */
+    public function test_half_configured_policy_fails_rather_than_skipping(): void
+    {
+        if (!class_exists(PreflightContext::class)) {
+            self::markTestSkipped('Deploy package not available.');
+        }
+
+        $registry = $this->registryWith(new InMemoryArtifactSigner());
+        $policies = new VerificationPolicyProvider(issuer: 'https://token.actions.githubusercontent.com');
+
+        $finding = (new SignatureVerificationCheck($registry, 'in-memory', $policies))
+            ->check($this->preflightContext());
+
+        self::assertSame(PreflightStatus::Fail, $finding->status);
+    }
+
+    public function test_keyless_policy_is_built_from_issuer_and_san_regex(): void
+    {
+        $policies = new VerificationPolicyProvider(
+            issuer: 'https://token.actions.githubusercontent.com',
+            sanRegex: '^https://github\\.com/Sqoura/sqoura-backend/',
+        );
+
+        $policy = $policies->policy();
+
+        self::assertNotNull($policy);
+        self::assertTrue($policy->isKeyless());
+        self::assertTrue($policy->matchesIdentity(
+            'https://token.actions.githubusercontent.com',
+            'https://github.com/Sqoura/sqoura-backend/.github/workflows/deploy.yml@refs/heads/main',
+        ));
+        self::assertFalse($policy->matchesIdentity(
+            'https://token.actions.githubusercontent.com',
+            'https://github.com/attacker/evil/.github/workflows/deploy.yml@refs/heads/main',
+        ));
+    }
+
+    public function test_unconfigured_provider_yields_no_policy(): void
+    {
+        self::assertNull((new VerificationPolicyProvider())->policy());
+        self::assertFalse((new VerificationPolicyProvider())->isPartiallyConfigured());
     }
 }

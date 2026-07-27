@@ -293,14 +293,34 @@ final class HealthExtension extends Extension
             return;
         }
 
-        $heartbeatConfigured = class_exists(\Vortos\Observability\Heartbeat\HeartbeatEmitterInterface::class)
-            && $container->has(\Vortos\Observability\Heartbeat\HeartbeatEmitterInterface::class);
+        // The heartbeat is a RUNTIME reference, never a compile-time boolean.
+        //
+        // This used to be `class_exists(HeartbeatEmitterInterface::class) && $container->has(...)`.
+        // class_exists() is order-free and proves the package is INSTALLED; the has() beside it is
+        // not, and it is the one that decides. During load() the observability extension may not
+        // have registered yet, so the boolean was baked in as false on a host where the emitter was
+        // wired — and DetectorIndependenceDoctorCheck then failed a production deploy reporting a
+        // detector missing that actually existed. Same defect as the alerts audit ledger.
+        //
+        // NULL_ON_INVALID_REFERENCE resolves after every extension has loaded, so "is the heartbeat
+        // wired?" is answered by the container at runtime instead of guessed at compile time.
+        $heartbeat = interface_exists(\Vortos\Observability\Heartbeat\HeartbeatEmitterInterface::class)
+            ? new Reference(
+                \Vortos\Observability\Heartbeat\HeartbeatEmitterInterface::class,
+                ContainerInterface::NULL_ON_INVALID_REFERENCE,
+            )
+            : null;
+
+        // Declared env reference, not an inline $_ENV read: the container compiles in a clean
+        // environment, so reading $_ENV here resolves against the build host rather than the
+        // runtime host. See Foundation\Config\Env.
+        $container->setParameter('env(UPTIME_MONITOR_DRIVER)', 'null');
 
         $container->register(\Vortos\Health\Preflight\DetectorIndependenceDoctorCheck::class, \Vortos\Health\Preflight\DetectorIndependenceDoctorCheck::class)
             ->setArgument('$probes', new Reference(HealthProbeRegistry::class))
             ->setArgument('$uptimeMonitors', new Reference(UptimeMonitorRegistry::class))
-            ->setArgument('$configuredUptimeDriverKey', (string) ($_ENV['UPTIME_MONITOR_DRIVER'] ?? 'null'))
-            ->setArgument('$heartbeatConfigured', $heartbeatConfigured)
+            ->setArgument('$configuredUptimeDriverKey', '%env(string:UPTIME_MONITOR_DRIVER)%')
+            ->setArgument('$heartbeat', $heartbeat)
             ->setPublic(false);
 
         $container->register(\Vortos\Health\Preflight\LivenessIndependenceDoctorCheck::class, \Vortos\Health\Preflight\LivenessIndependenceDoctorCheck::class)

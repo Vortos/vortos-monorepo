@@ -26,11 +26,18 @@ final class DetectorIndependenceDoctorCheck implements PreflightCheckInterface
 {
     private const PROD_ENV_NAMES = ['prod', 'production'];
 
+    /**
+     * @param object|null $heartbeat The dead-man heartbeat emitter, injected as an optional
+     *        reference. It is deliberately NOT a compile-time boolean: whether another package has
+     *        registered the emitter cannot be answered during Extension::load(), and answering it
+     *        there once failed a production deploy by reporting this detector missing while it was
+     *        wired. Typed as object so vortos-observability stays an optional dependency.
+     */
     public function __construct(
         private readonly HealthProbeRegistry $probes,
         private readonly ?UptimeMonitorRegistry $uptimeMonitors,
         private readonly string $configuredUptimeDriverKey,
-        private readonly bool $heartbeatConfigured,
+        private readonly ?object $heartbeat,
     ) {}
 
     public function id(): string
@@ -78,7 +85,7 @@ final class DetectorIndependenceDoctorCheck implements PreflightCheckInterface
             $detectors[] = 'in-app probes';
         }
 
-        if ($this->heartbeatConfigured) {
+        if ($this->heartbeat !== null) {
             $detectors[] = 'dead-man heartbeat';
         }
 

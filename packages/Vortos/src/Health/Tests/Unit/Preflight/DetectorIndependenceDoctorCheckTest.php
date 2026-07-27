@@ -109,7 +109,7 @@ final class DetectorIndependenceDoctorCheckTest extends TestCase
             $this->probeRegistry(['disk-capacity' => StubProbe::readiness('disk-capacity')]),
             $this->uptimeRegistryWithFake(),
             'fake',
-            heartbeatConfigured: true,
+            heartbeat: new \stdClass(),
         );
 
         $finding = $check->check($this->contextFor('prod'));
@@ -123,7 +123,7 @@ final class DetectorIndependenceDoctorCheckTest extends TestCase
             $this->probeRegistry(['disk-capacity' => StubProbe::readiness('disk-capacity')]),
             $this->uptimeRegistryWithFake(),
             'null', // null driver declares no real capabilities -> not a real third detector
-            heartbeatConfigured: false,
+            heartbeat: null,
         );
 
         $finding = $check->check($this->contextFor('prod'));
@@ -137,7 +137,7 @@ final class DetectorIndependenceDoctorCheckTest extends TestCase
             $this->probeRegistry(['disk-capacity' => StubProbe::readiness('disk-capacity')]),
             $this->uptimeRegistryWithFake(),
             'null',
-            heartbeatConfigured: false,
+            heartbeat: null,
         );
 
         $finding = $check->check($this->contextFor('staging'));
@@ -152,7 +152,7 @@ final class DetectorIndependenceDoctorCheckTest extends TestCase
             $this->probeRegistry(['disk-capacity' => StubProbe::readiness('disk-capacity')]),
             $this->uptimeRegistryWithFake(),
             'null',
-            heartbeatConfigured: true,
+            heartbeat: new \stdClass(),
         );
 
         $finding = $check->check($this->contextFor('production'));
@@ -167,7 +167,7 @@ final class DetectorIndependenceDoctorCheckTest extends TestCase
             $this->probeRegistry(['disk-capacity' => StubProbe::readiness('disk-capacity')]),
             null,
             'fake',
-            heartbeatConfigured: true,
+            heartbeat: new \stdClass(),
         );
 
         $finding = $check->check($this->contextFor('prod'));
@@ -181,7 +181,7 @@ final class DetectorIndependenceDoctorCheckTest extends TestCase
             $this->probeRegistry([]),
             $this->uptimeRegistryWithFake(),
             'fake',
-            heartbeatConfigured: true,
+            heartbeat: new \stdClass(),
         );
 
         $finding = $check->check($this->contextFor('prod'));

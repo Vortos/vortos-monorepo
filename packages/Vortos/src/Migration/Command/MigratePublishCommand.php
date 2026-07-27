@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Migration\Command;
 
+use Vortos\Migration\Service\PublishManifestKey;
+
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -390,23 +392,11 @@ final class MigratePublishCommand extends Command
     }
 
     /**
-     * The manifest key that identifies a stub independently of where the code is checked out.
-     *
-     * WHY NOT THE FILE PATH. The key used to be the stub's path relative to the project dir, which
-     * silently made the manifest specific to one working directory: publish from anywhere else and
-     * NOTHING matched, so every already-published migration looked new and the command regenerated
-     * all of them. That happened here — 53 duplicate migrations for schema already live in
-     * production, which would have been a genuinely destructive commit.
-     *
-     * Module plus filename is the stub's actual identity: it is what the command already prints,
-     * it is stable across checkouts, containers and mount points, and two packages cannot own the
-     * same module.
-     *
      * @param array<string, mixed> $stub
      */
     private function canonicalKeyFor(array $stub): string
     {
-        return $stub['module'] . '/' . $stub['filename'];
+        return PublishManifestKey::canonical($stub);
     }
 
     /**
@@ -414,36 +404,7 @@ final class MigratePublishCommand extends Command
      */
     private function manifestKeyFor(array $stub, array $manifest): ?string
     {
-        $canonical = $this->canonicalKeyFor($stub);
-
-        if (isset($manifest[$canonical])) {
-            return $canonical;
-        }
-
-        // Legacy path-derived keys, still honoured so an existing manifest is not invalidated —
-        // treating those stubs as unpublished is exactly the destructive outcome this fixes. They
-        // are rewritten under the canonical key on the next publish that touches them.
-        if (isset($manifest[$stub['relative']])) {
-            return $stub['relative'];
-        }
-
-        $legacySqlKey = $this->replaceExtension($stub['relative'], 'sql');
-
-        if (isset($stub['provider'], $manifest[$legacySqlKey])) {
-            return $legacySqlKey;
-        }
-
-        // Older manifests recorded an absolute path with the leading slash trimmed, which depended
-        // on the container's mount point. Match on the tail so those remain recognised.
-        foreach (array_keys($manifest) as $existing) {
-            if (str_ends_with((string) $existing, '/' . $stub['module'] . '/' . $stub['filename'])
-                || str_ends_with((string) $existing, '/' . $stub['filename'])
-            ) {
-                return (string) $existing;
-            }
-        }
-
-        return null;
+        return PublishManifestKey::resolve($stub, $manifest);
     }
 
     /**

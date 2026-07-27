@@ -93,25 +93,18 @@ final class UnpublishedStubDetector
     }
 
     /**
-     * The manifest key under which a stub is recorded as published, or null if unpublished. A schema
-     * provider may still be recorded under its legacy `.sql` key (pre-`.php` publishes).
+     * Delegates to {@see PublishManifestKey} so the detector and the publisher can never disagree
+     * about whether a stub is already published. They used to hold separate copies of this rule,
+     * and when the publisher's key format changed the detector kept looking for the old one: the
+     * auto-publisher emitted a migration and then reported that same stub as unpublished, refusing
+     * the deploy it had just made valid.
      *
-     * @param array{relative: string, is_provider: bool} $stub
+     * @param array{module: string, filename: string, relative: string, is_provider: bool} $stub
      * @param array<string, mixed> $manifest
      */
     public function manifestKeyFor(array $stub, array $manifest): ?string
     {
-        if (isset($manifest[$stub['relative']])) {
-            return $stub['relative'];
-        }
-
-        if (!$stub['is_provider']) {
-            return null;
-        }
-
-        $legacySqlKey = $this->replaceExtension($stub['relative'], 'sql');
-
-        return isset($manifest[$legacySqlKey]) ? $legacySqlKey : null;
+        return PublishManifestKey::resolve($stub, $manifest);
     }
 
     /** @return array<string, mixed> */

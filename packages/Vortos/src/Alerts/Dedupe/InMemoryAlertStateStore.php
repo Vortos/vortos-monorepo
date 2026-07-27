@@ -15,6 +15,16 @@ final class InMemoryAlertStateStore implements AlertStateStoreInterface
         return $this->states[$fingerprint] ?? null;
     }
 
+    /** @return list<AlertState> */
+    public function openSince(\DateTimeImmutable $threshold): array
+    {
+        return array_values(array_filter(
+            $this->states,
+            static fn (AlertState $s): bool => $s->status === AlertStateStatus::Open
+                && $s->lastSeenAt < $threshold,
+        ));
+    }
+
     public function save(AlertState $state): void
     {
         $this->states[$state->fingerprint] = $state;

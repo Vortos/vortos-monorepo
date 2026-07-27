@@ -31,6 +31,23 @@ final class DbalAlertStateStore implements AlertStateStoreInterface
         return $row === false ? null : $this->fromRow($row);
     }
 
+    /** @return list<AlertState> */
+    public function openSince(\DateTimeImmutable $threshold): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            sprintf(
+                'SELECT * FROM %s WHERE status = :status AND last_seen_at < :threshold',
+                $this->table,
+            ),
+            [
+                'status' => AlertStateStatus::Open->value,
+                'threshold' => $threshold->format(DateTimeImmutable::ATOM),
+            ],
+        );
+
+        return array_map(fn (array $row): AlertState => $this->fromRow($row), $rows);
+    }
+
     public function save(AlertState $state): void
     {
         $this->connection->transactional(function (Connection $conn) use ($state): void {
@@ -67,6 +84,10 @@ final class DbalAlertStateStore implements AlertStateStoreInterface
             'flap_transitions' => $state->flapTransitions,
             'flap_window_start_at' => $state->flapWindowStartAt?->format(DateTimeImmutable::ATOM),
             'flap_escalated_at' => $state->flapEscalatedAt?->format(DateTimeImmutable::ATOM),
+            // Backoff state must be durable: if it resets on restart, "still firing" reminders go
+            // back to full volume — which on a blue/green deploy is several times a day.
+            'last_notified_at' => $state->lastNotifiedAt?->format(DateTimeImmutable::ATOM),
+            'reminder_count' => $state->reminderCount,
         ];
     }
 
@@ -82,6 +103,8 @@ final class DbalAlertStateStore implements AlertStateStoreInterface
             flapTransitions: (int) $row['flap_transitions'],
             flapWindowStartAt: $row['flap_window_start_at'] !== null ? new DateTimeImmutable((string) $row['flap_window_start_at']) : null,
             flapEscalatedAt: $row['flap_escalated_at'] !== null ? new DateTimeImmutable((string) $row['flap_escalated_at']) : null,
+            lastNotifiedAt: isset($row['last_notified_at']) ? new DateTimeImmutable((string) $row['last_notified_at']) : null,
+            reminderCount: (int) ($row['reminder_count'] ?? 0),
         );
     }
 }

@@ -11,6 +11,7 @@ use Vortos\Alerts\Integration\AlertSourceInterface;
 use Vortos\Alerts\Integration\Messaging\QueueBacklogAlertSource;
 use Vortos\Alerts\Integration\Messaging\QueueBacklogProviderInterface;
 use Vortos\Alerts\Runtime\AlertSourceTicker;
+use Vortos\Alerts\Runtime\StaleAlertResolver;
 use Vortos\Alerts\Schedule\EvaluateAlertSourcesCommand;
 use Vortos\Alerts\Schedule\EvaluateAlertSourcesHandler;
 use Vortos\Alerts\Schedule\EvaluateAlertSourcesSchedule;
@@ -37,6 +38,7 @@ use Vortos\Alerts\Dedupe\AlertStateStoreInterface;
 use Vortos\Alerts\Dedupe\Dedupe;
 use Vortos\Alerts\Dedupe\DbalAlertStateStore;
 use Vortos\Alerts\Dedupe\DedupeWindow;
+use Vortos\Alerts\Dedupe\ReminderBackoff;
 use Vortos\Alerts\Dedupe\InMemoryAlertStateStore;
 use Vortos\Alerts\Escalation\AckStoreInterface;
 use Vortos\Alerts\Escalation\AckTokenSigner;
@@ -240,8 +242,18 @@ final class AlertsExtension extends Extension
 
     private function registerDedupe(ContainerBuilder $container): void
     {
+        // "Still firing" reminders back off instead of repeating on a fixed schedule. The old
+        // ALERTS_DIGEST_EVERY counted OCCURRENCES, which — because sources are evaluated on a fixed
+        // cadence — meant a reminder every ten minutes forever for any condition that does not
+        // resolve itself. These are time based, so the schedule does not change if the evaluation
+        // cadence does.
+        $container->register(ReminderBackoff::class, ReminderBackoff::class)
+            ->setArgument('$initialSeconds', (int) ($_ENV['ALERTS_REMINDER_INITIAL_SECONDS'] ?? 600))
+            ->setArgument('$maxSeconds', (int) ($_ENV['ALERTS_REMINDER_MAX_SECONDS'] ?? 21_600))
+            ->setPublic(false);
+
         $container->register(Dedupe::class, Dedupe::class)
-            ->setArgument('$digestEvery', (int) ($_ENV['ALERTS_DIGEST_EVERY'] ?? 10))
+            ->setArgument('$backoff', new Reference(ReminderBackoff::class))
             ->setPublic(false);
 
         $container->register(DedupeWindow::class, DedupeWindow::class)
@@ -427,8 +439,15 @@ final class AlertsExtension extends Extension
         $container->register(EvaluateAlertSourcesCommand::class, EvaluateAlertSourcesCommand::class)
             ->setPublic(false);
 
+        $container->register(StaleAlertResolver::class, StaleAlertResolver::class)
+            ->setArgument('$store', new Reference(AlertStateStoreInterface::class))
+            ->setArgument('$silenceSeconds', (int) ($_ENV['ALERTS_RESOLVE_AFTER_SECONDS'] ?? 3_600))
+            ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setPublic(false);
+
         $container->register(EvaluateAlertSourcesHandler::class, EvaluateAlertSourcesHandler::class)
             ->setArgument('$ticker', new Reference(AlertSourceTicker::class))
+            ->setArgument('$staleResolver', new Reference(StaleAlertResolver::class))
             ->setArgument('$clock', new Reference(ClockInterface::class))
             ->setArgument('$env', (string) ($_ENV['APP_ENV'] ?? 'prod'))
             ->addTag('vortos.command_handler')

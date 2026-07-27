@@ -6,6 +6,7 @@ namespace Vortos\Alerts\Schedule;
 
 use Psr\Clock\ClockInterface;
 use Vortos\Alerts\Runtime\AlertSourceTicker;
+use Vortos\Alerts\Runtime\StaleAlertResolver;
 use Vortos\Cqrs\Attribute\AsCommandHandler;
 
 /**
@@ -23,10 +24,22 @@ final class EvaluateAlertSourcesHandler
         private readonly AlertSourceTicker $ticker,
         private readonly ClockInterface $clock,
         private readonly string $env = 'prod',
+        /**
+         * Housekeeping that rides the same tick: alerts whose condition stopped being observed are
+         * closed, so the open-alert count stays truthful. Optional — an app without a durable state
+         * store has nothing to resolve.
+         */
+        private readonly ?StaleAlertResolver $staleResolver = null,
     ) {}
 
     public function __invoke(EvaluateAlertSourcesCommand $command): void
     {
-        $this->ticker->tick($this->env, $this->clock->now());
+        $now = $this->clock->now();
+
+        $this->ticker->tick($this->env, $now);
+
+        // Deliberately AFTER the tick: anything still firing has just refreshed its lastSeenAt, so
+        // only genuinely absent conditions are eligible to close.
+        $this->staleResolver?->resolveStale($now);
     }
 }

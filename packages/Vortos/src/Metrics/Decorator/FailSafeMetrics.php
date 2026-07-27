@@ -70,6 +70,7 @@ final class FailSafeMetrics implements MetricsInterface
         $this->strict = \in_array($environment, self::STRICT_ENVIRONMENTS, true);
     }
 
+    /** @param array<string, string|int|float> $labels */
     public function counter(string $name, array $labels = []): CounterInterface
     {
         try {
@@ -81,6 +82,7 @@ final class FailSafeMetrics implements MetricsInterface
         }
     }
 
+    /** @param array<string, string|int|float> $labels */
     public function gauge(string $name, array $labels = []): GaugeInterface
     {
         try {
@@ -92,6 +94,7 @@ final class FailSafeMetrics implements MetricsInterface
         }
     }
 
+    /** @param array<string, string|int|float> $labels */
     public function histogram(string $name, array $labels = []): HistogramInterface
     {
         try {

@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Alerts\DependencyInjection\Compiler\AlertsExternalDefaultsPass;
 use Vortos\Alerts\DependencyInjection\Compiler\CollectNotifiersPass;
+use Vortos\Alerts\DependencyInjection\Compiler\AlertAuditWiringPass;
 use Vortos\Alerts\DependencyInjection\Compiler\DurableAlertStorePass;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\OpsKit\Driver\DependencyInjection\CollectDriversCompilerPass;
@@ -31,5 +32,10 @@ final class AlertsPackage implements PackageInterface
         // extension load order, and losing it silently costs the audit trail, cross-process dedupe,
         // ack persistence and maintenance silences. See DurableAlertStorePass.
         $container->addCompilerPass(new DurableAlertStorePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -15);
+        // Cross-package: the tamper-evident audit ledger needs a DBAL Connection and the hash
+        // chain. Asking for either in the extension is a race against load order — it lost that
+        // race in production and the ledger was never registered at all, recording nothing while
+        // alerts delivered normally. See AlertAuditWiringPass.
+        $container->addCompilerPass(new AlertAuditWiringPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -14);
     }
 }

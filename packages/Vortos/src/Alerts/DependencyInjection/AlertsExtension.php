@@ -117,7 +117,6 @@ final class AlertsExtension extends Extension
         $this->registerHealthIntegration($container);
         $this->registerBackupIntegration($container);
         $this->registerDeployIntegration($container);
-        $this->registerAudit($container);
         $this->registerQueueBacklogIntegration($container);
         $this->registerSourceTicker($container);
         $this->registerCommands($container);
@@ -549,63 +548,6 @@ final class AlertsExtension extends Extension
                 ->setArgument('$rules', new Reference(AlertRuleSet::class))
                 ->setArgument('$validator', new Reference(AlertRuleValidator::class))
                 ->setArgument('$sloRegistry', new Reference(SloRegistry::class))
-                ->setPublic(false);
-        }
-    }
-
-    private function registerAudit(ContainerBuilder $container): void
-    {
-        if (!$container->has(Connection::class)) {
-            return;
-        }
-
-        $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
-            ? $container->getParameter('vortos.db.framework_table_prefix')
-            : 'vortos_';
-
-        $container->register(DbalAlertAuditViewRepository::class, DbalAlertAuditViewRepository::class)
-            ->setArgument('$connection', new Reference(Connection::class))
-            ->setArgument('$table', $prefix . 'alerts_audit_log')
-            ->setPublic(false);
-        $container->setAlias(AlertAuditViewRepositoryInterface::class, DbalAlertAuditViewRepository::class)->setPublic(false);
-
-        // The AuditHashChain fallback (when vortos-observability is absent) is registered by
-        // AlertsExternalDefaultsPass — a cross-package "register default if absent" decision.
-
-        // The recorder is registered UNCONDITIONALLY, with the signing key referenced as an env
-        // placeholder rather than read here.
-        //
-        // This used to be `if ($_ENV['ALERTS_AUDIT_HMAC_KEY'] !== '')`, which is the inline
-        // compile-time env read that Foundation\Config\Env exists to forbid: "env access is a
-        // declared reference, never an inline read". The container is compiled in a clean
-        // environment, so the key read as empty there and the whole recorder was omitted from the
-        // compiled container — permanently, on every boot, on a production host where the key WAS
-        // present. The dispatcher treats a null recorder as "auditing not configured" and silently
-        // skips it, so the tamper-evident ledger recorded nothing at all while alerts were being
-        // delivered to Slack. Zero rows, no error, no signal.
-        //
-        // Resolving %env()% at runtime means the container no longer encodes a build-time
-        // observation about a secret. Whether the key is actually usable is a RUNTIME question,
-        // answered by the recorder itself and surfaced by the doctor check — not by a service
-        // silently ceasing to exist.
-        $container->setParameter('env(ALERTS_AUDIT_HMAC_KEY)', '');
-
-        $container->register(AlertAuditRecorder::class, AlertAuditRecorder::class)
-            ->setArgument('$repository', new Reference(AlertAuditViewRepositoryInterface::class))
-            ->setArgument('$chain', new Reference(AuditHashChain::class))
-            ->setArgument('$hmacKey', '%env(ALERTS_AUDIT_HMAC_KEY)%')
-            ->setPublic(true);
-        $container->setAlias(AlertAuditRecorderInterface::class, AlertAuditRecorder::class)->setPublic(false);
-
-        // The deploy gate that makes a non-recording ledger impossible to miss. Registered here
-        // rather than beside the rules check because it depends on the recorder existing, which is
-        // decided in this method.
-        if (interface_exists(\Vortos\Deploy\Preflight\PreflightCheckInterface::class)) {
-            $container->register(AlertAuditLedgerCheck::class, AlertAuditLedgerCheck::class)
-                ->setArgument('$recorder', new Reference(
-                    AlertAuditRecorderInterface::class,
-                    ContainerInterface::NULL_ON_INVALID_REFERENCE,
-                ))
                 ->setPublic(false);
         }
     }

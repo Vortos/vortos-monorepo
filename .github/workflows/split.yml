@@ -91,19 +91,6 @@ jobs:
   split:
     needs: [pin-lint, tests, ui-build]
     runs-on: ubuntu-latest
-    # The split action is a Docker action, and the runner builds its image in an INTERNAL step
-    # ("Build container for action use") that runs before any step of ours. That build does not
-    # inherit a step-level `env`, and — measured, not assumed — it does not inherit a job-level one
-    # either: the run on 54da999a carried this variable at job level and its failing job still
-    # logged BuildKit output (`building with "default" instance`) before timing out on the registry
-    # HEAD for `php:8.1-cli-alpine`. Both placements were tried and neither reached the build.
-    #
-    # `$GITHUB_ENV` is a different mechanism — it writes into the job context the runner composes
-    # each subsequent step's environment from, including that internal image build — so the export
-    # step below is where this now takes effect. The value is kept here as well because it also
-    # governs the pre-pull step's own docker invocation, and costs nothing if redundant.
-    env:
-      DOCKER_BUILDKIT: '0'
     # Serialise per PACKAGE REPO, not per workflow run.
     #
     # Pushing `main` and a tag together starts two runs, and their jobs for the same package race
@@ -119,15 +106,10 @@ jobs:
       cancel-in-progress: false
     strategy:
       fail-fast: false
-      # The load-bearing fix for the Docker Hub flake, and the only one that does not depend on
-      # guessing how the runner builds a Docker action's image. Fifty jobs starting at once means
-      # fifty near-simultaneous requests to registry-1.docker.io from one runner pool, and that is
-      # the burst the `DeadlineExceeded ... i/o timeout` tracks — it has never once reproduced on a
-      # re-run, where the same commit fans out against an un-throttled registry and passes.
-      #
-      # Twelve keeps the pipeline to about four waves. The splits take ~30s each, so a release goes
-      # from ~2.5min to ~5min; a release that has to be re-run by hand costs far more than that.
-      max-parallel: 12
+      # No max-parallel and no registry throttling to design around: the split is plain git now
+      # (tools/ci/split-package.sh), so a job clones one small repo and pushes one commit. The cap
+      # that used to live here existed solely to thin out ~50 simultaneous Docker Hub pulls, and
+      # that pressure is gone with the Docker action it was protecting.
       matrix:
         package:
           - local_path: 'packages/Vortos/src/Domain'
@@ -245,45 +227,17 @@ jobs:
         if: matrix.package.split_repository == 'vortos-framework' && github.ref_type == 'tag'
         run: php tools/ci/pin-meta-requires.php "${{ github.ref_name }}"
 
-      # The split action is a Docker action whose Dockerfile does `FROM php:8.1-cli-alpine`, and
-      # ~55 of these jobs start at once. Docker Hub rate-limits and times out under that fan-out,
-      # which failed two releases in one hour with `DeadlineExceeded ... registry-1.docker.io`.
-      # Nothing was wrong with the code either time; a re-run passed unchanged.
-      #
-      # The action is third-party, so its Dockerfile is not ours to edit. Instead the base image is
-      # pulled here with backoff and BuildKit is turned off, so the legacy builder resolves `FROM`
-      # against the local image store. BuildKit issues a registry HEAD even when the image is
-      # already present locally, and that HEAD is precisely the request that was timing out.
-      #
-      # `max-parallel` on the matrix is the primary defence; this pair is the second layer, so that
-      # a burst which does get throttled still finds the image locally instead of failing the job.
-      - name: Pre-pull the split action's base image
-        run: |
-          for attempt in 1 2 3 4 5; do
-            if docker pull --quiet php:8.1-cli-alpine; then
-              exit 0
-            fi
-            echo "pull attempt $attempt failed; retrying in $((attempt * 10))s"
-            sleep $((attempt * 10))
-          done
-          echo "could not pull php:8.1-cli-alpine after 5 attempts" >&2
-          exit 1
-
-      # Neither a step-level nor a job-level `env:` reached the runner's internal
-      # "Build container for action use" step — see the note on the job's `env` block. Writing the
-      # variable to $GITHUB_ENV puts it in the job context the runner composes that build's
-      # environment from, which is the placement that actually takes effect.
-      - name: Disable BuildKit for the action image build
-        run: echo 'DOCKER_BUILDKIT=0' >> "$GITHUB_ENV"
-
-      - uses: danharrin/monorepo-split-github-action@14e42e2437f674b8987c1f50ca3689116aea1893  # v2.4.5
+      # Plain git, deliberately not a Docker action. See tools/ci/split-package.sh for the full
+      # history: the previous third-party action built a php:8.1-cli-alpine image per package, so a
+      # release made ~50 near-simultaneous requests to Docker Hub and was repeatedly killed by
+      # `DeadlineExceeded ... registry-1.docker.io ... i/o timeout`. Pre-pulling, DOCKER_BUILDKIT=0
+      # at every placement, and max-parallel each reduced it and none fixed it. Splitting a
+      # directory into another repo is a git operation; it never needed a registry.
+      - name: Split to ${{ matrix.package.split_repository }}
         env:
-          GITHUB_TOKEN: ${{ secrets.MONOREPO_SPLIT_TOKEN }}
-        with:
-          package_directory: ${{ matrix.package.local_path }}
-          repository_organization: 'Vortos'
-          repository_name: ${{ matrix.package.split_repository }}
-          user_name: 'Sachintha De Silva'
-          user_email: 'yslaksura@gmail.com'
-          tag: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          branch: ${{ github.ref_type == 'branch' && github.ref_name || 'main' }}
+          SPLIT_TOKEN: ${{ secrets.MONOREPO_SPLIT_TOKEN }}
+          PKG_DIR: ${{ matrix.package.local_path }}
+          TARGET_REPO: 'Vortos/${{ matrix.package.split_repository }}'
+          TARGET_BRANCH: ${{ github.ref_type == 'branch' && github.ref_name || 'main' }}
+          TARGET_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: bash tools/ci/split-package.sh

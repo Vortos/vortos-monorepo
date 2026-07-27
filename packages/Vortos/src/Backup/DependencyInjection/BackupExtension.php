@@ -585,6 +585,8 @@ final class BackupExtension extends Extension
         }
 
         // ── Console ──
+        $container->register(\Vortos\Backup\Doctor\ReplicationAccessInspector::class, \Vortos\Backup\Doctor\ReplicationAccessInspector::class)
+            ->setPublic(false);
         $container->register(BackupRunCommand::class, BackupRunCommand::class)
             ->setArgument('$runner', new Reference(BackupRunner::class))
             ->setArgument('$engineResolver', new Reference(\Vortos\Backup\Domain\EngineResolver::class))
@@ -595,6 +597,12 @@ final class BackupExtension extends Extension
             ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
             ->setArgument('$storeKey', $storeKey)
             ->setArgument('$connection', new Reference(Connection::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            // Replication access is only meaningful when physical_base backups are declared, so the
+            // declared kinds and the DSN are passed in rather than discovered — the check must stay
+            // silent for a logical-dump-only setup instead of gating on a capability it never uses.
+            ->setArgument('$replication', new Reference(\Vortos\Backup\Doctor\ReplicationAccessInspector::class))
+            ->setArgument('$schedules', new Reference(BackupScheduleRegistry::class))
+            ->setArgument('$dsn', (string) ($_ENV['VORTOS_WRITE_DB_DSN'] ?? ''))
             ->addTag('console.command')->setPublic(false);
         $container->register(BackupListCommand::class, BackupListCommand::class)
             ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))

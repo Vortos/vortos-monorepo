@@ -21,7 +21,21 @@ final class BetterStackClient
         private readonly string $tokenEnvVar = 'UPTIME_MONITOR_BETTERSTACK_TOKEN',
     ) {}
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * Create the monitor, or update the existing one for the same URL.
+     *
+     * IDEMPOTENCY WITHOUT external_id. This used to POST `external_id` alongside the payload and
+     * rely on the API to upsert. That attribute does not exist on the resource — the API rejected
+     * the whole request with 422 "you misspelled some attributes" — so nothing was ever created,
+     * let alone updated idempotently.
+     *
+     * The resource's natural key is its URL: one monitor per endpoint is what an operator means by
+     * "the monitor for /health/ready". So a sync looks the URL up first and PATCHes when it exists.
+     * Without this, every deploy that ran a sync would add another duplicate monitor for the same
+     * endpoint, and duplicates page twice.
+     *
+     * @param array<string, mixed> $payload
+     */
     public function createOrUpdateMonitor(string $externalId, array $payload): string
     {
         $token = $this->token();
@@ -29,12 +43,22 @@ final class BetterStackClient
             throw MonitorSyncException::forFailure($externalId, 'missing API token (' . $this->tokenEnvVar . ')');
         }
 
-        $response = $this->transport->request(
-            'POST',
-            self::BASE_URL,
-            $this->authHeaders($token),
-            [...$payload, 'external_id' => $externalId],
-        );
+        $url = isset($payload['url']) ? (string) $payload['url'] : '';
+        $existingId = $url !== '' ? $this->findMonitorIdByUrl($token, $url) : null;
+
+        $response = $existingId !== null
+            ? $this->transport->request(
+                'PATCH',
+                self::BASE_URL . '/' . rawurlencode($existingId),
+                $this->authHeaders($token),
+                $payload,
+            )
+            : $this->transport->request(
+                'POST',
+                self::BASE_URL,
+                $this->authHeaders($token),
+                $payload,
+            );
 
         if ($response['status'] < 200 || $response['status'] >= 300) {
             throw MonitorSyncException::forFailure(
@@ -51,6 +75,42 @@ final class BetterStackClient
         }
 
         return $id;
+    }
+
+    /**
+     * The id of an existing monitor for this URL, or null.
+     *
+     * A lookup failure returns null rather than throwing: the caller then attempts a create, and a
+     * genuine problem surfaces there with the real error. Failing the whole sync because a list
+     * call hiccuped would turn a transient blip into "no monitor at all".
+     */
+    private function findMonitorIdByUrl(string $token, string $url): ?string
+    {
+        try {
+            $response = $this->transport->request('GET', self::BASE_URL, $this->authHeaders($token), null);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($response['status'] < 200 || $response['status'] >= 300) {
+            return null;
+        }
+
+        $decoded = json_decode($response['body'], true);
+
+        foreach (is_array($decoded) ? ($decoded['data'] ?? []) : [] as $monitor) {
+            if (!is_array($monitor)) {
+                continue;
+            }
+
+            if ((string) ($monitor['attributes']['url'] ?? '') === $url) {
+                $id = (string) ($monitor['id'] ?? '');
+
+                return $id !== '' ? $id : null;
+            }
+        }
+
+        return null;
     }
 
     /** @return array<string, mixed> */

@@ -113,9 +113,10 @@ final class ContainerizedPitrRecipe
         // not the registered name, so every base backup died on "command not found". Taken from the
         // command class so it cannot diverge again.
         $runCommand = BackupRunCommand::NAME;
-        // S3CompatibleObjectStore buffers the whole artifact in memory rather than streaming it, so
-        // a base backup of any real size dies on PHP's default 128M limit. Raised here because the
-        // emitted script is where the backup actually runs; the durable fix is a streaming upload.
+        // No memory_limit override: S3CompatibleObjectStore buffers each multipart part through
+        // php://temp, so an upload costs bounded RAM regardless of how large the backup is. The
+        // emitted script deliberately does NOT raise the limit — doing so would hide a regression
+        // in that guarantee behind a number that has to keep growing with the database.
 
         return <<<SH
         #!/bin/sh
@@ -129,7 +130,7 @@ final class ContainerizedPitrRecipe
             # failure must not be silent: without this echo a permanently broken base backup is
             # indistinguishable from a healthy one. Backup freshness alerting is what turns this
             # line into a page.
-            php -d memory_limit=1G bin/console $runCommand --env="\$ENV" --kind=$kind \
+            php bin/console $runCommand --env="\$ENV" --kind=$kind \
                 || echo "vortos: base backup FAILED (env=\$ENV kind=$kind) — PITR is not restorable until this succeeds" >&2
             sleep "\$INTERVAL"
         done

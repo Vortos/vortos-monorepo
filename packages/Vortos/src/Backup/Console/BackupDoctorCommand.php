@@ -14,6 +14,8 @@ use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\EngineResolver;
 use Vortos\Backup\Domain\Exception\BackupException;
 use Vortos\Backup\Doctor\BackupToolchainInspector;
+use Vortos\Backup\Doctor\ReplicationAccessFinding;
+use Vortos\Backup\Doctor\ReplicationAccessInspector;
 use Vortos\Backup\Doctor\ToolchainReport;
 use Vortos\Backup\Environment\DefaultEnvironment;
 use Vortos\Backup\Port\BackupStoreRegistry;
@@ -36,6 +38,11 @@ final class BackupDoctorCommand extends Command
         private readonly BackupStoreRegistry $stores,
         private readonly string $storeKey,
         private readonly ?Connection $connection = null,
+        private readonly ?ReplicationAccessInspector $replication = null,
+        // The live schedule declaration, not a compile-time snapshot: whether replication access is
+        // required follows from what config/backup.php actually declares today.
+        private readonly ?\Vortos\Backup\Schedule\BackupScheduleRegistry $schedules = null,
+        private readonly string $dsn = '',
     ) {
         parent::__construct();
     }
@@ -60,23 +67,56 @@ final class BackupDoctorCommand extends Command
 
         $report = $this->inspector->inspect($engine, $this->serverMajor($engine));
         $storeOk = $this->storeResolves();
+        $replication = $this->inspectReplication($engine);
+        $ok = $report->isSatisfied() && $storeOk && !$replication->isFailure();
 
         if ($json) {
             $output->writeln((string) json_encode(
-                ['ok' => $report->isSatisfied() && $storeOk, 'store' => ['key' => $this->storeKey, 'resolved' => $storeOk], 'toolchain' => $report->toArray()],
+                [
+                    'ok' => $ok,
+                    'store' => ['key' => $this->storeKey, 'resolved' => $storeOk],
+                    'toolchain' => $report->toArray(),
+                    'replication' => $replication->toArray(),
+                ],
                 JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
             ));
 
-            return $report->isSatisfied() && $storeOk ? self::SUCCESS : self::FAILURE;
+            return $ok ? self::SUCCESS : self::FAILURE;
         }
 
-        $this->render($output, $engine, $report, $storeOk);
+        $this->render($output, $engine, $report, $storeOk, $replication);
 
-        return $report->isSatisfied() && $storeOk ? self::SUCCESS : self::FAILURE;
+        return $ok ? self::SUCCESS : self::FAILURE;
     }
 
-    private function render(OutputInterface $output, DatabaseEngine $engine, ToolchainReport $report, bool $storeOk): void
+    /**
+     * pg_basebackup needs a REPLICATION connection, authorised by a pg_hba path that `all` does not
+     * cover, plus the REPLICATION role attribute. Nothing else here inspects that, which is how
+     * physical base backups failed indefinitely with every other signal green — and archived WAL
+     * with no base backup restores to nothing. Skipped entirely when the inspector is unavailable
+     * or no physical_base backups are declared.
+     */
+    private function inspectReplication(DatabaseEngine $engine): ReplicationAccessFinding
     {
+        if ($this->replication === null || $this->schedules === null || $this->dsn === '') {
+            return ReplicationAccessFinding::notApplicable('Replication check not configured.');
+        }
+
+        $kinds = [];
+        foreach ($this->schedules as $schedule) {
+            $kinds[] = $schedule->kind;
+        }
+
+        return $this->replication->inspect($engine, $this->dsn, array_values(array_unique($kinds, SORT_REGULAR)));
+    }
+
+    private function render(
+        OutputInterface $output,
+        DatabaseEngine $engine,
+        ToolchainReport $report,
+        bool $storeOk,
+        ReplicationAccessFinding $replication,
+    ): void {
         $output->writeln(sprintf('<info>Backup engine:</info> %s%s', $engine->value, $report->serverMajor !== null ? sprintf(' (server major %d)', $report->serverMajor) : ''));
 
         foreach ($report->findings as $finding) {
@@ -88,7 +128,18 @@ final class BackupDoctorCommand extends Command
             ? sprintf('  <info>✓</info> store "%s" resolves', $this->storeKey)
             : sprintf('  <error>✗ store "%s" does not resolve</error>', $this->storeKey));
 
-        $output->writeln($report->isSatisfied() && $storeOk
+        if ($replication->applicable) {
+            $output->writeln($replication->isFailure()
+                ? sprintf('  <error>✗ replication access — %s</error>', $replication->message)
+                : sprintf('  <info>✓</info> replication access — %s', $replication->message));
+
+            if ($replication->isFailure() && $replication->remediation !== '') {
+                $output->writeln('');
+                $output->writeln($replication->remediation);
+            }
+        }
+
+        $output->writeln($report->isSatisfied() && $storeOk && !$replication->isFailure()
             ? '<info>Backup preflight passed.</info>'
             : '<error>Backup preflight failed — fix the above before running a backup.</error>');
     }

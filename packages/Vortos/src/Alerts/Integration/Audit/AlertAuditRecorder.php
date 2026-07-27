@@ -18,7 +18,7 @@ use Vortos\Observability\Audit\AuditHashChain;
  * silenced, when." Guarded by the audit-ledger presence in the DI extension, the
  * same pattern Observability uses for its optional Deploy integration.
  */
-final class AlertAuditRecorder
+final class AlertAuditRecorder implements AlertAuditRecorderInterface
 {
     public function __construct(
         private readonly AlertAuditViewRepositoryInterface $repository,

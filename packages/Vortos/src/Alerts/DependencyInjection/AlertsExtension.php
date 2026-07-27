@@ -52,6 +52,7 @@ use Vortos\Alerts\Escalation\OnCallRotation;
 use Vortos\Alerts\Escalation\QuietHoursPolicy;
 use Vortos\Alerts\Escalation\Responder;
 use Vortos\Alerts\Integration\Audit\AlertAuditRecorder;
+use Vortos\Alerts\Integration\Audit\AlertAuditRecorderInterface;
 use Vortos\Alerts\Integration\Audit\AlertAuditViewRepositoryInterface;
 use Vortos\Alerts\Integration\Audit\DbalAlertAuditViewRepository;
 use Vortos\Alerts\Integration\Slo\NullSloBurnRateProvider;
@@ -358,6 +359,7 @@ final class AlertsExtension extends Extension
             ->setArgument('$router', new Reference(Router::class))
             ->setArgument('$notifiers', new Reference(NotifierRegistry::class))
             ->setArgument('$rateLimiter', new Reference(OutboundRateLimiterInterface::class))
+            ->setArgument('$auditRecorder', new Reference(AlertAuditRecorderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
 
         $container->setAlias(AlertDispatcherInterface::class, AlertDispatcher::class)->setPublic(false);
@@ -557,6 +559,7 @@ final class AlertsExtension extends Extension
                 ->setArgument('$chain', new Reference(AuditHashChain::class))
                 ->setArgument('$hmacKey', $hmacKey)
                 ->setPublic(true);
+            $container->setAlias(AlertAuditRecorderInterface::class, AlertAuditRecorder::class)->setPublic(false);
         }
     }
 

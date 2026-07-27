@@ -46,7 +46,11 @@ final class ObjectStoreBackupStorePipeStreamingTest extends TestCase
         $handler = new MockHandler();
         $handler->append(function (CommandInterface $cmd) use (&$captured): Result {
             $this->assertSame('PutObject', $cmd->getName());
-            $captured = (string) $cmd['Body'];
+            // The body is a rewound php://temp handle, not a string: parts are buffered through
+            // a spilling stream so an upload never materialises in memory. Casting a resource to
+            // string yields "Resource id #N", which would silently pass a weaker assertion.
+            $body = $cmd['Body'];
+            $captured = \is_resource($body) ? (string) stream_get_contents($body) : (string) $body;
 
             return new Result(['ETag' => '"pipe-etag"']);
         });

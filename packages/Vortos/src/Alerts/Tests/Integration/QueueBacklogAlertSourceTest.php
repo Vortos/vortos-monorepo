@@ -146,6 +146,53 @@ final class QueueBacklogAlertSourceTest extends TestCase
         self::assertSame([], $dispatcher->events);
     }
 
+    public function test_queue_prefix_scopes_a_rule_to_one_surface(): void
+    {
+        // Without scoping this rule sees every queue every provider reports. Queue names carry the
+        // TOPIC, not the broker ("outbox-failed:registration.payment.completed"), so an exact
+        // `queue` label silently matches nothing unless the author enumerated every topic — and an
+        // unscoped rule fires on unrelated surfaces. A "dead letters exist" rule must see dlq: only.
+        $dispatcher = new RecordingDispatcher();
+        $rule = new AlertRule(
+            id: 'dlq-not-empty',
+            severity: Severity::Critical,
+            kind: AlertRuleKind::QueueLag,
+            condition: new ThresholdCondition(ThresholdOperator::GreaterThan, 0.0),
+            labels: ['queue_prefix' => 'dlq:', 'measure' => 'depth'],
+        );
+
+        $source = $this->source($dispatcher, [
+            new QueueBacklog('dlq:registration.submitted', 2, 60),
+            new QueueBacklog('outbox:registration.submitted', 9, 5),
+        ], $rule);
+
+        $source->tick('production', new DateTimeImmutable('2026-07-27T00:00:00Z'));
+
+        self::assertCount(1, $dispatcher->events, 'only the dlq surface should have matched');
+    }
+
+    public function test_outbox_prefix_does_not_swallow_the_abandoned_surface(): void
+    {
+        // "outbox:" must not also match "outbox-failed:", or the age-based drain rule would latch
+        // permanently against rows that by definition never drain.
+        $dispatcher = new RecordingDispatcher();
+        $rule = new AlertRule(
+            id: 'outbox-not-draining',
+            severity: Severity::Critical,
+            kind: AlertRuleKind::QueueLag,
+            condition: new ThresholdCondition(ThresholdOperator::GreaterThan, 900.0),
+            labels: ['queue_prefix' => 'outbox:', 'measure' => 'oldest_age_seconds'],
+        );
+
+        $source = $this->source($dispatcher, [
+            new QueueBacklog('outbox-failed:registration.payment.completed', 3, 999_999),
+        ], $rule);
+
+        $source->tick('production', new DateTimeImmutable('2026-07-27T00:00:00Z'));
+
+        self::assertSame([], $dispatcher->events, '"outbox:" must not match "outbox-failed:"');
+    }
+
     private function depthRule(): AlertRule
     {
         return new AlertRule(

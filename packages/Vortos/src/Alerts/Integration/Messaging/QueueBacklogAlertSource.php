@@ -22,8 +22,18 @@ use Vortos\Alerts\Rule\Sample\ThresholdSample;
  * nothing is draining. A rule selects which it means with the `measure` label ("depth", the default,
  * or "oldest_age_seconds").
  *
- * Rules may scope to one surface with a `queue` label; without one, a rule evaluates against every
- * provider and every queue it reports, so a single "anything in the DLQ" rule covers all transports.
+ * SCOPING A RULE. `queue` matches one queue exactly; `queue_prefix` matches a whole surface. With
+ * neither, a rule evaluates against EVERY queue every provider reports — which is almost never what
+ * the author meant, because queue names carry the transport and the messaging provider names
+ * transports after topics. A rule intended as "anything in the dead-letter queue" would, unscoped,
+ * also fire on the first ordinary pending outbox row, and an "oldest message is too old" rule would
+ * latch permanently against the abandoned-messages surface, whose age only ever grows.
+ *
+ * Prefer `queue_prefix`: the exact names are per-topic and unbounded (`dlq:registration.submitted`,
+ * `outbox-failed:registration.payment.completed`), so an exact `queue` label only works when the
+ * caller already knows every topic — and silently matches nothing when it does not. The three
+ * surfaces are `dlq:`, `outbox:` and `outbox-failed:`; note `outbox:` does not match
+ * `outbox-failed:`, so the two remain cleanly separable.
  */
 final class QueueBacklogAlertSource implements AlertSourceInterface
 {
@@ -51,11 +61,16 @@ final class QueueBacklogAlertSource implements AlertSourceInterface
             }
 
             $wantedQueue = $rule->labels['queue'] ?? null;
+            $wantedPrefix = $rule->labels['queue_prefix'] ?? null;
             $measure = $rule->labels['measure'] ?? self::MEASURE_DEPTH;
 
             foreach ($this->providers as $provider) {
                 foreach ($provider->backlogs() as $backlog) {
                     if ($wantedQueue !== null && $backlog->queue !== $wantedQueue) {
+                        continue;
+                    }
+
+                    if ($wantedPrefix !== null && !str_starts_with($backlog->queue, $wantedPrefix)) {
                         continue;
                     }
 

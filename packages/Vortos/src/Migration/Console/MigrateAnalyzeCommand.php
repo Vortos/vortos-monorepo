@@ -35,7 +35,8 @@ final class MigrateAnalyzeCommand extends Command
     {
         $this
             ->addOption('all', null, InputOption::VALUE_NONE, 'Analyze all migrations, not just pending')
-            ->addOption('target', null, InputOption::VALUE_REQUIRED, 'Read table stats from target for data-driven analysis')
+            ->addOption('target', null, InputOption::VALUE_REQUIRED, 'Read table stats from target for data-driven analysis (on by default when a database is reachable)')
+            ->addOption('no-target', null, InputOption::VALUE_NONE, 'Analyze without reading table statistics, even if a database is reachable')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Output results as JSON');
     }
 
@@ -43,10 +44,20 @@ final class MigrateAnalyzeCommand extends Command
     {
         $json = (bool) $input->getOption('json');
         $analyzeAll = (bool) $input->getOption('all');
-        $useTarget = $input->getOption('target') !== null;
-
+        // Statistics are read BY DEFAULT whenever a reader is available.
+        //
+        // This used to require an explicit --target, which quietly inverted the gate's meaning: the
+        // size-sensitive rules fail CLOSED when no statistics are present, so the default invocation
+        // reported every ADD COLUMN ... DEFAULT as touching a hot table — including nine-row tables
+        // — while a live database sat one query away. An operator who sees that failure has two
+        // options, and the one the message suggested was to annotate the migration with an opt-out
+        // attribute, permanently disabling the check for the cases where it is real.
+        //
+        // --no-target keeps the offline behaviour for CI runs that have no database to reach. The
+        // fail-closed posture is unchanged; it is now the fallback when statistics cannot be read
+        // rather than the default when they can.
         $target = null;
-        if ($useTarget && $this->statsReader !== null) {
+        if (!(bool) $input->getOption('no-target') && $this->statsReader !== null) {
             $target = $this->statsReader->read();
         }
 

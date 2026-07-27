@@ -81,7 +81,13 @@ final class VolatileDefaultRuleTest extends TestCase
         $this->assertCount(0, $diags);
     }
 
-    public function test_flags_constant_default_hot_table_no_snapshot(): void
+    /**
+     * With no snapshot at all the rule still fails closed — but it now says the size is UNKNOWN
+     * rather than asserting a row count it never measured. The old wording ("hot table (>100000
+     * rows)") was a fabricated measurement, and reading it about a nine-row table is what taught
+     * operators to silence this rule by habit.
+     */
+    public function test_flags_constant_default_with_no_snapshot_as_undetermined(): void
     {
         $sql = "ALTER TABLE users ADD COLUMN status VARCHAR(20) DEFAULT 'active'";
         $diags = iterator_to_array($this->rule->evaluate(
@@ -91,7 +97,7 @@ final class VolatileDefaultRuleTest extends TestCase
         ));
 
         $this->assertCount(1, $diags);
-        $this->assertStringContainsString('hot table', strtolower($diags[0]->message));
+        $this->assertStringContainsString('could not be determined', $diags[0]->message);
     }
 
     public function test_flags_constant_default_hot_table_over_row_threshold(): void
@@ -242,5 +248,110 @@ final class VolatileDefaultRuleTest extends TestCase
         ));
 
         $this->assertCount(1, $diags);
+    }
+
+    /**
+     * PostgreSQL 11 made a constant column DEFAULT metadata-only: no rewrite, no long lock, at any
+     * table size. The rule used to flag it regardless and tell the operator to "confirm PG version
+     * >= 11" by hand — a question the analyzer is connected to the answer for.
+     */
+    public function test_constant_default_on_a_hot_table_passes_on_pg11_and_later(): void
+    {
+        $sql = 'ALTER TABLE vortos.alerts_state ADD COLUMN reminder_count INT DEFAULT 0';
+
+        $target = new TargetSchemaSnapshot(
+            ['vortos.alerts_state' => new TableStat(5_000_000, 900_000_000, true)],
+            serverVersionNum: 160004,
+        );
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact([$sql]),
+            $target,
+            new ParsedStatement($sql, 0),
+        ));
+
+        $this->assertSame([], $diags);
+    }
+
+    /** A volatile default rewrites the table on every version, so 11+ must not excuse it. */
+    public function test_volatile_default_is_still_flagged_on_pg11_and_later(): void
+    {
+        $sql = 'ALTER TABLE vortos.alerts_state ADD COLUMN seen_at TIMESTAMP DEFAULT now()';
+
+        $target = new TargetSchemaSnapshot(
+            ['vortos.alerts_state' => new TableStat(5_000_000, 900_000_000, true)],
+            serverVersionNum: 160004,
+        );
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact([$sql]),
+            $target,
+            new ParsedStatement($sql, 0),
+        ));
+
+        $this->assertCount(1, $diags);
+        $this->assertStringContainsString('volatile', strtolower($diags[0]->message));
+    }
+
+    public function test_constant_default_on_a_hot_table_is_flagged_before_pg11(): void
+    {
+        $sql = 'ALTER TABLE vortos.alerts_state ADD COLUMN reminder_count INT DEFAULT 0';
+
+        $target = new TargetSchemaSnapshot(
+            ['vortos.alerts_state' => new TableStat(5_000_000, 900_000_000, true)],
+            serverVersionNum: 100_023,
+        );
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact([$sql]),
+            $target,
+            new ParsedStatement($sql, 0),
+        ));
+
+        $this->assertCount(1, $diags);
+        $this->assertStringContainsString('rewrites the whole table', $diags[0]->message);
+    }
+
+    /**
+     * A table with no statistic is UNKNOWN, not big. The rule still fails closed, but it must not
+     * report a row count it never measured — claiming ">100000 rows" about a nine-row table is what
+     * teaches people to reach for the opt-out attribute by reflex.
+     */
+    public function test_an_unmeasured_table_is_not_described_as_having_a_row_count(): void
+    {
+        $sql = 'ALTER TABLE vortos.brand_new ADD COLUMN flag INT DEFAULT 0';
+
+        $target = new TargetSchemaSnapshot([], serverVersionNum: null);
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact([$sql]),
+            $target,
+            new ParsedStatement($sql, 0),
+        ));
+
+        $this->assertCount(1, $diags);
+        $this->assertStringContainsString('could not be determined', $diags[0]->message);
+        $this->assertStringNotContainsString('>100000 rows', $diags[0]->message);
+    }
+
+    /**
+     * The schema qualifier must resolve to the TABLE, not the schema. A \w+ pattern cannot match a
+     * dot, so "ALTER TABLE vortos.alerts_state" reported the table as "vortos" — a name with no
+     * statistic, which fails closed. Every schema-qualified migration was blocked as "hot".
+     */
+    public function test_schema_qualified_table_resolves_to_the_table_not_the_schema(): void
+    {
+        $sql = 'ALTER TABLE vortos.alerts_state ADD COLUMN reminder_count INT DEFAULT 0';
+
+        $target = new TargetSchemaSnapshot([], serverVersionNum: null);
+
+        $diags = iterator_to_array($this->rule->evaluate(
+            $this->artifact([$sql]),
+            $target,
+            new ParsedStatement($sql, 0),
+        ));
+
+        $this->assertCount(1, $diags);
+        $this->assertSame('vortos.alerts_state', $diags[0]->table);
     }
 }

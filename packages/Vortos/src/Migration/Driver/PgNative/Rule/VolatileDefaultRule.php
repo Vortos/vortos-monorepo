@@ -92,23 +92,49 @@ final class VolatileDefaultRule implements SafetyRuleInterface
                 return;
             }
 
+            // Reaching here means the default is a CONSTANT: the volatile branch above returned.
+            // PostgreSQL 11 made adding a column with a constant default metadata-only — it records
+            // the value in the catalog and materialises it lazily, with no rewrite and no long
+            // ACCESS EXCLUSIVE lock, whatever the table's size. So on 11+ this is safe by
+            // construction and the table's size is irrelevant.
+            //
+            // This used to be flagged anyway, with remediation reading "confirm PG version >= 11".
+            // The analyzer holds an open connection to the very server in question, so that was a
+            // question it should have answered instead of delegating. It now does.
+            if ($target?->serverVersionNum !== null && $target->serverVersionNum >= 110000) {
+                return;
+            }
+
             if ($table !== null && $this->isHotTable($table, $target)) {
                 if ($artifact->hasAllowFullTableRewrite) {
                     return;
                 }
+
+                // Say which of the two situations this is. "hot table (>100000 rows)" about a table
+                // with no statistic is a claim the analyzer never measured, and stating it about a
+                // nine-row table is what trains people to reach for the opt-out reflexively — which
+                // then also silences the cases that are real.
+                $measured = $target !== null && $target->hasStatFor($table);
 
                 yield new SafetyDiagnostic(
                     ruleId: $this->id(),
                     severity: $this->defaultSeverity(),
                     table: $table,
                     statementExcerpt: $statement->raw,
-                    message: sprintf(
-                        'ADD COLUMN with DEFAULT on hot table "%s" (>%d rows or >%d bytes). PG11+ handles constant defaults as metadata-only, but without version confirmation this is flagged fail-closed.',
-                        $table,
-                        $this->rowThreshold,
-                        $this->bytesThreshold,
-                    ),
-                    remediation: 'Confirm PG version >= 11 and that the default is a constant expression. Use #[AllowFullTableRewrite] to opt out.',
+                    message: $measured
+                        ? sprintf(
+                            'ADD COLUMN with DEFAULT on hot table "%s" (>%d rows or >%d bytes) against a server older than PG11, which rewrites the whole table.',
+                            $table,
+                            $this->rowThreshold,
+                            $this->bytesThreshold,
+                        )
+                        : sprintf(
+                            'ADD COLUMN with DEFAULT on "%s", whose size could not be determined (no statistic, and the server version could not be read). Flagged fail-closed.',
+                            $table,
+                        ),
+                    remediation: $measured
+                        ? 'Add the column as NULL first, then backfill in batches, then SET NOT NULL. Or use #[AllowFullTableRewrite] if intentional.'
+                        : 'Ensure the analyzer can reach the target database. If the table is new or small, this is safe; use #[AllowFullTableRewrite] to proceed.',
                     optOutAttribute: 'AllowFullTableRewrite',
                 );
             }

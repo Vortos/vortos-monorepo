@@ -41,6 +41,7 @@ final class PgTargetStatsReader
             );
 
             $stats = [];
+            $seenBare = [];
             foreach ($rows as $row) {
                 $schema = strtolower((string) $row['schema_name']);
                 $table = strtolower((string) $row['table_name']);
@@ -57,15 +58,19 @@ final class PgTargetStatsReader
                 $stats[$schema . '.' . $table] = $stat;
 
                 // Bare name only when unambiguous; a name existing in two schemas must not silently
-                // resolve to whichever was read last.
-                if (\array_key_exists($table, $stats)) {
+                // resolve to whichever was read last. Ambiguity is tracked separately rather than
+                // by probing $stats: once the bare key has been unset, a THIRD schema with the same
+                // table name would find it absent and put it back, reintroducing the ambiguity the
+                // unset existed to remove.
+                if (isset($seenBare[$table])) {
                     unset($stats[$table]);
                 } else {
+                    $seenBare[$table] = true;
                     $stats[$table] = $stat;
                 }
             }
 
-            return new TargetSchemaSnapshot($stats);
+            return new TargetSchemaSnapshot($stats, $this->readServerVersionNum());
         } catch (\Throwable) {
             return null;
         } finally {
@@ -73,6 +78,25 @@ final class PgTargetStatsReader
                 $this->connection->executeStatement('SET statement_timeout = 0');
             } catch (\Throwable) {
             }
+        }
+    }
+
+    /**
+     * The server's server_version_num, or null if it cannot be read.
+     *
+     * Asked rather than assumed. Several rules exist only to guard against behaviour Postgres
+     * changed in 11 — a constant column DEFAULT became metadata-only instead of a full table
+     * rewrite. Their remediation used to read "confirm PG version >= 11", which pushes a question
+     * onto a human that the analyzer is already connected to the answer for.
+     */
+    private function readServerVersionNum(): ?int
+    {
+        try {
+            $value = $this->connection->fetchOne("SELECT current_setting('server_version_num')");
+
+            return is_numeric($value) ? (int) $value : null;
+        } catch (\Throwable) {
+            return null;
         }
     }
 }

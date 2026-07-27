@@ -23,6 +23,15 @@ final class Transaction
         public readonly \DateTimeImmutable    $updatedAt,
         /** @var TransactionLineItem[] */
         public readonly array                $lineItems,
+        /**
+         * Whatever the caller attached when creating the transaction, echoed back.
+         * Webhooks already carry it; reading a transaction had been dropping it, so
+         * anyone reconciling a payment out-of-band lost the context that said what
+         * the payment was for.
+         *
+         * @var array<string, mixed>
+         */
+        public readonly array                $customData = [],
     ) {}
 
     public static function fromSdk(\Paddle\SDK\Entities\Transaction $sdk): self
@@ -43,6 +52,25 @@ final class Transaction
                 fn($item) => TransactionLineItem::fromSdk($item),
                 $sdk->details->lineItems
             ),
+            customData:     self::customDataFromSdk($sdk),
         );
+    }
+
+    /**
+     * The SDK models custom data as an object wrapping either an array or anything
+     * JsonSerializable, so a transaction created elsewhere can carry a shape we did
+     * not write. Only a string-keyed array is usable as custom data; anything else
+     * reads as absent rather than becoming a surprise for the caller.
+     *
+     * @return array<string, mixed>
+     */
+    private static function customDataFromSdk(\Paddle\SDK\Entities\Transaction $sdk): array
+    {
+        $data = $sdk->customData?->data;
+        if ($data instanceof \JsonSerializable) {
+            $data = $data->jsonSerialize();
+        }
+
+        return is_array($data) ? $data : [];
     }
 }

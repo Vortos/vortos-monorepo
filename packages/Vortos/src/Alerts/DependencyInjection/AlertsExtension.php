@@ -114,7 +114,6 @@ final class AlertsExtension extends Extension
         $this->registerEscalation($container);
         $this->registerDispatcher($container);
         $this->registerSlo($container);
-        $this->registerHealthIntegration($container);
         $this->registerBackupIntegration($container);
         $this->registerDeployIntegration($container);
         $this->registerQueueBacklogIntegration($container);
@@ -169,7 +168,13 @@ final class AlertsExtension extends Extension
         ]);
         $this->registerDriver($container, 'null', NullNotifier::class, $spoolDir, $spoolMaxBytes, []);
 
-        if (class_exists(\Vortos\AwsSes\ImmediateMailer::class) && $container->has(\Vortos\AwsSes\ImmediateMailer::class)) {
+        // class_exists() only — deliberately NOT `&& $container->has(...)`.
+        //
+        // "Is vortos-aws-ses installed?" is order-free and is the whole question. "Has its
+        // extension registered ImmediateMailer yet?" is a race during load(), and adds nothing:
+        // AwsSesExtension registers ImmediateMailer unconditionally, and the Reference below is
+        // resolved by the container after every extension has loaded, not here.
+        if (class_exists(\Vortos\AwsSes\ImmediateMailer::class)) {
             $this->registerDriver($container, 'ses', \Vortos\Alerts\Notifier\Driver\Ses\SesNotifier::class, $spoolDir, $spoolMaxBytes, [
                 '$mailer' => new Reference(\Vortos\AwsSes\ImmediateMailer::class),
             ]);
@@ -458,69 +463,16 @@ final class AlertsExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerHealthIntegration(ContainerBuilder $container): void
-    {
-        if (!class_exists(\Vortos\Health\Probe\HealthProbeRegistry::class) || !$container->has(\Vortos\Health\Probe\HealthProbeRegistry::class)) {
-            return;
-        }
-
-        $container->register(\Vortos\Alerts\Integration\Health\HealthProbeAlertSource::class, \Vortos\Alerts\Integration\Health\HealthProbeAlertSource::class)
-            ->setArgument('$probes', new Reference(\Vortos\Health\Probe\HealthProbeRegistry::class))
-            ->setArgument('$rules', new Reference(AlertRuleSet::class))
-            ->setArgument('$evaluator', new Reference(AlertRuleEvaluator::class))
-            ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
-            ->addTag(self::SOURCE_TAG)
-            ->setPublic(true);
-
-        // Block 18: capacity (disk/RAM/CPU) and cert-expiry probes are ordinary
-        // HealthProbeInterface readiness probes, so they reuse HealthProbeRegistry —
-        // no new Health-side dependency, same guard as HealthProbeAlertSource above.
-        $container->register(\Vortos\Alerts\Integration\Health\CapacityAlertSource::class, \Vortos\Alerts\Integration\Health\CapacityAlertSource::class)
-            ->setArgument('$probes', new Reference(\Vortos\Health\Probe\HealthProbeRegistry::class))
-            ->setArgument('$rules', new Reference(AlertRuleSet::class))
-            ->setArgument('$evaluator', new Reference(AlertRuleEvaluator::class))
-            ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
-            ->addTag(self::SOURCE_TAG)
-            ->setPublic(true);
-
-        $container->register(\Vortos\Alerts\Integration\Health\CertExpiryAlertSource::class, \Vortos\Alerts\Integration\Health\CertExpiryAlertSource::class)
-            ->setArgument('$probes', new Reference(\Vortos\Health\Probe\HealthProbeRegistry::class))
-            ->setArgument('$rules', new Reference(AlertRuleSet::class))
-            ->setArgument('$evaluator', new Reference(AlertRuleEvaluator::class))
-            ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
-            ->addTag(self::SOURCE_TAG)
-            ->setPublic(true);
-
-        if (class_exists(\Vortos\Health\Uptime\UptimeMonitorRegistry::class) && $container->has(\Vortos\Health\Uptime\UptimeMonitorRegistry::class)) {
-            $prefix = $container->hasParameter('vortos.db.framework_table_prefix')
-                ? $container->getParameter('vortos.db.framework_table_prefix')
-                : 'vortos_';
-
-            if ($container->has(Connection::class)) {
-                $container->register(\Vortos\Alerts\Integration\Health\DbalUptimeUnknownStreakStore::class, \Vortos\Alerts\Integration\Health\DbalUptimeUnknownStreakStore::class)
-                    ->setArgument('$connection', new Reference(Connection::class))
-                    ->setArgument('$table', $prefix . 'alerts_uptime_streaks')
-                    ->setPublic(false);
-                $container->setAlias(\Vortos\Alerts\Integration\Health\UptimeUnknownStreakStoreInterface::class, \Vortos\Alerts\Integration\Health\DbalUptimeUnknownStreakStore::class)
-                    ->setPublic(false);
-            } else {
-                $container->register(\Vortos\Alerts\Integration\Health\InMemoryUptimeUnknownStreakStore::class, \Vortos\Alerts\Integration\Health\InMemoryUptimeUnknownStreakStore::class)
-                    ->setPublic(false);
-                $container->setAlias(\Vortos\Alerts\Integration\Health\UptimeUnknownStreakStoreInterface::class, \Vortos\Alerts\Integration\Health\InMemoryUptimeUnknownStreakStore::class)
-                    ->setPublic(false);
-            }
-
-            $container->register(\Vortos\Alerts\Integration\Health\SyntheticUptimeAlertSource::class, \Vortos\Alerts\Integration\Health\SyntheticUptimeAlertSource::class)
-                ->setArgument('$monitors', new Reference(\Vortos\Health\Uptime\UptimeMonitorRegistry::class))
-                ->setArgument('$monitorDriverKey', (string) ($_ENV['ALERTS_UPTIME_MONITOR_DRIVER'] ?? 'null'))
-                ->setArgument('$rules', new Reference(AlertRuleSet::class))
-                ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
-                ->setArgument('$streaks', new Reference(\Vortos\Alerts\Integration\Health\UptimeUnknownStreakStoreInterface::class))
-                ->setArgument('$blindDetectorThreshold', (int) ($_ENV['ALERTS_UPTIME_BLIND_DETECTOR_THRESHOLD'] ?? 3))
-                ->addTag(self::SOURCE_TAG)
-                ->setPublic(true);
-        }
-    }
+    /**
+     * Health-derived alert sources are registered by
+     * {@see \Vortos\Alerts\DependencyInjection\Compiler\AlertsHealthIntegrationPass}.
+     *
+     * They used to be registered here, gated on
+     * `class_exists(HealthProbeRegistry) && $container->has(HealthProbeRegistry)`. The has() is a
+     * race against extension load order, and losing it silently dropped every health-derived
+     * source — probe failures, capacity, cert expiry and synthetic uptime all stop being
+     * evaluated, with nothing to report the gap.
+     */
 
     private function registerBackupIntegration(ContainerBuilder $container): void
     {

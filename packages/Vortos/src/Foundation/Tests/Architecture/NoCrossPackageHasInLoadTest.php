@@ -89,12 +89,23 @@ final class NoCrossPackageHasInLoadTest extends TestCase
                 continue;
             }
 
-            // A class_exists()/interface_exists() guard on this or the previous two lines makes
-            // the has() autoloader-gated and order-free — the sanctioned idiom.
-            $window = $line . "\n" . ($lines[$i - 1] ?? '') . "\n" . ($lines[$i - 2] ?? '');
-            if (str_contains($window, 'class_exists(') || str_contains($window, 'interface_exists(')) {
-                continue;
-            }
+            // There is deliberately NO class_exists()/interface_exists() exemption here.
+            //
+            // This test used to skip any has() with such a guard within three lines, calling it
+            // "the sanctioned idiom". It is not an idiom, it is the bug. class_exists() answers
+            // "is the package INSTALLED?" — order-free and true from the first autoload. The has()
+            // beside it answers "has that package's extension REGISTERED this service YET?", which
+            // during load() is a race whatever guards it. ANDing an order-free question with an
+            // order-dependent one yields an order-dependent answer.
+            //
+            // The exemption hid a live defect: HealthExtension computed
+            //     class_exists(HeartbeatEmitterInterface) && $container->has(HeartbeatEmitterInterface)
+            // froze it into a constructor argument, lost the race, and DetectorIndependenceDoctorCheck
+            // then failed a production deploy reporting a detector missing that was wired (FB-38).
+            //
+            // class_exists() remains correct for deciding whether to REFERENCE a class at all —
+            // `if (interface_exists(X)) { ...new Reference(X, NULL_ON_INVALID_REFERENCE) }`. That
+            // form contains no has() and is not matched by this rule.
 
             foreach ($m[1] as $ref) {
                 $fqcn = self::resolve($ref, $imports);

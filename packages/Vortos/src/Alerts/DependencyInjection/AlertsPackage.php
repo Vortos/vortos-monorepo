@@ -7,6 +7,7 @@ namespace Vortos\Alerts\DependencyInjection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Alerts\DependencyInjection\Compiler\AlertsExternalDefaultsPass;
+use Vortos\Alerts\DependencyInjection\Compiler\AlertsHealthIntegrationPass;
 use Vortos\Alerts\DependencyInjection\Compiler\CollectNotifiersPass;
 use Vortos\Alerts\DependencyInjection\Compiler\AlertAuditWiringPass;
 use Vortos\Alerts\DependencyInjection\Compiler\DurableAlertStorePass;
@@ -27,6 +28,11 @@ final class AlertsPackage implements PackageInterface
         // Cross-package: register observability-owned fallbacks (SloRegistry, AuditHashChain)
         // only if observability didn't.
         $container->addCompilerPass(new AlertsExternalDefaultsPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -16);
+        // Cross-package: the health-derived alert sources (probe failure, capacity, cert expiry,
+        // synthetic uptime) need vortos-health's registries. Asking for them in the extension is a
+        // race against load order, and losing it drops every one of those sources silently.
+        // See AlertsHealthIntegrationPass.
+        $container->addCompilerPass(new AlertsHealthIntegrationPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -16);
         // Cross-package: upgrade the alert stores from the in-memory fallback to DBAL when a
         // Connection exists. MUST be a pass — the extension's own check for it is a race against
         // extension load order, and losing it silently costs the audit trail, cross-process dedupe,

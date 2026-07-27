@@ -24,4 +24,15 @@ interface CredentialProviderInterface extends DriverInterface
      * @throws \Vortos\Deploy\Exception\CredentialNotIssuableException when a mint would fail
      */
     public function assertIssuable(EnvironmentName $env): void;
+
+    /**
+     * Mint a credential bound to a scope that revokes it when the scope ends.
+     *
+     * This is the method callers actually use — SshConnectionActivator calls it on this interface
+     * — but it was only ever declared on {@see AbstractCredentialProvider}. Every implementation
+     * extends that base, so it worked; the contract simply did not say so, and any implementation
+     * that satisfied the interface without extending the base would have been accepted by the type
+     * system and then fatal at the call site.
+     */
+    public function lease(EnvironmentName $env): CredentialLease;
 }

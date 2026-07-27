@@ -13,7 +13,7 @@ use Symfony\Component\HttpFoundation\RequestStack;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Vortos\Auth\Identity\CurrentUserProvider;
-use Vortos\Auth\Security\TokenFreshnessGuardInterface;
+use Vortos\Auth\Contract\TokenFreshnessGuardInterface;
 use Vortos\Http\MiddlewareOrder;
 use Vortos\Scheduler\Audit\SchedulerAuditRepositoryInterface;
 use Vortos\Scheduler\Registry\StaticScheduleRegistry;
@@ -223,7 +223,11 @@ final class SchedulerAdminExtension extends Extension
             ->setArgument('$renderer', new Reference(TwigRenderer::class))
             ->setArgument('$service', new Reference(ScheduleService::class))
             ->setArgument('$approvalStore', new Reference(FourEyesApprovalStoreInterface::class))
-            ->setArgument('$fourEyesGate', new Reference(FourEyesGate::class), ContainerInterface::NULL_ON_INVALID_REFERENCE)
+            // The invalid-behaviour belongs to the Reference, not to setArgument(), which takes two
+            // parameters and silently discarded the third. The reference was therefore
+            // EXCEPTION_ON_INVALID_REFERENCE: a container without FourEyesGate would throw at
+            // compile time rather than degrade, which is the opposite of what was intended here.
+            ->setArgument('$fourEyesGate', new Reference(FourEyesGate::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setArgument('$currentUser', new Reference(CurrentUserProvider::class))
             ->addTag('vortos.api.controller')
             ->setPublic(true);

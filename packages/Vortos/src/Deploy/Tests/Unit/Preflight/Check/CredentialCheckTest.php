@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Deploy\Tests\Unit\Preflight\Check;
 
 use PHPUnit\Framework\TestCase;
+use Vortos\Deploy\Credential\CredentialLease;
 use Vortos\Deploy\Credential\CredentialProviderInterface;
 use Vortos\Deploy\Credential\IssuedCredential;
 use Vortos\Deploy\Definition\EnvironmentName;
@@ -89,6 +90,13 @@ final class CredentialCheckTest extends TestCase
                     expiresAt: new \DateTimeImmutable('+1 hour'),
                     issuedFor: $env->value,
                 );
+            }
+
+            // Part of the contract since lease() moved onto CredentialProviderInterface. This spy
+            // exists to prove preflight never mints, so leasing here would defeat its purpose.
+            public function lease(EnvironmentName $env): CredentialLease
+            {
+                throw new \LogicException('the preflight spy must never lease');
             }
         };
     }

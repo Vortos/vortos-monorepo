@@ -91,6 +91,14 @@ jobs:
   split:
     needs: [pin-lint, tests, ui-build]
     runs-on: ubuntu-latest
+    # Job level, not step level. The split action is a Docker action, and the runner builds its
+    # image in an INTERNAL step ("Build container for action use") that runs before ours and does
+    # not inherit step `env`. Setting this on the job is what actually reaches that build, so the
+    # legacy builder resolves `FROM php:8.1-cli-alpine` against the image the pre-pull step placed
+    # in the local store instead of issuing the registry HEAD that keeps timing out under ~55-way
+    # fan-out. A step-level value was tried first and did nothing, which is how this was found.
+    env:
+      DOCKER_BUILDKIT: '0'
     # Serialise per PACKAGE REPO, not per workflow run.
     #
     # Pushing `main` and a tag together starts two runs, and their jobs for the same package race
@@ -234,8 +242,6 @@ jobs:
       # at all. BuildKit always issues a HEAD to the registry even when the image is present
       # locally, which is precisely the request that was timing out.
       - name: Pre-pull the split action's base image
-        env:
-          DOCKER_BUILDKIT: '0'
         run: |
           for attempt in 1 2 3 4 5; do
             if docker pull --quiet php:8.1-cli-alpine; then
@@ -250,7 +256,6 @@ jobs:
       - uses: danharrin/monorepo-split-github-action@14e42e2437f674b8987c1f50ca3689116aea1893  # v2.4.5
         env:
           GITHUB_TOKEN: ${{ secrets.MONOREPO_SPLIT_TOKEN }}
-          DOCKER_BUILDKIT: '0'
         with:
           package_directory: ${{ matrix.package.local_path }}
           repository_organization: 'Vortos'

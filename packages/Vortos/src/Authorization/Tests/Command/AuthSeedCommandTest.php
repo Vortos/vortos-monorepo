@@ -9,6 +9,7 @@ use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 use Vortos\Authorization\Command\AuthSeedCommand;
+use Vortos\Authorization\Resolver\RoleGenerationStore;
 use Vortos\Authorization\Contract\PermissionRegistryInterface;
 use Vortos\Authorization\Permission\PermissionMetadata;
 
@@ -119,6 +120,85 @@ final class AuthSeedCommandTest extends TestCase
         $rows = $this->connection->fetchAllAssociative('SELECT role, permission FROM ' . self::TABLE);
 
         return $rows;
+    }
+
+    /**
+     * A seed that changed anything must bust the cached permission matrix.
+     *
+     * The command bulk-writes grants with DBAL, bypassing GenerationalRolePermissionStore::grant()
+     * — the only path that increments a role's generation. So the table was correct while every
+     * running process kept resolving the PREVIOUS matrix, and a freshly seeded permission returned
+     * 403 until the cache entry expired on its own.
+     *
+     * deploy.yml runs `vortos:auth:seed --prune` before cutover and Redis outlives the app
+     * containers, so this affected every deploy that introduced a permission.
+     */
+    public function test_a_seed_that_changed_grants_invalidates_the_cached_matrix(): void
+    {
+        if (!class_exists(\Redis::class)) {
+            self::markTestSkipped('ext-redis is required to construct RoleGenerationStore.');
+        }
+
+        $redis = $this->createMock(\Redis::class);
+        // increment() drives a Lua INCR per role; one call per seeded role is the observable effect.
+        $redis->expects(self::atLeastOnce())->method('eval');
+
+        $registry = new FakeRegistry(
+            all: ['entries.read.any'],
+            defaultGrants: ['ROLE_ADMIN' => ['entries.read.any']],
+        );
+
+        $tester = new CommandTester(new AuthSeedCommand(
+            $registry,
+            $this->connection,
+            self::TABLE,
+            new RoleGenerationStore($redis),
+        ));
+
+        $tester->execute([]);
+
+        self::assertStringContainsString('Invalidated the cached permission matrix', $tester->getDisplay());
+    }
+
+    public function test_a_seed_that_changed_nothing_does_not_touch_the_cache(): void
+    {
+        if (!class_exists(\Redis::class)) {
+            self::markTestSkipped('ext-redis is required to construct RoleGenerationStore.');
+        }
+
+        $registry = new FakeRegistry(
+            all: ['entries.read.any'],
+            defaultGrants: ['ROLE_ADMIN' => ['entries.read.any']],
+        );
+
+        // First run inserts; second run is a no-op, so nothing should be invalidated.
+        (new CommandTester(new AuthSeedCommand($registry, $this->connection, self::TABLE)))->execute([]);
+
+        $redis = $this->createMock(\Redis::class);
+        $redis->expects(self::never())->method('eval');
+
+        $tester = new CommandTester(new AuthSeedCommand(
+            $registry,
+            $this->connection,
+            self::TABLE,
+            new RoleGenerationStore($redis),
+        ));
+        $tester->execute([]);
+
+        self::assertStringNotContainsString('Invalidated the cached permission matrix', $tester->getDisplay());
+    }
+
+    public function test_it_says_so_when_there_is_no_cache_to_invalidate(): void
+    {
+        $registry = new FakeRegistry(
+            all: ['entries.read.any'],
+            defaultGrants: ['ROLE_ADMIN' => ['entries.read.any']],
+        );
+
+        $tester = new CommandTester(new AuthSeedCommand($registry, $this->connection, self::TABLE, null));
+        $tester->execute([]);
+
+        self::assertStringContainsString('No role generation store configured', $tester->getDisplay());
     }
 }
 

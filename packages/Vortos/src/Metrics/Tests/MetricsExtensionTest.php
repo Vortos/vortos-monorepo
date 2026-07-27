@@ -14,6 +14,7 @@ use Vortos\Metrics\AutoInstrumentation\HttpMetricsListener;
 use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Decorator\FailSafeMetrics;
 use Vortos\Metrics\Decorator\ModuleAwareMetrics;
 use Vortos\Metrics\DependencyInjection\MetricsExtension;
 use Vortos\Metrics\DependencyInjection\VortosMetricsConfig;
@@ -40,7 +41,15 @@ final class MetricsExtensionTest extends TestCase
 
         $this->assertTrue($container->has(NoOpMetrics::class));
         $this->assertTrue($container->hasAlias(MetricsInterface::class));
-        $this->assertSame(ModuleAwareMetrics::class, (string) $container->getAlias(MetricsInterface::class));
+        // MetricsInterface resolves to FailSafeMetrics, which decorates ModuleAwareMetrics.
+        // Recording a metric must not be able to throw into business code: an undeclared metric
+        // used to propagate out of a Kafka consumer, retry x4 and poison the message into the DLQ.
+        $this->assertSame(FailSafeMetrics::class, (string) $container->getAlias(MetricsInterface::class));
+        $this->assertSame(
+            ModuleAwareMetrics::class,
+            (string) $container->getDefinition(FailSafeMetrics::class)->getArgument('$inner'),
+            'FailSafeMetrics must wrap the module-aware decorator, not replace it.',
+        );
         $this->assertSame(NoOpMetrics::class, (string) $container->getAlias('vortos.metrics.inner'));
     }
 

@@ -6,6 +6,7 @@ namespace Vortos\Authorization\DependencyInjection;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\ServiceLocator;
@@ -22,6 +23,7 @@ use Vortos\Authorization\Command\AuthRemoveUserRoleCommand;
 use Vortos\Authorization\Command\AuthRolesCommand;
 use Vortos\Authorization\Command\AuthRevokeRolePermissionCommand;
 use Vortos\Authorization\Command\AuthSeedCommand;
+use Vortos\Authorization\Resolver\RoleGenerationStore;
 use Vortos\Authorization\Attribute\AsPolicy;
 use Vortos\Authorization\Attribute\PermissionCatalog;
 use Vortos\Authorization\Contract\AuthorizationAuditStoreInterface;
@@ -217,6 +219,12 @@ final class AuthorizationExtension extends Extension
             ->setArgument('$registry', new Reference(PermissionRegistryInterface::class))
             ->setArgument('$connection', new Reference(Connection::class))
             ->setArgument('$rolePermissionsTable', $prefix . 'role_permissions')
+            // Optional: RoleGenerationStore is registered by RedisAuthorizationStoresPass, so it
+            // cannot be asked for here — but the reference resolves after that pass has run. The
+            // seed writes grants straight to the table, bypassing the only path that bumps a role's
+            // generation, so without this every process kept serving the PREVIOUS permission matrix
+            // and a newly seeded permission returned 403 until the cache expired.
+            ->setArgument('$generations', new Reference(RoleGenerationStore::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag('console.command')
             ->setShared(true)
             ->setPublic(false);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Authorization\Command;
 
 use Doctrine\DBAL\ArrayParameterType;
+use Vortos\Authorization\Resolver\RoleGenerationStore;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -19,10 +20,16 @@ use Vortos\Authorization\Contract\PermissionRegistryInterface;
 )]
 final class AuthSeedCommand extends Command
 {
+    /**
+     * @param RoleGenerationStore|null $generations bumps the per-role cache generation after a seed
+     *        that changed anything. Optional because a deployment without Redis has no generation
+     *        store and no cache to invalidate.
+     */
     public function __construct(
         private readonly PermissionRegistryInterface $registry,
         private readonly Connection $connection,
         private readonly string $rolePermissionsTable,
+        private readonly ?RoleGenerationStore $generations = null,
     ) {
         parent::__construct();
     }
@@ -83,6 +90,8 @@ final class AuthSeedCommand extends Command
             $inserted,
         ));
 
+        $pruned = 0;
+
         if ($prune) {
             $pruned = $this->prune($output);
 
@@ -92,7 +101,54 @@ final class AuthSeedCommand extends Command
             ));
         }
 
+        $this->invalidateResolvedPermissions($inserted + $pruned, $output);
+
         return Command::SUCCESS;
+    }
+
+    /**
+     * Bust the resolved-permission cache for every seeded role.
+     *
+     * This command writes grants straight to the table with DBAL, bypassing
+     * {@see \Vortos\Authorization\Storage\GenerationalRolePermissionStore::grant()} — the only
+     * path that increments a role's generation. So the database was correct while every running
+     * process kept resolving the PREVIOUS permission matrix: a freshly granted permission returned
+     * 403 until the cache entry expired on its own.
+     *
+     * That is not theoretical. `deploy.yml` runs `vortos:auth:seed --prune` before cutover, and
+     * Redis outlives the app containers, so any newly added permission was invisible after every
+     * deploy that introduced one.
+     *
+     * Incrementing a generation can only ever invalidate a cache entry — it never grants access —
+     * so bumping every seeded role is the safe direction. Roles are taken from the catalog rather
+     * than from the rows written, because a prune changes what a role resolves to without
+     * necessarily inserting anything for it.
+     */
+    private function invalidateResolvedPermissions(int $changes, OutputInterface $output): void
+    {
+        if ($changes === 0) {
+            return; // nothing moved; every cached matrix is still accurate
+        }
+
+        if ($this->generations === null) {
+            $output->writeln(
+                '<comment>No role generation store configured — resolved permissions are not cached, '
+                . 'so nothing to invalidate.</comment>',
+            );
+
+            return;
+        }
+
+        $roles = array_keys($this->registry->defaultGrants());
+
+        foreach ($roles as $role) {
+            $this->generations->increment((string) $role);
+        }
+
+        $output->writeln(sprintf(
+            '<info>Invalidated the cached permission matrix for %d role(s).</info>',
+            count($roles),
+        ));
     }
 
     /**

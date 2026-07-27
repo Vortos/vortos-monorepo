@@ -35,6 +35,7 @@ use Vortos\Metrics\Config\MetricsAdapter;
 use Vortos\Metrics\Config\MetricsModule;
 use Vortos\Metrics\Contract\MetricsInterface;
 use Vortos\Metrics\Decorator\ModuleAwareMetrics;
+use Vortos\Metrics\Decorator\FailSafeMetrics;
 use Vortos\Metrics\Definition\MetricDefinition;
 use Vortos\Metrics\Definition\MetricDefinitionProviderInterface;
 use Vortos\Metrics\Definition\MetricDefinitionRegistryFactory;
@@ -157,7 +158,19 @@ final class MetricsExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        $container->setAlias(MetricsInterface::class, ModuleAwareMetrics::class)
+        // Recording a metric must never be able to change a business outcome. An undeclared metric
+        // used to throw out of whatever business code recorded it — in a consumer that meant retry
+        // x4 into the DLQ, so staff notifications were silently never delivered because of an
+        // observability misconfiguration. FailSafeMetrics degrades the record path to a no-op in
+        // production and still fails fast in dev/test, where the misconfiguration is cheap to fix.
+        $container->register(FailSafeMetrics::class, FailSafeMetrics::class)
+            ->setArgument('$inner', new Reference(ModuleAwareMetrics::class))
+            ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$environment', '%kernel.env%')
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->setAlias(MetricsInterface::class, FailSafeMetrics::class)
             ->setPublic(true);
 
         $container->register(FrameworkTelemetry::class, FrameworkTelemetry::class)

@@ -549,4 +549,61 @@ final class S3CompatibleObjectStoreTest extends TestCase
 
         return (string) $body;
     }
+
+    /**
+     * stream() must NOT buffer the object into memory.
+     *
+     * It used to call get(), which runs the body through bodyToString() and writes the resulting
+     * string into php://temp. That made peak memory the object size — twice — so a 100 MB
+     * physical_base backup died with "Allowed memory size exhausted" against a 128 MB limit while
+     * 2.5 MB logical dumps kept working. Base backups were therefore writable and unrestorable, and
+     * the restore drills passed anyway because they only ever exercised the small artifacts.
+     *
+     * A body that throws on getContents() stands in for "too large to buffer": if stream() reads it
+     * eagerly this test fails, which is exactly the regression to catch.
+     */
+    public function test_stream_does_not_buffer_the_body_into_memory(): void
+    {
+        $payload = 'streamed-not-buffered';
+
+        $handler = new MockHandler();
+        $handler->append(new Result([
+            'Body' => new class($payload) implements \Psr\Http\Message\StreamInterface {
+                private int $pos = 0;
+                public function __construct(private string $data) {}
+                public function getContents(): string
+                {
+                    throw new \LogicException('getContents() would buffer the whole object into memory');
+                }
+                public function __toString(): string
+                {
+                    throw new \LogicException('__toString() would buffer the whole object into memory');
+                }
+                public function read(int $length): string
+                {
+                    $chunk = substr($this->data, $this->pos, $length);
+                    $this->pos += strlen($chunk);
+                    return $chunk;
+                }
+                public function eof(): bool { return $this->pos >= strlen($this->data); }
+                public function getSize(): ?int { return strlen($this->data); }
+                public function tell(): int { return $this->pos; }
+                public function isSeekable(): bool { return false; }
+                public function seek(int $offset, int $whence = SEEK_SET): void {}
+                public function rewind(): void { $this->pos = 0; }
+                public function isWritable(): bool { return false; }
+                public function write(string $string): int { return 0; }
+                public function isReadable(): bool { return true; }
+                public function close(): void {}
+                public function detach() { return null; }
+                public function getMetadata(?string $key = null) { return $key === null ? [] : null; }
+            },
+        ]));
+
+        $stream = $this->makeStore($handler)->stream('backups/large.tar');
+
+        self::assertIsResource($stream, 'stream() must hand back a readable resource.');
+        self::assertSame($payload, stream_get_contents($stream));
+        fclose($stream);
+    }
 }

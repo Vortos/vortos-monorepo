@@ -8,6 +8,8 @@ use Aws\CommandInterface;
 use Aws\Exception\AwsException;
 use Aws\S3\PostObjectV4;
 use Aws\S3\S3Client;
+use GuzzleHttp\Psr7\StreamWrapper;
+use Psr\Http\Message\StreamInterface;
 use Vortos\ObjectStore\Contract\ObjectStoreInterface;
 use Vortos\ObjectStore\Exception\BucketNotFoundException;
 use Vortos\ObjectStore\Exception\ObjectNotFoundException;
@@ -378,11 +380,45 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
         return ObjectBody::from($this->bodyToString($result['Body'] ?? ''));
     }
 
+    /**
+     * Return the object as a STREAM — never buffering the whole body into memory.
+     *
+     * This used to delegate to get(), which runs the body through bodyToString() and then wrote
+     * that string into a php://temp handle. It was a stream in name only: peak memory was the full
+     * object size, twice over.
+     *
+     * That made every large artifact unreadable rather than slow. A 100 MB physical_base backup
+     * against a 128 MB memory_limit died with "Allowed memory size exhausted" inside
+     * stream_get_contents, so base backups could be written and never restored — and because
+     * logical_full dumps are ~2.5 MB, the restore drills kept passing and reported nothing. The
+     * WAL archive was healthy and the thing it depended on could not be read back.
+     *
+     * The AWS SDK already hands back a PSR-7 stream; StreamWrapper exposes it as a PHP resource
+     * without reading it, so memory is now bounded by the consumer's chunk size.
+     */
     public function stream(ObjectKey|string $key, ?GetObjectOptions $options = null): mixed
     {
-        $body = $this->get($key, $options);
+        $key = ObjectKey::from($key);
+
+        try {
+            $result = $this->client->getObject($this->objectRequest($key, $options));
+        } catch (AwsException $e) {
+            $this->mapException($e, $key);
+        }
+
+        $body = $result['Body'] ?? null;
+
+        if ($body instanceof StreamInterface) {
+            return StreamWrapper::getResource($body);
+        }
+
+        if (is_resource($body)) {
+            return $body;
+        }
+
+        // Non-stream body (in-memory driver stubs, empty responses): fall back to a temp handle.
         $stream = fopen('php://temp', 'rb+');
-        fwrite($stream, $body->contents());
+        fwrite($stream, (string) $body);
         rewind($stream);
 
         return $stream;

@@ -45,10 +45,34 @@ final class KafkaConsumer implements ConsumerInterface
     /** Watermark/committed-offset queries are best-effort: a slow broker must not stall consumption. */
     private const OFFSET_QUERY_TIMEOUT_MS = 1_000;
 
+    /**
+     * Consecutive empty-assignment samples before this is treated as a detachment rather than a
+     * rebalance. At a 15s sample interval this is four minutes — far longer than any healthy
+     * rebalance, short enough to catch a detached consumer before a backlog matters.
+     */
+    private const EMPTY_ASSIGNMENT_ALERT_STREAK = 16;
+
     private bool $running = false;
     private bool $draining = false;
     private int $lastLagSampleNs = 0;
     private int $pollCyclesSinceFlush = 0;
+
+    /**
+     * Consecutive lag samples in which this consumer held ZERO partitions.
+     *
+     * A consumer that loses its group membership — observed after a broker restart, where
+     * librdkafka did not rejoin — keeps running, keeps polling, logs nothing, and reports no lag,
+     * because a consumer with no partitions has no lag to report. Every liveness signal we have
+     * (process running, container healthy, no errors) stays green while the work has stopped. It is
+     * indistinguishable from a quiet topic until someone notices a missing email.
+     *
+     * Zero is legitimate briefly — mid-rebalance, or a group with more members than partitions — so
+     * the signal is a sustained streak rather than a single observation.
+     */
+    private int $emptyAssignmentStreak = 0;
+
+    /** Whether the current detachment has already been reported, so this logs once per episode. */
+    private bool $detachmentReported = false;
 
     public function __construct(
         private RdKafkaConsumer $rdConsumer,
@@ -170,8 +194,12 @@ final class KafkaConsumer implements ConsumerInterface
             $this->lagReporter->reportAssignedPartitions($consumerName, $this->consumerGroup, count($assignment));
 
             if ($assignment === []) {
+                $this->noteEmptyAssignment($consumerName);
+
                 return;
             }
+
+            $this->noteHealthyAssignment($consumerName);
 
             $committed = $this->rdConsumer->getCommittedOffsets($assignment, self::OFFSET_QUERY_TIMEOUT_MS);
 
@@ -245,5 +273,51 @@ final class KafkaConsumer implements ConsumerInterface
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * A sample in which this consumer held no partitions.
+     *
+     * Escalates to an error only once a streak makes a transient rebalance implausible, and only
+     * once per episode — a poll loop would otherwise turn a detached consumer into a log flood.
+     */
+    private function noteEmptyAssignment(string $consumerName): void
+    {
+        $this->emptyAssignmentStreak++;
+
+        if ($this->emptyAssignmentStreak < self::EMPTY_ASSIGNMENT_ALERT_STREAK || $this->detachmentReported) {
+            return;
+        }
+
+        $this->detachmentReported = true;
+
+        $this->logger->error(
+            'Consumer is subscribed but holds no partitions; it is consuming nothing.',
+            [
+                'consumer' => $consumerName,
+                'consumer_group' => $this->consumerGroup,
+                'topics' => $this->topics,
+                'consecutive_empty_samples' => $this->emptyAssignmentStreak,
+                'seconds_without_partitions' => (int) ($this->emptyAssignmentStreak * (self::LAG_SAMPLE_INTERVAL_MS / 1000)),
+                'likely_cause' => 'Lost group membership without rejoining — observed after a broker '
+                    . 'restart. A group with more members than partitions is the benign explanation.',
+                'remediation' => 'Check the group with kafka-consumer-groups --describe --state. If it '
+                    . 'reports no members, restart this worker to force a rejoin.',
+            ],
+        );
+    }
+
+    /** Partitions are held again; reset so a later detachment is reported afresh. */
+    private function noteHealthyAssignment(string $consumerName): void
+    {
+        if ($this->detachmentReported) {
+            $this->logger->info('Consumer regained partitions.', [
+                'consumer' => $consumerName,
+                'consumer_group' => $this->consumerGroup,
+            ]);
+        }
+
+        $this->emptyAssignmentStreak = 0;
+        $this->detachmentReported = false;
     }
 }

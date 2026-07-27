@@ -106,6 +106,7 @@ final class AlertsExtension extends Extension
 
     public function load(array $configs, ContainerBuilder $container): void
     {
+        $this->registerEnvDefaults($container);
         $this->registerNotifierSeam($container);
         $this->registerDefaultDrivers($container);
         $this->registerRules($container);
@@ -126,6 +127,39 @@ final class AlertsExtension extends Extension
         // Any source an app or another package registers is ticked automatically.
         $container->registerForAutoconfiguration(AlertSourceInterface::class)
             ->addTag(self::SOURCE_TAG);
+    }
+
+    /**
+     * Defaults for every env var this extension references as `%env(...)%`.
+     *
+     * These used to be `?? <default>` inside inline `$_ENV[...]` reads. An inline read resolves
+     * whenever the container is COMPILED, which is not necessarily on the host that will run it —
+     * the framework's own Foundation\Config\Env states the rule: "env access is a declared
+     * reference, never an inline read". A declared reference is resolved at runtime instead, and
+     * `env(NAME)` parameters supply the same fallback the `??` used to.
+     *
+     * Verified before changing: this app compiles its container in-process, so the old reads were
+     * resolving correctly in production. This closes a latent failure, not an active one — the
+     * moment a container is dumped at build time, inline reads freeze build-host values.
+     */
+    private function registerEnvDefaults(ContainerBuilder $container): void
+    {
+        foreach ([
+            'ALERTS_ALLOW_INSECURE_WEBHOOK'    => '0',
+            'ALERTS_REMINDER_INITIAL_SECONDS'  => '600',
+            'ALERTS_REMINDER_MAX_SECONDS'      => '21600',
+            'ALERTS_DEDUPE_WINDOW_SECONDS'     => '300',
+            'ALERTS_RATE_LIMIT_PER_TENANT'     => '100',
+            'ALERTS_RATE_LIMIT_GLOBAL'         => '1000',
+            'ALERTS_RESOLVE_AFTER_SECONDS'     => '3600',
+            'VORTOS_ALERTS_SPOOL_MAX_RECORDS'  => '10000',
+            'APP_ENV'                          => 'prod',
+            'VORTOS_CACHE_PREFIX'              => '',
+        ] as $name => $default) {
+            if (!$container->hasParameter('env(' . $name . ')')) {
+                $container->setParameter('env(' . $name . ')', $default);
+            }
+        }
     }
 
     private function registerNotifierSeam(ContainerBuilder $container): void
@@ -149,11 +183,15 @@ final class AlertsExtension extends Extension
             ->setPublic(false);
 
         $container->register(SsrfGuard::class, SsrfGuard::class)
-            ->setArgument('$allowInsecureScheme', (bool) ($_ENV['ALERTS_ALLOW_INSECURE_WEBHOOK'] ?? false))
+            ->setArgument('$allowInsecureScheme', '%env(bool:ALERTS_ALLOW_INSECURE_WEBHOOK)%')
             ->setPublic(false);
 
-        $spoolDir = (string) ($_ENV['ALERTS_SPOOL_DIR'] ?? sys_get_temp_dir() . '/vortos-alerts');
-        $spoolMaxBytes = (int) ($_ENV['ALERTS_SPOOL_MAX_BYTES'] ?? 64 * 1024 * 1024);
+        // Declared references, resolved at runtime. The default for the directory is computed
+        // here only to seed the env() fallback; the value handed to the service is the placeholder.
+        $container->setParameter('env(ALERTS_SPOOL_DIR)', sys_get_temp_dir() . '/vortos-alerts');
+        $container->setParameter('env(ALERTS_SPOOL_MAX_BYTES)', (string) (64 * 1024 * 1024));
+        $spoolDir = '%env(string:ALERTS_SPOOL_DIR)%';
+        $spoolMaxBytes = '%env(int:ALERTS_SPOOL_MAX_BYTES)%';
 
         $this->registerDriver($container, 'slack', SlackNotifier::class, $spoolDir, $spoolMaxBytes, [
             '$transport' => new Reference(HttpNotifierTransportInterface::class),
@@ -182,7 +220,12 @@ final class AlertsExtension extends Extension
     }
 
     /** @param array<string, mixed> $extraArgs */
-    private function registerDriver(ContainerBuilder $container, string $key, string $driverClass, string $spoolDir, int $spoolMaxBytes, array $extraArgs): void
+    /**
+     * @param string $spoolDir      an `%env(...)%` placeholder, resolved by the container at runtime
+     * @param int|string $spoolMaxBytes  likewise — string when it is a placeholder, int in tests
+     * @param array<string, mixed> $extraArgs
+     */
+    private function registerDriver(ContainerBuilder $container, string $key, string $driverClass, string $spoolDir, int|string $spoolMaxBytes, array $extraArgs): void
     {
         $innerId = $driverClass . '.inner';
         $definition = $container->register($innerId, $driverClass)->setPublic(false);
@@ -198,6 +241,18 @@ final class AlertsExtension extends Extension
         // container enqueued, and the queue outlives the process that wrote it. Falls back to the
         // file spool only when no Redis is configured (single-process/dev deploys).
         $spoolId = 'vortos.alerts.outbox_spool.' . $key;
+        // COMPILE-TIME BY NECESSITY, unlike the argument reads above.
+        //
+        // This value does not configure a service, it decides WHICH service exists: a Redis-backed
+        // spool shared across containers, or a per-process file spool. A %env()% placeholder cannot
+        // choose a branch, because branches are taken while the container is built and placeholders
+        // are only resolved after. Making this runtime-resolved means registering both spools and
+        // selecting between them inside a service — a behavioural change, not a cleanup.
+        //
+        // Verified in production before leaving it: vortos.alerts.spool_redis IS registered, so the
+        // Redis branch is being taken and alerts queued for retry survive a blue-green cutover.
+        // This app compiles its container in-process, where these variables are present. It would
+        // break if the container were ever dumped at image-build time.
         $redisDsn = (string) ($_ENV['VORTOS_ALERTS_SPOOL_DSN'] ?? $_ENV['VORTOS_CACHE_DSN'] ?? $_ENV['REDIS_DSN'] ?? '');
 
         if ($redisDsn !== '' && class_exists(\Redis::class) && class_exists(\Vortos\Cache\Adapter\RedisConnectionFactory::class)) {
@@ -211,8 +266,8 @@ final class AlertsExtension extends Extension
 
             $container->register($spoolId, \Vortos\Observability\Buffer\RedisSpool::class)
                 ->setArgument('$redis', new Reference($redisId))
-                ->setArgument('$key', ($_ENV['VORTOS_CACHE_PREFIX'] ?? '') . 'alerts:outbox:' . $key)
-                ->setArgument('$maxRecords', (int) ($_ENV['VORTOS_ALERTS_SPOOL_MAX_RECORDS'] ?? 10000))
+                ->setArgument('$key', '%env(string:VORTOS_CACHE_PREFIX)%' . 'alerts:outbox:' . $key)
+                ->setArgument('$maxRecords', '%env(int:VORTOS_ALERTS_SPOOL_MAX_RECORDS)%')
                 ->setPublic(false);
         } else {
             $container->register($spoolId, BoundedSpool::class)
@@ -253,8 +308,8 @@ final class AlertsExtension extends Extension
         // resolve itself. These are time based, so the schedule does not change if the evaluation
         // cadence does.
         $container->register(ReminderBackoff::class, ReminderBackoff::class)
-            ->setArgument('$initialSeconds', (int) ($_ENV['ALERTS_REMINDER_INITIAL_SECONDS'] ?? 600))
-            ->setArgument('$maxSeconds', (int) ($_ENV['ALERTS_REMINDER_MAX_SECONDS'] ?? 21_600))
+            ->setArgument('$initialSeconds', '%env(int:ALERTS_REMINDER_INITIAL_SECONDS)%')
+            ->setArgument('$maxSeconds', '%env(int:ALERTS_REMINDER_MAX_SECONDS)%')
             ->setPublic(false);
 
         $container->register(Dedupe::class, Dedupe::class)
@@ -262,7 +317,7 @@ final class AlertsExtension extends Extension
             ->setPublic(false);
 
         $container->register(DedupeWindow::class, DedupeWindow::class)
-            ->setArgument('$seconds', (int) ($_ENV['ALERTS_DEDUPE_WINDOW_SECONDS'] ?? 300))
+            ->setArgument('$seconds', '%env(int:ALERTS_DEDUPE_WINDOW_SECONDS)%')
             ->setPublic(false);
 
         if ($container->has(Connection::class)) {
@@ -301,8 +356,10 @@ final class AlertsExtension extends Extension
 
     private function registerRouting(ContainerBuilder $container): void
     {
-        $pagingChannelDriver = (string) ($_ENV['ALERTS_PAGING_DRIVER'] ?? 'telegram');
-        $chatChannelDriver = (string) ($_ENV['ALERTS_CHAT_DRIVER'] ?? 'telegram');
+        $container->setParameter('env(ALERTS_PAGING_DRIVER)', 'telegram');
+        $container->setParameter('env(ALERTS_CHAT_DRIVER)', 'telegram');
+        $pagingChannelDriver = '%env(string:ALERTS_PAGING_DRIVER)%';
+        $chatChannelDriver = '%env(string:ALERTS_CHAT_DRIVER)%';
 
         // B21: inline Definitions, not object instances — the prod HTTP container is dumped via
         // PhpDumper, which cannot serialise a raw ChannelDefinition object argument.
@@ -348,6 +405,10 @@ final class AlertsExtension extends Extension
             ->setArgument('$quietHours', new Reference(QuietHoursPolicy::class))
             ->setPublic(false);
 
+        // Compile-time: decides whether AckTokenSigner is registered at all. Same shape as the
+        // audit recorder in FB-36. Verified present in production (AckTokenSigner is in the
+        // container), so acknowledging an alert works; left as-is because registering an unusable
+        // signer needs a runtime is-operational seam on the class, not a placeholder swap.
         $ackHmacKey = (string) ($_ENV['ALERTS_ACK_HMAC_KEY'] ?? '');
         if ($ackHmacKey !== '') {
             $container->register(AckTokenSigner::class, AckTokenSigner::class)
@@ -359,8 +420,8 @@ final class AlertsExtension extends Extension
     private function registerDispatcher(ContainerBuilder $container): void
     {
         $container->register(OutboundRateLimitConfig::class, OutboundRateLimitConfig::class)
-            ->setArgument('$perTenantPerHour', (int) ($_ENV['ALERTS_RATE_LIMIT_PER_TENANT'] ?? 100))
-            ->setArgument('$globalPerHour', (int) ($_ENV['ALERTS_RATE_LIMIT_GLOBAL'] ?? 1000))
+            ->setArgument('$perTenantPerHour', '%env(int:ALERTS_RATE_LIMIT_PER_TENANT)%')
+            ->setArgument('$globalPerHour', '%env(int:ALERTS_RATE_LIMIT_GLOBAL)%')
             ->setArgument('$perChannelKindPerHour', [])
             ->setPublic(false);
 
@@ -446,7 +507,7 @@ final class AlertsExtension extends Extension
 
         $container->register(StaleAlertResolver::class, StaleAlertResolver::class)
             ->setArgument('$store', new Reference(AlertStateStoreInterface::class))
-            ->setArgument('$silenceSeconds', (int) ($_ENV['ALERTS_RESOLVE_AFTER_SECONDS'] ?? 3_600))
+            ->setArgument('$silenceSeconds', '%env(int:ALERTS_RESOLVE_AFTER_SECONDS)%')
             ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
 
@@ -454,7 +515,7 @@ final class AlertsExtension extends Extension
             ->setArgument('$ticker', new Reference(AlertSourceTicker::class))
             ->setArgument('$staleResolver', new Reference(StaleAlertResolver::class))
             ->setArgument('$clock', new Reference(ClockInterface::class))
-            ->setArgument('$env', (string) ($_ENV['APP_ENV'] ?? 'prod'))
+            ->setArgument('$env', '%env(string:APP_ENV)%')
             ->addTag('vortos.command_handler')
             ->setPublic(true);
 

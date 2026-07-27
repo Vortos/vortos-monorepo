@@ -31,4 +31,14 @@ interface AlertAuditRecorderInterface
         NotificationResult $result,
         DateTimeImmutable $now,
     ): AlertAuditEntry;
+
+    /**
+     * Whether this recorder can actually write signed entries right now.
+     *
+     * The dispatcher deliberately swallows recording failures — losing a page is worse than losing
+     * its ledger entry — which means a recorder that can never write is invisible from the alert
+     * path by design. So the ability to write is asked as a QUESTION here, and the deploy gate asks
+     * it, rather than being inferred from the silence.
+     */
+    public function isOperational(): bool;
 }

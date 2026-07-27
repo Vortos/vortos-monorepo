@@ -26,8 +26,31 @@ final class AlertAuditRecorder implements AlertAuditRecorderInterface
         private readonly string $hmacKey,
     ) {}
 
+    /**
+     * A ledger whose entries carry no valid signature is not a tamper-evident ledger; it is a table.
+     * Rather than writing unsigned rows that look like evidence, the recorder reports that it cannot
+     * operate and the deploy gate refuses. Registration no longer depends on the key being readable
+     * at compile time — that made the service vanish silently instead.
+     */
+    public function isOperational(): bool
+    {
+        return $this->hmacKey !== '';
+    }
+
+    private function assertOperational(): void
+    {
+        if ($this->hmacKey === '') {
+            throw new \RuntimeException(
+                'ALERTS_AUDIT_HMAC_KEY is not set, so alert audit entries cannot be signed. '
+                . 'The alert ledger is not recording. Set the key and redeploy.',
+            );
+        }
+    }
+
     public function recordNotification(AlertEvent $event, RoutedDelivery $delivery, NotificationResult $result, DateTimeImmutable $now): AlertAuditEntry
     {
+        $this->assertOperational();
+
         $fingerprint = Fingerprint::of($event);
 
         return $this->repository->appendNext($event->env, function (int $sequence, string $prevHash) use ($event, $delivery, $result, $fingerprint, $now): AlertAuditEntry {
@@ -53,6 +76,8 @@ final class AlertAuditRecorder implements AlertAuditRecorderInterface
 
     public function recordAcknowledgement(Acknowledgement $ack, string $env, DateTimeImmutable $now): AlertAuditEntry
     {
+        $this->assertOperational();
+
         return $this->repository->appendNext($env, function (int $sequence, string $prevHash) use ($ack, $env, $now): AlertAuditEntry {
             return $this->chainEntry(
                 $env,

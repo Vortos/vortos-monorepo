@@ -153,6 +153,11 @@ final class AlertDispatcherAuditTest extends TestCase
 
 final class SpyAuditRecorder implements AlertAuditRecorderInterface
 {
+    public function isOperational(): bool
+    {
+        return true;
+    }
+
     /** @var list<string> */
     public array $calls = [];
 
@@ -184,6 +189,11 @@ final class SpyAuditRecorder implements AlertAuditRecorderInterface
 
 final class ThrowingAuditRecorder implements AlertAuditRecorderInterface
 {
+    public function isOperational(): bool
+    {
+        return true;
+    }
+
     public function recordNotification(
         AlertEvent $event,
         RoutedDelivery $delivery,

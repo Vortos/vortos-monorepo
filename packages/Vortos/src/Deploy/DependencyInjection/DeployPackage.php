@@ -11,6 +11,7 @@ use Vortos\Deploy\DependencyInjection\Compiler\CollectContractReadinessPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectCredentialProvidersPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectRegistryAuthStrategiesPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectDeployAuditSinksPass;
+use Vortos\Deploy\DependencyInjection\Compiler\TagPreflightChecksPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectDeployStateStoresPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectDeployStrategiesPass;
 use Vortos\Deploy\DependencyInjection\Compiler\CollectDeployTargetsPass;
@@ -51,6 +52,16 @@ final class DeployPackage implements PackageInterface
             new CollectDeployAuditSinksPass(),
             \Symfony\Component\DependencyInjection\Compiler\PassConfig::TYPE_BEFORE_OPTIMIZATION,
             -32,
+        );
+
+        // Tag every PreflightCheckInterface service, whichever package registered it. Runs at a
+        // priority low enough that all extensions have registered their checks, and BEFORE the
+        // runner's TaggedIteratorArgument is resolved. Without this the runner collected only the
+        // one check that happened to be autoconfigured and every other deploy gate was inert.
+        $container->addCompilerPass(
+            new TagPreflightChecksPass(),
+            \Symfony\Component\DependencyInjection\Compiler\PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            -48,
         );
 
         // Cross-package deploy wiring (release read model + migration readers). Must run in a

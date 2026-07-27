@@ -10,6 +10,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
+use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Port\BackupStoreRegistry;
 use Vortos\Backup\Restore\RestoreCoordinator;
@@ -57,12 +58,22 @@ final class BackupRestoreCommand extends Command
         $env = (string) $input->getOption('env');
         $artifactId = $input->getOption('artifact-id');
 
+        // Without an explicit id, restore the newest RESTORABLE artifact — never simply the newest
+        // row. With continuous WAL archiving a wal_segment lands roughly every sixty seconds, so
+        // "the latest backup" is almost always a single WAL fragment that cannot be restored on its
+        // own. This is the command an operator reaches for during an incident, so handing them a
+        // fragment is the worst possible moment for that surprise.
         $artifact = $artifactId !== null
             ? $this->catalog->byId((string) $artifactId)
-            : $this->catalog->latest($engine, $env);
+            : $this->catalog->latestOfKind(
+                $engine,
+                $env,
+                [BackupKind::LogicalFull, BackupKind::PhysicalBase, BackupKind::MongoArchive],
+            );
 
         if ($artifact === null) {
-            $output->writeln('<error>No backup artifact found.</error>');
+            $output->writeln('<error>No restorable backup artifact found. WAL segments alone cannot '
+                . 'be restored — they replay onto a base backup.</error>');
 
             return self::FAILURE;
         }

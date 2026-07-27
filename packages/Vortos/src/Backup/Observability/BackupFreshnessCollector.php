@@ -7,6 +7,7 @@ namespace Vortos\Backup\Observability;
 use Psr\Clock\ClockInterface;
 use Throwable;
 use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
+use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Metrics\Contract\MetricsCollectorInterface;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
@@ -62,7 +63,14 @@ final class BackupFreshnessCollector implements MetricsCollectorInterface
 
     private function collectEngine(DatabaseEngine $engine): void
     {
-        $latest = $this->catalog->latest($engine, $this->environment);
+        // Restorable kinds only. A wal_segment arrives roughly every sixty seconds, so an
+        // unfiltered lookup would keep this gauge permanently green — and a dashboard that cannot
+        // go red is indistinguishable from one nobody is watching.
+        $latest = $this->catalog->latestOfKind(
+            $engine,
+            $this->environment,
+            [BackupKind::LogicalFull, BackupKind::PhysicalBase, BackupKind::MongoArchive],
+        );
 
         $labels = FrameworkMetricLabels::of(
             MetricLabelValue::of(MetricLabel::Engine, $engine->value),

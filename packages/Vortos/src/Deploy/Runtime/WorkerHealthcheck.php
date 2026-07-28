@@ -46,6 +46,9 @@ final readonly class WorkerHealthcheck
         }
 
         foreach ($test as $part) {
+            // The compose test command comes from config/deploy.php: list<string> is documented,
+            // not enforced.
+            // @phpstan-ignore function.alreadyNarrowedType
             if (!is_string($part) || $part === '') {
                 throw new \InvalidArgumentException('WorkerHealthcheck.test entries must be non-empty strings.');
             }

@@ -103,7 +103,8 @@ final class GitHubApiActionRefResolver implements ActionRefResolverInterface, Ac
             return null;
         }
 
-        $status = $this->statusFromHeaders($http_response_header ?? []);
+        // Set by the HTTP stream wrapper alongside a successful read, so it exists by here.
+        $status = $this->statusFromHeaders($http_response_header);
 
         return $status === 200 ? $body : null;
     }

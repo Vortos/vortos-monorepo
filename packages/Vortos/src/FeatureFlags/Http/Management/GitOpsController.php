@@ -66,7 +66,14 @@ final class GitOpsController
         $this->rateLimit->checkManagement($this->currentUser->get()->id());
     }
 
-    /** @return array{flags: list<array<string,mixed>>} */
+    /**
+     * The import/drift request body. `dryRun` is part of the contract — import() reads it to decide
+     * whether to persist — so it belongs in the shape. Omitting it here did not just under-describe
+     * the array: it told the analyser the key could not be there, which is the shape a reader would
+     * trust when deciding the flag was dead.
+     *
+     * @return array{flags: list<array<string,mixed>>, dryRun?: bool}
+     */
     private function body(Request $request): array
     {
         $data = json_decode((string) $request->getContent(), true);

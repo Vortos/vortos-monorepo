@@ -250,7 +250,7 @@ final class DeploymentDefinitionBuilder
     public function appCommand(array $command): self
     {
         $clone = clone $this;
-        $clone->appCommand = array_values($command);
+        $clone->appCommand = $command;
 
         return $clone;
     }
@@ -259,7 +259,7 @@ final class DeploymentDefinitionBuilder
     public function workerCommand(array $command): self
     {
         $clone = clone $this;
-        $clone->workerCommand = array_values($command);
+        $clone->workerCommand = $command;
 
         return $clone;
     }
@@ -279,7 +279,7 @@ final class DeploymentDefinitionBuilder
     public function siblingSupervisorConfigs(array $configs): self
     {
         $clone = clone $this;
-        $clone->siblingSupervisorConfigs = array_values($configs);
+        $clone->siblingSupervisorConfigs = $configs;
 
         return $clone;
     }
@@ -297,7 +297,7 @@ final class DeploymentDefinitionBuilder
     public function envFiles(array $envFiles): self
     {
         $clone = clone $this;
-        $clone->envFiles = array_values($envFiles);
+        $clone->envFiles = $envFiles;
 
         return $clone;
     }

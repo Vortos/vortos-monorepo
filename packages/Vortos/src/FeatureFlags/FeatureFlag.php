@@ -132,6 +132,8 @@ final class FeatureFlag
      * Eliminates the positional-argument bug where a short `new self(...)` call silently
      * drops trailing fields (the original `withPayload()` dropped bucketBy…requiredScope).
      * Every with* method is now a one-liner that passes only what changed.
+     *
+     * @param list<Prerequisite>|null $prerequisites
      */
     private function withClone(
         ?bool $enabled = null,

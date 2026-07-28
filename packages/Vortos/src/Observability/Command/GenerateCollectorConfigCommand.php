@@ -135,6 +135,6 @@ final class GenerateCollectorConfigCommand extends Command
 
         $paths = preg_split('/[\s,]+/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
-        return $paths === [] ? LogPipelineConfig::DEFAULT_INCLUDE_PATHS : array_values($paths);
+        return $paths === [] ? LogPipelineConfig::DEFAULT_INCLUDE_PATHS : $paths;
     }
 }

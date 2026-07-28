@@ -124,7 +124,7 @@ class ConsoleCommandPass implements CompilerPassInterface
             /** @var AsCommand|null $attribute */
             $attribute = ($reflection->getAttributes(AsCommand::class)[0] ?? null)?->newInstance();
 
-            $rawNames = str_replace('%', '%%', $tags[0]['command'] ?? $attribute?->name ?? '');
+            $rawNames = str_replace('%', '%%', $tags[0]['command'] ?? $attribute->name ?? '');
             $aliases = explode('|', $rawNames);
             $commandName = array_shift($aliases);
 
@@ -142,11 +142,11 @@ class ConsoleCommandPass implements CompilerPassInterface
                 ));
             }
 
-            // Aliases come from two places: the legacy pipe syntax (name: 'a|b') parsed above, and the
-            // modern #[AsCommand(aliases: [...])] param. Symfony's own pass honours both; mirror that so
-            // an alias declared either way is registered in the lazy loader's command map (e.g.
-            // 'cache:warmup' → 'vortos:cache:warmup', so a stale stub can't invoke an unmapped name).
-            $aliases = array_merge($aliases, $attribute?->aliases ?? []);
+            // Both ways of declaring an alias are already covered by the pipe parsing above.
+            // #[AsCommand(aliases: [...])] does not survive as a property: the attribute's constructor
+            // folds `aliases` and `hidden` INTO `$name` as pipe syntax and only `$name` is promoted.
+            // Reading `$attribute->aliases` therefore hit an undefined property — silently null, so
+            // the merge was a no-op that looked like the feature working.
             $aliases = array_values(array_unique(array_filter($aliases, static fn (string $a): bool => $a !== '')));
 
             $commandMap[$commandName] = $id;
@@ -162,7 +162,7 @@ class ConsoleCommandPass implements CompilerPassInterface
                 $definition->addMethodCall('setHidden', [true]);
             }
 
-            $description = $tags[0]['description'] ?? $attribute?->description ?? null;
+            $description = $tags[0]['description'] ?? $attribute->description ?? null;
 
             $commandRefs[$id] = new TypedReference($id, $class);
 

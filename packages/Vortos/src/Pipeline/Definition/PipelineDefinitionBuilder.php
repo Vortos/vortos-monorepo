@@ -370,7 +370,7 @@ final class PipelineDefinitionBuilder
     public function runtimeEnvFiles(array $paths): self
     {
         $clone = clone $this;
-        $clone->runtimeEnvFiles = array_values($paths);
+        $clone->runtimeEnvFiles = $paths;
 
         return $clone;
     }
@@ -384,7 +384,7 @@ final class PipelineDefinitionBuilder
     public function runtimeFileSecretDirs(array $dirs): self
     {
         $clone = clone $this;
-        $clone->runtimeFileSecretDirs = array_values($dirs);
+        $clone->runtimeFileSecretDirs = $dirs;
 
         return $clone;
     }

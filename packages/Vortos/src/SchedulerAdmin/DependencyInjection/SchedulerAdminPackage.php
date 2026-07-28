@@ -11,7 +11,7 @@ use Vortos\SchedulerAdmin\DependencyInjection\Compiler\TwigExtensionCompilerPass
 
 final class SchedulerAdminPackage implements PackageInterface
 {
-    public function getContainerExtension(): ?ExtensionInterface
+    public function getContainerExtension(): ExtensionInterface
     {
         return new SchedulerAdminExtension();
     }

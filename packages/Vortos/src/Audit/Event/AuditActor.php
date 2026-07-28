@@ -28,6 +28,7 @@ final readonly class AuditActor
         public ?AuditActor $onBehalfOf = null,
     ) {}
 
+    /** @param list<string> $roles */
     public static function user(string $id, string $label, array $roles = []): self
     {
         return new self($id, ActorType::User, $label, $roles);

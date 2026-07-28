@@ -60,7 +60,7 @@ final class DbalAuditQueryReader implements AuditQueryInterface
             $next = new AuditCursor($last->event->occurredAt->format('Y-m-d\TH:i:s.uP'), $last->event->id);
         }
 
-        return new AuditPage(array_values($records), $next);
+        return new AuditPage($records, $next);
     }
 
     public function facets(AuditQuery $query): AuditFacets

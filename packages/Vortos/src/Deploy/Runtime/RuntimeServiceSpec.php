@@ -95,6 +95,9 @@ final readonly class RuntimeServiceSpec
         }
 
         foreach (array_keys($environment) as $key) {
+            // Specs are built from config/deploy.php, an untyped PHP array. Array key and element
+            // types are documented in the constructor docblock, never enforced by PHP itself.
+            // @phpstan-ignore function.alreadyNarrowedType
             if (!is_string($key) || $key === '') {
                 throw new \InvalidArgumentException('RuntimeServiceSpec.environment keys must be non-empty strings.');
             }
@@ -102,6 +105,9 @@ final readonly class RuntimeServiceSpec
 
         $seenContainerPaths = [];
         foreach ($fileSecrets as $fileSecret) {
+            // See above. list<FileSecret> is a documented contract, and this is where a config
+            // author finds out they broke it.
+            // @phpstan-ignore instanceof.alwaysTrue
             if (!$fileSecret instanceof FileSecret) {
                 throw new \InvalidArgumentException('RuntimeServiceSpec.fileSecrets entries must be FileSecret instances.');
             }
@@ -179,6 +185,8 @@ final readonly class RuntimeServiceSpec
         }
 
         foreach ($value as $entry) {
+            // See above: a config-supplied list<string>.
+            // @phpstan-ignore function.alreadyNarrowedType
             if (!is_string($entry) || $entry === '') {
                 throw new \InvalidArgumentException(sprintf('RuntimeServiceSpec.%s entries must be non-empty strings.', $field));
             }

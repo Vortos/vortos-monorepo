@@ -184,7 +184,6 @@ final class SchedulerAdminExtension extends Extension
             ->setArgument('$renderer', new Reference(TwigRenderer::class))
             ->setArgument('$scheduleStore', new Reference(ScheduleStoreInterface::class))
             ->setArgument('$staticRegistry', new Reference(StaticScheduleRegistry::class))
-            ->setArgument('$runStore', new Reference(ScheduleRunStoreInterface::class))
             ->addTag('vortos.api.controller')
             ->setPublic(true);
 
@@ -251,7 +250,6 @@ final class SchedulerAdminExtension extends Extension
         $container->register(ScheduleFragmentController::class, ScheduleFragmentController::class)
             ->setArgument('$renderer', new Reference(TwigRenderer::class))
             ->setArgument('$service', new Reference(ScheduleService::class))
-            ->setArgument('$policy', new Reference(SchedulePolicyInterface::class))
             ->setArgument('$currentUser', new Reference(CurrentUserProvider::class))
             ->addTag('vortos.api.controller')
             ->setPublic(true);

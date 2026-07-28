@@ -11,6 +11,7 @@ use Vortos\SchedulerAdmin\Security\CsrfTokenManager;
 
 final class AdminTwigExtension extends AbstractExtension
 {
+    /** @var array<string, array{file: string}>|null */
     private ?array $manifest = null;
 
     public function __construct(
@@ -49,6 +50,7 @@ final class AdminTwigExtension extends AbstractExtension
         return $this->assetBasePath . '/' . ltrim($path, '/');
     }
 
+    /** @param array<string, mixed> $props */
     public function islandProps(array $props): string
     {
         return json_encode($props, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_THROW_ON_ERROR);
@@ -65,6 +67,7 @@ final class AdminTwigExtension extends AbstractExtension
         return $this->assetBasePath . '/' . ltrim((string) $manifest[$entry]['file'], '/');
     }
 
+    /** @return array<string, array{file: string}>|null */
     private function loadManifest(): ?array
     {
         if ($this->manifest !== null) {

@@ -70,6 +70,7 @@ final class KubernetesStepExecutor
             StepAction::StartWorker => $this->handleStartWorker($step, $image),
             StepAction::StopContainer => $this->handleStopContainer($step),
             StepAction::UpdateState => $this->handleUpdateState($step),
+            StepAction::ReconcileEdge => $this->handleReconcileEdge(),
             StepAction::WaitDrain, StepAction::Noop => 'noop',
         };
 
@@ -148,6 +149,19 @@ final class KubernetesStepExecutor
         }
 
         return 'smoke passed';
+    }
+
+    /**
+     * On ssh-compose the edge is a Caddy container this driver has to converge itself. On Kubernetes
+     * there is nothing to converge: the Service and Ingress are declarative objects the cluster
+     * reconciles continuously, and the routing change this phase exists to prepare is made by
+     * SwitchUpstream patching the Service selector. So the phase is a genuine no-op here — but an
+     * explicit one. It used to fall through the match with no arm at all, which meant a Kubernetes
+     * deploy running the shared blue/green plan died with an unhandled-match fatal mid-deploy.
+     */
+    private function handleReconcileEdge(): string
+    {
+        return 'edge reconciliation is cluster-managed on kubernetes: nothing to converge';
     }
 
     private function handleSwitchUpstream(DeployStep $step): string

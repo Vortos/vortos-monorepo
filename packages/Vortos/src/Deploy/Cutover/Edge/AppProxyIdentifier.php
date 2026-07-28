@@ -29,6 +29,7 @@ final class AppProxyIdentifier
 {
     private const COLORS = ['blue', 'green'];
 
+    /** @param array<string, mixed> $config the decoded edge base config */
     public function identify(array $config, string $appDomain): AppProxyIdentification
     {
         $servers = $config['apps']['http']['servers'] ?? null;

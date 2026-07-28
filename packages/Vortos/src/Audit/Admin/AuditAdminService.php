@@ -59,8 +59,8 @@ final class AuditAdminService
     public function verifyChain(string $chainKey): ChainVerificationResult
     {
         $checkpoint = $this->checkpoints?->find($chainKey);
-        $afterSeq   = $checkpoint?->lastSequence ?? 0;
-        $prevHash   = $checkpoint?->lastContentHash ?? AuditHashChain::GENESIS_HASH;
+        $afterSeq   = $checkpoint->lastSequence ?? 0;
+        $prevHash   = $checkpoint->lastContentHash ?? AuditHashChain::GENESIS_HASH;
         $expectSeq  = $afterSeq + 1;
         $verified   = 0;
 

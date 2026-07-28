@@ -107,9 +107,12 @@ final class CaddyfileAdapter implements EdgeConfigAdapterInterface
             throw EdgeBaseConfigException::invalidJson($path, 'top-level value is not an object');
         }
 
+        // normalizeNode() returns mixed, but a \stdClass in always yields an array out (an EMPTY
+        // object is the one case that stays \stdClass, and an empty top-level config is nothing to
+        // merge). The @var tag that used to sit here asserted the array outcome and so made the
+        // is_array() below unanalysable — assert it where it can actually fail instead.
         $normalized = $this->normalizeNode($decoded);
 
-        /** @var array<string, mixed> $normalized */
         return is_array($normalized) ? $normalized : [];
     }
 

@@ -13,19 +13,28 @@ use Vortos\Http\Request;
 use Vortos\Http\Response;
 use Vortos\Scheduler\Schedule\ScheduleId;
 use Vortos\Scheduler\Security\Exception\ScheduleAccessDeniedException;
-use Vortos\Scheduler\Security\SchedulePolicyInterface;
 use Vortos\Scheduler\Service\ScheduleServiceInterface;
 use Vortos\Scheduler\Store\Exception\ScheduleNotFoundException;
 use Vortos\SchedulerAdmin\Rendering\TwigRenderer;
 
+/**
+ * The HTMX action fragments. Every one of these MUTATES, so authorization is not optional here.
+ *
+ * It is enforced one layer down, by ScheduleService, which calls assertCanPause/assertCanRunNow
+ * before touching anything and throws ScheduleAccessDeniedException — translated to a 403 below.
+ * This controller also used to take a SchedulePolicyInterface it never called, which read like a
+ * gate that had been forgotten. It was not: it was a second copy of a check the service already
+ * makes unconditionally. Injecting it here invited exactly the wrong repair — adding a duplicate
+ * check in the controller, so the two could later disagree about who may do what. The soft-check
+ * (canPause etc.) belongs in the controllers that RENDER buttons, which is where it lives.
+ */
 #[AsController]
 final class ScheduleFragmentController
 {
     public function __construct(
-        private readonly TwigRenderer          $renderer,
-        private readonly ScheduleServiceInterface       $service,
-        private readonly SchedulePolicyInterface $policy,
-        private readonly CurrentUserProvider   $currentUser,
+        private readonly TwigRenderer             $renderer,
+        private readonly ScheduleServiceInterface $service,
+        private readonly CurrentUserProvider      $currentUser,
     ) {}
 
     #[Route('/admin/scheduler/{id}/pause', name: 'vortos.admin.scheduler.fragment.pause', methods: ['POST'])]

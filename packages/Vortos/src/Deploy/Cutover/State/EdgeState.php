@@ -133,10 +133,10 @@ final readonly class EdgeState
             upstreamHost: (string) ($data['upstream_host'] ?? ''),
             upstreamPort: (int) ($data['upstream_port'] ?? 0),
             weight: (int) ($data['weight'] ?? 100),
-            domain: isset($data['domain']) && $data['domain'] !== null ? (string) $data['domain'] : null,
+            domain: isset($data['domain']) ? (string) $data['domain'] : null,
             version: (int) ($data['version'] ?? 0),
-            updatedAt: isset($data['updated_at']) && $data['updated_at'] !== null ? (string) $data['updated_at'] : null,
-            configHash: isset($data['config_hash']) && $data['config_hash'] !== null ? (string) $data['config_hash'] : null,
+            updatedAt: isset($data['updated_at']) ? (string) $data['updated_at'] : null,
+            configHash: isset($data['config_hash']) ? (string) $data['config_hash'] : null,
         );
     }
 }

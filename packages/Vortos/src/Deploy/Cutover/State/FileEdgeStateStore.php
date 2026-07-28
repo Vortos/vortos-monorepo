@@ -42,7 +42,7 @@ final class FileEdgeStateStore implements EdgeStateStoreInterface
     public function save(EdgeState $state): EdgeState
     {
         $current = $this->load($state->env);
-        $nextVersion = ($current?->version ?? 0) + 1;
+        $nextVersion = ($current->version ?? 0) + 1;
         $stamped = $state->withVersion($nextVersion, gmdate('c'));
 
         $path = $this->pathFor($state->env);

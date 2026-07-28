@@ -9,7 +9,6 @@ use Vortos\Http\Attribute\AsController;
 use Vortos\Http\Request;
 use Vortos\Http\Response;
 use Vortos\Scheduler\Registry\StaticScheduleRegistry;
-use Vortos\Scheduler\Store\ScheduleRunStoreInterface;
 use Vortos\Scheduler\Store\ScheduleStoreInterface;
 use Vortos\SchedulerAdmin\Rendering\TwigRenderer;
 
@@ -17,10 +16,9 @@ use Vortos\SchedulerAdmin\Rendering\TwigRenderer;
 final class SchedulerDashboardController
 {
     public function __construct(
-        private readonly TwigRenderer             $renderer,
-        private readonly ScheduleStoreInterface    $scheduleStore,
-        private readonly StaticScheduleRegistry    $staticRegistry,
-        private readonly ScheduleRunStoreInterface $runStore,
+        private readonly TwigRenderer          $renderer,
+        private readonly ScheduleStoreInterface $scheduleStore,
+        private readonly StaticScheduleRegistry $staticRegistry,
     ) {}
 
     #[Route('/admin/scheduler', name: 'vortos.admin.scheduler.dashboard', methods: ['GET'])]

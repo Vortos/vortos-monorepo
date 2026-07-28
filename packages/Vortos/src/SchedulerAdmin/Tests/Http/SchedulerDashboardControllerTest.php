@@ -17,7 +17,6 @@ final class SchedulerDashboardControllerTest extends TestCase
 {
     private ScheduleStoreInterface&MockObject    $scheduleStore;
     private StaticScheduleRegistry               $staticRegistry;
-    private ScheduleRunStoreInterface&MockObject $runStore;
     private TwigRenderer&MockObject             $renderer;
     private SchedulerDashboardController         $controller;
 
@@ -25,14 +24,12 @@ final class SchedulerDashboardControllerTest extends TestCase
     {
         $this->scheduleStore  = $this->createMock(ScheduleStoreInterface::class);
         $this->staticRegistry = new StaticScheduleRegistry([]);
-        $this->runStore       = $this->createMock(ScheduleRunStoreInterface::class);
         $this->renderer       = $this->createMock(TwigRenderer::class);
 
         $this->controller = new SchedulerDashboardController(
             renderer:       $this->renderer,
             scheduleStore:  $this->scheduleStore,
             staticRegistry: $this->staticRegistry,
-            runStore:       $this->runStore,
         );
     }
 

@@ -21,6 +21,7 @@ final readonly class HttpUserIdentity implements UserIdentityInterface
         return $this->inner->id();
     }
 
+    /** @return list<string> */
     public function roles(): array
     {
         return $this->inner->roles();

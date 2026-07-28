@@ -13,6 +13,7 @@ class TwigRenderer
         private readonly Environment $twig,
     ) {}
 
+    /** @param array<string, mixed> $context */
     public function render(string $template, array $context = [], int $status = 200): Response
     {
         $html = $this->twig->render($template, $context);
@@ -20,6 +21,7 @@ class TwigRenderer
         return new Response($html, $status, ['Content-Type' => 'text/html; charset=UTF-8']);
     }
 
+    /** @param array<string, mixed> $context */
     public function renderFragment(string $template, array $context = []): Response
     {
         $html = $this->twig->render($template, $context);

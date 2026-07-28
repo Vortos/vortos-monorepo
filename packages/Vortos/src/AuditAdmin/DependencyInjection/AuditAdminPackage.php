@@ -12,7 +12,7 @@ use Vortos\Foundation\Contract\PackageInterface;
 
 final class AuditAdminPackage implements PackageInterface
 {
-    public function getContainerExtension(): ?ExtensionInterface
+    public function getContainerExtension(): ExtensionInterface
     {
         return new AuditAdminExtension();
     }

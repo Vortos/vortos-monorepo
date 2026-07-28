@@ -36,7 +36,11 @@ final class ObjectStoreHealthConfig
         return $this;
     }
 
-    /** @internal */
+    /**
+     * @internal
+     *
+     * @return array<string, int>
+     */
     public function toArray(): array
     {
         return [

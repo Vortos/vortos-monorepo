@@ -58,7 +58,7 @@ final class WebhookManagementController
         }
 
         $check = $this->ssrf->validate($url);
-        if (($check['safe'] ?? false) !== true) {
+        if ($check['safe'] !== true) {
             throw new HttpException(422, 'URL rejected: ' . ($check['reason'] ?? 'unsafe'));
         }
 

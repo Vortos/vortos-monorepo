@@ -14,7 +14,7 @@ use Vortos\Foundation\Contract\PackageInterface;
 
 final class AuditPackage implements PackageInterface
 {
-    public function getContainerExtension(): ?ExtensionInterface
+    public function getContainerExtension(): ExtensionInterface
     {
         return new AuditExtension();
     }

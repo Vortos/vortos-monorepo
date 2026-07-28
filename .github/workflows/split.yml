@@ -43,6 +43,34 @@ jobs:
       - name: Run tests
         run: ./vendor/bin/phpunit --testdox
 
+  static-analysis:
+    # The gate that was missing. Tests were gating `split`; static analysis was not, so anything
+    # PHPStan could see but no test exercised accumulated silently — 116 findings by the time anyone
+    # counted, among them two enum `match` statements left non-exhaustive when a case was added, and
+    # a compiler pass reading a property that no longer exists on Symfony's AsCommand attribute.
+    # None of those break a test. All of them break at runtime, on the paths tests do not reach.
+    #
+    # This runs on `main` and on every tag alongside `tests`, and gates `split` the same way, so a
+    # release cannot publish code the analyser rejects.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # v2
+        with:
+          php-version: '8.5'
+          extensions: redis
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --ignore-platform-reqs
+
+      # --memory-limit is not tuning: the default 128M dies part-way through ~46 packages and the
+      # run reports a crash rather than a finding count, which reads like an infrastructure problem.
+      - name: Static analysis
+        run: composer analyse -- --no-progress --error-format=github
+
   benchmark:
     needs: tests
     runs-on: ubuntu-latest
@@ -89,7 +117,7 @@ jobs:
         working-directory: packages/feature-flags-admin
 
   split:
-    needs: [pin-lint, tests, ui-build]
+    needs: [pin-lint, tests, static-analysis, ui-build]
     runs-on: ubuntu-latest
     # Serialise per PACKAGE REPO, not per workflow run.
     #

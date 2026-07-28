@@ -10,7 +10,7 @@ namespace Vortos\Deploy\Cutover\Lock;
  */
 final class NullEdgeCutoverLock implements EdgeCutoverLockInterface
 {
-    public function acquire(string $env, int $ttlSeconds): ?string
+    public function acquire(string $env, int $ttlSeconds): string
     {
         return 'null-lock';
     }

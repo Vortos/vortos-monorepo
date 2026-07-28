@@ -134,6 +134,7 @@ final class AuditExtension extends Extension
      * is installed. Until then the Null recorder stands in. P3 will front this with the
      * Kafka-decoupled recorder.
      */
+    /** @param array<string, mixed> $config */
     private function registerStorage(ContainerBuilder $container, string $hmacKey, array $config): void
     {
         if (!class_exists(Connection::class)) {

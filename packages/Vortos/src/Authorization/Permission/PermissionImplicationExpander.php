@@ -31,7 +31,12 @@ final class PermissionImplicationExpander
     }
 
     /**
-     * @param string[] $permissions
+     * Permission names come from the role-permission store — i.e. out of the database — so they are
+     * typed as unknown here rather than as string[]. Claiming string[] would have made the guard
+     * below look redundant, and removing it would let a malformed row become an array key.
+     * Dropping an unusable value fails closed: the user ends up with fewer permissions, never more.
+     *
+     * @param array<mixed> $permissions
      * @return string[]
      */
     public function expand(array $permissions): array

@@ -127,6 +127,7 @@ final class FlagHistoryController
         return null;
     }
 
+    /** @return array<string, mixed> */
     private function summarize(FlagAuditEntry $e): array
     {
         return [

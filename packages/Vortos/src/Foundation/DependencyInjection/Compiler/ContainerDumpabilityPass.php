@@ -12,7 +12,6 @@ use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Parameter;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\Variable;
-use Symfony\Component\ExpressionLanguage\Expression;
 
 /**
  * Fail-closed guard against non-dumpable service arguments (B21).
@@ -34,6 +33,8 @@ use Symfony\Component\ExpressionLanguage\Expression;
  */
 final class ContainerDumpabilityPass implements CompilerPassInterface
 {
+    private const EXPRESSION_CLASS = 'Symfony\\Component\\ExpressionLanguage\\Expression';
+
     public function process(ContainerBuilder $container): void
     {
         $offenders = [];
@@ -113,9 +114,15 @@ final class ContainerDumpabilityPass implements CompilerPassInterface
         }
 
         // Value objects PhpDumper knows how to serialise as arguments.
+        //
+        // Expression is referenced by NAME rather than imported: symfony/expression-language is an
+        // optional dependency, and an `instanceof` against a class that is not installed makes this
+        // pass unanalysable — which is how it went unchecked. is_a() on an object is false when the
+        // class is absent, which is exactly right: with no expression-language there are no
+        // Expression arguments to allow through.
         if ($value instanceof Reference
             || $value instanceof Parameter
-            || $value instanceof Expression
+            || is_a($value, self::EXPRESSION_CLASS)
             || $value instanceof Variable
             || $value instanceof ArgumentInterface   // Tagged/Iterator/ServiceLocator/ServiceClosure/…
             || $value instanceof AbstractArgument

@@ -94,6 +94,7 @@ final class OverrideImplCompilerPass implements CompilerPassInterface
         $container->setParameter('vortos.override_impl.bindings', $bindings);
     }
 
+    /** @param ReflectionClass<object> $reflClass */
     private function formatError(ReflectionClass $reflClass, string $reason): string
     {
         return sprintf(
@@ -105,6 +106,7 @@ final class OverrideImplCompilerPass implements CompilerPassInterface
         );
     }
 
+    /** @param list<string> $errors */
     private function formatCombinedError(array $errors): string
     {
         $count = count($errors);

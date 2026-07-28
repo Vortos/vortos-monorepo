@@ -155,7 +155,9 @@ final class FlagWriteService
     }
 
     /**
-     * Replace per-variant targeting overrides. @param array<string,FlagRule[]>|null $variantRules
+     * Replace per-variant targeting overrides.
+     *
+     * @param array<string, list<FlagRule>>|null $variantRules
      */
     public function changeVariantRules(string $name, ?array $variantRules, string $actorId, ?string $reason = null): Flag
     {

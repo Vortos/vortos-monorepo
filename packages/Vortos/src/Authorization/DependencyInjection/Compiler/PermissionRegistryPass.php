@@ -134,6 +134,8 @@ final class PermissionRegistryPass implements CompilerPassInterface
         foreach ($pendingGrants as $pending) {
             foreach ($pending['grants'] as $role => $grants) {
                 foreach ($grants as $grant) {
+                    // App-authored catalog data: element types are documented, not enforced by PHP.
+                    // @phpstan-ignore function.alreadyNarrowedType
                     if (!is_string($grant)) {
                         throw new \LogicException(sprintf(
                             'Permission catalog "%s" has a non-string grant for role "%s".',
@@ -175,6 +177,9 @@ final class PermissionRegistryPass implements CompilerPassInterface
                     ));
                 }
 
+                // A catalog is app-authored PHP. Only the docblock says these values are arrays;
+                // this is the check that makes that true.
+                // @phpstan-ignore function.alreadyNarrowedType
                 if (!is_array($implied)) {
                     throw new \LogicException(sprintf(
                         'Permission catalog "%s" must declare implications for "%s" as an array.',
@@ -184,6 +189,8 @@ final class PermissionRegistryPass implements CompilerPassInterface
                 }
 
                 foreach ($implied as $target) {
+                    // See above: app-authored catalog data, element types unenforced by PHP.
+                    // @phpstan-ignore function.alreadyNarrowedType
                     if (!is_string($target)) {
                         throw new \LogicException(sprintf(
                             'Permission catalog "%s" has a non-string implication for "%s".',
@@ -285,13 +292,9 @@ final class PermissionRegistryPass implements CompilerPassInterface
             return [];
         }
 
-        $implies = $class::implies();
-
-        if (!is_array($implies)) {
-            throw new \LogicException(sprintf('Permission catalog "%s" implies() must return an array.', $class));
-        }
-
-        return $implies;
+        // implies() is declared `: array` on the interface, so PHP itself rejects a non-array
+        // return before this line can ever run — the old guard here was unreachable.
+        return $class::implies();
     }
 
     /**
@@ -345,13 +348,8 @@ final class PermissionRegistryPass implements CompilerPassInterface
             return [];
         }
 
-        $grants = $class::grants();
-
-        if (!is_array($grants)) {
-            throw new \LogicException(sprintf('Permission catalog "%s" grants() must return an array.', $class));
-        }
-
-        return $grants;
+        // Same as implies(): the native `: array` return type is the guard.
+        return $class::grants();
     }
 
     private function normalizePermission(string $resource, string $permission, string $catalogClass): string

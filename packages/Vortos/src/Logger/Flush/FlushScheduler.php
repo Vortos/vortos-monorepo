@@ -89,10 +89,4 @@ final class FlushScheduler
         // already guarantee bounded flush latency, including FrankenPHP worker mode.
     }
 
-    private function minInterval(): int
-    {
-        $intervals = array_column($this->registrations, 'interval');
-
-        return $intervals === [] ? 2 : min($intervals);
-    }
 }

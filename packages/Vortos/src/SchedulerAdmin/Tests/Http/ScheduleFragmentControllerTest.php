@@ -17,7 +17,6 @@ use Vortos\Scheduler\Engine\FireDispatchResult;
 use Vortos\Scheduler\Schedule\ScheduleId;
 use Vortos\Scheduler\Schedule\ScheduleStatus;
 use Vortos\Scheduler\Security\Exception\ScheduleAccessDeniedException;
-use Vortos\Scheduler\Security\SchedulePolicyInterface;
 use Vortos\Scheduler\Service\ScheduleServiceInterface;
 use Vortos\Scheduler\Store\Exception\ScheduleNotFoundException;
 use Vortos\SchedulerAdmin\Http\Fragment\ScheduleFragmentController;
@@ -27,22 +26,18 @@ final class ScheduleFragmentControllerTest extends TestCase
 {
     private TwigRenderer&MockObject             $renderer;
     private ScheduleServiceInterface&MockObject $service;
-    private SchedulePolicyInterface&MockObject  $policy;
     private ScheduleFragmentController          $controller;
 
     protected function setUp(): void
     {
         $this->renderer = $this->createMock(TwigRenderer::class);
         $this->service  = $this->createMock(ScheduleServiceInterface::class);
-        $this->policy   = $this->createMock(SchedulePolicyInterface::class);
-
         $adapter = new ArrayAdapter();
         $adapter->set('auth:identity', new UserIdentity('user-1', ['ROLE_SCHEDULER_ADMIN']));
 
         $this->controller = new ScheduleFragmentController(
             renderer:    $this->renderer,
             service:     $this->service,
-            policy:      $this->policy,
             currentUser: new CurrentUserProvider($adapter),
         );
     }

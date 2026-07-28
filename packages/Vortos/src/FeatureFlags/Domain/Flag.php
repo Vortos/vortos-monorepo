@@ -201,7 +201,9 @@ final class Flag extends AggregateRoot
 
     /**
      * Replace per-variant targeting overrides (force a matching context into a specific
-     * variant regardless of weight). @param array<string,FlagRule[]>|null $variantRules
+     * variant regardless of weight).
+     *
+     * @param array<string, list<FlagRule>>|null $variantRules
      */
     public function changeVariantRules(?array $variantRules, string $actorId, ?string $reason = null): void
     {

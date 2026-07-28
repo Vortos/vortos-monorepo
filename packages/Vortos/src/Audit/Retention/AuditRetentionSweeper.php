@@ -48,7 +48,7 @@ final class AuditRetentionSweeper
                 continue; // retention disabled for this chain
             }
 
-            $frontier = $this->checkpoints->find($chainKey)?->lastSequence ?? 0;
+            $frontier = $this->checkpoints->find($chainKey)->lastSequence ?? 0;
             $batch    = $this->source->readChain($chainKey, $frontier, $this->batchSize);
 
             /** @var list<StoredAuditEvent> $expired */

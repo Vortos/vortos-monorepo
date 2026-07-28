@@ -27,9 +27,9 @@ final readonly class PipelineDefinition
      *                    container-booting job (test, static-analysis, agnosticism) after deps install and
      *                    before the stage command — e.g. `cp .env.example .env` so the DI container can
      *                    compile `%env()%` references. This is what lets the generated CI replace a real ci.yml.
-     */
-    /**
-     * @param list<string> $preCutoverCommands
+     * @param list<string>           $preCutoverCommands
+     * @param list<string>           $runtimeEnvFiles
+     * @param list<string>           $runtimeFileSecretDirs
      */
     public function __construct(
         public string $emitter = 'github',
@@ -176,22 +176,29 @@ final readonly class PipelineDefinition
         }
 
         foreach ($runtimeEnvFiles as $file) {
+            // config/pipeline.php is untyped PHP. These paths are interpolated into a shell command
+            // line on the deploy host, so the type check is part of the injection defence, not noise.
+            // @phpstan-ignore function.alreadyNarrowedType
             if (!is_string($file) || $file === '' || !str_starts_with($file, '/') || self::hasShellMetachar($file)) {
                 throw new \InvalidArgumentException(sprintf(
                     'Runtime env-file paths must be non-empty absolute paths with no whitespace or shell '
                     . 'metacharacters (they are bind-mounted into the deploy one-shot at the same absolute '
                     . 'path the nested cutover compose references); got "%s".',
+                    // @phpstan-ignore function.alreadyNarrowedType
                     is_string($file) ? $file : get_debug_type($file),
                 ));
             }
         }
 
         foreach ($runtimeFileSecretDirs as $dir) {
+            // See above: same untyped-config-into-a-shell-command boundary.
+            // @phpstan-ignore function.alreadyNarrowedType
             if (!is_string($dir) || self::hasShellMetachar($dir)
                 || (!str_starts_with($dir, '/run/') && !str_starts_with($dir, '/dev/shm/'))) {
                 throw new \InvalidArgumentException(sprintf(
                     'Runtime file-secret dirs must be tmpfs paths under /run/ or /dev/shm/ with no '
                     . 'whitespace or shell metacharacters (so plaintext never persists to disk); got "%s".',
+                    // @phpstan-ignore function.alreadyNarrowedType
                     is_string($dir) ? $dir : get_debug_type($dir),
                 ));
             }

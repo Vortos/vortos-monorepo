@@ -71,7 +71,7 @@ final class SchemaDiffStatementFactory
                 $this->platform->getAlterSchemaSQL($diff),
             );
 
-            $result[$entry['relative']] = array_values($statements);
+            $result[$entry['relative']] = $statements;
             $base = $after;
         }
 

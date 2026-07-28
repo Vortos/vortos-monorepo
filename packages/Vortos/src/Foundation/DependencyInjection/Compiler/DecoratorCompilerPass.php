@@ -180,6 +180,7 @@ final class DecoratorCompilerPass implements CompilerPassInterface
         return $id;
     }
 
+    /** @param ReflectionClass<object> $reflClass */
     private function findInnerParam(ReflectionClass $reflClass, string $decorates): ?string
     {
         $constructor = $reflClass->getConstructor();
@@ -203,6 +204,7 @@ final class DecoratorCompilerPass implements CompilerPassInterface
         return null;
     }
 
+    /** @param ReflectionClass<object> $reflClass */
     private function formatError(string $className, ReflectionClass $reflClass, string $reason): string
     {
         return sprintf(
@@ -214,6 +216,7 @@ final class DecoratorCompilerPass implements CompilerPassInterface
         );
     }
 
+    /** @param list<string> $errors */
     private function formatCombinedError(array $errors): string
     {
         $count = count($errors);

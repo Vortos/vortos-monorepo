@@ -37,6 +37,9 @@ trait ResolveInterfaceTrait
     }
 
     /**
+     * @param ReflectionClass<object> $reflClass
+     * @param list<string>            $appNamespaces
+     *
      * @return class-string
      * @throws \LogicException on ambiguous or invalid configuration
      */
@@ -80,6 +83,7 @@ trait ResolveInterfaceTrait
         ));
     }
 
+    /** @param list<string> $appNamespaces */
     private function isAppInterface(string $interface, array $appNamespaces): bool
     {
         if (empty($appNamespaces)) {

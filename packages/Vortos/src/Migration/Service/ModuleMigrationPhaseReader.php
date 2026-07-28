@@ -121,13 +121,9 @@ final class ModuleMigrationPhaseReader implements MigrationPhaseReaderInterface
             return null;
         }
 
-        try {
-            $reflection = new \ReflectionClass($class);
-        } catch (\ReflectionException) {
-            return null;
-        }
-
-        $attributes = $reflection->getAttributes(DeployPhase::class);
+        // class_exists() above already loaded it, so the ReflectionClass constructor cannot fail —
+        // the catch that used to sit here was unreachable.
+        $attributes = (new \ReflectionClass($class))->getAttributes(DeployPhase::class);
 
         if ($attributes === []) {
             return null;

@@ -43,6 +43,14 @@ final class RowChainLock implements ChainLockStrategyInterface
         }
     }
 
+    /**
+     * Two calls to this in one method do NOT have the same answer: the insert between them is the
+     * whole point, and the row is contended by other appenders besides. Without this marker the
+     * analyser reused the first call's result for the second and concluded the guard above could
+     * never fire — the exact inference a reader would use to justify deleting it.
+     *
+     * @phpstan-impure
+     */
     private function lockRow(Connection $conn, string $chainKey): bool
     {
         $row = $conn->fetchOne(

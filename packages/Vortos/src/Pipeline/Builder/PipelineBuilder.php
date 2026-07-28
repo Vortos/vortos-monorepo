@@ -316,6 +316,16 @@ final class PipelineBuilder
             $buildWith['build-args'] = 'BASE_IMAGE_DIGEST=${{ env.BASE_IMAGE_DIGEST }}';
         }
 
+        if ($definition->buildCache) {
+            // Cache-only, and deliberately so: it never touches the pushed artifact, which is why
+            // it can sit alongside signing, SBOM, provenance and a scan gate without weakening any
+            // of them. mode=max keeps intermediate stages too, so the expensive rarely-changing
+            // layers (custom runtime binary, PECL extensions) survive between runs and only the
+            // dependency/source layers rebuild.
+            $buildWith['cache-from'] = 'type=gha';
+            $buildWith['cache-to'] = 'type=gha,mode=max';
+        }
+
         $steps[] = new ActionStep(
             'Build and push',
             KnownActionFactory::buildPush(),
@@ -478,9 +488,31 @@ final class PipelineBuilder
 
         $steps = [
             new ActionStep('Checkout', KnownActionFactory::checkout()),
-            $this->sshSetupStep($definition),
-            new CommandStep('Deploy on target over SSH', $this->sshInvocation($remoteScript)),
         ];
+
+        if ($definition->emitSign && $definition->verifySignatureBeforeRelease) {
+            $steps[] = new ActionStep('Install Cosign', KnownActionFactory::cosignInstaller());
+
+            // cosign reads the signature as an ordinary tag (…​.sig) from the SAME repository. For a
+            // private one that needs a login ON THE RUNNER — any registry login inside the deploy's
+            // SSH session happens on the target and does nothing for a cosign running here, so
+            // without this the verify dies with "UNAUTHORIZED: authentication required".
+            $steps[] = $this->requireLoginProvider($definition->registryProvider)
+                ->loginStep(new RegistryLoginContext($definition));
+
+            $steps[] = new CommandStep(
+                'Verify the image signature before releasing it',
+                sprintf(
+                    'cosign verify --certificate-identity-regexp "%s" --certificate-oidc-issuer "%s" %s',
+                    '^${{ github.server_url }}/${{ github.repository }}/',
+                    'https://token.actions.githubusercontent.com',
+                    $imageRef,
+                ),
+            );
+        }
+
+        $steps[] = $this->sshSetupStep($definition);
+        $steps[] = new CommandStep('Deploy on target over SSH', $this->sshInvocation($remoteScript));
 
         return new Stage(
             id: 'deploy',

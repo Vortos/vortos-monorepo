@@ -57,6 +57,31 @@ final readonly class PipelineDefinition
         public string $dockerfilePath = 'Dockerfile',
         public bool $emitScanGate = false,
         public bool $emitSign = false,
+        /**
+         * Emit a BuildKit layer cache (`cache-from`/`cache-to: type=gha`) on the build step.
+         *
+         * Cache-only: it changes nothing about the pushed artifact, so signing, SBOM, provenance
+         * and any scan gate behave identically with it on or off. It exists because compiling a
+         * custom runtime binary and PECL extensions on every push is most of the build — one app
+         * measured 12 minutes down to 3. Apps that hand-patched this into the generated workflow
+         * had it silently deleted by the next `pipeline:generate --force`.
+         */
+        public bool $buildCache = false,
+        /**
+         * Re-verify the image signature in the job that actually releases it.
+         *
+         * The build job already signs and verifies, and deploy depends on build, so an unsigned
+         * image cannot reach the release job — that is the primary gate. This is a second one that
+         * re-establishes the signature at release time against the exact digest about to ship,
+         * rather than trusting that an earlier job in the same run checked something.
+         *
+         * Runs on the runner, not the target: deploys pull by immutable digest, so there is nothing
+         * cosign could tell the production host that it cannot be told here — and shipping a cosign
+         * binary into a deliberately slimmed runtime image buys no extra assurance.
+         *
+         * Requires emitSign, since there is no signature to verify without it.
+         */
+        public bool $verifySignatureBeforeRelease = false,
         public string $registryProvider = 'ghcr',
         // ── Workflow file targeting (upstream P1-4) ──
         public string $workflowFilename = 'ci.yml',

@@ -38,6 +38,8 @@ final class PipelineDefinitionBuilder
     private string $dockerfilePath = 'Dockerfile';
     private bool $emitScanGate = false;
     private bool $emitSign = false;
+    private bool $buildCache = false;
+    private bool $verifySignatureBeforeRelease = false;
     private string $registryProvider = 'ghcr';
     private string $workflowFilename = 'ci.yml';
     private ?string $workflowName = null;
@@ -239,6 +241,24 @@ final class PipelineDefinitionBuilder
     {
         $clone = clone $this;
         $clone->emitSign = $enabled;
+
+        return $clone;
+    }
+
+    /** Cache BuildKit layers between runs. Affects build time only, never the pushed artifact. */
+    public function buildCache(bool $enabled): self
+    {
+        $clone = clone $this;
+        $clone->buildCache = $enabled;
+
+        return $clone;
+    }
+
+    /** Re-verify the image signature in the release job, against the digest it is about to ship. */
+    public function verifySignatureBeforeRelease(bool $enabled): self
+    {
+        $clone = clone $this;
+        $clone->verifySignatureBeforeRelease = $enabled;
 
         return $clone;
     }
@@ -483,6 +503,8 @@ final class PipelineDefinitionBuilder
             dockerfilePath: $this->dockerfilePath,
             emitScanGate: $this->emitScanGate,
             emitSign: $this->emitSign,
+            buildCache: $this->buildCache,
+            verifySignatureBeforeRelease: $this->verifySignatureBeforeRelease,
             registryProvider: $this->registryProvider,
             workflowFilename: $this->workflowFilename,
             workflowName: $this->workflowName,

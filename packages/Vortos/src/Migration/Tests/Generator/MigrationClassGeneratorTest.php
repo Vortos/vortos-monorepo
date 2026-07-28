@@ -275,4 +275,61 @@ final class MigrationClassGeneratorTest extends TestCase
         $desc = $this->generator->descriptionFromFilename('outbox.sql');
         $this->assertNotEmpty($desc);
     }
+
+    // ── A PL/pgSQL body is one statement, semicolons and all ──────────────────────────────────
+
+    public function test_a_dollar_quoted_body_is_not_split_at_its_semicolons(): void
+    {
+        $sql = <<<'SQL'
+            CREATE OR REPLACE FUNCTION t_immutable() RETURNS TRIGGER AS $$
+            BEGIN
+                RAISE EXCEPTION 'append-only';
+                RETURN NULL;
+            END;
+            $$ LANGUAGE plpgsql;
+            CREATE TRIGGER trg BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION t_immutable();
+            SQL;
+
+        $out = (new MigrationClassGenerator())->generateFromSql('V1', 'App\Migrations', 'd', $sql);
+
+        // Two addSql calls, not one per semicolon inside the body.
+        self::assertSame(2, substr_count($out, '$this->addSql('));
+        self::assertStringContainsString('LANGUAGE plpgsql', $out);
+    }
+
+    public function test_a_semicolon_inside_a_string_literal_does_not_split(): void
+    {
+        $out = (new MigrationClassGenerator())->generateFromSql(
+            'V1',
+            'App\Migrations',
+            'd',
+            "INSERT INTO t (c) VALUES ('a;b');",
+        );
+
+        self::assertSame(1, substr_count($out, '$this->addSql('));
+    }
+
+    public function test_ordinary_statements_still_split_on_semicolons(): void
+    {
+        $out = (new MigrationClassGenerator())->generateFromSql(
+            'V1',
+            'App\Migrations',
+            'd',
+            'CREATE TABLE a (id int); CREATE TABLE b (id int);',
+        );
+
+        self::assertSame(2, substr_count($out, '$this->addSql('));
+    }
+
+    public function test_a_trailing_comment_is_not_emitted_as_a_statement(): void
+    {
+        $out = (new MigrationClassGenerator())->generateFromSql(
+            'V1',
+            'App\Migrations',
+            'd',
+            "CREATE TABLE a (id int);\n-- done\n",
+        );
+
+        self::assertSame(1, substr_count($out, '$this->addSql('));
+    }
 }

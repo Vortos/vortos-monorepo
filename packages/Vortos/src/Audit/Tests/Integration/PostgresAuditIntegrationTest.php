@@ -110,9 +110,18 @@ final class PostgresAuditIntegrationTest extends TestCase
         $store = $this->store();
         $store->record(AuditEvent::create(Scope::Tenant, 'tamper-org', AuditActor::system(), 'member.invited'));
 
-        self::$conn->executeStatement(
-            "UPDATE vortos_audit_events SET action = 'member.removed' WHERE chain_key = 'tenant:tamper-org'",
-        );
+        // The trigger now refuses this UPDATE outright, which is the point of it. Disabling the
+        // trigger to run the tamper is not cheating the test — it is the test: a superuser can
+        // always drop a trigger, and the hash chain is what still catches them afterwards.
+        // Prevention first, evidence as the backstop when prevention is taken away.
+        self::$conn->executeStatement('ALTER TABLE vortos_audit_events DISABLE TRIGGER trg_audit_events_no_update');
+        try {
+            self::$conn->executeStatement(
+                "UPDATE vortos_audit_events SET action = 'member.removed' WHERE chain_key = 'tenant:tamper-org'",
+            );
+        } finally {
+            self::$conn->executeStatement('ALTER TABLE vortos_audit_events ENABLE TRIGGER trg_audit_events_no_update');
+        }
 
         self::assertFalse($this->admin()->verifyChain('tenant:tamper-org')->valid);
     }
@@ -225,6 +234,92 @@ final class PostgresAuditIntegrationTest extends TestCase
         return new AuditAdminService($this->reader(), $store, new AuditChainVerifier($chain), self::HMAC);
     }
 
+    // ── Append-only enforcement (the ledger's tamper PREVENTION, not just its evidence) ────
+
+    public function test_update_is_refused_by_the_database(): void
+    {
+        $store = $this->store();
+        $store->record(AuditEvent::create(Scope::Tenant, 'immutable-org', AuditActor::system(), 'member.invited'));
+
+        $this->expectException(\Throwable::class);
+        $this->expectExceptionMessageMatches('/append-only/');
+
+        self::$conn->executeStatement(
+            "UPDATE vortos_audit_events SET action = 'member.removed' WHERE chain_key = 'tenant:immutable-org'",
+        );
+    }
+
+    public function test_deleting_an_unarchived_record_is_refused(): void
+    {
+        $store = $this->store();
+        $store->record(AuditEvent::create(Scope::Tenant, 'purge-org', AuditActor::system(), 'member.invited'));
+
+        $this->expectException(\Throwable::class);
+        $this->expectExceptionMessageMatches('/not archived/');
+
+        self::$conn->executeStatement(
+            "DELETE FROM vortos_audit_events WHERE chain_key = 'tenant:purge-org'",
+        );
+    }
+
+    /** A checkpoint that stops short of the row proves nothing about that row. */
+    public function test_a_checkpoint_that_does_not_reach_the_record_does_not_release_it(): void
+    {
+        $store = $this->store();
+        $store->record(AuditEvent::create(Scope::Tenant, 'short-org', AuditActor::system(), 'member.invited'));
+
+        $this->checkpoint('tenant:short-org', 0);
+
+        $this->expectException(\Throwable::class);
+        $this->expectExceptionMessageMatches('/not archived/');
+
+        self::$conn->executeStatement(
+            "DELETE FROM vortos_audit_events WHERE chain_key = 'tenant:short-org'",
+        );
+    }
+
+    /** Retention's own path: archive, checkpoint, then purge. This is the one DELETE allowed. */
+    public function test_a_checkpointed_record_can_be_purged(): void
+    {
+        $store = $this->store();
+        $store->record(AuditEvent::create(Scope::Tenant, 'sweep-org', AuditActor::system(), 'member.invited'));
+
+        $this->checkpoint('tenant:sweep-org', 1);
+
+        $deleted = self::$conn->executeStatement(
+            "DELETE FROM vortos_audit_events WHERE chain_key = 'tenant:sweep-org' AND sequence <= 1",
+        );
+
+        self::assertSame(1, $deleted);
+    }
+
+    /** TRUNCATE skips row triggers, so it would otherwise walk straight past both guards. */
+    public function test_truncate_is_refused(): void
+    {
+        $this->expectException(\Throwable::class);
+        $this->expectExceptionMessageMatches('/append-only/');
+
+        self::$conn->executeStatement('TRUNCATE vortos_audit_events');
+    }
+
+    private function checkpoint(string $chainKey, int $lastSequence): void
+    {
+        self::$conn->executeStatement(
+            'INSERT INTO vortos_audit_checkpoints
+                (id, chain_key, last_sequence, last_content_hash, archived_at, object_key, record_count)
+             VALUES (:id, :ck, :seq, :hash, :at, :key, :n)',
+            [
+                'id'   => 'ckpt-' . $chainKey . '-' . $lastSequence,
+                'ck'   => $chainKey,
+                'seq'  => $lastSequence,
+                'hash' => str_repeat('0', 64),
+                'at'   => '2026-07-28T00:00:00.000000+00:00',
+                'key'  => 'archive/' . $chainKey . '.ndjson',
+                'n'    => max(0, $lastSequence),
+            ],
+        );
+    }
+
     private static function migrate(Connection $conn): void
     {
         $conn->executeStatement(<<<'SQL'
@@ -249,6 +344,17 @@ final class PostgresAuditIntegrationTest extends TestCase
             )
         SQL);
         $conn->executeStatement(<<<'SQL'
+            CREATE TABLE vortos_audit_checkpoints (
+                id varchar(36) PRIMARY KEY,
+                chain_key varchar(255) NOT NULL,
+                last_sequence bigint NOT NULL,
+                last_content_hash char(64) NOT NULL,
+                archived_at varchar(40) NOT NULL,
+                object_key text NOT NULL,
+                record_count int NOT NULL
+            )
+        SQL);
+        $conn->executeStatement(<<<'SQL'
             CREATE TABLE vortos_audit_saved_views (
                 id varchar(36) PRIMARY KEY,
                 tenant_id varchar(255) NULL,
@@ -258,6 +364,25 @@ final class PostgresAuditIntegrationTest extends TestCase
                 created_at varchar(40) NOT NULL
             )
         SQL);
+
+        self::installAppendOnlyTriggers($conn);
+    }
+
+    /**
+     * Runs the SHIPPED append-only stub, not a copy of it.
+     *
+     * A copy would let the file and the test drift apart, and the guarantee here is precisely
+     * the one that spent months in the repository without reaching any database — so the test
+     * that proves it works has to be reading the artifact that actually gets published.
+     */
+    private static function installAppendOnlyTriggers(Connection $conn): void
+    {
+        $stub = __DIR__ . '/../../Resources/migrations/20260728000001_audit_events_append_only.sql';
+        $sql  = (string) file_get_contents($stub);
+
+        // The publisher substitutes {vortos} with the configured prefix; this schema uses the
+        // non-Postgres-schema spelling, so do the same substitution here.
+        $conn->executeStatement(str_replace('{vortos}', 'vortos_', $sql));
     }
 
     private static function sh(string $cmd): ?string

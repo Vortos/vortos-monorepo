@@ -60,12 +60,18 @@ final class MigratePublishCommand extends Command
 
     private readonly SchemaDiffStatementFactory $schemaDiffFactory;
 
+    /**
+     * Raw-SQL stubs are emitted verbatim, so they cannot call t() to qualify a framework table.
+     * They write the {vortos} placeholder instead and this substitutes the configured prefix at
+     * publish time. Defaulting to 'vortos_' keeps a stub that hardcoded the old default working.
+     */
     public function __construct(
         private readonly ModuleStubScanner $scanner,
         private readonly MigrationClassGenerator $generator,
         private readonly string $projectDir,
         private readonly ?ModuleSchemaProviderScanner $schemaScanner = null,
         ?SchemaDiffStatementFactory $schemaDiffFactory = null,
+        private readonly string $frameworkTablePrefix = 'vortos_',
     ) {
         parent::__construct();
 
@@ -176,7 +182,7 @@ final class MigratePublishCommand extends Command
                         $className,
                         self::MIGRATION_NAMESPACE,
                         $description,
-                        (string) file_get_contents($stub['path']),
+                        $this->qualifyFrameworkTables((string) file_get_contents($stub['path'])),
                     );
             } catch (\Throwable $e) {
                 $output->writeln(sprintf(
@@ -363,7 +369,32 @@ final class MigratePublishCommand extends Command
         }
 
         foreach ($this->scanner->scan() as $sqlStub) {
+            // A schema provider SUPERSEDES a raw .sql of the same name. That is deliberate: it is
+            // how a module migrates from the legacy raw form to the declarative one without
+            // emitting the table twice.
+            //
+            // What it must never do is supersede DDL the declarative form cannot express. Doctrine
+            // Schema has no notion of a trigger, function, policy or rule, so a .sql carrying one
+            // is not a duplicate of its provider — it is the half the provider cannot replace, and
+            // dropping it deletes a guarantee while the repository goes on advertising it. Three
+            // append-only triggers were lost this way (backup_catalog, release_manifests,
+            // observability_deploy_audit_log): shipped, never published, absent from every
+            // database, with nothing anywhere reporting a problem.
             if (isset($providerSqlCounterparts[$sqlStub['relative']])) {
+                $irreplaceable = $this->schemaInexpressibleDdl((string) file_get_contents($sqlStub['path']));
+
+                if ($irreplaceable !== []) {
+                    throw new \RuntimeException(sprintf(
+                        'Module migration "%s": the raw-SQL stub %s is superseded by a schema '
+                        . 'provider of the same name, but it contains DDL no Doctrine Schema can '
+                        . 'express (%s). Superseding it would silently discard that DDL. Move it '
+                        . 'into a stub with its own filename so both publish.',
+                        $sqlStub['module'],
+                        $sqlStub['relative'],
+                        implode(', ', $irreplaceable),
+                    ));
+                }
+
                 continue;
             }
 
@@ -373,6 +404,46 @@ final class MigratePublishCommand extends Command
         usort($sources, static fn(array $a, array $b) => strcmp($a['filename'], $b['filename']));
 
         return $sources;
+    }
+
+    /**
+     * The DDL keywords a Doctrine Schema provider has no way to represent.
+     *
+     * Used only to decide whether superseding a raw stub would lose something. Deliberately a
+     * keyword scan and not a parse: the question is "might this file carry more than tables and
+     * indexes", and the safe answer to an ambiguous file is to make a human look at it.
+     *
+     * @return list<string> the constructs found, for the error message
+     */
+    private function schemaInexpressibleDdl(string $sql): array
+    {
+        $constructs = ['TRIGGER', 'FUNCTION', 'POLICY', 'RULE', 'VIEW'];
+        $found      = [];
+
+        foreach ($constructs as $construct) {
+            if (preg_match('/\bCREATE\s+(OR\s+REPLACE\s+)?(CONSTRAINT\s+)?' . $construct . '\b/i', $sql) === 1) {
+                $found[] = 'CREATE ' . $construct;
+            }
+        }
+
+        if (preg_match('/\bROW\s+LEVEL\s+SECURITY\b/i', $sql) === 1) {
+            $found[] = 'ROW LEVEL SECURITY';
+        }
+
+        return $found;
+    }
+
+    /**
+     * Replace the {vortos} placeholder in a raw stub with the configured framework table prefix.
+     *
+     * Framework tables are named by AbstractModuleSchemaProvider::t(), which is prefix-aware — a
+     * PostgreSQL install gets 'vortos.audit_events', others 'vortos_audit_events'. Raw SQL never
+     * went through it, so a stub had to hardcode one spelling and was simply wrong on any install
+     * using the other. Hardcoded names still work; the placeholder is how a new stub stays correct.
+     */
+    private function qualifyFrameworkTables(string $sql): string
+    {
+        return str_replace('{vortos}', $this->frameworkTablePrefix, $sql);
     }
 
     /**

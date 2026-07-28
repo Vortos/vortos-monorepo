@@ -170,12 +170,98 @@ PHP;
 
     private function buildAddSqlCalls(string $sql): string
     {
-        $statements = array_filter(
-            array_map('trim', explode(';', $sql)),
-            static fn(string $s) => $s !== '',
-        );
+        return $this->buildAddSqlCallsFromStatements($this->splitStatements($sql));
+    }
 
-        return $this->buildAddSqlCallsFromStatements(array_values($statements));
+    /**
+     * Split a stub into statements on the semicolons that actually END one.
+     *
+     * A plain explode(';') is right until a stub contains a PL/pgSQL body, and every trigger,
+     * function and policy stub does. `RETURNS TRIGGER AS $$ BEGIN ... ; END; $$` gets torn into
+     * fragments at the semicolons inside the dollar-quoted body, and each fragment is emitted as
+     * its own addSql() — so the migration fails with "unterminated dollar-quoted string" the first
+     * time anyone runs it. Every raw stub in this framework that carried a trigger was unrunnable
+     * for this reason, which went unnoticed only because a separate bug stopped them publishing.
+     *
+     * Semicolons inside dollar quotes, single quotes and line comments are therefore not
+     * separators. Nothing else about the old behaviour changes.
+     *
+     * @return list<string>
+     */
+    private function splitStatements(string $sql): array
+    {
+        $statements = [];
+        $current    = '';
+        $length     = strlen($sql);
+        $i          = 0;
+        $dollarTag  = null;
+
+        while ($i < $length) {
+            if ($dollarTag !== null) {
+                if (substr($sql, $i, strlen($dollarTag)) === $dollarTag) {
+                    $current .= $dollarTag;
+                    $i       += strlen($dollarTag);
+                    $dollarTag = null;
+                    continue;
+                }
+
+                $current .= $sql[$i];
+                $i++;
+                continue;
+            }
+
+            // Opening dollar quote: $$ or $tag$.
+            if ($sql[$i] === '$' && preg_match('/\$[A-Za-z_]?\w*\$/A', $sql, $m, 0, $i) === 1) {
+                $dollarTag = $m[0];
+                $current  .= $dollarTag;
+                $i        += strlen($dollarTag);
+                continue;
+            }
+
+            if ($sql[$i] === "'" && preg_match("/'(?:[^']|'')*'/A", $sql, $m, 0, $i) === 1) {
+                $current .= $m[0];
+                $i       += strlen($m[0]);
+                continue;
+            }
+
+            if ($sql[$i] === '-' && substr($sql, $i, 2) === '--') {
+                $end      = strpos($sql, "\n", $i);
+                $comment  = $end === false ? substr($sql, $i) : substr($sql, $i, $end - $i);
+                $current .= $comment;
+                $i       += strlen($comment);
+                continue;
+            }
+
+            if ($sql[$i] === ';') {
+                $statements[] = $current;
+                $current      = '';
+                $i++;
+                continue;
+            }
+
+            $current .= $sql[$i];
+            $i++;
+        }
+
+        $statements[] = $current;
+
+        return array_values(array_filter(
+            array_map('trim', $statements),
+            fn (string $s): bool => $s !== '' && !$this->isOnlyComments($s),
+        ));
+    }
+
+    /** A trailing block of `--` comments is not a statement. */
+    private function isOnlyComments(string $statement): bool
+    {
+        foreach (explode("\n", $statement) as $line) {
+            $line = trim($line);
+            if ($line !== '' && !str_starts_with($line, '--')) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

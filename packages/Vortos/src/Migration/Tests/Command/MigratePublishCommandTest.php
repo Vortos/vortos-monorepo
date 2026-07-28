@@ -447,12 +447,95 @@ PHP);
         }
     }
 
-    private function runCommand(array $options = []): CommandTester
+    // ── A superseded raw stub must not take non-Schema DDL down with it ───────────────────────
+
+    /**
+     * Three append-only triggers were lost exactly this way. A schema provider supersedes a
+     * same-named .sql on purpose — that is how a module moves from the raw form to the
+     * declarative one — but Doctrine Schema cannot express a trigger, so a .sql carrying one is
+     * not a duplicate of its provider. It is the half the provider cannot replace.
+     */
+    public function test_superseding_a_stub_that_carries_a_trigger_is_refused(): void
+    {
+        $this->makeSchemaProvider('Ledger', '001_ledger.php', 'Ledger', 'ledger.create');
+        $this->makeSqlStub('Ledger', '001_ledger.sql', <<<'SQL'
+            CREATE OR REPLACE FUNCTION ledger_immutable() RETURNS TRIGGER AS $$
+            BEGIN RAISE EXCEPTION 'append-only'; END; $$ LANGUAGE plpgsql;
+            CREATE TRIGGER trg_ledger_immutable BEFORE UPDATE ON ledger
+                FOR EACH ROW EXECUTE FUNCTION ledger_immutable();
+            SQL);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/CREATE TRIGGER/');
+
+        $this->runCommand();
+    }
+
+    public function test_row_level_security_also_blocks_superseding(): void
+    {
+        $this->makeSchemaProvider('Rls', '001_rls.php', 'Rls', 'rls.create');
+        $this->makeSqlStub('Rls', '001_rls.sql', 'ALTER TABLE t ENABLE ROW LEVEL SECURITY;');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/ROW LEVEL SECURITY/');
+
+        $this->runCommand();
+    }
+
+    /** Plain tables and indexes ARE expressible, so superseding those stays silent as before. */
+    public function test_a_plain_table_stub_is_still_superseded_quietly(): void
+    {
+        $this->makeSchemaProvider('Plain', '001_plain.php', 'Plain', 'plain.create');
+        $this->makeSqlStub('Plain', '001_plain.sql', 'CREATE TABLE plain (id int); CREATE INDEX i ON plain (id);');
+
+        $tester = $this->runCommand();
+
+        self::assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
+        self::assertStringNotContainsString('001_plain.sql', $tester->getDisplay());
+    }
+
+    // ── Raw stubs cannot call t(), so they get a placeholder instead ──────────────────────────
+
+    public function test_the_vortos_placeholder_takes_the_configured_prefix(): void
+    {
+        $this->makeSqlStub('Prefixed', '001_prefixed.sql', 'CREATE TABLE {vortos}widgets (id int);');
+
+        $this->runCommand([], frameworkTablePrefix: 'vortos.');
+
+        self::assertStringContainsString('vortos.widgets', $this->publishedMigrationBody());
+        self::assertStringNotContainsString('{vortos}', $this->publishedMigrationBody());
+    }
+
+    public function test_the_placeholder_follows_a_non_schema_prefix_too(): void
+    {
+        $this->makeSqlStub('Prefixed', '001_prefixed.sql', 'CREATE TABLE {vortos}widgets (id int);');
+
+        $this->runCommand([], frameworkTablePrefix: 'vortos_');
+
+        self::assertStringContainsString('vortos_widgets', $this->publishedMigrationBody());
+    }
+
+    private function publishedMigrationBody(): string
+    {
+        $files = glob($this->tempDir . '/migrations/Version*.php') ?: [];
+        self::assertNotSame([], $files, 'nothing was published');
+
+        return implode("\n", array_map(static fn (string $f): string => (string) file_get_contents($f), $files));
+    }
+
+    private function runCommand(array $options = [], string $frameworkTablePrefix = 'vortos_'): CommandTester
     {
         $scanner   = new ModuleStubScanner(new ModulePathResolver($this->tempDir), $this->tempDir);
         $schemaScanner = new ModuleSchemaProviderScanner(new ModulePathResolver($this->tempDir), $this->tempDir);
         $generator = new MigrationClassGenerator();
-        $command   = new MigratePublishCommand($scanner, $generator, $this->tempDir, $schemaScanner);
+        $command   = new MigratePublishCommand(
+            $scanner,
+            $generator,
+            $this->tempDir,
+            $schemaScanner,
+            null,
+            $frameworkTablePrefix,
+        );
 
         $app = new Application();
         $app->add($command);

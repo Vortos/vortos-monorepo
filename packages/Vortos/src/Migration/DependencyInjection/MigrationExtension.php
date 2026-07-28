@@ -290,6 +290,7 @@ final class MigrationExtension extends Extension
             ->setArgument('$generator', new Reference(MigrationClassGenerator::class))
             ->setArgument('$projectDir', $projectDir)
             ->setArgument('$schemaScanner', new Reference(ModuleSchemaProviderScanner::class))
+            ->setArgument('$frameworkTablePrefix', $frameworkTablePrefix)
             ->setPublic(true)
             ->addTag('console.command');
 

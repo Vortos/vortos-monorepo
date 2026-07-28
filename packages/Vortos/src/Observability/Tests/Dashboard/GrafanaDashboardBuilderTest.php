@@ -152,6 +152,33 @@ final class GrafanaDashboardBuilderTest extends TestCase
         }
     }
 
+    /**
+     * A panel targeting ${DS_PROMETHEUS} with no variable of that name declared resolves to no
+     * datasource at all, and the imported dashboard is uniformly empty. That is the same visible
+     * symptom as an unprefixed metric name, so it is worth pinning separately.
+     */
+    public function test_declares_the_datasource_variable_its_panels_reference(): void
+    {
+        $document = (new GrafanaDashboardBuilder())->build('t', '${DS_PROMETHEUS}', 'uid');
+
+        $names = array_column($document['templating']['list'], 'name');
+
+        self::assertContains('DS_PROMETHEUS', $names);
+
+        foreach ($document['panels'] as $panel) {
+            foreach ($panel['targets'] ?? [] as $target) {
+                self::assertSame('${DS_PROMETHEUS}', $target['datasource']['uid']);
+            }
+        }
+    }
+
+    public function test_omits_the_variable_when_given_a_concrete_datasource_uid(): void
+    {
+        $document = (new GrafanaDashboardBuilder())->build('t', 'concrete-uid', 'uid');
+
+        self::assertArrayNotHasKey('templating', $document);
+    }
+
     /** @return array<string, mixed> */
     private function build(): array
     {

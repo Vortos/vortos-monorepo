@@ -10,6 +10,7 @@ use Vortos\Deploy\Plan\DeployContext;
 use Vortos\Deploy\Plan\DeployPlan;
 use Vortos\Deploy\Plan\DeployPlanner;
 use Vortos\Deploy\Plan\DesiredImage;
+use Vortos\Deploy\Plan\StepAction;
 use Vortos\Deploy\Driver\Docker\ImageReclaimer;
 use Vortos\Deploy\Registry\ContainerRegistryInterface;
 use Vortos\Deploy\Registry\ImageReference;
@@ -190,6 +191,8 @@ final class SshComposeTarget implements DeployTargetInterface
         } catch (\Throwable $e) {
             $this->stateStore->fail($run->runId, $e->getMessage());
 
+            $this->stopUnpromotedCandidate($plan, $env);
+
             throw $e;
         } finally {
             // R8-4: reclaim superseded release images + build cache on EVERY deploy attempt —
@@ -218,6 +221,68 @@ final class SshComposeTarget implements DeployTargetInterface
      * short-circuit honest: recorded run state alone can lie (a Completed run whose image never went
      * live, or was rolled back), but CurrentRelease reflects what the edge verifiably cut over to.
      */
+    /**
+     * Tears down a candidate color the aborted deploy started but never promoted.
+     *
+     * An abort used to just rethrow, which left the candidate exactly as the failing step found it:
+     * app container up, worker container stuck in Created. Nothing was serving from it and nothing
+     * ever would, so it read as harmless — but the worker holds every Kafka consumer, so background
+     * processing was silently stopped with no failing check anywhere to say so. It stays that way
+     * until a human notices, and a half-started color is also what makes the next deploy's state
+     * ambiguous.
+     *
+     * The refusal to touch a promoted color is the important half. If cutover DID happen, the
+     * candidate is the live site, and tearing it down here would convert a failed deploy into a
+     * self-inflicted outage. So this stops the candidate only when the recorded live release
+     * disagrees with it, and does nothing at all when it cannot establish that safely.
+     *
+     * Best-effort by construction, like the image reclaim below it: this runs while an exception is
+     * propagating, and cleanup must never replace the real failure with its own.
+     */
+    private function stopUnpromotedCandidate(DeployPlan $plan, EnvironmentName $env): void
+    {
+        try {
+            $candidate = $this->candidateColorFromPlan($plan);
+
+            if ($candidate === null || $candidate === ActiveColor::None) {
+                return;
+            }
+
+            $live = $this->releaseStore->currentRelease($env->value);
+
+            // No recorded release at all: this is likely a first deploy, and there is nothing to
+            // contradict. Stopping is still correct — nothing is serving from the candidate — but
+            // only when the plan actually intended a blue/green candidate, which is the check above.
+            if ($live !== null && $live->activeColor === $candidate) {
+                return; // the candidate is live; it is the site, not debris
+            }
+
+            $this->executor->stopColor($candidate);
+        } catch (\Throwable) {
+            // Swallowed deliberately: the deploy failure is the outcome that matters.
+        }
+    }
+
+    /**
+     * The color this plan was bringing up, taken from the step that starts it.
+     */
+    private function candidateColorFromPlan(DeployPlan $plan): ?ActiveColor
+    {
+        foreach ($plan->phases as $phase) {
+            foreach ($phase->steps as $step) {
+                if ($step->action !== StepAction::StartContainer) {
+                    continue;
+                }
+
+                $color = (string) ($step->params['color'] ?? '');
+
+                return $color === '' ? null : ActiveColor::tryFrom($color);
+            }
+        }
+
+        return null;
+    }
+
     private function liveReleaseMatches(string $env, string $desiredDigest): bool
     {
         if ($desiredDigest === '') {

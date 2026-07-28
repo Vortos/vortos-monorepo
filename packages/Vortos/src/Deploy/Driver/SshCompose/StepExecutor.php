@@ -208,6 +208,22 @@ final class StepExecutor
         return sprintf('started %s', $compose->projectName);
     }
 
+    /**
+     * Tears a color down outside the plan, for compensating an aborted deploy.
+     *
+     * Public because the target has to be able to clean up a candidate color it started but never
+     * promoted. That is not something the plan can express: the plan describes the intended path,
+     * and this is the path not taken.
+     */
+    public function stopColor(ActiveColor $color): void
+    {
+        $this->handleStopContainer(new DeployStep(
+            StepAction::StopContainer,
+            sprintf('stop unpromoted color %s', $color->value),
+            ['color' => $color->value],
+        ));
+    }
+
     private function handleStopContainer(DeployStep $step): string
     {
         $colorValue = (string) ($step->params['color'] ?? '');

@@ -6,9 +6,11 @@ namespace Vortos\Metrics\Decorator;
 
 use Psr\Log\LoggerInterface;
 use Vortos\Metrics\Contract\CounterInterface;
+use Vortos\Metrics\Contract\FlushableMetricsInterface;
 use Vortos\Metrics\Contract\GaugeInterface;
 use Vortos\Metrics\Contract\HistogramInterface;
 use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Contract\ShutdownMetricsInterface;
 use Vortos\Metrics\Instrument\NoOpCounter;
 use Vortos\Metrics\Instrument\NoOpGauge;
 use Vortos\Metrics\Instrument\NoOpHistogram;
@@ -47,7 +49,7 @@ use Vortos\Metrics\Instrument\NoOpHistogram;
  * into a second incident by flooding the log, which is exactly the failure this class exists to
  * prevent.
  */
-final class FailSafeMetrics implements MetricsInterface
+final class FailSafeMetrics implements MetricsInterface, FlushableMetricsInterface, ShutdownMetricsInterface
 {
     /** @var array<string, true> names already reported, so a hot path logs once and not per call */
     private array $reported = [];
@@ -128,5 +130,41 @@ final class FailSafeMetrics implements MetricsInterface
                     . 'records nothing, but it will not affect the operation that made it.',
             ],
         );
+    }
+
+    /**
+     * A decorator MUST carry the capabilities of what it decorates.
+     *
+     * Omitting these broke every Kafka consumer in production. KafkaConsumerFactory takes
+     * `?FlushableMetricsInterface $metricsFlusher` and is wired with a reference to
+     * MetricsInterface. Aliasing MetricsInterface to this class — which did not implement
+     * FlushableMetricsInterface — made that argument fail its type check, so every consumer
+     * fatalled at boot, supervisord respawned all forty in a loop, the box saturated at ~390% CPU,
+     * and the CPU probe then failed the app's readiness and took the site down with it.
+     *
+     * Flushing is telemetry delivery, so it degrades here for the same reason recording does: it
+     * must never take down the loop that called it. ConsumerRunner::flushTelemetry() already wraps
+     * its own call for that reason.
+     */
+    public function flush(): void
+    {
+        try {
+            if ($this->inner instanceof FlushableMetricsInterface) {
+                $this->inner->flush();
+            }
+        } catch (\Throwable $e) {
+            $this->degrade('<flush>', 'flush', $e);
+        }
+    }
+
+    public function shutdown(): void
+    {
+        try {
+            if ($this->inner instanceof ShutdownMetricsInterface) {
+                $this->inner->shutdown();
+            }
+        } catch (\Throwable $e) {
+            $this->degrade('<shutdown>', 'shutdown', $e);
+        }
     }
 }

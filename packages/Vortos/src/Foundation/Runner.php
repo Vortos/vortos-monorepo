@@ -7,6 +7,8 @@ namespace Vortos\Foundation;
 use CachedContainer;
 use Vortos\Http\Controller\ErrorController;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\Compiler\CheckTypeDeclarationsPass;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\Container;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Dumper\PhpDumper;
@@ -352,6 +354,39 @@ class Runner
         foreach ($this->parameters as $key => $value) {
             $container->setParameter($key, $value);
         }
+
+        $this->addTypeDeclarationCheck($container);
+    }
+
+    /**
+     * Verifies every wired argument against the constructor it is passed to, at compile time.
+     *
+     * Without this, a wiring type mismatch is invisible until the service is first instantiated —
+     * and services are lazy, so "first instantiated" can mean "in production, an hour after the
+     * deploy, in a process nobody is watching". That is not hypothetical: aliasing MetricsInterface
+     * to a decorator that did not implement FlushableMetricsInterface passed every test, compiled
+     * cleanly, deployed green, and then fatalled all forty Kafka consumers on boot. They
+     * crash-looped, saturated the box, and the CPU probe failed the app's readiness — the site went
+     * down from a type error the container already had all the information to reject.
+     *
+     * Symfony ships the check; it simply is not on by default. Turning it on for dev and test makes
+     * every local run and every test a gate: the container refuses to compile and names the argument.
+     *
+     * Deliberately NOT enabled in prod. It autoloads and reflects over every definition, which costs
+     * real boot time, and by then it is too late to be useful anyway — the same container was already
+     * compiled in dev and test before it could be released. Prod keeps the cheap compile.
+     */
+    private function addTypeDeclarationCheck(ContainerBuilder $container): void
+    {
+        if ($this->environment === 'prod') {
+            return;
+        }
+
+        $container->addCompilerPass(
+            new CheckTypeDeclarationsPass(true),
+            PassConfig::TYPE_AFTER_REMOVING,
+            -100,
+        );
     }
 
     private function dumpContainer(Container $container): void

@@ -118,11 +118,25 @@ final class HealthExtension extends Extension
         $warnPct = (float) ($_ENV['HEALTH_CAPACITY_WARN_PCT'] ?? 85.0);
         $criticalPct = (float) ($_ENV['HEALTH_CAPACITY_CRITICAL_PCT'] ?? 95.0);
 
-        // Whether capacity (disk/memory/cpu) GATES readiness. Default true = legacy behavior. Single
-        // active-replica topologies (blue/green with one serving color) set this false: gating the sole
-        // node's readiness on a transient CPU/memory spike has nowhere to drain to and self-inflicts an
-        // outage, so capacity becomes Monitoring-kind — still measured and alertable, never a traffic gate.
-        $capacityGatesReadiness = filter_var($_ENV['HEALTH_CAPACITY_READINESS'] ?? true, \FILTER_VALIDATE_BOOL);
+        // Whether capacity (disk/memory/cpu) GATES readiness. Defaults to FALSE — capacity is
+        // measured and alertable, but is not a traffic gate.
+        //
+        // Readiness answers "can this instance serve requests". Resource pressure does not mean it
+        // cannot; it means it serves slowly. Failing readiness on pressure only helps when there is
+        // somewhere else for the traffic to go, and the moment there is not, it converts a
+        // performance problem into a total outage — and does it at precisely the worst time.
+        //
+        // This defaulted to true and cost an outage. Crash-looping consumers pushed load average to
+        // 34 on 4 cores; the CPU probe then failed readiness, the edge pulled the only serving
+        // colour out, and the public API returned 503 — while the app itself was answering its own
+        // health endpoint perfectly well. Shedding to zero replicas is never the better outcome, and
+        // it also removes the operator's ability to reach the box over the same path.
+        //
+        // Topologies with spare replicas that genuinely want pressure-based shedding opt IN with
+        // HEALTH_CAPACITY_READINESS=true. Orchestrators that already evict on resource pressure
+        // (Kubernetes) should leave it off and let the orchestrator decide, so there is one
+        // authority on the question instead of two disagreeing.
+        $capacityGatesReadiness = filter_var($_ENV['HEALTH_CAPACITY_READINESS'] ?? false, \FILTER_VALIDATE_BOOL);
         $capacityKind = $capacityGatesReadiness ? ProbeKind::Readiness : ProbeKind::Monitoring;
 
         $container->register(DiskCapacityProbe::class, DiskCapacityProbe::class)

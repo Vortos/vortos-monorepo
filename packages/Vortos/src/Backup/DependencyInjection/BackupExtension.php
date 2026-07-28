@@ -30,6 +30,7 @@ use Vortos\Backup\Console\BackupRunCommand;
 use Vortos\Backup\Console\BackupScheduleCommand;
 use Vortos\Backup\Console\BackupVerifyCommand;
 use Vortos\Backup\Console\BackupWalArchiveCommand;
+use Vortos\Backup\Console\BackupWalRestoreCommand;
 use Vortos\Backup\Crypto\EnvelopeStreamCipher;
 use Vortos\Backup\DependencyInjection\Compiler\CollectBackupEventSinksPass;
 use Vortos\Backup\DependencyInjection\Compiler\CollectBackupStoresPass;
@@ -60,6 +61,7 @@ use Vortos\Backup\Immutability\ImmutabilityVerifier;
 use Vortos\Backup\Immutability\ObjectLockProbe;
 use Vortos\Backup\Pitr\PitrPreflight;
 use Vortos\Backup\Pitr\PostgresWalArchiver;
+use Vortos\Backup\Pitr\PostgresWalFetcher;
 use Vortos\Backup\Port\BackupStoreInterface;
 use Vortos\Backup\Port\BackupStoreRegistry;
 use Vortos\Backup\Port\BackupTargetInterface;
@@ -487,6 +489,21 @@ final class BackupExtension extends Extension
             ->setArgument('$clock', new Reference(SystemClock::class))
             ->setArgument('$storeKey', $storeKey)
             ->setArgument('$keyPrefix', $keyPrefix)
+            // WAL rides the SAME encryption seam as base backups. Shipping segments in plaintext
+            // while encrypting the bases they replay onto protected almost nothing: a WAL stream
+            // carries every row change, so segments alone reconstruct the database.
+            ->setArgument('$transforms', new Reference(StreamTransformFactoryInterface::class))
+            ->setArgument('$cipher', new Reference(EnvelopeStreamCipher::class))
+            ->setArgument('$keyProvider', $backupKeyProviderRef)
+            ->setPublic(false);
+        // The read counterpart of the archiver. Encrypting WAL without a decrypting fetch would
+        // make recovery replay ciphertext, so these two are registered together on purpose.
+        $container->register(PostgresWalFetcher::class, PostgresWalFetcher::class)
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$storeKey', $storeKey)
+            ->setArgument('$keyPrefix', $keyPrefix)
+            ->setArgument('$cipher', new Reference(EnvelopeStreamCipher::class))
+            ->setArgument('$keyProvider', $backupKeyProviderRef)
             ->setPublic(false);
         $container->register(PitrPreflight::class, PitrPreflight::class)
             ->setArgument('$connection', new Reference(Connection::class))
@@ -621,6 +638,9 @@ final class BackupExtension extends Extension
             ->addTag('console.command')->setPublic(false);
         $container->register(BackupWalArchiveCommand::class, BackupWalArchiveCommand::class)
             ->setArgument('$archiver', new Reference(PostgresWalArchiver::class))
+            ->addTag('console.command')->setPublic(false);
+        $container->register(BackupWalRestoreCommand::class, BackupWalRestoreCommand::class)
+            ->setArgument('$fetcher', new Reference(PostgresWalFetcher::class))
             ->addTag('console.command')->setPublic(false);
         $container->register(BackupScheduleCommand::class, BackupScheduleCommand::class)
             ->setArgument('$schedules', new Reference(BackupScheduleRegistry::class))

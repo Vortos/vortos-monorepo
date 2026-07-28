@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\Pitr;
 
+use Vortos\Backup\Console\BackupWalRestoreCommand;
+
 use Vortos\Backup\Console\BackupRunCommand;
 use Vortos\Backup\Console\BackupWalArchiveCommand;
 use Vortos\Backup\Domain\BackupKind;
@@ -173,6 +175,11 @@ final class ContainerizedPitrRecipe
 
     private function readme(string $vol, string $postgres, string $backend, string $env): string
     {
+        // Built from the command's own constant so the runbook cannot drift from the registered
+        // command name — the shipper script once hard-coded a name that had never existed, and
+        // every invocation failed silently for weeks.
+        $restoreCommand = sprintf('php bin/console %s %%f %%p --env=%s', BackupWalRestoreCommand::NAME, $env);
+
         return <<<MD
         # Containerized PITR recipe
 
@@ -210,6 +217,29 @@ final class ContainerizedPitrRecipe
         ones. If it shows only logical backups, the environment names do not agree — regenerate
         with the correct `--env` rather than editing the scripts by hand, so the next regeneration
         does not undo the fix.
+
+        ## Recovering — restore_command
+
+        WAL segments are encrypted at rest on the same seam as base backups, so recovery must fetch
+        them through the Vortos CLI rather than copying them out of the object store. Recovery runs
+        in an image that has the CLI (extend `$backend`, as the shipper does), NOT in the stock
+        Postgres image.
+
+        After restoring a base backup into the data directory, write into `postgresql.auto.conf`:
+
+        ```
+        restore_command = '$restoreCommand'
+        recovery_target_time = '2026-01-01 12:00:00+00'
+        recovery_target_action = 'promote'
+        ```
+
+        then `touch recovery.signal` and start Postgres.
+
+        A non-zero exit from `restore_command` is how Postgres learns the archive is exhausted, so
+        the last segment request failing is normal and marks the end of recovery — not an error.
+        A missing decryption key, by contrast, fails loudly and refuses to write ciphertext into
+        `pg_wal`, because Postgres would otherwise accept the file and report a damaged archive,
+        which sends you looking at the wrong problem.
         MD;
     }
 }

@@ -280,6 +280,25 @@ final class PipelineBuilder
             'provenance' => 'true',
             'sbom' => $definition->emitSbom ? 'true' : 'false',
             'tags' => $repo . ':sha-${{ github.sha }}',
+            // Stamp the OCI source labels explicitly.
+            //
+            // Without these, the image still CARRIES org.opencontainers.image.revision — inherited
+            // from whatever base image the Dockerfile builds on — so it advertises a commit from
+            // somebody else's repository. That is worse than an absent label: it answers "which
+            // commit produced this image" confidently and wrongly, and the answer does not even
+            // resolve in the repo you would go looking in. Production was found running an image
+            // labelled with a SHA that did not exist in the app repository at all.
+            //
+            // It matters most for the thing this pipeline already invests in: the images are
+            // cosign-signed with SBOM and provenance attached. A signature proves the artifact is
+            // unmodified, not that it is the source you think — so provenance that misidentifies
+            // its own commit undermines the audit trail it exists to provide.
+            'labels' => implode("\n", [
+                'org.opencontainers.image.revision=${{ github.sha }}',
+                'org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}',
+                'org.opencontainers.image.version=${{ github.ref_name }}',
+                'org.opencontainers.image.created=${{ github.event.repository.updated_at }}',
+            ]),
         ];
 
         if ($definition->baseImageDigest !== null) {

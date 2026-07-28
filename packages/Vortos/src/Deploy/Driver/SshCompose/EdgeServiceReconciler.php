@@ -58,7 +58,7 @@ final class EdgeServiceReconciler
         $desiredHash = hash('sha256', implode("\0", [
             $composeYaml,
             $this->adaptImage,
-            $base?->sha256 ?? '',
+            $base->sha256 ?? '',
         ]));
 
         $markerPath = $this->edgeDir . '/.reconcile-hash';

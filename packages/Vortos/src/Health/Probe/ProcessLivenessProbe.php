@@ -62,8 +62,12 @@ final class ProcessLivenessProbe implements HealthProbeInterface
 
     private function memoryLimitBytes(): int
     {
+        // ini_get() returns false only for an UNKNOWN directive. memory_limit is a core PHP ini
+        // setting, so it is always defined and the return is always a string — checking for false
+        // was dead code, which is what the analyser was pointing at. '-1' (no limit) and '' still
+        // mean "no limit to report", and both are handled.
         $limit = ini_get('memory_limit');
-        if ($limit === false || $limit === '' || $limit === '-1') {
+        if ($limit === '' || $limit === '-1') {
             return 0;
         }
 

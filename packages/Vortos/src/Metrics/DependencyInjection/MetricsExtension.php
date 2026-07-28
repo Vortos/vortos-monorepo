@@ -128,6 +128,11 @@ final class MetricsExtension extends Extension
         $disabledModuleValues = $this->moduleValues($resolved['disabled_modules']);
         $container->setParameter('vortos.metrics.disabled_modules', $disabledModuleValues);
 
+        // Published for anything that must *predict* a metric name rather than emit one — the
+        // dashboard generator above all. Without it that generator assumed the framework default
+        // and produced dashboards querying series no configured deployment ever wrote.
+        $container->setParameter('vortos.metrics.namespace', $resolved['namespace']);
+
         $container->register(MetricDefinitionRegistry::class, MetricDefinitionRegistry::class)
             ->setFactory([MetricDefinitionRegistryFactory::class, 'create'])
             ->setArgument('$definitions', $this->buildMetricDefinitions($resolved))

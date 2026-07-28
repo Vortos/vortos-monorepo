@@ -11,6 +11,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Vortos\Observability\Dashboard\GrafanaDashboardBuilder;
+use Vortos\Observability\Telemetry\MetricNamespace;
 
 /**
  * Writes the framework observability dashboard as importable Grafana JSON.
@@ -25,8 +26,15 @@ use Vortos\Observability\Dashboard\GrafanaDashboardBuilder;
 )]
 final class GenerateDashboardCommand extends Command
 {
-    public function __construct(private readonly GrafanaDashboardBuilder $builder = new GrafanaDashboardBuilder())
-    {
+    /**
+     * @param string $defaultNamespace the namespace this application's metrics adapter emits under,
+     *                                 injected from the container so the generated queries match
+     *                                 what is actually in the metrics store
+     */
+    public function __construct(
+        private readonly GrafanaDashboardBuilder $builder = new GrafanaDashboardBuilder(),
+        private readonly string $defaultNamespace = MetricNamespace::DEFAULT,
+    ) {
         parent::__construct();
     }
 
@@ -36,15 +44,28 @@ final class GenerateDashboardCommand extends Command
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'File to write; omit to print to stdout')
             ->addOption('title', null, InputOption::VALUE_REQUIRED, 'Dashboard title', 'Vortos — Platform Observability')
             ->addOption('uid', null, InputOption::VALUE_REQUIRED, 'Stable dashboard uid (keep it constant so re-imports update in place)', 'vortos-platform')
-            ->addOption('datasource', null, InputOption::VALUE_REQUIRED, 'Prometheus datasource uid in Grafana', '${DS_PROMETHEUS}');
+            ->addOption('datasource', null, InputOption::VALUE_REQUIRED, 'Prometheus datasource uid in Grafana', '${DS_PROMETHEUS}')
+            ->addOption('namespace', null, InputOption::VALUE_REQUIRED, 'Metric namespace prefix; defaults to the configured vortos.metrics namespace');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $requested = $input->getOption('namespace');
+        $namespaceValue = is_string($requested) && $requested !== '' ? $requested : $this->defaultNamespace;
+
+        try {
+            $namespace = MetricNamespace::of($namespaceValue);
+        } catch (\InvalidArgumentException $e) {
+            (new SymfonyStyle($input, $output))->error($e->getMessage());
+
+            return Command::FAILURE;
+        }
+
         $document = $this->builder->build(
             (string) $input->getOption('title'),
             (string) $input->getOption('datasource'),
             (string) $input->getOption('uid'),
+            $namespace,
         );
 
         $json = json_encode($document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";

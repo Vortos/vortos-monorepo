@@ -21,6 +21,7 @@ use Vortos\Metrics\Definition\MetricType;
 use Vortos\Metrics\Instrument\OpenTelemetryCounter;
 use Vortos\Metrics\Instrument\OpenTelemetryGauge;
 use Vortos\Metrics\Instrument\OpenTelemetryHistogram;
+use Vortos\Observability\Telemetry\MetricNamespace;
 
 /**
  * OTLP push adapter.
@@ -158,8 +159,12 @@ final class OpenTelemetryMetrics implements MetricsInterface, FlushableMetricsIn
         return $name . ':' . hash('xxh128', json_encode($labels, JSON_THROW_ON_ERROR));
     }
 
+    /**
+     * Delegated to {@see MetricNamespace} so that anything predicting a metric name — the dashboard
+     * catalog above all — derives it from the same rule this adapter emits with.
+     */
     private function metricName(string $name): string
     {
-        return $this->namespace . '_' . $name;
+        return MetricNamespace::of($this->namespace)->prefix($name);
     }
 }

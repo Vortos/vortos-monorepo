@@ -12,6 +12,7 @@ use Vortos\Observability\DependencyInjection\Compiler\DeployAuditWiringPass;
 use Vortos\Observability\DependencyInjection\Compiler\CollectMarkerEmittersPass;
 use Vortos\Observability\DependencyInjection\Compiler\CollectMetricsSinksPass;
 use Vortos\Observability\DependencyInjection\Compiler\CollectMetricsQueriesPass;
+use Vortos\Observability\DependencyInjection\Compiler\ResolveMetricsNamespacePass;
 use Vortos\OpsKit\Driver\DependencyInjection\CollectDriversCompilerPass;
 
 final class ObservabilityPackage implements PackageInterface
@@ -28,6 +29,14 @@ final class ObservabilityPackage implements PackageInterface
         // the ALERT audit ledger empty in production. See DeployAuditWiringPass.
         $container->addCompilerPass(
             new DeployAuditWiringPass(),
+            \Symfony\Component\DependencyInjection\Compiler\PassConfig::TYPE_BEFORE_OPTIMIZATION,
+            -20,
+        );
+
+        // vortos-metrics publishes the configured namespace as a parameter, and extension load
+        // order does not guarantee it exists yet during ObservabilityExtension::load().
+        $container->addCompilerPass(
+            new ResolveMetricsNamespacePass(),
             \Symfony\Component\DependencyInjection\Compiler\PassConfig::TYPE_BEFORE_OPTIMIZATION,
             -20,
         );

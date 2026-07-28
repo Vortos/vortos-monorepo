@@ -15,6 +15,7 @@ use Vortos\Metrics\Instrument\StatsDCounter;
 use Vortos\Metrics\Instrument\StatsDGauge;
 use Vortos\Metrics\Instrument\StatsDHistogram;
 use Psr\Log\LoggerInterface;
+use Vortos\Observability\Telemetry\MetricNamespace;
 
 /**
  * StatsD metrics adapter — buffered UDP datagrams, zero dependencies.
@@ -120,8 +121,12 @@ final class StatsDMetrics implements MetricsInterface, FlushableMetricsInterface
         }
     }
 
+    /**
+     * StatsD hierarchies are dot-delimited, unlike the underscore joining Prometheus and OTLP use,
+     * so the separator is passed explicitly rather than assumed.
+     */
     private function metricName(string $name): string
     {
-        return $this->namespace . '.' . $name;
+        return MetricNamespace::of($this->namespace)->prefix($name, '.');
     }
 }

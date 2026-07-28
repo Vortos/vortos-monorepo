@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Observability\Dashboard;
 
+use Vortos\Observability\Telemetry\MetricNamespace;
+
 /**
  * Renders {@see DashboardSection}s into an importable Grafana dashboard document.
  *
@@ -18,19 +20,34 @@ final class GrafanaDashboardBuilder
     private const ROW_HEIGHT = 1;
 
     public function __construct(
-        private readonly FrameworkDashboardCatalog $catalog = new FrameworkDashboardCatalog(),
+        private readonly ?FrameworkDashboardCatalog $catalog = null,
     ) {}
 
     /**
+     * @param MetricNamespace|null $namespace the namespace the target deployment emits under; the
+     *                                        framework default is assumed when omitted
+     *
      * @return array<string, mixed> the dashboard document, ready for json_encode
      */
-    public function build(string $title, string $datasourceUid, string $uid): array
+    public function build(string $title, string $datasourceUid, string $uid, ?MetricNamespace $namespace = null): array
     {
+        // Refusing this combination rather than silently preferring one is deliberate: a caller
+        // that injected a catalog and also passed a namespace has two different answers to "what
+        // is this dashboard's prefix", and picking one quietly is how the generated dashboards
+        // came to query metric names nothing emitted.
+        if ($this->catalog !== null && $namespace !== null) {
+            throw new \LogicException(
+                'Pass a namespace or a pre-built catalog, not both — the catalog already carries one.',
+            );
+        }
+
+        $catalog = $this->catalog ?? new FrameworkDashboardCatalog($namespace);
+
         $panels = [];
         $panelId = 1;
         $y = 0;
 
-        foreach ($this->catalog->sections() as $section) {
+        foreach ($catalog->sections() as $section) {
             $panels[] = [
                 'type'      => 'row',
                 'title'     => $section->title,

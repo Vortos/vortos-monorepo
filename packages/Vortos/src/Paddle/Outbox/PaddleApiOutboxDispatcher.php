@@ -214,7 +214,11 @@ final class PaddleApiOutboxDispatcher implements PaddleOutboxDispatcherInterface
         };
     }
 
-    /** Rebuilds a transaction line from its queued payload — catalog or non-catalog. */
+    /**
+     * Rebuilds a transaction line from its queued payload — catalog or non-catalog.
+     *
+     * @param array<string, mixed> $i one queued line, as written by the producing side
+     */
     private function rehydrateTransactionItem(array $i): TransactionItemRequest
     {
         if (isset($i['priceId'])) {

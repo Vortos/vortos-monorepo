@@ -16,6 +16,7 @@ use Vortos\Paddle\Exception\WebhookIpException;
 use Vortos\Paddle\Exception\WebhookReplayException;
 use Vortos\Paddle\Exception\WebhookSignatureException;
 use Vortos\Paddle\Inbox\PaddleInboxWriterInterface;
+use Vortos\Security\Csrf\Attribute\SkipCsrf;
 
 /**
  * Receives Paddle webhooks. The request does exactly three things:
@@ -29,8 +30,16 @@ use Vortos\Paddle\Inbox\PaddleInboxWriterInterface;
  * Duplicate deliveries hit the UNIQUE event_id constraint and are
  * acknowledged with 200 — Paddle retries until it sees 2xx, so a duplicate
  * just means our previous 200 got lost in transit.
+ *
+ * CSRF is skipped because it cannot apply: Paddle is not a browser and holds no
+ * cookie to double-submit, so an application with CSRF enabled rejects every
+ * delivery before the signature is ever checked — silently, since a webhook that
+ * 403s produces no error on our side and only a failed attempt on theirs. The
+ * request is authenticated by HMAC signature, source IP and replay window, all of
+ * which are strictly stronger than an ambient cookie.
  */
 #[AsController]
+#[SkipCsrf]
 final class PaddleWebhookController
 {
     public function __construct(

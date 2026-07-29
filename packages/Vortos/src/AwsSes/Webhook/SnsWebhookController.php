@@ -14,6 +14,7 @@ use Vortos\AwsSes\Bounce\BounceHandlerRunner;
 use Vortos\AwsSes\Bounce\ComplaintHandlerRunner;
 use Vortos\AwsSes\Exception\WebhookVerificationException;
 use Vortos\AwsSes\ValueObject\EmailAddress;
+use Vortos\Security\Csrf\Attribute\SkipCsrf;
 
 /**
  * Handles SNS webhook notifications from AWS SES for bounce and complaint events.
@@ -21,7 +22,14 @@ use Vortos\AwsSes\ValueObject\EmailAddress;
  * Expects POST requests from AWS SNS with a JSON body containing the SNS envelope.
  * The route path is configured via vortos_aws_ses.webhooks.route_path (default: /webhooks/aws/ses).
  */
+/**
+ * CSRF is skipped for the same reason as every webhook receiver: SNS is not a
+ * browser and carries no cookie to double-submit, so CSRF would reject every
+ * notification before its signature could be verified. The SNS message signature
+ * is the authentication here.
+ */
 #[AsController]
+#[SkipCsrf]
 final class SnsWebhookController
 {
     public function __construct(

@@ -7,6 +7,7 @@ namespace Vortos\Backup\DependencyInjection;
 use Psr\Clock\ClockInterface;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Observability\BackupFreshnessCollector;
+use Vortos\Backup\Observability\BackupFreshnessCollectorFactory;
 use Vortos\Metrics\Contract\MetricsCollectorInterface;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Doctrine\DBAL\Connection;
@@ -695,11 +696,20 @@ final class BackupExtension extends Extension
             return;
         }
 
+        $container->register(BackupFreshnessCollectorFactory::class, BackupFreshnessCollectorFactory::class)
+            ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
+            ->setPublic(false);
+
+        // Engines and environment come from config/backup.php, not from APP_ENV. The catalog is
+        // written under DefaultEnvironment::NAME ('production') to match the deploy manifests, so
+        // filtering by APP_ENV ('prod') matched no rows and the gauge reported "no backup at all"
+        // on an installation with thousands of artifacts. Same reasoning for engines: reporting a
+        // hardcoded Mongo alongside Postgres invents a permanently-red series for a database the
+        // app never configured.
         $container->register(BackupFreshnessCollector::class, BackupFreshnessCollector::class)
+            ->setFactory([new Reference(BackupFreshnessCollectorFactory::class), 'create'])
             ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
             ->setArgument('$clock', new Reference(ClockInterface::class))
-            ->setArgument('$engines', [DatabaseEngine::Postgres, DatabaseEngine::Mongo])
-            ->setArgument('$environment', (string) ($_ENV['APP_ENV'] ?? 'prod'))
             ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag('vortos.metrics_collector')
             ->setPublic(false);

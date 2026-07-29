@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\Config;
 
+use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\RetentionPolicy;
+use Vortos\Backup\Environment\DefaultEnvironment;
 use Vortos\Backup\Schedule\BackupScheduleRegistry;
 
 /**
@@ -85,5 +87,35 @@ final class BackupConfigLoader
     public function keyPrefix(?string $envFallback): string
     {
         return $this->config()?->keyPrefixValue() ?? ($envFallback ?? 'backups');
+    }
+
+    /**
+     * The environment label backups are catalogued under.
+     *
+     * Anything that *reads* the catalog must ask here rather than reaching for APP_ENV. The two are
+     * not the same value and are not meant to be: {@see DefaultEnvironment} standardises the backup
+     * label on 'production' to match the deploy and release manifests, while APP_ENV is 'prod'.
+     * Reading the wrong one silently matches no rows, which is how the freshness gauge came to
+     * report "no backup at all" on an installation with thousands of catalogued artifacts.
+     */
+    public function environment(): string
+    {
+        return $this->config()?->environmentValue() ?? DefaultEnvironment::NAME;
+    }
+
+    /**
+     * The engines that actually have backups configured.
+     *
+     * @return list<DatabaseEngine>
+     */
+    public function engines(): array
+    {
+        $engine = $this->config()?->engineOrNull();
+
+        // Without a config file there is nothing to narrow by, so both supported engines are
+        // reported and a missing one shows as backup_present=0 — the honest answer to "is anything
+        // backing this up". With a config, reporting an engine the app never configured invents a
+        // permanently-red series for a database that does not exist.
+        return $engine !== null ? [$engine] : [DatabaseEngine::Postgres, DatabaseEngine::Mongo];
     }
 }

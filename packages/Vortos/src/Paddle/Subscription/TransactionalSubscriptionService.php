@@ -9,6 +9,7 @@ use Vortos\Paddle\Subscription\Contract\ImmediateSubscriptionServiceInterface;
 use Vortos\Paddle\Subscription\Contract\SubscriptionServiceInterface;
 use Vortos\Paddle\Subscription\Operation\CancelSubscriptionRequest;
 use Vortos\Paddle\Subscription\Operation\PauseSubscriptionRequest;
+use Vortos\Paddle\Subscription\Operation\SubscriptionItemRequest;
 use Vortos\Paddle\Subscription\Operation\UpdateSubscriptionRequest;
 use Vortos\Paddle\ValueObject\PaddleSubscriptionId;
 
@@ -30,6 +31,15 @@ final class TransactionalSubscriptionService implements SubscriptionServiceInter
             'id'            => $id->value,
             'prorationMode' => $request->prorationMode?->value,
             'nextBilledAt'  => $request->nextBilledAt,
+            // Carried through the outbox because a plan change *is* a change of items.
+            // Dropping them here queued an update that reached Paddle saying nothing.
+            'items'         => $request->items === null ? null : array_map(
+                static fn (SubscriptionItemRequest $item): array => [
+                    'priceId'  => $item->priceId->value,
+                    'quantity' => $item->quantity,
+                ],
+                array_values($request->items),
+            ),
         ]);
     }
 

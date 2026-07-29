@@ -10,11 +10,13 @@ use Paddle\SDK\Resources\Subscriptions\Operations\CancelSubscription;
 use Paddle\SDK\Resources\Subscriptions\Operations\PauseSubscription;
 use Paddle\SDK\Resources\Subscriptions\Operations\PreviewUpdateSubscription;
 use Paddle\SDK\Resources\Subscriptions\Operations\ResumeSubscription;
+use Paddle\SDK\Resources\Subscriptions\Operations\Update\SubscriptionUpdateItem;
 use Paddle\SDK\Resources\Subscriptions\Operations\UpdateSubscription;
 use Vortos\Paddle\Api\PaddleApiClientInterface;
 use Vortos\Paddle\Subscription\Contract\ImmediateSubscriptionServiceInterface;
 use Vortos\Paddle\Subscription\Operation\CancelSubscriptionRequest;
 use Vortos\Paddle\Subscription\Operation\PauseSubscriptionRequest;
+use Vortos\Paddle\Subscription\Operation\SubscriptionItemRequest;
 use Vortos\Paddle\Subscription\Operation\UpdateSubscriptionRequest;
 use Vortos\Paddle\ValueObject\PaddleSubscriptionId;
 
@@ -33,15 +35,13 @@ final class ImmediateSubscriptionService implements ImmediateSubscriptionService
 
     public function update(PaddleSubscriptionId $id, UpdateSubscriptionRequest $request): void
     {
-        $undef = new \Paddle\SDK\Undefined();
-
         $this->client->call(
             fn() => $this->client->sdk()->subscriptions->update(
                 $id->value,
                 new UpdateSubscription(
-                    prorationBillingMode: $request->prorationMode !== null
-                        ? SubscriptionProrationBillingMode::from($request->prorationMode->value)
-                        : $undef,
+                    nextBilledAt:         $this->nextBilledAt($request),
+                    items:                $this->items($request),
+                    prorationBillingMode: $this->prorationMode($request),
                 )
             )
         );
@@ -90,15 +90,13 @@ final class ImmediateSubscriptionService implements ImmediateSubscriptionService
 
     public function previewUpdate(PaddleSubscriptionId $id, UpdateSubscriptionRequest $request): SubscriptionUpdatePreview
     {
-        $undef = new \Paddle\SDK\Undefined();
-
         $sdkPreview = $this->client->call(
             fn() => $this->client->sdk()->subscriptions->previewUpdate(
                 $id->value,
                 new PreviewUpdateSubscription(
-                    prorationBillingMode: $request->prorationMode !== null
-                        ? SubscriptionProrationBillingMode::from($request->prorationMode->value)
-                        : $undef,
+                    nextBilledAt:         $this->nextBilledAt($request),
+                    items:                $this->items($request),
+                    prorationBillingMode: $this->prorationMode($request),
                 )
             )
         );
@@ -112,6 +110,48 @@ final class ImmediateSubscriptionService implements ImmediateSubscriptionService
             nextBillingTotal: $nextBillingTotal,
             currencyCode:     (string) $sdkPreview->currencyCode,
         );
+    }
+
+    /**
+     * The prices the subscription should carry after the update.
+     *
+     * This is how a plan change is expressed to Paddle: the subscription keeps its
+     * identity and its billing dates, and the items underneath it are replaced. Absent
+     * means "leave the items alone", which is what an update that only moves the
+     * proration mode or the next billing date wants.
+     *
+     * @return array<int, SubscriptionUpdateItem>|\Paddle\SDK\Undefined
+     */
+    private function items(UpdateSubscriptionRequest $request): array|\Paddle\SDK\Undefined
+    {
+        if ($request->items === null) {
+            return new \Paddle\SDK\Undefined();
+        }
+
+        return array_map(
+            static fn (SubscriptionItemRequest $item): SubscriptionUpdateItem => new SubscriptionUpdateItem(
+                priceId:  $item->priceId->value,
+                quantity: $item->quantity,
+            ),
+            array_values($request->items),
+        );
+    }
+
+    private function nextBilledAt(UpdateSubscriptionRequest $request): \DateTimeInterface|\Paddle\SDK\Undefined
+    {
+        if ($request->nextBilledAt === null || $request->nextBilledAt === '') {
+            return new \Paddle\SDK\Undefined();
+        }
+
+        return new \DateTimeImmutable($request->nextBilledAt);
+    }
+
+    private function prorationMode(
+        UpdateSubscriptionRequest $request,
+    ): SubscriptionProrationBillingMode|\Paddle\SDK\Undefined {
+        return $request->prorationMode !== null
+            ? SubscriptionProrationBillingMode::from($request->prorationMode->value)
+            : new \Paddle\SDK\Undefined();
     }
 
     public function list(): array

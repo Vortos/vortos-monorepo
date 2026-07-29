@@ -24,6 +24,7 @@ use Vortos\Paddle\Customer\Operation\UpdateBusinessRequest;
 use Vortos\Paddle\Customer\Operation\UpdateCustomerRequest;
 use Vortos\Paddle\Outbox\Exception\UnknownOutboxOperationException;
 use Vortos\Paddle\Subscription\Contract\ImmediateSubscriptionServiceInterface;
+use Vortos\Paddle\Subscription\Operation\SubscriptionItemRequest;
 use Vortos\Paddle\Subscription\Operation\UpdateSubscriptionRequest;
 use Vortos\Paddle\Transaction\Contract\ImmediateAdjustmentServiceInterface;
 use Vortos\Paddle\Transaction\Contract\ImmediateTransactionServiceInterface;
@@ -199,6 +200,7 @@ final class PaddleApiOutboxDispatcher implements PaddleOutboxDispatcherInterface
             'subscription.update'   => $this->subscriptions->update(
                 PaddleSubscriptionId::of($payload['id']),
                 new UpdateSubscriptionRequest(
+                    items: $this->rehydrateSubscriptionItems($payload['items'] ?? null),
                     prorationMode: isset($payload['prorationMode']) && $payload['prorationMode'] !== null
                         ? ProrationMode::from($payload['prorationMode'])
                         : null,
@@ -212,6 +214,31 @@ final class PaddleApiOutboxDispatcher implements PaddleOutboxDispatcherInterface
 
             default => throw UnknownOutboxOperationException::forOperation($operation),
         };
+    }
+
+    /**
+     * Rebuilds the subscription items a queued update carried, if it carried any.
+     *
+     * Null means the update was never about the items — a proration or billing-date
+     * change — and must stay null so the dispatcher does not send an empty item list,
+     * which Paddle would read as "remove everything from this subscription".
+     *
+     * @param  mixed $items as written by the producing side
+     * @return array<int, SubscriptionItemRequest>|null
+     */
+    private function rehydrateSubscriptionItems(mixed $items): ?array
+    {
+        if (!is_array($items)) {
+            return null;
+        }
+
+        return array_map(
+            static fn (array $i): SubscriptionItemRequest => new SubscriptionItemRequest(
+                PaddlePriceId::of($i['priceId']),
+                (int) $i['quantity'],
+            ),
+            array_values($items),
+        );
     }
 
     /**

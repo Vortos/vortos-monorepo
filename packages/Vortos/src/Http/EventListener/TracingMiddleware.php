@@ -49,7 +49,15 @@ use Vortos\Tracing\Contract\TracingInterface;
 #[AsMiddleware(order: MiddlewareOrder::OUTERMOST)]
 final class TracingMiddleware implements MiddlewareInterface
 {
-    private const SPAN_ATTRIBUTE  = '_vortos_span';
+    /**
+     * Request attribute holding the active server span.
+     *
+     * Public because enrichment happens downstream: this middleware starts the span before auth
+     * has run, so anything known only after identity resolution — the user, the tenant — has to be
+     * added by a later middleware. Reading it through this constant is the supported way; matching
+     * the literal string is not.
+     */
+    public const SPAN_ATTRIBUTE = '_vortos_span';
     private const START_ATTRIBUTE = '_vortos_trace_start';
 
     public function __construct(

@@ -7,6 +7,7 @@ namespace Vortos\Observability\Tests\Contract;
 use PHPUnit\Framework\TestCase;
 use Vortos\Observability\Collector\CollectorBufferPolicy;
 use Vortos\Observability\Collector\CollectorConfigBuilder;
+use Vortos\Observability\Collector\LogRedactionPolicy;
 use Vortos\Observability\Driver\GrafanaOtlp\GrafanaOtlpMetricsSink;
 use Vortos\Observability\Sink\OtlpProtocol;
 
@@ -86,6 +87,10 @@ final class CollectorConfigContractTest extends TestCase
                         ['key' => 'user.id', 'action' => 'delete'],
                     ],
                 ],
+                // Referenced through the policy rather than copied: the regexes themselves are
+                // pinned by CollectorLogPipelineContractTest, and duplicating them here would mean
+                // a pattern change had to be edited in two vectors to stay green.
+                'transform/vortos_spans' => (new LogRedactionPolicy())->toSpanProcessorConfig(),
             ],
             'exporters' => [
                 'otlphttp/grafana' => [
@@ -106,7 +111,9 @@ final class CollectorConfigContractTest extends TestCase
                     ],
                     'traces' => [
                         'receivers' => ['otlp'],
-                        'processors' => ['memory_limiter', 'batch'],
+                        // Spans carry deliberate identifiers (user.id, tenant.id) and arbitrary
+                        // attributes incidentally, so they are scrubbed before leaving the host.
+                        'processors' => ['memory_limiter', 'transform/vortos_spans', 'batch'],
                         'exporters' => ['otlphttp/grafana'],
                     ],
                     // No 'logs' pipeline: the base metrics/traces config carries only OTLP-push

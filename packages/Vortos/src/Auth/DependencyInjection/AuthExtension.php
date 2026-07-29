@@ -15,6 +15,7 @@ use Vortos\Auth\Contract\TokenStorageInterface;
 use Vortos\Auth\Listener\PasswordRehashListener;
 use Vortos\Auth\Hasher\ArgonPasswordHasher;
 use Vortos\Auth\Identity\CurrentUserProvider;
+use Vortos\Auth\Tracing\IdentityTracingMiddleware;
 use Vortos\Auth\Jwt\JwtConfig;
 use Vortos\Auth\Jwt\JwtService;
 use Vortos\Auth\Jwt\Jwks\JwksController;
@@ -200,6 +201,15 @@ final class AuthExtension extends Extension
         $container->register(CurrentUserProvider::class, CurrentUserProvider::class)
             ->setArgument('$arrayAdapter', new Reference(ArrayAdapter::class))
             ->setShared(true)->setPublic(true);
+
+        // Stamps user.id / tenant.id onto the request span. Opaque identifiers only — never an
+        // email or a name — so trace attributes stay pseudonymous. RegisterMiddlewarePass picks it
+        // up by interface, and TenantContext is optional so this wires with or without the tenant
+        // package.
+        $container->register(IdentityTracingMiddleware::class, IdentityTracingMiddleware::class)
+            ->setArgument('$currentUser', new Reference(CurrentUserProvider::class))
+            ->setArgument('$tenant', new Reference(TenantContext::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setShared(true)->setPublic(false);
 
         // Token freshness — min_iat kill-switch
         if ($this->hasRedisService($container)) {

@@ -61,6 +61,51 @@ final readonly class LogRedactionPolicy
     ];
 
     /**
+     * The same policy rendered for the *traces* signal.
+     *
+     * Spans became worth scrubbing the moment identifiers started being attached to them: a span
+     * carries no body, but it does carry arbitrary attributes, and one careless `addAttribute`
+     * with an email or a token would ship it to the metrics vendor with nothing in the way. This
+     * is the backstop that makes putting a user id on a span a bounded decision rather than an
+     * open-ended one — the identifiers we chose survive, and the shapes we never want do not.
+     *
+     * Only the attribute rules apply; there is no `body` on a span to mask.
+     *
+     * @return array<string, mixed>
+     */
+    public function toSpanProcessorConfig(): array
+    {
+        $keyPatterns = $this->blockedKeyPatterns;
+        sort($keyPatterns);
+        $valuePatterns = $this->blockedValuePatterns;
+        sort($valuePatterns);
+
+        $statements = [];
+
+        foreach ($keyPatterns as $pattern) {
+            $statements[] = sprintf('delete_matching_keys(attributes, "%s")', $this->ottl($pattern));
+        }
+
+        foreach ($valuePatterns as $pattern) {
+            $statements[] = sprintf(
+                'replace_all_patterns(attributes, "value", "%s", "%s")',
+                $this->ottl($pattern),
+                self::MASK,
+            );
+        }
+
+        return [
+            'error_mode' => 'ignore',
+            'trace_statements' => [
+                [
+                    'context' => 'span',
+                    'statements' => $statements,
+                ],
+            ],
+        ];
+    }
+
+    /**
      * Renders the OTel Collector `transform` processor config that redacts log records.
      * Structure is pinned by a contract test — keep it stable.
      *

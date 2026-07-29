@@ -118,10 +118,15 @@ final class CollectorConfigBuilder
             $processors['attributes/cardinality'] = ['actions' => $actions];
         }
 
+        // Always present: the traces pipeline is the one signal carrying deliberate identifiers,
+        // so it always gets the scrub. Same policy as logs, rendered for spans.
+        $processors[self::SPAN_REDACTION_PROCESSOR] = (new LogRedactionPolicy())->toSpanProcessorConfig();
+
         return $processors;
     }
 
     private const PROMOTE_PROCESSOR = 'transform/promote';
+    private const SPAN_REDACTION_PROCESSOR = 'transform/vortos_spans';
 
     /**
      * hostmetrics receiver: host CPU/load/memory/disk/network/paging/filesystem. Reads the host's
@@ -264,12 +269,14 @@ final class CollectorConfigBuilder
                 continue;
             }
             $isMetrics = $signal === TelemetrySignal::Metrics;
+            // Cardinality deletion and promotion are metric-specific. Traces instead get the
+            // redaction scrub: spans carry identifiers deliberately (user.id, tenant.id) and
+            // arbitrary attributes incidentally, so the same secret/PII shapes barred from logs are
+            // barred here before anything leaves the host.
+            $tracesChain = ['memory_limiter', self::SPAN_REDACTION_PROCESSOR, 'batch'];
             $pipelines[$signal->value] = [
                 'receivers' => $isMetrics ? $metricsReceivers : ['otlp'],
-                'processors' => $isMetrics
-                    ? $processorChain
-                    // cardinality deletion + promotion are metric-specific; traces only batch.
-                    : ['memory_limiter', 'batch'],
+                'processors' => $isMetrics ? $processorChain : $tracesChain,
                 'exporters' => [$exporterKey],
             ];
         }

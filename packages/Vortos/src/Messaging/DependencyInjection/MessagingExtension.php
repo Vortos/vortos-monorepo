@@ -572,6 +572,10 @@ final class MessagingExtension extends Extension
         $container->register(OutboxRelayRunner::class, OutboxRelayRunner::class)
             ->setAutowired(true)
             ->setAutoconfigured(true)
+            // Same reasoning as ConsumerRunner: the relay is a daemon, so ConsoleEvents::TERMINATE
+            // never fires and push telemetry recorded inside the loop is never exported. Optional,
+            // so an app without the metrics package still wires cleanly.
+            ->setArgument('$metricsFlusher', new Reference(MetricsInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
     }
 

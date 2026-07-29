@@ -3169,12 +3169,6 @@ parameters:
 			path: packages/Vortos/src/Messaging/Runtime/ConsumerRunner.php
 
 		-
-			message: '#^While loop condition is always true\.$#'
-			identifier: while.alwaysTrue
-			count: 1
-			path: packages/Vortos/src/Messaging/Runtime/OutboxRelayRunner.php
-
-		-
 			message: '#^Method Vortos\\Messaging\\Serializer\\JsonSerializer\:\:reflect\(\) return type with generic class ReflectionClass does not specify its types\: T$#'
 			identifier: missingType.generics
 			count: 1

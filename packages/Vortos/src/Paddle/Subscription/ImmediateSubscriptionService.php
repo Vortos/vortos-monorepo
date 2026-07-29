@@ -19,6 +19,7 @@ use Vortos\Paddle\Subscription\Operation\PauseSubscriptionRequest;
 use Vortos\Paddle\Subscription\Operation\SubscriptionItemRequest;
 use Vortos\Paddle\Subscription\Operation\UpdateSubscriptionRequest;
 use Vortos\Paddle\ValueObject\PaddleSubscriptionId;
+use Vortos\Paddle\ValueObject\ProrationAction;
 
 final class ImmediateSubscriptionService implements ImmediateSubscriptionServiceInterface
 {
@@ -101,14 +102,25 @@ final class ImmediateSubscriptionService implements ImmediateSubscriptionService
             )
         );
 
-        $immediateTotal   = $sdkPreview->updateSummary?->result->amount ?? '0';
+        $summary          = $sdkPreview->updateSummary;
+        $immediateTotal   = $summary !== null ? $summary->result->amount : '0';
         $nextBillingTotal = $sdkPreview->nextTransaction?->totals->total ?? '0';
+
+        // Paddle reports the amount unsigned and the direction separately. Losing the
+        // direction here would make a credit indistinguishable from a charge for the
+        // same sum, which is the difference between money owed and money returned.
+        // No summary means nothing settles now, and nothing is the same either way.
+        $action = $summary !== null
+            ? (ProrationAction::tryFrom((string) $summary->result->action->getValue())
+                ?? ProrationAction::Charge)
+            : ProrationAction::Charge;
 
         return new SubscriptionUpdatePreview(
             subscriptionId:   $id,
             immediateTotal:   $immediateTotal,
             nextBillingTotal: $nextBillingTotal,
             currencyCode:     (string) $sdkPreview->currencyCode,
+            immediateAction:  $action,
         );
     }
 

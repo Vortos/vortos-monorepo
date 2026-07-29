@@ -14,9 +14,11 @@ use Psr\Http\Message\RequestInterface;
 use Vortos\Paddle\Api\PaddleApiClientInterface;
 use Vortos\Paddle\Subscription\ImmediateSubscriptionService;
 use Vortos\Paddle\Subscription\Operation\SubscriptionItemRequest;
+use Vortos\Paddle\Subscription\SubscriptionUpdatePreview;
 use Vortos\Paddle\Subscription\Operation\UpdateSubscriptionRequest;
 use Vortos\Paddle\ValueObject\PaddlePriceId;
 use Vortos\Paddle\ValueObject\PaddleSubscriptionId;
+use Vortos\Paddle\ValueObject\ProrationAction;
 use Vortos\Paddle\ValueObject\ProrationMode;
 
 /**
@@ -105,7 +107,70 @@ final class SubscriptionUpdatePayloadTest extends TestCase
         self::assertTrue($subscription->items[0]->recurring);
     }
 
+    /**
+     * A downgrade credits the customer. Paddle sends that as an unsigned amount plus
+     * an action, so a preview that keeps only the amount says the customer owes the
+     * exact sum they are being given back.
+     */
+    public function test_a_credit_preview_is_not_reported_as_a_charge(): void
+    {
+        $preview = $this->capturePreview('credit', '144054');
+
+        self::assertTrue($preview->isCredit());
+        self::assertSame(ProrationAction::Credit, $preview->immediateAction);
+        self::assertSame('144054', $preview->immediateTotal, 'the raw amount stays as Paddle sent it');
+        self::assertSame('-144054', $preview->signedImmediateTotal());
+    }
+
+    public function test_a_charge_preview_stays_positive(): void
+    {
+        $preview = $this->capturePreview('charge', '5000');
+
+        self::assertFalse($preview->isCredit());
+        self::assertSame('5000', $preview->signedImmediateTotal());
+    }
+
+    /** Zero has no direction, and must not come back as "-0". */
+    public function test_a_zero_proration_has_no_sign(): void
+    {
+        self::assertSame('0', $this->capturePreview('credit', '0')->signedImmediateTotal());
+    }
+
     // ── Harness ───────────────────────────────────────────────────────────────
+
+    /** Runs previewUpdate against a canned Paddle preview response. */
+    private function capturePreview(string $action, string $amount): SubscriptionUpdatePreview
+    {
+        $http = new class ($action, $amount) implements HttpAsyncClient {
+            public function __construct(private string $action, private string $amount) {}
+
+            public function sendAsyncRequest(RequestInterface $request): Promise
+            {
+                return new FulfilledPromise(new Response(
+                    200,
+                    ['Content-Type' => 'application/json'],
+                    json_encode(
+                        ['data' => SubscriptionFixture::previewPayload($this->action, $this->amount)],
+                        JSON_THROW_ON_ERROR,
+                    ),
+                ));
+            }
+        };
+
+        $sdk = new Client('pdl_test_key', httpClient: $http);
+
+        $client = $this->createMock(PaddleApiClientInterface::class);
+        $client->method('sdk')->willReturn($sdk);
+        $client->method('call')->willReturnCallback(static fn (callable $op): mixed => $op());
+
+        return (new ImmediateSubscriptionService($client))->previewUpdate(
+            PaddleSubscriptionId::of('sub_123'),
+            new UpdateSubscriptionRequest(
+                items: [new SubscriptionItemRequest(PaddlePriceId::of('pri_club_monthly'), 1)],
+                prorationMode: ProrationMode::ProratedImmediately,
+            ),
+        );
+    }
 
     /**
      * Runs a real update through the real SDK against a captured HTTP request, and
@@ -185,6 +250,33 @@ final class SubscriptionFixture
             'next_transaction' => null,
             'recurring_transaction_details' => null,
         ];
+    }
+
+    /**
+     * A subscription-preview response, as `previewUpdate` receives it.
+     *
+     * @return array<string, mixed>
+     */
+    public static function previewPayload(string $action, string $amount): array
+    {
+        $payload = self::payload();
+        unset($payload['id'], $payload['import_meta']);
+        // A preview is not a subscription: it has no id, and its management urls are
+        // required rather than nullable.
+        $payload['management_urls'] = [
+            'update_payment_method' => null,
+            'cancel'                => 'https://paddle.test/cancel',
+        ];
+        $payload['immediate_transaction'] = null;
+        $payload['next_transaction'] = null;
+        $payload['recurring_transaction_details'] = null;
+        $payload['update_summary'] = [
+            'credit' => ['amount' => $amount, 'currency_code' => 'GBP'],
+            'charge' => ['amount' => '0', 'currency_code' => 'GBP'],
+            'result' => ['action' => $action, 'amount' => $amount, 'currency_code' => 'GBP'],
+        ];
+
+        return $payload;
     }
 
     /** @return array<string, mixed> */

@@ -84,6 +84,27 @@ final class SubscriptionUpdatePayloadTest extends TestCase
         self::assertSame(3, $body['items'][1]['quantity']);
     }
 
+    /**
+     * The mapped subscription has to expose its priced lines: they are the only place
+     * the current plan and billing cycle can be read from, and a caller that cannot
+     * read them cannot tell a real plan change from a no-op it would still bill for.
+     */
+    public function test_a_mapped_subscription_exposes_the_prices_it_bills(): void
+    {
+        $payload = SubscriptionFixture::payload();
+        $payload['items'] = [SubscriptionFixture::item('pri_pro_monthly', 'pro_sqoura', 2)];
+
+        $subscription = \Vortos\Paddle\Subscription\Subscription::fromSdk(
+            \Paddle\SDK\Entities\Subscription::from($payload),
+        );
+
+        self::assertCount(1, $subscription->items);
+        self::assertSame('pri_pro_monthly', $subscription->items[0]->priceId->value);
+        self::assertSame('pro_sqoura', $subscription->items[0]->productId->value);
+        self::assertSame(2, $subscription->items[0]->quantity);
+        self::assertTrue($subscription->items[0]->recurring);
+    }
+
     // ── Harness ───────────────────────────────────────────────────────────────
 
     /**
@@ -163,6 +184,52 @@ final class SubscriptionFixture
             'import_meta'     => null,
             'next_transaction' => null,
             'recurring_transaction_details' => null,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public static function item(string $priceId, string $productId, int $quantity): array
+    {
+        return [
+            'status'               => 'active',
+            'quantity'             => $quantity,
+            'recurring'            => true,
+            'created_at'           => '2024-01-01T00:00:00.000000Z',
+            'updated_at'           => '2024-01-02T00:00:00.000000Z',
+            'previously_billed_at' => null,
+            'next_billed_at'       => null,
+            'trial_dates'          => null,
+            'price'                => [
+                'id'                   => $priceId,
+                'product_id'           => $productId,
+                'description'          => 'Pro monthly',
+                'type'                 => 'standard',
+                'name'                 => 'Pro',
+                'billing_cycle'        => ['interval' => 'month', 'frequency' => 1],
+                'trial_period'         => null,
+                'tax_mode'             => 'account_setting',
+                'unit_price'           => ['amount' => '14900', 'currency_code' => 'GBP'],
+                'unit_price_overrides' => [],
+                'quantity'             => ['minimum' => 1, 'maximum' => 100],
+                'status'               => 'active',
+                'custom_data'          => null,
+                'import_meta'          => null,
+                'created_at'           => '2024-01-01T00:00:00.000000Z',
+                'updated_at'           => '2024-01-01T00:00:00.000000Z',
+            ],
+            'product' => [
+                'id'           => $productId,
+                'name'         => 'Sqoura Pro',
+                'description'  => null,
+                'type'         => 'standard',
+                'tax_category' => 'standard',
+                'image_url'    => null,
+                'custom_data'  => null,
+                'status'       => 'active',
+                'import_meta'  => null,
+                'created_at'   => '2024-01-01T00:00:00.000000Z',
+                'updated_at'   => '2024-01-01T00:00:00.000000Z',
+            ],
         ];
     }
 }

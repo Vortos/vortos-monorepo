@@ -20,6 +20,14 @@ final class Subscription
         public readonly ?\DateTimeImmutable   $canceledAt,
         public readonly \DateTimeImmutable    $createdAt,
         public readonly \DateTimeImmutable    $updatedAt,
+        /**
+         * The priced lines this subscription bills, which is where the plan and the
+         * billing cycle actually live. Defaulted so existing constructor calls keep
+         * working; `fromSdk` always populates it.
+         *
+         * @var list<SubscriptionItem>
+         */
+        public readonly array                $items = [],
     ) {}
 
     public static function fromSdk(\Paddle\SDK\Entities\Subscription $sdk): self
@@ -40,6 +48,11 @@ final class Subscription
                               : null,
             createdAt:    \DateTimeImmutable::createFromInterface($sdk->createdAt),
             updatedAt:    \DateTimeImmutable::createFromInterface($sdk->updatedAt),
+            items:        array_map(
+                static fn (\Paddle\SDK\Entities\Subscription\SubscriptionItem $item): SubscriptionItem
+                    => SubscriptionItem::fromSdk($item),
+                array_values($sdk->items),
+            ),
         );
     }
 }

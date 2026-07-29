@@ -22,10 +22,18 @@ final class SubscriptionUpdatePreview
         public readonly PaddleSubscriptionId $subscriptionId,
         /** Unsigned, as Paddle reports it. Use {@see signedImmediateTotal()} for arithmetic. */
         public readonly string               $immediateTotal,
+        /** What the next scheduled invoice comes to, before any balance is drawn down. */
         public readonly string               $nextBillingTotal,
         public readonly string               $currencyCode,
         /** Defaulted so existing construction sites keep working. */
         public readonly ProrationAction      $immediateAction = ProrationAction::Charge,
+        /**
+         * How much of a credit is added to the customer's balance rather than
+         * refunded. Paddle does not return money to the card on a downgrade — it
+         * holds the amount and spends it on later invoices — and a customer told
+         * only "credited" reasonably expects to see it back on their statement.
+         */
+        public readonly string               $creditToBalance = '0',
     ) {}
 
     /**

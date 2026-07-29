@@ -102,9 +102,26 @@ final class ImmediateSubscriptionService implements ImmediateSubscriptionService
             )
         );
 
-        $summary          = $sdkPreview->updateSummary;
-        $immediateTotal   = $summary !== null ? $summary->result->amount : '0';
-        $nextBillingTotal = $sdkPreview->nextTransaction?->totals->total ?? '0';
+        $summary        = $sdkPreview->updateSummary;
+        $immediateTotal = $summary !== null ? $summary->result->amount : '0';
+
+        // `->details->totals`, not `->totals`. The latter does not exist on this
+        // entity, so it read as null and fell through to '0' — quoting every
+        // customer a next invoice of nothing, however much they were about to owe.
+        $nextTransaction  = $sdkPreview->nextTransaction;
+        $nextBillingTotal = '0';
+        if ($nextTransaction !== null) {
+            $totals           = $nextTransaction->details->totals;
+            $nextBillingTotal = $totals->grandTotal ?? $totals->total;
+        }
+
+        // Where a credit actually goes. Paddle does not refund it to the card: it is
+        // added to the customer's balance and drawn down by later invoices, which is
+        // the first thing anyone downgrading asks.
+        $immediate       = $sdkPreview->immediateTransaction;
+        $creditToBalance = $immediate !== null
+            ? ($immediate->details->totals->creditToBalance ?? '0')
+            : '0';
 
         // Paddle reports the amount unsigned and the direction separately. Losing the
         // direction here would make a credit indistinguishable from a charge for the
@@ -121,6 +138,7 @@ final class ImmediateSubscriptionService implements ImmediateSubscriptionService
             nextBillingTotal: $nextBillingTotal,
             currencyCode:     (string) $sdkPreview->currencyCode,
             immediateAction:  $action,
+            creditToBalance:  $creditToBalance,
         );
     }
 

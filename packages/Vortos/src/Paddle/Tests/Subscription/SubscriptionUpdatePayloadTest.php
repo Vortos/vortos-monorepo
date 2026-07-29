@@ -130,6 +130,24 @@ final class SubscriptionUpdatePayloadTest extends TestCase
         self::assertSame('5000', $preview->signedImmediateTotal());
     }
 
+    /**
+     * The next-invoice figure lives under details.totals, and reading it from the
+     * wrong place returned null which fell through to '0' — quoting a customer a
+     * next invoice of nothing however much they were about to owe.
+     */
+    public function test_the_next_invoice_total_is_read_from_the_right_place(): void
+    {
+        $preview = $this->capturePreview('credit', '144018');
+
+        self::assertSame('4900', $preview->nextBillingTotal);
+    }
+
+    /** A credit goes to the customer's balance, not back to their card. */
+    public function test_a_credit_reports_what_lands_on_the_balance(): void
+    {
+        self::assertSame('144018', $this->capturePreview('credit', '144018')->creditToBalance);
+    }
+
     /** Zero has no direction, and must not come back as "-0". */
     public function test_a_zero_proration_has_no_sign(): void
     {
@@ -267,8 +285,11 @@ final class SubscriptionFixture
             'update_payment_method' => null,
             'cancel'                => 'https://paddle.test/cancel',
         ];
-        $payload['immediate_transaction'] = null;
-        $payload['next_transaction'] = null;
+        // Shaped like a real sandbox response: the immediate transaction settles to
+        // zero and pushes the credit onto the balance, and the next invoice is the
+        // new plan's full price.
+        $payload['immediate_transaction'] = self::transactionPreview('-144018', '0', '144018');
+        $payload['next_transaction'] = self::transactionPreview('4900', '4900', '0');
         $payload['recurring_transaction_details'] = null;
         $payload['update_summary'] = [
             'credit' => ['amount' => $amount, 'currency_code' => 'GBP'],
@@ -277,6 +298,40 @@ final class SubscriptionFixture
         ];
 
         return $payload;
+    }
+
+    /**
+     * A transaction preview block, as it appears under immediate_/next_transaction.
+     *
+     * @return array<string, mixed>
+     */
+    public static function transactionPreview(string $total, string $balance, string $creditToBalance): array
+    {
+        return [
+            'billing_period' => [
+                'starts_at' => '2026-08-29T09:03:57.901Z',
+                'ends_at'   => '2026-09-29T09:03:57.901Z',
+            ],
+            'details' => [
+                'tax_rates_used' => [],
+                'totals' => [
+                    'subtotal'          => $total,
+                    'discount'          => '0',
+                    'tax'               => '0',
+                    'total'             => $total,
+                    'credit'            => '0',
+                    'balance'           => $balance,
+                    'grand_total'       => $balance,
+                    'grand_total_tax'   => '0',
+                    'fee'               => null,
+                    'earnings'          => null,
+                    'currency_code'     => 'GBP',
+                    'credit_to_balance' => $creditToBalance,
+                ],
+                'line_items' => [],
+            ],
+            'adjustments' => [],
+        ];
     }
 
     /** @return array<string, mixed> */

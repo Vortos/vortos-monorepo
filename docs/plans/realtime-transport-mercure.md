@@ -1,6 +1,6 @@
 # Realtime transport: move SSE off the PHP worker pool
 
-Status: in progress
+Status: LIVE in production (2026-07-30, alpha-318)
 Owner: platform
 Created: 2026-07-30
 
@@ -208,7 +208,13 @@ outage.
 
 ## Status (2026-07-30)
 
-Phases 0–5 implemented and verified; Phase 6 is planning only.
+Phases 0–5 are live in production as of 2026-07-30 (vortos alpha-318, image sha256:78d9db65…).
+Phase 6 is planning only.
+
+**Post-deploy finding:** the first release (alpha-317) shipped a cross-topic read — Mercure only
+enforces subscriber topic scope for updates marked `private`, and the publisher omitted the flag.
+Caught by a live isolation test, fixed in alpha-318, re-verified against the running hub. Status
+codes cannot detect this: Mercure answers 200 and then filters delivery silently.
 
 | Phase | State | Verification |
 | --- | --- | --- |

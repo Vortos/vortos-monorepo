@@ -33,7 +33,15 @@ final class PublishDockerCommand extends Command
         )
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Preview files without writing them')
             ->addOption('no-backup', null, InputOption::VALUE_NONE, 'Overwrite changed files without creating .bak copies')
-            ->addOption('no-overwrite', null, InputOption::VALUE_NONE, 'Skip files that already exist with different content');
+            ->addOption('no-overwrite', null, InputOption::VALUE_NONE, 'Skip files that already exist with different content')
+            ->addOption(
+                'with-mercure',
+                null,
+                InputOption::VALUE_NONE,
+                'Include the Mercure realtime hub in the Caddyfile. Requires VORTOS_MERCURE_JWT_SECRET '
+                . 'and VORTOS_MERCURE_CORS_ORIGINS to be set in the runtime environment — the hub '
+                . 'refuses to start without them, which is why it is opt-in.',
+            );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -49,6 +57,7 @@ final class PublishDockerCommand extends Command
                 (bool) $input->getOption('dry-run'),
                 !(bool) $input->getOption('no-backup'),
                 !(bool) $input->getOption('no-overwrite'),
+                ['features' => ['mercure' => (bool) $input->getOption('with-mercure')]],
             );
         } catch (\InvalidArgumentException $e) {
             $io->error($e->getMessage());

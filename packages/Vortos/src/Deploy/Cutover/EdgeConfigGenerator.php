@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Cutover;
 
+use Vortos\Deploy\Runtime\ResourceLimits;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 
 final class EdgeConfigGenerator
@@ -284,6 +285,15 @@ final class EdgeConfigGenerator
         // The bind-mount is the DIRECTORY (not a single file) so the atomic temp+rename write survives
         // the inode swap. TLS/ACME material stays on the durable caddy_data volume so a cold boot never
         // re-issues certificates.
+        //
+        // The edge terminates EVERY client connection, so it is the container most exposed to the
+        // daemon's stock soft 'nofile' of 1024 — at roughly two descriptors per client (downstream
+        // socket plus upstream dial) that ceiling is reached a few hundred clients in, and it presents
+        // as refused connections with idle CPU rather than as anything resembling load. The app colors
+        // get the same limit from RuntimeServiceSpec; the constant is shared so the two cannot drift.
+        // edge-init is deliberately left alone: it is a short-lived one-shot that opens no sockets.
+        $nofile = ResourceLimits::DEFAULT_NOFILE;
+
         return <<<YAML
         services:
           edge-init:
@@ -317,6 +327,10 @@ final class EdgeConfigGenerator
               - caddy_data:/data
               - \${EDGE_CONFIG_DIR:-/opt/vortos/edge/config}:/config
             command: caddy run --config /config/caddy.json
+            ulimits:
+              nofile:
+                soft: {$nofile}
+                hard: {$nofile}
             networks:
               - vortos-net
 

@@ -7,6 +7,7 @@ namespace Vortos\Deploy\Tests\Unit\Compose;
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ComposeFile;
 use Vortos\Deploy\Registry\ImageReference;
+use Vortos\Deploy\Runtime\ResourceLimits;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Target\ActiveColor;
 
@@ -49,6 +50,39 @@ final class ComposeFileTest extends TestCase
         $this->assertArrayHasKey('app-blue', $array['services']);
         $this->assertArrayHasKey('worker-blue', $array['services']);
         $this->assertArrayHasKey('networks', $array);
+    }
+
+    /**
+     * Both colors must carry an explicit descriptor limit. Without one they inherit the Docker
+     * daemon's stock soft 'nofile' of 1024, which caps each container at a few hundred concurrent
+     * connections and fails as "too many open files" — with idle CPU, and on no dashboard.
+     */
+    public function test_both_services_declare_raised_descriptor_limits(): void
+    {
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec());
+
+        $services = $compose->toArray()['services'];
+
+        foreach (['app-blue', 'worker-blue'] as $service) {
+            $this->assertArrayHasKey('ulimits', $services[$service], $service . ' must declare ulimits');
+            $this->assertGreaterThan(
+                1024,
+                $services[$service]['ulimits']['nofile']['soft'],
+                $service . ' must not inherit the stock daemon descriptor limit',
+            );
+        }
+    }
+
+    public function test_explicit_resource_limits_reach_the_rendered_compose(): void
+    {
+        $spec = new RuntimeServiceSpec(resourceLimits: ResourceLimits::nofile(20000, 30000));
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), $spec);
+
+        $services = $compose->toArray()['services'];
+
+        $expected = ['nofile' => ['soft' => 20000, 'hard' => 30000]];
+        $this->assertSame($expected, $services['app-blue']['ulimits']);
+        $this->assertSame($expected, $services['worker-blue']['ulimits']);
     }
 
     public function test_worker_healthcheck_overrides_inherited_http_check(): void

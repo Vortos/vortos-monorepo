@@ -91,9 +91,25 @@ final class DockerFilePublisher
         return new DockerPublishResult($copied, $skipped, $backedUp);
     }
 
+    /**
+     * Caddyfile sections that are opt-in, keyed by the marker name wrapping them in the stub. Each is
+     * stripped unless the matching `features` option is enabled.
+     *
+     * These exist because some capabilities cannot ship enabled-by-default without breaking apps that
+     * do not use them: the Mercure hub refuses to start without a signing secret, so publishing it
+     * unconditionally would take every existing project's next deploy down. Defaulting the secret so
+     * the config always parses is not an option either — a hub signed with a value from the
+     * framework's own source is worse than no hub.
+     */
+    private const OPTIONAL_CADDY_SECTIONS = ['mercure'];
+
     /** @param array<string, mixed> $options */
     private function customizeContents(string $relativePath, string $contents, array $options): string
     {
+        if (str_ends_with($relativePath, 'docker/frankenphp/Caddyfile')) {
+            return $this->applyCaddyFeatures($contents, $options);
+        }
+
         if (!in_array($relativePath, ['docker-compose.yaml', 'docker-compose.prod.yaml'], true)) {
             return $contents;
         }
@@ -109,6 +125,44 @@ final class DockerFilePublisher
         }
 
         return $contents;
+    }
+
+    /**
+     * Strips each opt-in Caddyfile section whose feature is not enabled, leaving the markers' contents
+     * out entirely rather than commenting them: a commented-out `mercure` block is one careless
+     * uncomment away from a hub with no secret, and it invites hand-editing a published file — which is
+     * silently reverted on the next publish.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function applyCaddyFeatures(string $contents, array $options): string
+    {
+        $features = $options['features'] ?? [];
+
+        foreach (self::OPTIONAL_CADDY_SECTIONS as $section) {
+            if (!empty($features[$section])) {
+                continue;
+            }
+
+            $contents = $this->removeCaddySection($contents, $section);
+        }
+
+        return $contents;
+    }
+
+    /**
+     * Removes a `# <vortos-NAME>` … `# </vortos-NAME>` block, markers included, along with the blank
+     * line it leaves behind. The marker idiom matches the supervisord generator's, so a reader who has
+     * seen one recognises the other as machine-managed and not hand-editable.
+     */
+    private function removeCaddySection(string $contents, string $section): string
+    {
+        $pattern = sprintf(
+            '/[ \t]*#[ \t]*<vortos-%1$s>.*?#[ \t]*<\/vortos-%1$s>[ \t]*\n/s',
+            preg_quote($section, '/'),
+        );
+
+        return (string) preg_replace($pattern, '', $contents);
     }
 
     private function removeComposeService(string $compose, string $service): string

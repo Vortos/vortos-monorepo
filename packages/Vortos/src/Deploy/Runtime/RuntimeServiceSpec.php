@@ -40,6 +40,10 @@ final readonly class RuntimeServiceSpec
      * @param ?AppHealthcheck       $appHealthcheck override for the app service readiness healthcheck; null ⇒
      *                    resolved by {@see resolvedAppHealthcheck()} to an HTTP /health/ready probe on the
      *                    container port. The worker gates on this via depends_on (see {@see \Vortos\Deploy\Compose\ComposeFile}).
+     * @param ?ResourceLimits       $resourceLimits kernel limits for both the app and worker colors; null ⇒
+     *                    {@see ResourceLimits::defaults()}. Left unset a container inherits the Docker
+     *                    daemon's soft 'nofile' of 1024, which caps concurrent connections at a few
+     *                    hundred and surfaces as "too many open files" rather than as backpressure.
      * @param list<string> $siblingSupervisorConfigs supervisor configs for containers OTHER than the worker
      *                    color (a scheduler sidecar, a backup node), as absolute paths inside the image.
      *                    Declared so the doctor can tell "this worker is placed on another node" from
@@ -59,6 +63,7 @@ final readonly class RuntimeServiceSpec
         public array $fileSecrets = [],
         public ?WorkerHealthcheck $workerHealthcheck = null,
         public ?AppHealthcheck $appHealthcheck = null,
+        public ?ResourceLimits $resourceLimits = null,
         public array $siblingSupervisorConfigs = [],
     ) {
         $this->assertStringList('command', $command, allowEmpty: false);
@@ -147,6 +152,16 @@ final readonly class RuntimeServiceSpec
         return $this->appHealthcheck ?? AppHealthcheck::httpReadiness($this->containerPort);
     }
 
+    /**
+     * The kernel limits to emit for both colors. Always resolves to a concrete value: inheriting the
+     * daemon's stock 1024 descriptor limit is never the right answer for a container serving
+     * connections, so there is deliberately no "unset" state to fall through to.
+     */
+    public function resolvedResourceLimits(): ResourceLimits
+    {
+        return $this->resourceLimits ?? ResourceLimits::defaults();
+    }
+
     private function workerRunsSupervisord(): bool
     {
         foreach ($this->workerCommand as $arg) {
@@ -171,6 +186,7 @@ final readonly class RuntimeServiceSpec
             'file_secrets' => array_map(static fn (FileSecret $s): array => $s->toArray(), $this->fileSecrets),
             'worker_healthcheck' => $this->resolvedWorkerHealthcheck()->toArray(),
             'app_healthcheck' => $this->resolvedAppHealthcheck()->toArray(),
+            'resource_limits' => $this->resolvedResourceLimits()->toArray(),
             'sibling_supervisor_configs' => $this->siblingSupervisorConfigs,
         ];
     }

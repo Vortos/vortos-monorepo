@@ -34,6 +34,12 @@ final readonly class ComposeFile
 
         $appHealthcheck = $this->spec->resolvedAppHealthcheck();
 
+        // Both colors get explicit kernel limits. A container otherwise inherits the Docker daemon's
+        // soft 'nofile' of 1024, which caps concurrent connections at a few hundred and fails as
+        // "too many open files" — not as backpressure, and not on any dashboard. The app needs the
+        // headroom for client connections; the worker needs it for its consumer sockets and pools.
+        $ulimits = $this->spec->resolvedResourceLimits()->toArray();
+
         $appService = [
             'image' => $imageRef,
             'command' => $this->spec->command,
@@ -45,6 +51,7 @@ final readonly class ComposeFile
             // liveness-only HTTP check so the container's health reflects true readiness — the signal the
             // worker gates on below so its consumer fan-out cannot race (and starve) the readiness gate.
             'healthcheck' => $appHealthcheck->toArray(),
+            'ulimits' => $ulimits,
         ];
 
         $workerService = [
@@ -56,6 +63,7 @@ final readonly class ComposeFile
             // — the worker serves no HTTP, so without this it is reported 'unhealthy' forever. Resolves to
             // a real supervisorctl check for a supervisord worker, or an explicit disable otherwise.
             'healthcheck' => $this->spec->resolvedWorkerHealthcheck()->toArray(),
+            'ulimits' => $ulimits,
         ];
 
         // The worker (and its consumer fan-out) must not start until the app color is genuinely READY.

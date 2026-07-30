@@ -36,6 +36,14 @@ services:
       # Admin API bound on the internal network so the on-box deploy container can POST the
       # cutover config to http://edge:2019. vortos-net is never published, so it is not exposed.
       CADDY_ADMIN: "0.0.0.0:2019"
+    # The edge terminates every client connection, so without this it inherits the Docker daemon's
+    # stock soft 'nofile' of 1024 — roughly two descriptors per client, so a few hundred clients in it
+    # starts refusing connections while CPU and memory both look idle. Kept in step with
+    # ResourceLimits::DEFAULT_NOFILE, which sets the same limit on the app/worker colors.
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     networks:
       - vortos-net
 

@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Compose\ColorEndpoint;
 use Vortos\Deploy\Cutover\DesiredRoute;
 use Vortos\Deploy\Cutover\EdgeConfigGenerator;
+use Vortos\Deploy\Runtime\ResourceLimits;
 use Vortos\Deploy\Target\ActiveColor;
 
 final class CaddyConfigContractTest extends TestCase
@@ -114,5 +115,22 @@ final class CaddyConfigContractTest extends TestCase
 
         // TLS/ACME material stays on a durable named volume so a cold boot never re-issues certs.
         $this->assertStringContainsString('caddy_data:/data', $yaml);
+    }
+
+    /**
+     * The edge terminates every client connection, so it is the container most exposed to the Docker
+     * daemon's stock soft 'nofile' of 1024 — roughly two descriptors per client, so a few hundred
+     * clients in it refuses connections with idle CPU and nothing to explain it. The limit is asserted
+     * against the shared constant so the edge and the app colors cannot drift apart.
+     */
+    public function test_edge_declares_raised_descriptor_limits(): void
+    {
+        $generator = new EdgeConfigGenerator();
+        $yaml = $generator->generateEdgeComposeYaml('example.com');
+
+        $this->assertStringContainsString('ulimits:', $yaml);
+        $this->assertStringContainsString('soft: ' . ResourceLimits::DEFAULT_NOFILE, $yaml);
+        $this->assertStringContainsString('hard: ' . ResourceLimits::DEFAULT_NOFILE, $yaml);
+        $this->assertGreaterThan(1024, ResourceLimits::DEFAULT_NOFILE);
     }
 }

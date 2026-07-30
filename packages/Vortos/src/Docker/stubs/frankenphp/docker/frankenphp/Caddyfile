@@ -5,11 +5,39 @@
     skip_install_trust
 
     frankenphp {
+        # Elastic PHP thread pool. Without this the pool is pinned to `worker num`, so any
+        # request that blocks — a slow upstream, a streamed response — takes a slot out of
+        # circulation for its whole duration, and the (num+1)th concurrent request queues
+        # behind it rather than running. `auto` lets FrankenPHP add threads under contention,
+        # which turns a saturation cliff into a latency curve.
+        #
+        # This is containment, not a licence to hold requests open: a long-lived connection
+        # still belongs on the Mercure hub (a goroutine), never on a PHP thread. See
+        # docs/plans/realtime-transport-mercure.md.
+        max_threads auto
+
         worker {
             file /var/www/html/public/index.php
-            num {$WORKER_NUM:4}
+            num {$WORKER_NUM:8}
             {$FRANKENPHP_WATCH:}
         }
+    }
+
+    # Every request arrives from the edge container, so the direct peer address is the edge's
+    # for all of them. Until Caddy is told which peers may speak for a client,
+    # {http.request.client_ip} falls back to that peer and every rate-limit zone below
+    # collapses into a single bucket for the entire platform — "10 auth requests per minute"
+    # becomes a platform-wide ceiling rather than a per-client one, and /api/auth/* includes
+    # token refresh.
+    #
+    # Defaults to the shared Docker bridge subnet rather than a fixed address: container IPs
+    # are reassigned on recreate, and only the edge can reach this port. Overridable per
+    # environment so an app never has to hand-edit this file — a hand-edit here is silently
+    # reverted by `vortos:docker:publish`, which is exactly how this protection was lost once
+    # already.
+    servers {
+        trusted_proxies static {$TRUSTED_PROXIES:172.18.0.0/16}
+        client_ip_headers X-Forwarded-For
     }
 
     order rate_limit before php_server
@@ -54,7 +82,7 @@
 
         # Per-IP abuse protection — 100 req per 10s per client
         zone per_ip {
-            key    {http.request.remote.host}
+            key    {http.request.client_ip}
             window 10s
             events 100
         }
@@ -66,11 +94,76 @@
     }
     rate_limit @auth_endpoints {
         zone auth_ip {
-            key    {http.request.remote.host}
+            key    {http.request.client_ip}
             window 1m
             events 10
         }
     }
+
+    # Realtime endpoints get their own bucket. A browser tab reconnects to a bounded stream
+    # continuously, so this path is by far the noisiest per client — left in the general
+    # per_ip zone it crowds out ordinary API calls from the same user. Sized for several tabs
+    # per client with headroom, and low enough that a reconnect storm cannot consume the
+    # thread pool. Once subscribers move to the Mercure hub this covers only the token mint
+    # and the degraded in-PHP fallback.
+    @realtime_endpoints {
+        path /api/notifications/stream /api/notifications/stream/*
+    }
+    rate_limit @realtime_endpoints {
+        zone realtime_ip {
+            key    {http.request.client_ip}
+            window 1m
+            events 30
+        }
+    }
+
+    # ----------------------------------------------------------
+    # Mercure realtime hub
+    # ----------------------------------------------------------
+    # <vortos-mercure>
+    # Opt-in. `vortos:docker:publish` strips everything between these markers unless --with-mercure is
+    # passed, because the hub refuses to start without a signing secret and an unconfigured app would
+    # otherwise fail to boot on its next publish. The alternative — defaulting the secret so the config
+    # always parses — would hand every app a hub signed with a value from the framework's source, which
+    # is worse than not shipping the block at all.
+    # The hub is compiled into the FrankenPHP binary, so this adds a realtime transport without adding
+    # a service, a port, or an image. It exists so long-lived client connections stop terminating in
+    # PHP: here an idle subscriber is a goroutine, where in `php_server` it was a worker thread held
+    # for the life of the stream. That is the difference between a concurrency ceiling equal to the
+    # worker count and one bounded by memory and file descriptors.
+    #
+    # `transport local` keeps published messages in memory only — no disk, nothing to back up, and no
+    # history to replay. That is the right choice for a "refetch now" nudge, whose authoritative state
+    # the client fetches anyway, and it is why the client MUST refetch on every connect: a nudge
+    # published while a client is reconnecting is genuinely gone.
+    #
+    # IMPORTANT: memory-only also means a publish reaches only subscribers attached to THIS hub
+    # instance. Correct while exactly one app color serves traffic and PHP publishes to its own
+    # loopback hub. If two app containers ever serve simultaneously, a notification written by one
+    # would never reach a subscriber connected to the other — switch to a shared transport before
+    # scaling horizontally. See docs/plans/realtime-transport-mercure.md (T1).
+    #
+    # Both keys come from the environment and are the same secret the application signs with; the hub
+    # will not start without them, which is the intended failure — an unauthenticated hub would let
+    # any client subscribe to any topic.
+    mercure {
+        transport local
+
+        publisher_jwt {$VORTOS_MERCURE_JWT_SECRET}
+        subscriber_jwt {$VORTOS_MERCURE_JWT_SECRET}
+
+        # Anonymous subscribers are refused. Every topic here is per-subject, so a subscriber with no
+        # credential has nothing it is entitled to receive, and allowing them would mean the hub
+        # deciding authorisation by omission.
+        # (No `anonymous` directive = anonymous access disabled.)
+
+        # The SPA is a different origin on the same site, so it must be named explicitly for the hub to
+        # accept its subscription requests. No default: an app's own origins are not something a
+        # framework stub can guess, and guessing wrong here means either a dead notification bell or a
+        # hub that accepts an origin nobody vetted.
+        cors_origins {$VORTOS_MERCURE_CORS_ORIGINS}
+    }
+    # </vortos-mercure>
 
     # ----------------------------------------------------------
     # PHP

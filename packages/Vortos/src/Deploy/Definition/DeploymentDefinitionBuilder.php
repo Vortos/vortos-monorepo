@@ -7,6 +7,7 @@ namespace Vortos\Deploy\Definition;
 use Vortos\Deploy\Runtime\FileSecret;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Runtime\AppHealthcheck;
+use Vortos\Deploy\Runtime\ResourceLimits;
 use Vortos\Deploy\Runtime\WorkerHealthcheck;
 use Vortos\Deploy\Strategy\DeployStrategy;
 use Vortos\Release\Manifest\Arch;
@@ -54,6 +55,8 @@ final class DeploymentDefinitionBuilder
     private ?WorkerHealthcheck $workerHealthcheck = null;
 
     private ?AppHealthcheck $appHealthcheck = null;
+
+    private ?ResourceLimits $resourceLimits = null;
 
     /** @var array<string, \Closure(self): self> */
     private array $envOverrides = [];
@@ -357,6 +360,20 @@ final class DeploymentDefinitionBuilder
     }
 
     /**
+     * Override the kernel resource limits applied to both colors. Optional — the framework default
+     * raises 'nofile' well clear of the Docker daemon's stock soft limit of 1024, which would otherwise
+     * cap each container at a few hundred concurrent connections and fail as "too many open files".
+     * Only worth setting explicitly on a host whose own hard limit is lower than the default.
+     */
+    public function resourceLimits(ResourceLimits $limits): self
+    {
+        $clone = clone $this;
+        $clone->resourceLimits = $limits;
+
+        return $clone;
+    }
+
+    /**
      * The resolved runtime service shape. Consumed by the DI container to drive the cutover compose
      * generation ({@see \Vortos\Deploy\Compose\ComposeProjectFactory}). Env-agnostic: command/port
      * are image-level facts, so per-environment overrides don't change them.
@@ -372,6 +389,7 @@ final class DeploymentDefinitionBuilder
             fileSecrets: $this->fileSecrets,
             workerHealthcheck: $this->workerHealthcheck,
             appHealthcheck: $this->appHealthcheck,
+            resourceLimits: $this->resourceLimits,
             siblingSupervisorConfigs: $this->siblingSupervisorConfigs,
         );
     }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Deploy\Tests\Unit\Runtime;
 
 use PHPUnit\Framework\TestCase;
+use Vortos\Deploy\Runtime\ResourceLimits;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Runtime\WorkerHealthcheck;
 
@@ -76,9 +77,31 @@ final class RuntimeServiceSpecTest extends TestCase
                 'retries' => 20,
                 'start_period' => '10s',
             ],
+            // Always concrete: inheriting the daemon's stock 1024 descriptor limit is never correct
+            // for a container serving connections, so there is no "unset" state to fall through to.
+            'resource_limits' => ['nofile' => ['soft' => 65535, 'hard' => 65535]],
             // Single-container default: no sibling supervisor configs to consider.
             'sibling_supervisor_configs' => [],
         ], $spec->toArray());
+    }
+
+    public function test_resource_limits_default_to_a_raised_descriptor_ceiling(): void
+    {
+        $limits = (new RuntimeServiceSpec())->resolvedResourceLimits();
+
+        // The point of the default is that it clears the Docker daemon's stock soft limit of 1024 by
+        // a wide margin — a container serving connections that inherits 1024 refuses traffic a few
+        // hundred clients in, with idle CPU and nothing on a dashboard to explain it.
+        $this->assertGreaterThan(1024, $limits->nofileSoft);
+        $this->assertSame($limits->nofileSoft, $limits->nofileHard);
+    }
+
+    public function test_explicit_resource_limits_override_the_default(): void
+    {
+        $override = ResourceLimits::nofile(20000);
+        $spec = new RuntimeServiceSpec(resourceLimits: $override);
+
+        $this->assertSame($override, $spec->resolvedResourceLimits());
     }
 
     /**

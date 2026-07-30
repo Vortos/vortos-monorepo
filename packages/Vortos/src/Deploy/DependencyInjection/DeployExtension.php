@@ -41,6 +41,7 @@ use Vortos\Deploy\Preflight\Check\DeployStateDurabilityCheck;
 use Vortos\Deploy\Preflight\Check\ReleaseRecordTruthfulnessCheck;
 use Vortos\Deploy\Preflight\Check\DriverSetCheck;
 use Vortos\Deploy\Preflight\Check\EnvFileReadabilityCheck;
+use Vortos\Deploy\Preflight\Check\RealtimeHubConfigCheck;
 use Vortos\Deploy\Preflight\Check\RootlessWorkerCheck;
 use Vortos\Deploy\Preflight\Check\WorkerRegistrationCheck;
 use Vortos\Deploy\Preflight\Check\PendingMigrationPhaseCheck;
@@ -1078,6 +1079,14 @@ final class DeployExtension extends Extension
         // GAP-A: fail closed when a runtime env file is not readable by the deploy one-shot uid, so
         // the nested cutover docker compose up cannot fail "permission denied" at cutover.
         $container->register(EnvFileReadabilityCheck::class, EnvFileReadabilityCheck::class)
+            ->addTag(self::PREFLIGHT_CHECK_TAG)
+            ->setPublic(false);
+
+        // Fail closed when the baked Caddyfile and the delivered env disagree about the Mercure hub.
+        // Both directions are failures: a hub with no secret means the color never boots, and a secret
+        // with no hub means the app hands browsers subscriptions to something that does not exist —
+        // silently, because publishing is fail-safe by design.
+        $container->register(RealtimeHubConfigCheck::class, RealtimeHubConfigCheck::class)
             ->addTag(self::PREFLIGHT_CHECK_TAG)
             ->setPublic(false);
 

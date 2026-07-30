@@ -28,7 +28,8 @@ final class OpenTelemetryMetricsFactory
      *     headers: array<string, string>,
      *     timeout_ms: int,
      *     namespace: string,
-     *     temporality: string
+     *     temporality: string,
+     *     service_instance_id?: string
      * } $config
      */
     public static function create(
@@ -70,11 +71,7 @@ final class OpenTelemetryMetricsFactory
         // VortosMetricsConfig::metricsTemporality().
         $exporter = new MetricExporter($transport, self::temporalityToken($config['temporality']));
         $reader = new ExportingReader($exporter);
-        $resource = ResourceInfoFactory::defaultResource()->merge(ResourceInfo::create(Attributes::create([
-            'service.name' => $config['service_name'],
-            'service.version' => $config['service_version'],
-            'deployment.environment.name' => $config['deployment_environment'],
-        ])));
+        $resource = self::resource($config);
         $provider = MeterProvider::builder()
             ->setResource($resource)
             ->addReader($reader)
@@ -96,6 +93,40 @@ final class OpenTelemetryMetricsFactory
             $config['namespace'],
             $logger,
         );
+    }
+
+    /**
+     * The OTLP resource every exported data point is stamped with.
+     *
+     * `service.instance.id` is the load-bearing one, and it is not decoration. Without it every
+     * FrankenPHP worker thread exports its own independent cumulative counter under one identical
+     * resource identity. A Prometheus-compatible backend then sees a single series whose value keeps
+     * jumping backwards as different threads report, treats each decrease as a counter reset, and
+     * re-adds the whole total — inflating every rate() and increase() by roughly an order of magnitude
+     * while understating the absolute total. {@see ServiceInstanceId} carries the measured numbers and
+     * why delta temporality is not an available fix.
+     *
+     * Separated from {@see create()} purely so it can be asserted on without standing up a real OTLP
+     * transport: create() builds its own transport from the endpoint, so the resource would otherwise
+     * only be observable by making a network call.
+     *
+     * @param array{
+     *     service_name: string,
+     *     service_version: string,
+     *     deployment_environment: string,
+     *     service_instance_id?: string
+     * } $config
+     *
+     * @internal
+     */
+    public static function resource(array $config): ResourceInfo
+    {
+        return ResourceInfoFactory::defaultResource()->merge(ResourceInfo::create(Attributes::create([
+            'service.name' => $config['service_name'],
+            'service.version' => $config['service_version'],
+            'deployment.environment.name' => $config['deployment_environment'],
+            'service.instance.id' => ServiceInstanceId::resolve($config['service_instance_id'] ?? ''),
+        ])));
     }
 
     /**

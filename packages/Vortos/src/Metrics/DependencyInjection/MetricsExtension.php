@@ -407,6 +407,7 @@ final class MetricsExtension extends Extension
                     'service_name' => $resolved['otlp_service_name'],
                     'service_version' => $resolved['otlp_service_version'],
                     'deployment_environment' => $resolved['otlp_deployment_environment'],
+                    'service_instance_id' => $resolved['otlp_service_instance_id'] ?? '',
                     'endpoint' => $resolved['otlp_endpoint'],
                     'headers' => $resolved['otlp_headers'],
                     'timeout_ms' => $resolved['otlp_timeout_ms'],

@@ -78,6 +78,13 @@ final class VortosMetricsConfig
     private string $serviceName = 'app';
     private string $serviceVersion = '';
     private string $deploymentEnvironment = 'prod';
+
+    /**
+     * Empty means "derive one per runtime" — see {@see \Vortos\Metrics\OpenTelemetry\ServiceInstanceId}.
+     * Only set this to pin one identity per replica, and only knowing that counters from worker threads
+     * sharing an id collide into a single series whose rate() is then meaningless.
+     */
+    private string $serviceInstanceId = '';
     private string $otlpEndpoint = 'http://localhost:4318/v1/metrics';
     /** @var array<string, string> */
     private array $otlpHeaders = [];
@@ -274,6 +281,20 @@ final class VortosMetricsConfig
         return $this;
     }
 
+    /**
+     * Pin the OpenTelemetry `service.instance.id` instead of deriving one per runtime.
+     *
+     * Leave this alone unless you have a specific reason. The derived default gives every FrankenPHP
+     * worker thread its own identity, which is what stops their independent cumulative counters from
+     * colliding into one series that appears to reset constantly — inflating every rate() and
+     * increase() built on it. Pinning a shared value reintroduces that.
+     */
+    public function serviceInstanceId(string $id): static
+    {
+        $this->serviceInstanceId = $id;
+        return $this;
+    }
+
     /** @param array<string, string> $headers */
     public function otlp(string $endpoint, array $headers = [], int $timeoutMs = 200): static
     {
@@ -339,6 +360,7 @@ final class VortosMetricsConfig
             'otlp_service_name'          => $this->serviceName,
             'otlp_service_version'       => $this->serviceVersion,
             'otlp_deployment_environment' => $this->deploymentEnvironment,
+            'otlp_service_instance_id'   => $this->serviceInstanceId,
             'otlp_endpoint'              => $this->otlpEndpoint,
             'otlp_headers'               => $this->otlpHeaders,
             'otlp_timeout_ms'            => $this->otlpTimeoutMs,

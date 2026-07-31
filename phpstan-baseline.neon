@@ -1903,18 +1903,6 @@ parameters:
 			path: packages/Vortos/src/Foundation/Runner.php
 
 		-
-			message: '#^Instantiated class CachedContainer not found\.$#'
-			identifier: class.notFound
-			count: 1
-			path: packages/Vortos/src/Foundation/Runner.php
-
-		-
-			message: '#^Method Vortos\\Foundation\\Runner\:\:getCompiledContainer\(\) should return Symfony\\Component\\DependencyInjection\\Container but returns CachedContainer\.$#'
-			identifier: return.type
-			count: 1
-			path: packages/Vortos/src/Foundation/Runner.php
-
-		-
 			message: '#^Method Vortos\\Foundation\\Runner\:\:handleBoostrapErrors\(\) should return Vortos\\Http\\Response but returns Symfony\\Component\\HttpFoundation\\Response\.$#'
 			identifier: return.type
 			count: 1
@@ -1929,12 +1917,6 @@ parameters:
 		-
 			message: '#^Method Vortos\\Foundation\\Runner\:\:validateTrustedProxies\(\) has parameter \$proxies with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
-			count: 1
-			path: packages/Vortos/src/Foundation/Runner.php
-
-		-
-			message: '#^Parameter \#1 \$container of class Symfony\\Component\\DependencyInjection\\Dumper\\PhpDumper constructor expects Symfony\\Component\\DependencyInjection\\ContainerBuilder, Symfony\\Component\\DependencyInjection\\Container given\.$#'
-			identifier: argument.type
 			count: 1
 			path: packages/Vortos/src/Foundation/Runner.php
 

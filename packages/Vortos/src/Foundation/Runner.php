@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vortos\Foundation;
 
-use CachedContainer;
 use Vortos\Http\Controller\ErrorController;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Compiler\CheckTypeDeclarationsPass;
@@ -21,6 +20,18 @@ use Vortos\Foundation\Reset\ServicesResetter;
 
 class Runner
 {
+    /**
+     * Version of the on-disk container-dump contract.
+     *
+     * Bumped whenever a dump written by an older framework cannot be loaded by this one — the
+     * class it declares, or the shape of the file. It is part of both the filename and the class
+     * name, so an old dump can never be mistaken for a current one: it simply does not match the
+     * name being looked for, and gets swept with the other stale artefacts.
+     *
+     * v2: dumps declare VortosCachedContainer_<format>_<hash> instead of a fixed CachedContainer.
+     */
+    private const DUMP_FORMAT = 2;
+
     private ?Container $container = null;
     private ?SymfonyResponse $response = null;
     private ?Request $request = null;
@@ -31,6 +42,14 @@ class Runner
 
     /** Cache directory for compiled container dumps. */
     private readonly string $cacheDir;
+
+    /**
+     * Memoised config hash. Computing it walks every php/yaml file under config/ and src/, and a
+     * single boot asks for it up to four times (resolve, dump, class name, sweep). The inputs
+     * cannot change within a boot in any way this process could act on — a config change means a
+     * new deploy, which means new processes.
+     */
+    private ?string $configHash = null;
 
     public function __construct(
         private readonly string $environment,
@@ -264,34 +283,89 @@ class Runner
         return Request::createFromGlobals();
     }
 
+    /**
+     * Produces the container this process will serve from.
+     *
+     * The one invariant this method exists to hold: **a ContainerBuilder compiled with env
+     * placeholders left unresolved is an intermediate artefact and must never be returned.**
+     *
+     * Env placeholders (%env(...)%) become real values in exactly two ways:
+     *   (a) compile(true) resolves them into the ContainerBuilder, in-process, at compile time, or
+     *   (b) a PhpDumper-generated container emits getEnv() calls that resolve them per boot.
+     *
+     * prod+http deliberately takes (b): resolving at compile time would bake the values into the
+     * dump on disk — turning a cache file into a secrets file, and freezing env changes until the
+     * config hash happens to move. Every other context (CLI commands, queue workers, dev/test http)
+     * has no dump and therefore must take (a).
+     *
+     * What FB-45 was: prod+http compiled with resolution OFF and then returned that builder,
+     * because dumping was treated as a side effect rather than as the step that produces the
+     * runtime container. The worker that wrote the dump — and every worker that lost the race for
+     * the lock — served a container in which EVERY env-backed argument was the literal Symfony
+     * token "env_<hash>_NAME_<hash>". Under FrankenPHP that is not one bad request: the worker
+     * holds that container for its whole life. It surfaced as a Mercure hub URL that was not a URL,
+     * reaching browsers in an API response; the same tokens were in every other env-backed
+     * argument on those workers at the same time. It hit every deploy, because a deploy is exactly
+     * when the config hash moves and all workers boot at once with no dump to load.
+     */
     private function getCompiledContainer(): Container
     {
-        if ($this->environment === 'prod' && $this->context === 'http') {
+        $servesFromDump = $this->environment === 'prod' && $this->context === 'http';
+
+        if ($servesFromDump) {
             $dumpPath = $this->resolveContainerDumpPath();
 
             if ($dumpPath !== null) {
-                require_once $dumpPath;
-                return new CachedContainer();
+                $cached = $this->loadDumpedContainer($dumpPath);
+
+                if ($cached !== null) {
+                    return $cached;
+                }
             }
         }
 
+        $container = $this->buildContainer(resolveEnvPlaceholders: !$servesFromDump);
+
+        if (!$servesFromDump) {
+            // (a): placeholders are already real values in this builder.
+            return $container;
+        }
+
+        $dumpPath = $this->dumpContainer($container);
+
+        if ($dumpPath !== null) {
+            // (b): the dump is the runtime container, not a by-product of having built one.
+            $loaded = $this->loadDumpedContainer($dumpPath);
+
+            if ($loaded !== null) {
+                return $loaded;
+            }
+        }
+
+        // The dump could not be produced — an unwritable cache dir, or a dumper failure. The
+        // builder in hand is unusable by the invariant above, so pay for a second compile rather
+        // than serve placeholder tokens. Correctness over boot time: this costs milliseconds once
+        // per worker, and only in a degraded state that also wants investigating.
+        return $this->buildContainer(resolveEnvPlaceholders: true);
+    }
+
+    /**
+     * Compiles a fresh container from the bootstrap definition.
+     *
+     * Deliberately re-includes the container file rather than reusing a builder: compile() is a
+     * one-shot operation, so the degraded second attempt in getCompiledContainer() needs a builder
+     * that has never been compiled.
+     *
+     * Protected so the boot policy above can be tested against a container small enough to assert
+     * on. The seam is the definition source only — every decision about what is safe to serve
+     * stays in getCompiledContainer(), where the invariant lives.
+     */
+    protected function buildContainer(bool $resolveEnvPlaceholders): ContainerBuilder
+    {
         $projectRoot = $this->projectRoot;
         $container   = include $this->containerPath;
 
         $this->configureContainer($container);
-
-        // Env placeholders (%env(...)%) baked into container parameters by
-        // compiler passes (e.g. vortos.transports) are only resolved to real
-        // values when:
-        //   (a) compile(true) resolves them directly into the ContainerBuilder, or
-        //   (b) the PhpDumper-generated CachedContainer emits getEnv() calls that
-        //       resolve them lazily at runtime.
-        // The dump path (b) only happens for prod+http (see dumpContainer()).
-        // Every other context — CLI commands, queue workers, dev/test http —
-        // gets the raw ContainerBuilder back, so it must take path (a) or any
-        // parameter containing an env reference would leak as Symfony's internal
-        // "env_<hash>_NAME_<hash>" placeholder token instead of its real value.
-        $resolveEnvPlaceholders = $this->environment !== 'prod' || $this->context !== 'http';
 
         try {
             $container->compile($resolveEnvPlaceholders);
@@ -311,9 +385,60 @@ class Runner
             throw $e;
         }
 
-        $this->dumpContainer($container);
+        return $container;
+    }
+
+    /**
+     * Loads a dumped container and instantiates it, or returns null if the file on disk is not one
+     * this version can use — in which case it is discarded so the caller rebuilds.
+     *
+     * Null rather than an exception because every reason this fails is recoverable by recompiling,
+     * and a boot that CAN recover must not take the application down to report a cache problem.
+     *
+     * The dumped class is named per config hash rather than a fixed "CachedContainer". A process
+     * that loads two different dumps — a worker outliving a config change, or a test suite booting
+     * more than one project — would otherwise hit a fatal class redeclaration, which is a hard
+     * crash with no useful message. Per-hash naming makes the two dumps simply two classes.
+     */
+    private function loadDumpedContainer(string $dumpPath): ?Container
+    {
+        $class = $this->dumpClassName($this->configHash());
+
+        // `require`, not `require_once`: the class_exists guard below is what makes loading
+        // idempotent, and it is the more precise guard. require_once keys on the PATH, so after a
+        // stale dump was loaded and replaced in place, re-loading the same path would be skipped —
+        // the freshly written dump would never be seen, and the rebuild would be thrown away on
+        // every boot. Guarding on the class means a file is read exactly when its class is missing,
+        // which is also the only condition under which redeclaration is impossible.
+        if (!class_exists($class, autoload: false)) {
+            require $dumpPath;
+        }
+
+        if (!class_exists($class, autoload: false)) {
+            // A dump written by a different version of this class naming scheme, or a truncated
+            // file. Reclaim it and let the caller compile: self-healing beats a boot loop that
+            // needs someone to SSH in and delete a cache file.
+            @unlink($dumpPath);
+
+            return null;
+        }
+
+        /** @var Container $container */
+        $container = new $class();
 
         return $container;
+    }
+
+    /** The class a dump declares. Per-hash, so two dumps can coexist in one process. */
+    private function dumpClassName(string $hash): string
+    {
+        return 'VortosCachedContainer_' . self::DUMP_FORMAT . '_' . $hash;
+    }
+
+    /** Path a dump for this hash is published at. Format-tagged, so old dumps can never be loaded. */
+    private function dumpPathFor(string $hash): string
+    {
+        return $this->cacheDir . '/container_v' . self::DUMP_FORMAT . '_' . $hash . '.php';
     }
 
     /**
@@ -327,15 +452,19 @@ class Runner
     private function resolveContainerDumpPath(): ?string
     {
         $hash = $this->configHash();
-        $path = $this->cacheDir . '/container_' . $hash . '.php';
+        $path = $this->dumpPathFor($hash);
 
         if (file_exists($path)) {
             return $path;
         }
 
-        // Clean up stale container dumps from previous deploys.
-        foreach (glob($this->cacheDir . '/container_*.php') ?: [] as $stale) {
-            if ($stale !== $path) {
+        // Clean up artefacts of previous deploys and of previous dump formats: their dumps, and the
+        // lock files those dumps were published under (dumpContainer() no longer unlinks its own
+        // lock, so this is where they are reclaimed — for a hash nothing can still be waiting on).
+        $keep = 'container_v' . self::DUMP_FORMAT . '_' . $hash;
+
+        foreach (glob($this->cacheDir . '/container_*') ?: [] as $stale) {
+            if (!str_starts_with(basename($stale), $keep)) {
                 @unlink($stale);
             }
         }
@@ -389,51 +518,81 @@ class Runner
         );
     }
 
-    private function dumpContainer(Container $container): void
+    /**
+     * Writes the container dump and returns its path, or null if no usable dump exists.
+     *
+     * The return value is the point: the caller serves from the dump, so "did this produce one"
+     * has to be an answer rather than an assumption (FB-45).
+     *
+     * The lock is BLOCKING. It used to be LOCK_NB, on the reasoning that a worker losing the race
+     * could skip and let "the next request" pick the dump up — but the loser still had to serve
+     * the request in hand, and what it had in hand was the unresolved builder. Waiting is bounded
+     * by one dump write, happens once per worker per deploy, and is the difference between a
+     * cold-start pause and a worker serving placeholder tokens for the rest of its life.
+     */
+    private function dumpContainer(ContainerBuilder $container): ?string
     {
         if ($this->environment !== 'prod' || $this->context !== 'http') {
-            return;
+            return null;
         }
 
         $hash     = $this->configHash();
-        $dumpPath = $this->cacheDir . '/container_' . $hash . '.php';
+        $dumpPath = $this->dumpPathFor($hash);
 
         if (file_exists($dumpPath)) {
-            return;
+            return $dumpPath;
         }
 
-        if (!is_dir($this->cacheDir)) {
-            mkdir($this->cacheDir, 0755, true);
+        if (!is_dir($this->cacheDir) && !@mkdir($this->cacheDir, 0755, true) && !is_dir($this->cacheDir)) {
+            return null;
         }
 
-        // PID-scoped tmp prevents two racing workers from corrupting the same file.
-        $tmpPath  = $this->cacheDir . '/container_' . $hash . '_' . getmypid() . '.tmp';
-        $lockPath = $this->cacheDir . '/container_' . $hash . '.lock';
+        // Unique per attempt, not per process: FrankenPHP workers are THREADS of one process, so a
+        // PID-scoped name is the same name in every worker. The lock below is what actually
+        // serialises writers; this only guarantees no two attempts can ever name the same tmp file.
+        $prefix   = $this->cacheDir . '/container_v' . self::DUMP_FORMAT . '_' . $hash;
+        $tmpPath  = $prefix . '_' . getmypid() . '_' . bin2hex(random_bytes(4)) . '.tmp';
+        $lockPath = $prefix . '.lock';
 
-        $lock = fopen($lockPath, 'c');
+        $lock = @fopen($lockPath, 'c');
 
         if ($lock === false) {
-            return;
-        }
-
-        // Non-blocking: if another worker already holds the lock, skip — it will
-        // write the dump and the next request will pick it up via resolveContainerDumpPath().
-        if (!flock($lock, LOCK_EX | LOCK_NB)) {
-            fclose($lock);
-            return;
+            return null;
         }
 
         try {
-            // Re-check under lock — another worker may have finished between our check and here.
-            if (!file_exists($dumpPath)) {
-                $dumper = new PhpDumper($container);
-                file_put_contents($tmpPath, $dumper->dump(['class' => 'CachedContainer']));
-                rename($tmpPath, $dumpPath);
+            if (!flock($lock, LOCK_EX)) {
+                return null;
             }
+
+            // Re-check under the lock: whoever held it before us has finished, and if they wrote
+            // the dump this worker's own build is redundant — take theirs.
+            if (file_exists($dumpPath)) {
+                return $dumpPath;
+            }
+
+            $dumper  = new PhpDumper($container);
+            $written = @file_put_contents(
+                $tmpPath,
+                $dumper->dump(['class' => $this->dumpClassName($hash)]),
+            );
+
+            // A partially written dump is worse than none: it would be required as valid PHP and
+            // fail somewhere arbitrary. Publish only a complete file, and only by rename, which is
+            // atomic within the filesystem.
+            if ($written === false || !@rename($tmpPath, $dumpPath)) {
+                @unlink($tmpPath);
+
+                return null;
+            }
+
+            return $dumpPath;
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
-            @unlink($lockPath);
+            // The lock file is deliberately NOT unlinked. Removing it while another worker is
+            // blocked on it hands the next opener a different inode, so two workers would hold
+            // "the" lock at once — the exact race this file exists to prevent.
             @unlink($tmpPath);
         }
     }
@@ -441,9 +600,17 @@ class Runner
     /**
      * Produces a stable hash from config source files that affect the compiled container.
      * A changed hash means the container must be recompiled.
+     *
+     * The project root is part of the input, not just the files under it: the hash also names the
+     * class the dump declares, and two projects with coincidentally identical config (an empty
+     * config/ in both, say) would otherwise want the same class name in one process.
      */
     private function configHash(): string
     {
+        if ($this->configHash !== null) {
+            return $this->configHash;
+        }
+
         $sources = [
             $this->projectRoot . '/config',
             $this->projectRoot . '/src',
@@ -478,7 +645,9 @@ class Runner
 
         sort($fingerprints);
 
-        return substr(hash('xxh3', implode("\n", $fingerprints)), 0, 16);
+        array_unshift($fingerprints, 'root:' . $this->projectRoot);
+
+        return $this->configHash = substr(hash('xxh3', implode("\n", $fingerprints)), 0, 16);
     }
 
     private function handleBoostrapErrors(\Throwable $exception, Request $request, ?Container $container = null): Response

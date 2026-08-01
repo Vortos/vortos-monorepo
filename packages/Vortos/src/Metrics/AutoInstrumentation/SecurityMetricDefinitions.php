@@ -47,10 +47,14 @@ final class SecurityMetricDefinitions implements MetricDefinitionProviderInterfa
                 'Total requests allowed by feature access enforcement.',
                 ['feature', 'policy', 'controller'],
             ),
+            // `reason` carries the FeatureAccessDecision name, which is what
+            // separates a plan that lacks the feature from one that lapsed. The
+            // middleware always emitted it; the definition omitted it, and an
+            // exact-match registry turned every denial into a 500.
             MetricDefinition::counter(
                 'feature_access_denied_total',
                 'Total requests denied by feature access enforcement.',
-                ['feature', 'policy', 'controller'],
+                ['feature', 'policy', 'controller', 'reason'],
             ),
             MetricDefinition::counter(
                 'feature_flag_evaluations_total',

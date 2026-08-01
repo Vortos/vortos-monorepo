@@ -61,8 +61,14 @@ final class FeatureAccessMiddleware implements MiddlewareInterface
             [$decision, $deciding] = $this->resolve($identity, $rule['feature']);
 
             if ($decision->isAllowed()) {
+                // Every label in the definition, every time. The registry matches
+                // label sets exactly, so an emission one label short throws — which
+                // on the allow path meant the middleware fatalled the request it had
+                // just decided to permit. `policy` is null only when no policy is
+                // registered at all, in which case nothing decided the allow.
                 $this->telemetry?->increment(ObservabilityModule::Auth, FrameworkMetric::FeatureAccessAllowedTotal, FrameworkMetricLabels::of(
                     MetricLabelValue::of(MetricLabel::Feature, $rule['feature']),
+                    MetricLabelValue::of(MetricLabel::Policy, $deciding === null ? 'none' : str_replace('\\', '.', $deciding::class)),
                     MetricLabelValue::of(MetricLabel::Controller, str_replace('\\', '.', $controller)),
                 ));
                 continue;
@@ -108,7 +114,11 @@ final class FeatureAccessMiddleware implements MiddlewareInterface
      * decision (Forbidden > PaymentRequired > Allowed) together with the policy
      * that produced it. A feature is allowed only if no policy denies it.
      *
-     * @return array{0: FeatureAccessDecision, 1: FeatureAccessPolicyInterface}
+     * The policy is null when none are registered: nothing evaluated, so nothing
+     * decided the resulting Allowed. A denial always names one, since only a
+     * policy can produce it.
+     *
+     * @return array{0: FeatureAccessDecision, 1: FeatureAccessPolicyInterface|null}
      */
     private function resolve(\Vortos\Auth\Contract\UserIdentityInterface $identity, string $feature): array
     {

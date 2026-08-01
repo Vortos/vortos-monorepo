@@ -13,6 +13,14 @@ use Vortos\Auth\Identity\AnonymousIdentity;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Cache\Adapter\ArrayAdapter as CacheArrayAdapter;
+use Vortos\Metrics\AutoInstrumentation\SecurityMetricDefinitions;
+use Vortos\Metrics\Contract\CounterInterface;
+use Vortos\Metrics\Contract\GaugeInterface;
+use Vortos\Metrics\Contract\HistogramInterface;
+use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Definition\MetricDefinitionRegistry;
+use Vortos\Metrics\Definition\MetricType;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
 final class AlwaysDenyPolicy implements FeatureAccessPolicyInterface
 {
@@ -59,8 +67,54 @@ final class SubscriptionPolicy implements FeatureAccessPolicyInterface
     }
 }
 
+/**
+ * Validates emissions the way the real OTLP adapter does — same registry, same
+ * exact-match label check — without standing up OpenTelemetry. A middleware that
+ * emits a label set the definition does not declare throws here, exactly as it
+ * did in production.
+ */
+final class ValidatingMetrics implements MetricsInterface
+{
+    /** @var list<array{name: string, labels: array<string, string>}> */
+    public array $counters = [];
+
+    private MetricDefinitionRegistry $registry;
+
+    public function __construct()
+    {
+        $this->registry = new MetricDefinitionRegistry((new SecurityMetricDefinitions())->definitions());
+    }
+
+    public function counter(string $name, array $labels = []): CounterInterface
+    {
+        $definition = $this->registry->requireType($name, MetricType::Counter);
+        $this->counters[] = ['name' => $name, 'labels' => $this->registry->validateLabels($definition, $labels)];
+
+        return new class implements CounterInterface {
+            public function increment(float $by = 1.0): void {}
+        };
+    }
+
+    public function gauge(string $name, array $labels = []): GaugeInterface
+    {
+        throw new \LogicException('not used');
+    }
+
+    public function histogram(string $name, array $labels = []): HistogramInterface
+    {
+        throw new \LogicException('not used');
+    }
+}
+
 final class FeatureAccessMiddlewareTest extends TestCase
 {
+    private function makeTelemetry(): FrameworkTelemetry
+    {
+        return new FrameworkTelemetry($this->metrics = new ValidatingMetrics());
+    }
+
+    private ValidatingMetrics $metrics;
+
     private function makeProvider(bool $authenticated = true, array $attributes = []): CurrentUserProvider
     {
         $adapter = new CacheArrayAdapter();
@@ -205,5 +259,103 @@ final class FeatureAccessMiddlewareTest extends TestCase
         $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
         $body = json_decode($response->getContent(), true);
         $this->assertSame('api.bulk_export', $body['feature']);
+    }
+
+    // ── Telemetry ─────────────────────────────────────────────────────────────
+    // These wire real telemetry. Every test above passes $telemetry = null, which
+    // is why an emission that could not satisfy its own definition shipped: the
+    // allow path was one label short and threw inside the request it had just
+    // permitted, turning every feature-gated route into a 500.
+
+    public function test_allow_path_emits_a_metric_its_definition_accepts(): void
+    {
+        $routeMap = ['App\TestCtrl' => [['feature' => 'api.basic']]];
+        $middleware = new FeatureAccessMiddleware(
+            $this->makeProvider(true, ['plan' => 'pro']),
+            $routeMap,
+            [new AlwaysAllowPolicy()],
+            true,
+            $this->makeTelemetry(),
+        );
+
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertCount(1, $this->metrics->counters);
+        $this->assertSame('feature_access_allowed_total', $this->metrics->counters[0]['name']);
+        $this->assertSame(
+            [
+                'feature' => 'api.basic',
+                'policy' => 'Vortos.Auth.Tests.FeatureAccess.AlwaysAllowPolicy',
+                'controller' => 'App.TestCtrl',
+            ],
+            $this->metrics->counters[0]['labels'],
+        );
+    }
+
+    public function test_deny_path_emits_a_metric_its_definition_accepts(): void
+    {
+        $routeMap = ['App\TestCtrl' => [['feature' => 'api.bulk_export']]];
+        $middleware = new FeatureAccessMiddleware(
+            $this->makeProvider(),
+            $routeMap,
+            [new AlwaysDenyPolicy()],
+            true,
+            $this->makeTelemetry(),
+        );
+
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertCount(1, $this->metrics->counters);
+        $this->assertSame('feature_access_denied_total', $this->metrics->counters[0]['name']);
+        $this->assertSame(
+            [
+                'feature' => 'api.bulk_export',
+                'policy' => 'Vortos.Auth.Tests.FeatureAccess.AlwaysDenyPolicy',
+                'controller' => 'App.TestCtrl',
+                'reason' => 'Forbidden',
+            ],
+            $this->metrics->counters[0]['labels'],
+        );
+    }
+
+    public function test_payment_required_denial_records_its_own_reason(): void
+    {
+        // 402 and 403 must be separable in the metric, or "the plan never had it"
+        // and "the card lapsed" look identical on a dashboard.
+        $routeMap = ['App\TestCtrl' => [['feature' => 'api.bulk_export']]];
+        $middleware = new FeatureAccessMiddleware(
+            $this->makeProvider(true, ['plan' => 'pro', 'subscription_active' => false]),
+            $routeMap,
+            [new SubscriptionPolicy()],
+            true,
+            $this->makeTelemetry(),
+        );
+
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+
+        $this->assertSame(402, $response->getStatusCode());
+        $this->assertSame('PaymentRequired', $this->metrics->counters[0]['labels']['reason']);
+    }
+
+    public function test_allow_with_no_policies_registered_still_emits(): void
+    {
+        // Nothing decided the allow, so there is no policy class to name. The
+        // label is still required, so it has to carry a placeholder rather than
+        // dereference null.
+        $routeMap = ['App\TestCtrl' => [['feature' => 'api.basic']]];
+        $middleware = new FeatureAccessMiddleware(
+            $this->makeProvider(),
+            $routeMap,
+            [],
+            true,
+            $this->makeTelemetry(),
+        );
+
+        $response = $middleware->handle($this->makeRequest('App\TestCtrl'), $this->next());
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('none', $this->metrics->counters[0]['labels']['policy']);
     }
 }

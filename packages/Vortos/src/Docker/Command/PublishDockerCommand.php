@@ -17,8 +17,15 @@ use Vortos\Docker\Service\DockerFilePublisher;
 )]
 final class PublishDockerCommand extends Command
 {
-    public function __construct(private readonly DockerFilePublisher $publisher)
-    {
+    /**
+     * @param list<string> $corsOrigins the application's declared CORS allowlist, written into the
+     *                                  edge config so a request rejected before PHP still answers
+     *                                  with headers the browser can read
+     */
+    public function __construct(
+        private readonly DockerFilePublisher $publisher,
+        private readonly array $corsOrigins = [],
+    ) {
         parent::__construct();
     }
 
@@ -57,11 +64,28 @@ final class PublishDockerCommand extends Command
                 (bool) $input->getOption('dry-run'),
                 !(bool) $input->getOption('no-backup'),
                 !(bool) $input->getOption('no-overwrite'),
-                ['features' => ['mercure' => (bool) $input->getOption('with-mercure')]],
+                [
+                    'features'    => ['mercure' => (bool) $input->getOption('with-mercure')],
+                    'corsOrigins' => $this->corsOrigins,
+                ],
             );
         } catch (\InvalidArgumentException $e) {
             $io->error($e->getMessage());
             return Command::FAILURE;
+        }
+
+        // The published Caddyfile is committed and deployed, but the allowlist it was generated
+        // from is whatever the *publishing* environment resolved — and a dev override of
+        // `origins(['*'])` is a normal thing to have. Publishing from there would bake a
+        // wildcard edge into the artifact that ships to production, where it would echo any
+        // origin on rejected responses. Loud rather than silent: the file still matches the
+        // middleware, which is correct, but nobody should learn about this from prod.
+        if (in_array('*', $this->corsOrigins, true)) {
+            $io->warning(
+                'The resolved CORS allowlist contains "*", so the edge config now echoes any origin '
+                . 'on rate-limited responses. That matches this environment, but the published file '
+                . 'is deployed everywhere — re-publish with a production-like APP_ENV before shipping.'
+            );
         }
 
         $io->success(sprintf(

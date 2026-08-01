@@ -89,14 +89,57 @@
     }
 
     # Stricter zone on auth endpoints — 10 req per minute per IP
+    #
+    # OPTIONS is excluded. A preflight is issued by the browser, not by the caller, and it
+    # carries no credentials — so it is not a credential-stuffing attempt and throttling it
+    # does not slow one down. Counting it halved the real budget, because every cross-origin
+    # auth call is OPTIONS + POST. Worse, once the zone tripped the preflight itself returned
+    # 429, and a non-2xx preflight is fatal regardless of what headers it carries: the browser
+    # reports "preflight does not have HTTP ok status" and never sends the request. The
+    # endpoint does not slow down under load, it disappears.
     @auth_endpoints {
         path /api/auth/*
+        not method OPTIONS
     }
     rate_limit @auth_endpoints {
         zone auth_ip {
             key    {http.request.client_ip}
             window 1m
             events 10
+        }
+    }
+
+    # A request rejected here, at the edge, never reaches PHP — so the application's CORS
+    # middleware never sees it and cannot decorate it. To a browser an opaque 429 is
+    # indistinguishable from a misconfigured server: it reports "no Access-Control-Allow-Origin
+    # header" and hands the client a network error with no status, no body and no Retry-After
+    # to back off against. A rate-limited token refresh then looks like an outage rather than
+    # backpressure, and an SPA that cannot tell those apart signs the user out.
+    #
+    # The origin is echoed only when it matches the application's own CORS allowlist, so this
+    # cannot become a way for any site to read our responses. The pattern is written at publish
+    # time from `vortos.security.cors.origins` — the same list `config/security.php` declares —
+    # because the edge cannot read PHP config and a second copy is a copy that drifts.
+    handle_errors {
+        @rate_limited {
+            expression {err.status_code} == 429
+            header_regexp Origin "{{VORTOS_CORS_ORIGIN_PATTERN}}"
+        }
+        handle @rate_limited {
+            header {
+                Access-Control-Allow-Origin "{http.request.header.Origin}"
+                Access-Control-Allow-Credentials "true"
+                Vary "Origin"
+            }
+            respond 429 {
+                body `{"error":"rate_limited","message":"Too many requests. Please wait a moment and try again."}`
+                close
+            }
+        }
+
+        # Everything else keeps Caddy's own handling.
+        handle {
+            respond "{err.status_code} {err.status_text}" {err.status_code}
         }
     }
 

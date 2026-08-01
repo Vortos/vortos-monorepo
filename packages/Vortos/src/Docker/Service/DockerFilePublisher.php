@@ -107,7 +107,10 @@ final class DockerFilePublisher
     private function customizeContents(string $relativePath, string $contents, array $options): string
     {
         if (str_ends_with($relativePath, 'docker/frankenphp/Caddyfile')) {
-            return $this->applyCaddyFeatures($contents, $options);
+            return $this->applyCorsOriginPattern(
+                $this->applyCaddyFeatures($contents, $options),
+                $options,
+            );
         }
 
         if (!in_array($relativePath, ['docker-compose.yaml', 'docker-compose.prod.yaml'], true)) {
@@ -125,6 +128,55 @@ final class DockerFilePublisher
         }
 
         return $contents;
+    }
+
+    /**
+     * Writes the app's CORS allowlist into the Caddyfile as an anchored alternation.
+     *
+     * The edge answers requests it rejects before PHP ever runs, so it has to know which origins
+     * may read those responses. Deriving the pattern here — from the same `origins` list
+     * `config/security.php` declares — keeps one source of truth; the alternative is an env var
+     * an operator has to remember to keep in step, which is a copy that silently drifts and then
+     * fails closed on exactly the responses nobody is watching.
+     *
+     * An empty allowlist yields `^$`, which matches no Origin header, so the CORS branch never
+     * fires and rejected requests keep Caddy's default handling. That is the correct failure
+     * direction: an app that declares no origins gets no origin echoed.
+     *
+     * `*` and leading-wildcard entries (`*.example.com`) are translated rather than dropped,
+     * because the middleware honours both and an edge that disagreed with it would be worse
+     * than one that says nothing.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function applyCorsOriginPattern(string $contents, array $options): string
+    {
+        /** @var list<string> $origins */
+        $origins = array_values(array_filter(
+            (array) ($options['corsOrigins'] ?? []),
+            static fn (mixed $o): bool => is_string($o) && $o !== '',
+        ));
+
+        $alternatives = array_map(
+            static function (string $origin): string {
+                if ($origin === '*') {
+                    return '.*';
+                }
+
+                if (str_starts_with($origin, '*.')) {
+                    return '[a-z0-9-]+\.' . preg_quote(substr($origin, 2), '/');
+                }
+
+                return preg_quote($origin, '/');
+            },
+            $origins,
+        );
+
+        $pattern = $alternatives === []
+            ? '^$'
+            : '^(' . implode('|', $alternatives) . ')$';
+
+        return str_replace('{{VORTOS_CORS_ORIGIN_PATTERN}}', $pattern, $contents);
     }
 
     /**

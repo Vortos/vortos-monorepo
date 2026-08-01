@@ -40,9 +40,17 @@ final class DockerExtension extends Extension
         $container->register(SupervisorFileManager::class, SupervisorFileManager::class)
             ->setPublic(false);
 
+        // Security owns this parameter; seeded here so the Docker package still publishes when
+        // Security is not installed. Whichever extension runs second wins, and Security setting
+        // the real allowlist over this empty default is the order we want.
+        if (!$container->hasParameter('vortos.security.cors.origins')) {
+            $container->setParameter('vortos.security.cors.origins', []);
+        }
+
         $container->register(PublishDockerCommand::class, PublishDockerCommand::class)
             ->setAutowired(true)
             ->setPublic(true)
+            ->setArgument('$corsOrigins', '%vortos.security.cors.origins%')
             ->addTag('console.command');
 
         foreach ([WorkerListCommand::class, WorkerInstallCommand::class, WorkerRemoveCommand::class] as $commandClass) {

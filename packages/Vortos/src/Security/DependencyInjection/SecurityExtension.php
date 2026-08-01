@@ -148,6 +148,13 @@ final class SecurityExtension extends Extension
             ->addTag('kernel.event_subscriber')
             ->setShared(true)
             ->setPublic(true);
+
+        // Published as a parameter so the edge can be generated from the same allowlist.
+        // A request rejected at the edge — a rate limit, an IP filter — never reaches this
+        // middleware, so the reverse proxy has to answer with the CORS headers itself or the
+        // browser reports a network error instead of the status. The proxy config cannot read
+        // PHP config, and a second hand-maintained copy of the allowlist is a copy that drifts.
+        $container->setParameter('vortos.security.cors.origins', $resolved['origins'] ?? []);
     }
 
     private function registerIpFilterMiddleware(ContainerBuilder $container, array $resolved): void

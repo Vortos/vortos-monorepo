@@ -43,6 +43,11 @@ final class DockerFilePublisher
         $copied = [];
         $skipped = [];
         $backedUp = [];
+        $diverged = [];
+
+        /** @var list<string> $only */
+        $only = array_values(array_filter((array) ($options['only'] ?? []), 'is_string'));
+        $overwriteDiverged = (bool) ($options['overwriteDiverged'] ?? false);
 
         foreach (new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($source, \RecursiveDirectoryIterator::SKIP_DOTS),
@@ -58,6 +63,11 @@ final class DockerFilePublisher
                 continue;
             }
 
+            if ($only !== [] && !$this->matchesAny($relativePath, $only)) {
+                $skipped[] = $relativePath;
+                continue;
+            }
+
             $contents = (string) file_get_contents($item->getPathname());
             $contents = $this->customizeContents($relativePath, $contents, $options);
 
@@ -69,6 +79,23 @@ final class DockerFilePublisher
             if (is_file($target) && !$overwrite) {
                 $skipped[] = $relativePath;
                 continue;
+            }
+
+            // A file that already exists and differs is one somebody has edited — or one the stub
+            // has moved on from. The publisher cannot tell those apart, and the failure mode is
+            // asymmetric: re-applying a stub update costs a re-run, while reverting a hand-tuned
+            // production Dockerfile or a worker's supervisord config is a silent regression that
+            // ships. So it is reported, and skipped unless explicitly allowed.
+            if (is_file($target)) {
+                $diverged[$relativePath] = [
+                    'current' => $this->lineCount((string) file_get_contents($target)),
+                    'new'     => $this->lineCount($contents),
+                ];
+
+                if (!$overwriteDiverged) {
+                    $skipped[] = $relativePath;
+                    continue;
+                }
             }
 
             if (!$dryRun) {
@@ -88,7 +115,7 @@ final class DockerFilePublisher
             $copied[] = $relativePath;
         }
 
-        return new DockerPublishResult($copied, $skipped, $backedUp);
+        return new DockerPublishResult($copied, $skipped, $backedUp, $diverged);
     }
 
     /**
@@ -128,6 +155,38 @@ final class DockerFilePublisher
         }
 
         return $contents;
+    }
+
+    /**
+     * Whether a stub path was asked for.
+     *
+     * Matches a full relative path or any directory prefix of it, so `--only=docker/frankenphp`
+     * takes that whole directory and `--only=docker/frankenphp/Caddyfile` takes the one file.
+     * Deliberately not a glob: the point of the filter is to be certain what it selected, and a
+     * pattern language invites a `*` that quietly matches more than the operator meant.
+     *
+     * @param list<string> $only
+     */
+    private function matchesAny(string $relativePath, array $only): bool
+    {
+        foreach ($only as $candidate) {
+            $candidate = trim(str_replace('\\', '/', $candidate), '/');
+
+            if ($candidate === '' ) {
+                continue;
+            }
+
+            if ($relativePath === $candidate || str_starts_with($relativePath, $candidate . '/')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function lineCount(string $contents): int
+    {
+        return substr_count($contents, "\n") + ($contents !== '' && !str_ends_with($contents, "\n") ? 1 : 0);
     }
 
     /**

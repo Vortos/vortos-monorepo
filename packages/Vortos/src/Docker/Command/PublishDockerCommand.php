@@ -42,6 +42,22 @@ final class PublishDockerCommand extends Command
             ->addOption('no-backup', null, InputOption::VALUE_NONE, 'Overwrite changed files without creating .bak copies')
             ->addOption('no-overwrite', null, InputOption::VALUE_NONE, 'Skip files that already exist with different content')
             ->addOption(
+                'only',
+                null,
+                InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
+                'Publish only this stub path (repeatable). A file, or a directory prefix. '
+                . 'Use it when you want one file and nothing else touched: '
+                . '--only=docker/frankenphp/Caddyfile',
+            )
+            ->addOption(
+                'force',
+                'f',
+                InputOption::VALUE_NONE,
+                'Overwrite files that already differ from the stub. Without this they are listed '
+                . 'and skipped, because the publisher cannot tell an upstream change from work you '
+                . 'did on purpose.',
+            )
+            ->addOption(
                 'with-mercure',
                 null,
                 InputOption::VALUE_NONE,
@@ -65,8 +81,10 @@ final class PublishDockerCommand extends Command
                 !(bool) $input->getOption('no-backup'),
                 !(bool) $input->getOption('no-overwrite'),
                 [
-                    'features'    => ['mercure' => (bool) $input->getOption('with-mercure')],
-                    'corsOrigins' => $this->corsOrigins,
+                    'features'          => ['mercure' => (bool) $input->getOption('with-mercure')],
+                    'corsOrigins'       => $this->corsOrigins,
+                    'only'              => (array) $input->getOption('only'),
+                    'overwriteDiverged' => (bool) $input->getOption('force'),
                 ],
             );
         } catch (\InvalidArgumentException $e) {
@@ -86,6 +104,35 @@ final class PublishDockerCommand extends Command
                 . 'on rate-limited responses. That matches this environment, but the published file '
                 . 'is deployed everywhere — re-publish with a production-like APP_ENV before shipping.'
             );
+        }
+
+        // Files that already differ are the dangerous ones: the publisher cannot tell an upstream
+        // stub change from a deliberate local edit, and the two need opposite handling. Reverting a
+        // production Dockerfile or a worker's supervisord config is the kind of regression that
+        // ships quietly and is noticed in an incident, so it is named here with the size of the
+        // change and left alone unless someone asks for it.
+        if ($result->hasDiverged()) {
+            $rows = [];
+            foreach ($result->diverged as $path => $lines) {
+                $delta = $lines['new'] - $lines['current'];
+                $rows[] = [
+                    $path,
+                    $lines['current'],
+                    $lines['new'],
+                    sprintf('%+d', $delta),
+                ];
+            }
+
+            $io->section($input->getOption('force') ? 'Overwritten (had local changes)' : 'Skipped — these already differ from the stub');
+            $io->table(['File', 'Yours', 'Stub', 'Delta'], $rows);
+
+            if (!$input->getOption('force')) {
+                $io->warning(
+                    'Nothing above was written. Review each one — a large negative delta usually means '
+                    . 'the stub would revert something your project needs. Publish the file you actually '
+                    . 'want with --only=<path>, or pass --force to overwrite them all.'
+                );
+            }
         }
 
         $io->success(sprintf(

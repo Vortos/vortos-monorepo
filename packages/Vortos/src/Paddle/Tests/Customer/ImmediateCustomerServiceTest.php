@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Vortos\Paddle\Tests\Customer;
 
+use Paddle\SDK\Exceptions\ApiError;
 use PHPUnit\Framework\TestCase;
 use Vortos\Paddle\Api\PaddleApiClientInterface;
+use Vortos\Paddle\Api\PaddleSdkExceptionMapper;
 use Vortos\Paddle\Customer\Customer;
 use Vortos\Paddle\Customer\ImmediateCustomerService;
 use Vortos\Paddle\Customer\Operation\CreateCustomerRequest;
@@ -70,6 +72,54 @@ final class ImmediateCustomerServiceTest extends TestCase
         $id      = $service->findOrCreate(new CreateCustomerRequest('john@example.com', 'John Doe'));
 
         $this->assertSame('ctm_existing_9f', $id->value);
+    }
+
+    /**
+     * The whole path, from the bytes Paddle returns to the id the caller bills.
+     *
+     * The other conflict tests hand this service an exception built by hand, which is
+     * how a mapper that never produced one went unnoticed until a live restore-access
+     * checkout 500ed. This one starts where reality does: the verbatim 409 body from
+     * `POST /customers`, mapped by the real mapper.
+     */
+    public function test_find_or_create_recovers_the_customer_from_a_real_paddle_409(): void
+    {
+        $apiError = ApiError::fromErrorData([
+            'type'              => 'request_error',
+            'code'              => 'customer_already_exists',
+            'detail'            => 'customer email conflicts with customer of id ctm_01jnrtysqtbd9a54f13518fap1',
+            'documentation_url' => 'https://developer.paddle.com/v1/errors/customers/customer_already_exists',
+        ], null);
+
+        $client = $this->createMock(PaddleApiClientInterface::class);
+        $client->method('call')->willThrowException((new PaddleSdkExceptionMapper())->map($apiError));
+
+        $service = new ImmediateCustomerService($client);
+        $id      = $service->findOrCreate(new CreateCustomerRequest('john@example.com', 'John Doe'));
+
+        $this->assertSame('ctm_01jnrtysqtbd9a54f13518fap1', $id->value);
+    }
+
+    /**
+     * The id is recovered from free text, and the caller bills whoever it names. A
+     * conflict about some other entity is not "this customer already exists" and must
+     * not be quietly turned into it.
+     */
+    public function test_find_or_create_rethrows_a_conflict_naming_a_non_customer_entity(): void
+    {
+        $client = $this->createMock(PaddleApiClientInterface::class);
+        $client->method('call')->willThrowException(new PaddleConflictException(
+            'price pri_01h8xce4x86p is archived',
+            'conflict',
+            'request_error',
+            null,
+            'pri_01h8xce4x86p',
+        ));
+
+        $service = new ImmediateCustomerService($client);
+
+        $this->expectException(PaddleConflictException::class);
+        $service->findOrCreate(new CreateCustomerRequest('john@example.com', 'John Doe'));
     }
 
     public function test_find_or_create_rethrows_a_conflict_that_names_no_entity(): void

@@ -15,6 +15,9 @@ use Vortos\Paddle\ValueObject\PaddleCustomerId;
 
 final class ImmediateCustomerService implements ImmediateCustomerServiceInterface
 {
+    /** Every Paddle customer id carries this prefix; nothing else does. */
+    private const CUSTOMER_ID_PREFIX = 'ctm_';
+
     public function __construct(private readonly PaddleApiClientInterface $client) {}
 
     public function create(CreateCustomerRequest $request): PaddleCustomerId
@@ -41,12 +44,17 @@ final class ImmediateCustomerService implements ImmediateCustomerServiceInterfac
         } catch (PaddleConflictException $e) {
             // Paddle already holds a customer for this address — which is the same
             // answer the caller asked for, so the conflict is a hit, not a failure.
-            // A conflict that names no id is something else entirely; let it out.
-            if ($e->conflictingEntityId === null) {
+            //
+            // Only a customer id will do. The id is recovered from Paddle's free-text
+            // detail and the caller bills whoever it names, so a conflict that names
+            // some other kind of entity is not this situation and must not be treated
+            // as one; like a conflict that names nothing, it goes out as a failure.
+            $customerId = $e->conflictingEntityIdOfType(self::CUSTOMER_ID_PREFIX);
+            if ($customerId === null) {
                 throw $e;
             }
 
-            return PaddleCustomerId::of($e->conflictingEntityId);
+            return PaddleCustomerId::of($customerId);
         }
     }
 

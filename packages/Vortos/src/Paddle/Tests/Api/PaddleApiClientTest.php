@@ -34,13 +34,17 @@ final class PaddleApiClientTest extends TestCase
         );
     }
 
-    private function makeApiError(string $type, string $code = 'some_error', ?int $retryAfter = null): ApiError
+    /**
+     * `request_error` is what Paddle sends on every 4xx — the code is what says which
+     * 4xx it was. See PaddleSdkExceptionMapperTest for why that distinction matters.
+     */
+    private function makeApiError(string $code, ?int $retryAfter = null): ApiError
     {
         return ApiError::fromErrorData([
-            'type'              => $type,
+            'type'              => 'request_error',
             'code'              => $code,
             'detail'            => 'Error detail',
-            'documentation_url' => 'https://paddle.com/errors',
+            'documentation_url' => 'https://developer.paddle.com/errors/' . $code,
         ], $retryAfter);
     }
 
@@ -56,7 +60,7 @@ final class PaddleApiClientTest extends TestCase
         $client = $this->makeClient();
 
         $this->expectException(PaddleNotFoundException::class);
-        $client->call(fn() => throw $this->makeApiError('not_found', 'customer_not_found'));
+        $client->call(fn() => throw $this->makeApiError('customer_not_found'));
     }
 
     public function test_api_error_does_not_trip_circuit_breaker(): void
@@ -104,7 +108,7 @@ final class PaddleApiClientTest extends TestCase
         $client = $this->makeClient(retryOnRateLimit: false);
 
         $this->expectException(PaddleRateLimitException::class);
-        $client->call(fn() => throw $this->makeApiError('too_many_requests', 'rate_limit', retryAfter: 1));
+        $client->call(fn() => throw $this->makeApiError('too_many_requests', retryAfter: 1));
     }
 
     public function test_sdk_is_accessible(): void

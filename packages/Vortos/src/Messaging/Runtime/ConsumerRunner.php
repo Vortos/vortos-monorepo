@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Messaging\Runtime;
 
 use Vortos\Domain\Event\DomainEventLedger;
+use Vortos\Foundation\Reset\ServicesResetter;
 use Vortos\Domain\Event\EventEnvelope;
 use Vortos\Domain\Event\Metadata;
 use Vortos\Messaging\Attribute\Header\CausationId;
@@ -89,6 +90,12 @@ final class ConsumerRunner implements ConsumerRunnerInterface
         private ServiceLocator $handlerLocator,
         private RetryDecider $retryDecider,
         private ConsumerRegistry $consumerRegistry,
+        /**
+         * Resets per-request-scoped services between messages. Optional so an
+         * embedded/in-memory runner can be constructed without a container, but in
+         * production it is always wired — see handleMessage().
+         */
+        private ?ServicesResetter $servicesResetter = null,
         private int $defaultIdempotencyTtl = 86400,
         private ?FrameworkTelemetry $telemetry = null,
         private ?TracingInterface $tracer = null,
@@ -188,6 +195,20 @@ final class ConsumerRunner implements ConsumerRunnerInterface
 
     private function handleMessage(string $consumerName, ReceivedMessage $message, ConsumerInterface $consumer): void
     {
+        // Every message starts from clean per-request state, exactly as an HTTP request
+        // does via Runner::cleanUp(). A consumer worker is a single long-lived command,
+        // so without this the Doctrine identity map accumulates for the life of the
+        // process and a handler that loads an aggregate gets it as it looked when an
+        // EARLIER message was consumed — not as it is in the database.
+        //
+        // That is not a theoretical hazard. It silently broke applicant approval
+        // emails for every multi-athlete team: the second EntryApproved for a
+        // submission re-read the aggregate, got the first message's snapshot with the
+        // review roll-up still on "pending", concluded nothing was owed, and returned
+        // without an error, a log line or a delivery. Any handler that reads state to
+        // decide something has the same exposure.
+        $this->servicesResetter?->reset();
+
         $start = hrtime(true);
         $wirePayloadType = $message->headers['payload_type'] ?? null;
         $eventName = $wirePayloadType !== null ? TelemetryLabels::classShortName($wirePayloadType) : 'unknown';

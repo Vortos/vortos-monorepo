@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\DependencyInjection;
 
+use Vortos\Foundation\Reset\ServicesResetter;
 use Vortos\Messaging\Attribute\AsEventHandler;
 use Vortos\Messaging\Attribute\AsMiddleware;
 use Vortos\Messaging\Attribute\MessagingConfig;
@@ -377,6 +378,12 @@ final class MessagingExtension extends Extension
             ->setAutoconfigured(true)
             ->setArgument('$handlerLocator', new Reference('vortos.handler_locator'))
             ->setArgument('$defaultIdempotencyTtl', $defaultIdempotencyTtl)
+            // Resets per-request-scoped services between messages, the way Runner does
+            // between HTTP requests. Without it a long-lived consumer accumulates the
+            // Doctrine identity map for the life of the process and handlers read stale
+            // aggregates. NULL_ON_INVALID_REFERENCE so an app without Foundation's
+            // resetter still boots.
+            ->setArgument('$servicesResetter', new Reference(ServicesResetter::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setArgument('$hookRunner', new Reference(HookRunner::class))
             ->setArgument('$eventBus', new Reference(EventBusInterface::class))
             ->setArgument('$wireEventMap', '%vortos.wire_event_map%')

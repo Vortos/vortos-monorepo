@@ -23,6 +23,9 @@ use Doctrine\DBAL\Connection;
 use Vortos\Messaging\DeadLetter\DeadLetterWriter;
 use Vortos\Messaging\Middleware\MiddlewareStack;
 use Vortos\Messaging\Registry\ConsumerRegistry;
+use Psr\Container\ContainerInterface as PsrContainerInterface;
+use Symfony\Contracts\Service\ResetInterface;
+use Vortos\Foundation\Reset\ServicesResetter;
 use Vortos\Messaging\Registry\HandlerRegistry;
 use Vortos\Messaging\Retry\RetryDecider;
 use Vortos\Messaging\Retry\RetryDelayCalculator;
@@ -167,6 +170,7 @@ final class ConsumerRunnerTest extends TestCase
         array $upcasterMap = [],
         ?FlushableMetricsInterface $metricsFlusher = null,
         int $telemetryFlushIntervalMs = 5000,
+        ?ServicesResetter $servicesResetter = null,
     ): ConsumerRunner {
         $cache = new class implements AtomicCacheInterface {
             public function get($key, $default = null): mixed { return $default; }
@@ -208,7 +212,41 @@ final class ConsumerRunnerTest extends TestCase
             upcasterMap:          $upcasterMap,
             metricsFlusher:       $metricsFlusher,
             telemetryFlushIntervalMs: $telemetryFlushIntervalMs,
+            servicesResetter:     $servicesResetter,
         );
+    }
+
+    /**
+     * A consumer worker is one long-lived process, so nothing resets per-request
+     * services for it the way Runner::cleanUp() does after an HTTP request. Without
+     * this call the Doctrine identity map accumulates for the life of the process and
+     * handlers re-reading an aggregate get an earlier message's snapshot instead of
+     * the database — which silently stopped every multi-athlete team registration
+     * from receiving its approval emails, with no error anywhere.
+     */
+    public function test_resets_per_request_services_before_handling_a_message(): void
+    {
+        $resettable = new class implements ResetInterface {
+            public int $resets = 0;
+            public function reset(): void { $this->resets++; }
+        };
+
+        $container = new class($resettable) implements PsrContainerInterface {
+            public function __construct(private object $svc) {}
+            public function get(string $id): mixed { return $this->svc; }
+            public function has(string $id): bool { return true; }
+        };
+
+        $consumer = new SingleMessageConsumer($this->makeMessage($this->baseHeaders()));
+
+        $this->makeRunner(
+            new HandlerRegistry([]),
+            new ConsumerRegistry([]),
+            $consumer,
+            servicesResetter: new ServicesResetter($container, ['some.resettable']),
+        )->run('c');
+
+        $this->assertSame(1, $resettable->resets, 'Each consumed message must start from clean per-request state.');
     }
 
     public function test_rejects_message_with_no_payload_type_header(): void

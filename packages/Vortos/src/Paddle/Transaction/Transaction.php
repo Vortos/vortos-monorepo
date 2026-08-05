@@ -24,6 +24,16 @@ final class Transaction
         /** @var TransactionLineItem[] */
         public readonly array                $lineItems,
         /**
+         * What Paddle kept and what is left for the seller.
+         *
+         * Null until the transaction is billed — Paddle does not report a fee
+         * before then. That nullability is deliberate and must be preserved by
+         * callers: "not settled yet" and "settled with a zero fee" are different
+         * facts, and a reconciler that conflates them books the whole modelled
+         * fee as drift. See PayoutTotals.
+         */
+        public readonly ?PayoutTotals        $payoutTotals = null,
+        /**
          * Whatever the caller attached when creating the transaction, echoed back.
          * Webhooks already carry it; reading a transaction had been dropping it, so
          * anyone reconciling a payment out-of-band lost the context that said what
@@ -53,6 +63,9 @@ final class Transaction
                 $sdk->details->lineItems
             ),
             customData:     self::customDataFromSdk($sdk),
+            payoutTotals:   $sdk->details->payoutTotals !== null
+                                ? PayoutTotals::fromSdk($sdk->details->payoutTotals)
+                                : null,
         );
     }
 

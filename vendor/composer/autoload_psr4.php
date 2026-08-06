@@ -23,6 +23,8 @@ return array(
     'Vortos\\PersistenceOrm\\' => array($baseDir . '/packages/Vortos/src/PersistenceOrm'),
     'Vortos\\PersistenceMongo\\' => array($vendorDir . '/vortos/vortos-persistence-mongo'),
     'Vortos\\PersistenceDbal\\' => array($vendorDir . '/vortos/vortos-persistence-dbal'),
+    'Vortos\\Payments\\' => array($baseDir . '/packages/Vortos/src/Payments'),
+    'Vortos\\PayHere\\' => array($baseDir . '/packages/Vortos/src/PayHere'),
     'Vortos\\Paddle\\' => array($baseDir . '/packages/Vortos/src/Paddle'),
     'Vortos\\OpsKit\\' => array($baseDir . '/packages/Vortos/src/OpsKit'),
     'Vortos\\Observability\\' => array($baseDir . '/packages/Vortos/src/Observability'),

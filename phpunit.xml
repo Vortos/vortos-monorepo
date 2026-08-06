@@ -117,6 +117,12 @@
         <testsuite name="Deploy">
             <directory>packages/Vortos/src/Deploy/Tests</directory>
         </testsuite>
+        <testsuite name="Payments">
+            <directory>packages/Vortos/src/Payments/Tests</directory>
+        </testsuite>
+        <testsuite name="PayHere">
+            <directory>packages/Vortos/src/PayHere/Tests</directory>
+        </testsuite>
         <testsuite name="Paddle">
             <directory>packages/Vortos/src/Paddle/Tests</directory>
         </testsuite>

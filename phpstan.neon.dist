@@ -33,6 +33,10 @@ services:
                 - '/Deploy/'
                 - '/Backup/'
                 - '/Migration/'
+                # Payments is contracts only — the whole point is that a rail is
+                # interchangeable, which stops being true the moment a vendor
+                # type is referenced here rather than in that vendor's package.
+                - '/src/Payments/'
                 # Observability: only the new agnostic telemetry seam — NOT the
                 # template publisher (Service/Command/Config), which is intentionally
                 # vendor-aware (it ships vendor dashboards).

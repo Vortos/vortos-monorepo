@@ -19,6 +19,7 @@ final class Configuration implements ConfigurationInterface
             ->scalarNode('api_key')->defaultValue('')->end()
             ->scalarNode('notification_secret')->defaultValue('')->end()
             ->scalarNode('webhook_path')->defaultValue('/webhooks/paddle')->end()
+            ->scalarNode('default_product_id')->defaultValue('')->end()
 
             ->arrayNode('client')
                 ->addDefaultsIfNotSet()

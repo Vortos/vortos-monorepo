@@ -70,6 +70,8 @@ use Vortos\Paddle\Customer\TransactionalAddressService;
 use Vortos\Paddle\Customer\TransactionalBusinessService;
 use Vortos\Paddle\Customer\TransactionalCustomerService;
 use Vortos\Paddle\Failover\PaddleCircuitBreaker;
+use Vortos\Paddle\Gateway\PaddleGateway;
+use Vortos\Paddle\Gateway\PaddleSignatureVerifier;
 use Vortos\Paddle\Command\PaddleOutboxRetryCommand;
 use Vortos\Paddle\Outbox\PaddleApiOutboxDispatcher;
 use Vortos\Paddle\Outbox\PaddleOutboxDispatcherInterface;
@@ -141,7 +143,7 @@ final class PaddleExtension extends Extension
         $this->registerApiClient($container, $resolved, $prefix);
         $this->registerWebhooks($container, $resolved, $prefix);
         $this->registerOutboxAndAuditLog($container, $resolved, $prefix);
-        $this->registerDomainServices($container);
+        $this->registerDomainServices($container, $resolved['default_product_id']);
     }
 
     private function registerApiClient(ContainerBuilder $container, array $config, string $prefix): void
@@ -392,7 +394,7 @@ final class PaddleExtension extends Extension
             ->setPublic(false);
     }
 
-    private function registerDomainServices(ContainerBuilder $container): void
+    private function registerDomainServices(ContainerBuilder $container, string $defaultProductId): void
     {
         $this->registerCustomerServices($container);
         $this->registerTransactionServices($container);
@@ -400,6 +402,43 @@ final class PaddleExtension extends Extension
         $this->registerSubscriptionServices($container);
         $this->registerCheckoutServices($container);
         $this->registerReportServices($container);
+        $this->registerGateway($container, $defaultProductId);
+    }
+
+    /**
+     * Paddle behind the rail-agnostic contracts.
+     *
+     * ── Registered by class only, and deliberately not aliased ────────────
+     * There is no `GatewayInterface` alias here, and there must not be one.
+     * With more than one rail installed, a container-level "the gateway" alias
+     * would decide which processor takes an organisation's money by package
+     * boot order — silently, and differently depending on what else is
+     * installed. Which rail handles a payment is a routing decision the
+     * application makes per payment, from the currency, so the application
+     * injects the concrete gateways it wants into its own registry.
+     *
+     * The same argument applies to the signature verifier: two rails sign
+     * differently, and an endpoint that resolved "the verifier" would verify
+     * one rail's webhooks with another rail's scheme.
+     */
+    private function registerGateway(ContainerBuilder $container, string $defaultProductId): void
+    {
+        $container->register(PaddleGateway::class, PaddleGateway::class)
+            ->setArguments([
+                '$customers'        => new Reference(ImmediateCustomerServiceInterface::class),
+                '$transactions'     => new Reference(ImmediateTransactionServiceInterface::class),
+                '$adjustments'      => new Reference(ImmediateAdjustmentServiceInterface::class),
+                '$defaultProductId' => $defaultProductId,
+            ])
+            ->setShared(true)
+            // Public: the application resolves gateways by concrete class when
+            // it assembles its routing registry.
+            ->setPublic(true);
+
+        $container->register(PaddleSignatureVerifier::class, PaddleSignatureVerifier::class)
+            ->setArgument('$verifier', new Reference(WebhookVerifierInterface::class))
+            ->setShared(true)
+            ->setPublic(true);
     }
 
     private function registerCustomerServices(ContainerBuilder $container): void
@@ -703,6 +742,7 @@ final class PaddleExtension extends Extension
     {
         $container->setParameter('vortos_paddle.mode',               $config['mode']);
         $container->setParameter('vortos_paddle.webhook_path',       $config['webhook_path']);
+        $container->setParameter('vortos_paddle.default_product_id', $config['default_product_id']);
         $container->setParameter('vortos_paddle.client.max_retries',               $config['client']['max_retries']);
         $container->setParameter('vortos_paddle.client.retry_on_rate_limit',       $config['client']['retry_on_rate_limit']);
         $container->setParameter('vortos_paddle.client.idempotency_key_ttl_seconds', $config['client']['idempotency_key_ttl_seconds']);

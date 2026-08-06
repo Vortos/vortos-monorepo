@@ -11,6 +11,7 @@ final class VortosPaddleConfig
     private string       $notificationSecret;
     private array        $notificationSecrets = [];
     private string       $webhookPath;
+    private string       $defaultProductId;
 
     private PaddleClientConfig        $clientConfig;
     private PaddleCircuitBreakerConfig $circuitBreakerConfig;
@@ -25,6 +26,11 @@ final class VortosPaddleConfig
         $this->apiKey             = $_ENV['PADDLE_API_KEY'] ?? '';
         $this->notificationSecret = $_ENV['PADDLE_NOTIFICATION_SECRET'] ?? '';
         $this->webhookPath        = $_ENV['PADDLE_WEBHOOK_PATH'] ?? '/webhooks/paddle';
+
+        // The product every ad-hoc (non-catalog) charge line hangs off. Paddle
+        // has no product-less line, and one shared product keeps the price
+        // catalog from growing a row per registration.
+        $this->defaultProductId   = $_ENV['PADDLE_DEFAULT_PRODUCT_ID'] ?? ($_ENV['PADDLE_REGISTRATION_PRODUCT_ID'] ?? '');
 
         $this->clientConfig          = new PaddleClientConfig();
         $this->circuitBreakerConfig  = new PaddleCircuitBreakerConfig();
@@ -55,6 +61,12 @@ final class VortosPaddleConfig
     public function webhookPath(string $path): static
     {
         $this->webhookPath = $path;
+        return $this;
+    }
+
+    public function defaultProductId(string $productId): static
+    {
+        $this->defaultProductId = $productId;
         return $this;
     }
 
@@ -95,6 +107,7 @@ final class VortosPaddleConfig
             'api_key'             => $this->apiKey,
             'notification_secret' => $this->notificationSecret,
             'webhook_path'        => $this->webhookPath,
+            'default_product_id'  => $this->defaultProductId,
             'client'              => $this->clientConfig->toArray(),
             'circuit_breaker'     => $this->circuitBreakerConfig->toArray(),
             'security'            => $this->securityConfig->toArray(),

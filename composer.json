@@ -72,6 +72,8 @@
             "Vortos\\AwsSes\\": "packages/Vortos/src/AwsSes/",
             "Vortos\\ObjectStore\\": "packages/Vortos/src/ObjectStore/",
             "Vortos\\Paddle\\": "packages/Vortos/src/Paddle/",
+            "Vortos\\Payments\\": "packages/Vortos/src/Payments/",
+            "Vortos\\PayHere\\": "packages/Vortos/src/PayHere/",
             "Vortos\\Iac\\": "packages/Vortos/src/Iac/",
             "Vortos\\Tenant\\": "packages/Vortos/src/Tenant/",
             "Vortos\\OpsKit\\": "packages/Vortos/src/OpsKit/",

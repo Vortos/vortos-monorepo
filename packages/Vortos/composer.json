@@ -36,6 +36,8 @@
         "vortos/vortos-push": "Web Push notification delivery (VAPID + RFC 8291 aes128gcm) behind a driver-based sender contract",
         "vortos/vortos-sse": "Server-Sent Events realtime signalling (Redis-backed per-channel version + bounded SSE stream helper)",
         "vortos/vortos-object-store": "S3-compatible object storage package with first-class Cloudflare R2 defaults",
+        "vortos/vortos-payhere": "PayHere integration for Sri Lankan LKR payments — hosted checkout signing, IPN inbox, retrieval and refunds",
+        "vortos/vortos-payments": "Rail-agnostic payment gateway contracts and the conformance suite every gateway implementation must pass",
         "vortos/vortos-paddle": "Paddle billing integration — subscriptions, webhooks, catalog, and customer management",
         "vortos/vortos-iac": "Terraform (.tf.json) export of framework resource declarations — Kafka topics, object-store buckets"
     }

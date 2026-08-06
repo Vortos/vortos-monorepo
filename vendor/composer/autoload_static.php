@@ -72,6 +72,8 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
             'Vortos\\PersistenceOrm\\' => 22,
             'Vortos\\PersistenceMongo\\' => 24,
             'Vortos\\PersistenceDbal\\' => 23,
+            'Vortos\\Payments\\' => 16,
+            'Vortos\\PayHere\\' => 15,
             'Vortos\\Paddle\\' => 14,
             'Vortos\\OpsKit\\' => 14,
             'Vortos\\Observability\\' => 21,
@@ -329,6 +331,14 @@ class ComposerStaticInit3e5b847e212d2f2598a72bbffe95171d
         'Vortos\\PersistenceDbal\\' =>
         array (
             0 => __DIR__ . '/..' . '/vortos/vortos-persistence-dbal',
+        ),
+        'Vortos\\Payments\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/Payments',
+        ),
+        'Vortos\\PayHere\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/packages/Vortos/src/PayHere',
         ),
         'Vortos\\Paddle\\' =>
         array (

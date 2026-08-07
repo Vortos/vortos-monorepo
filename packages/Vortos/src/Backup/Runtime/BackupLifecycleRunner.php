@@ -62,7 +62,7 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
             apply: true,
         );
 
-        return sprintf('retention applied: kept %d, deleted %d', count($plan->keep), count($plan->delete));
+        return sprintf('retention applied: kept %d, deleted %d', $plan->keptTotal(), count($plan->delete));
     }
 
     private function runDrill(BackupSchedule $schedule): string

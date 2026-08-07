@@ -7,9 +7,9 @@ namespace Vortos\Backup\Service;
 use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
 use Throwable;
-use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
 use Vortos\Backup\Catalog\BackupCatalogRepositoryInterface;
-use Vortos\Backup\Domain\BackupArtifact;
+use Vortos\Backup\Catalog\RetentionCatalogInterface;
+use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\Exception\RetentionFloorViolation;
 use Vortos\Backup\Domain\ObjectLockPolicy;
@@ -27,7 +27,7 @@ use Vortos\Backup\Port\BackupStoreInterface;
 final class RetentionEnforcer
 {
     public function __construct(
-        private readonly BackupCatalogReadModelInterface $readModel,
+        private readonly RetentionCatalogInterface $readModel,
         private readonly BackupCatalogRepositoryInterface $repository,
         private readonly BackupEventSinkInterface $events,
         private readonly ClockInterface $clock,
@@ -36,13 +36,10 @@ final class RetentionEnforcer
 
     public function plan(DatabaseEngine $engine, string $environment, RetentionPolicy $policy): RetentionPlan
     {
-        $all = $this->readModel->list($engine, $environment);
-
-        $restorePoints = array_values(array_filter($all, static fn (BackupArtifact $a): bool => $a->isRestorePoint()));
-        $wal = array_values(array_filter($all, static fn (BackupArtifact $a): bool => $a->isWalSegment()));
+        $restorePoints = $this->readModel->listRestorePoints($engine, $environment);
 
         $rpPlan = $policy->plan($restorePoints, $this->clock->now());
-        $merged = $this->mergeWalPlan($rpPlan, $wal);
+        $merged = $this->mergeWalPlan($rpPlan, $engine, $environment);
 
         if ($this->lockPolicy !== null) {
             return $this->applyLockExclusions($merged);
@@ -104,37 +101,42 @@ final class RetentionEnforcer
             }
         }
 
-        return new RetentionPlan($keep, $delete, $refused);
+        return new RetentionPlan($keep, $delete, $refused, $plan->keptWalCount);
     }
 
     /**
-     * @param list<BackupArtifact> $wal
+     * Fold WAL retention into a restore-point plan.
+     *
+     * WAL retention turns on a single instant: $oldestKeptBase, the oldest retained physical base
+     * backup. A segment older than that can never be replayed onto anything we still hold, so it is
+     * prunable; everything at or after it is needed for PITR. With no retained base there is no
+     * anchor to replay onto, and the only safe reading of that is "prune nothing" — deleting WAL on
+     * the strength of an absent base is how a PITR window silently becomes unrecoverable.
+     *
+     * Both branches ask the catalogue for exactly the set they need. The prunable side is bounded
+     * by the prune itself; the retained side is unbounded and is therefore only counted. Deriving
+     * either by filtering "every artifact" in PHP is what exhausted the worker's memory limit.
      */
-    private function mergeWalPlan(RetentionPlan $rpPlan, array $wal): RetentionPlan
+    private function mergeWalPlan(RetentionPlan $rpPlan, DatabaseEngine $engine, string $environment): RetentionPlan
     {
         $oldestKeptBase = null;
         foreach ($rpPlan->keep as $kept) {
-            if ($kept->kind->value === 'physical_base') {
+            if ($kept->kind === BackupKind::PhysicalBase) {
                 if ($oldestKeptBase === null || $kept->createdAt < $oldestKeptBase) {
                     $oldestKeptBase = $kept->createdAt;
                 }
             }
         }
 
-        $keepWal = [];
-        $deleteWal = [];
-        foreach ($wal as $segment) {
-            if ($oldestKeptBase === null || $segment->createdAt >= $oldestKeptBase) {
-                $keepWal[] = $segment;
-            } else {
-                $deleteWal[] = $segment;
-            }
-        }
+        $deleteWal = $oldestKeptBase === null
+            ? []
+            : $this->readModel->listWalOlderThan($engine, $environment, $oldestKeptBase);
 
         return new RetentionPlan(
-            [...$rpPlan->keep, ...$keepWal],
+            $rpPlan->keep,
             [...$rpPlan->delete, ...$deleteWal],
             $rpPlan->refused,
+            $this->readModel->countWalFrom($engine, $environment, $oldestKeptBase),
         );
     }
 

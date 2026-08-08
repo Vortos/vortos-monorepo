@@ -113,12 +113,16 @@ final class BackupExtension extends Extension
         $drillTable = $prefix . 'backup_drill_report';
 
         $storeKey = (string) ($_ENV['VORTOS_BACKUP_STORE'] ?? 'object-store');
-        // Set only when WAL lives in its own bucket. The object-store package registers
-        // `vortos_object_store.wal` when OBJECT_STORE_WAL_BUCKET is set; this is the backup-store key
-        // that fronts it.
-        $walStoreKey = trim((string) ($_ENV['VORTOS_BACKUP_WAL_STORE'] ?? '')) !== ''
-            ? trim((string) $_ENV['VORTOS_BACKUP_WAL_STORE'])
-            : ($container->has('vortos_object_store.wal') ? 'object-store-wal' : null);
+        // Set only when WAL lives in its own bucket, which the object-store package decides from the
+        // SAME env var. Deliberately not `$container->has('vortos_object_store.wal')`: extension
+        // load() order is not guaranteed, so that check is a race against registration order — the
+        // exact bug that left DeadManDetector unregistered in production for weeks while every
+        // schedule quietly lost its alarm. Reading env is order-independent. The Reference below is
+        // still safe, because references resolve at compile time, after every extension has loaded.
+        $walBucket = trim((string) ($_ENV['OBJECT_STORE_WAL_BUCKET'] ?? ''));
+        $walStoreKey = $walBucket === ''
+            ? null
+            : (trim((string) ($_ENV['VORTOS_BACKUP_WAL_STORE'] ?? '')) ?: 'object-store-wal');
         $keyPrefix = (string) ($_ENV['VORTOS_BACKUP_KEY_PREFIX'] ?? 'backups');
         $lockDir = (string) ($_ENV['VORTOS_BACKUP_LOCK_DIR'] ?? ($projectDir . '/var/backup-locks'));
         $mongoUri = (string) ($_ENV['VORTOS_BACKUP_MONGO_URI'] ?? '');
@@ -213,7 +217,7 @@ final class BackupExtension extends Extension
         // A second backup store over the WAL bucket. Same class, distinct driver key: the collection
         // pass prefers an explicit key on the tag over the #[AsDriver] attribute, so two instances
         // coexist without either claiming the other's key.
-        if ($walStoreKey !== null && $container->has('vortos_object_store.wal')) {
+        if ($walStoreKey !== null) {
             $container->register('vortos.backup.store.wal', ObjectStoreBackupStore::class)
                 ->setArgument('$objectStore', new Reference('vortos_object_store.wal'))
                 ->addTag(CollectBackupStoresPass::TAG, ['key' => $walStoreKey])
@@ -225,7 +229,7 @@ final class BackupExtension extends Extension
         // with no WAL store it answers "primary" to everything.
         $container->register(BackupStoreResolver::class, BackupStoreResolver::class)
             ->setArgument('$primaryStoreKey', $storeKey)
-            ->setArgument('$walStoreKey', $container->has('vortos_object_store.wal') ? $walStoreKey : null)
+            ->setArgument('$walStoreKey', $walStoreKey)
             ->setPublic(false);
 
         // ── Restore target drivers ──

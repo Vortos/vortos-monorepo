@@ -167,6 +167,40 @@ final class DbalBackupCatalogTest extends TestCase
         $this->assertSame(1, $this->readModel->countWalFrom(DatabaseEngine::Postgres, 'staging', null));
     }
 
+
+    /**
+     * store_id must survive the round trip through the real repository.
+     *
+     * This is the seam that was missed. `record()` names every column explicitly, so a field added to
+     * BackupArtifact::toArray() is dropped unless it is also named here — and the in-memory double
+     * stores artifacts whole, so no unit test could see it. In production the result was WAL objects
+     * written to their own bucket while their catalog rows claimed the primary one: retention would
+     * then resolve them to the wrong store, where deleting an absent key is a no-op that reports
+     * success, forgetting the row and orphaning the object.
+     */
+    public function test_store_id_is_persisted_and_read_back(): void
+    {
+        $artifact = ArtifactFactory::at('2026-08-08 16:48:02', BackupKind::WalSegment, storeId: 'object-store-wal');
+        $this->repo->record($artifact);
+
+        $loaded = $this->readModel->byId($artifact->id->value());
+
+        $this->assertNotNull($loaded);
+        $this->assertSame('object-store-wal', $loaded->storeId, 'The catalog must remember which bucket holds the bytes.');
+    }
+
+    /** An artifact with no explicit store still reads back as null, meaning the primary store. */
+    public function test_an_unstamped_artifact_round_trips_as_null(): void
+    {
+        $artifact = ArtifactFactory::at('2026-08-08 02:00:00', BackupKind::PhysicalBase);
+        $this->repo->record($artifact);
+
+        $loaded = $this->readModel->byId($artifact->id->value());
+
+        $this->assertNotNull($loaded);
+        $this->assertNull($loaded->storeId);
+    }
+
     private function createTable(): void
     {
         $this->connection->executeStatement(<<<'SQL'
@@ -187,7 +221,8 @@ final class DbalBackupCatalogTest extends TestCase
                 encryption_provider TEXT NULL,
                 encryption_recipient TEXT NULL,
                 encryption_aead_id INTEGER NULL,
-                secondary_store_key TEXT NULL
+                secondary_store_key TEXT NULL,
+                store_id TEXT NULL
             )
             SQL);
     }

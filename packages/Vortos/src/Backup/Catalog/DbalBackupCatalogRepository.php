@@ -45,6 +45,13 @@ final class DbalBackupCatalogRepository implements BackupCatalogRepositoryInterf
                 'encryption_recipient' => $data['encryption_recipient'] ?? null,
                 'encryption_aead_id' => $data['encryption_aead_id'] ?? null,
                 'secondary_store_key' => $data['secondary_store_key'] ?? null,
+                // Must be listed explicitly: this insert names every column, so a field added to
+                // BackupArtifact::toArray() is silently dropped here unless it is also named. It was,
+                // and the result was worse than losing metadata — WAL objects were written to their
+                // own bucket while their catalog rows said they were in the primary one. Retention
+                // then resolves them to the wrong store, where deleting a key that is not there is a
+                // no-op reporting success, so the row is forgotten and the object orphaned.
+                'store_id' => $data['store_id'] ?? null,
             ]);
         } catch (UniqueConstraintViolationException) {
             throw BackupAlreadyExistsException::forId($data['id']);

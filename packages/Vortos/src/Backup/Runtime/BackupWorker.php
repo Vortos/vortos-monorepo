@@ -118,11 +118,25 @@ final class BackupWorker
     private function fire(BackupSchedule $schedule, ScheduleState $state, DateTimeImmutable $now): string
     {
         try {
-            $result = $this->runner->execute($schedule);
+            $outcome = $this->runner->execute($schedule);
+
+            // A skipped occurrence did not happen, so it is still owed. Leaving the watermark alone
+            // keeps the schedule due, and the next tick retries once the lock clears — typically
+            // seconds later, since what holds it is a concurrent backup of the same scope that is
+            // busy finishing.
+            //
+            // Deliberately NOT counted as a failure either: nothing is broken, so consuming a retry
+            // budget and eventually raising a dead-man alert would be crying wolf. The guard against
+            // a lock that never clears is BackupFreshnessInspector, which reasons from the catalog
+            // and therefore notices missing artifacts however cheerfully this worker reports itself.
+            if ($outcome->isSkipped()) {
+                return $outcome->summary;
+            }
+
             // run-once-on-recovery: re-base to now so missed windows don't storm.
             $this->state->put($schedule->name, $state->firedAt($now));
 
-            return 'fired: ' . $result;
+            return 'fired: ' . $outcome->summary;
         } catch (\Throwable $e) {
             $attempts = $state->consecutiveFailures + 1;
 

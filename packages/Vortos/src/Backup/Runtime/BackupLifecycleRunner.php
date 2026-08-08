@@ -30,7 +30,7 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
     ) {
     }
 
-    public function execute(BackupSchedule $schedule): string
+    public function execute(BackupSchedule $schedule): LifecycleOutcome
     {
         return match ($schedule->type) {
             BackupScheduleType::Backup => $this->runBackup($schedule),
@@ -39,7 +39,7 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
         };
     }
 
-    private function runBackup(BackupSchedule $schedule): string
+    private function runBackup(BackupSchedule $schedule): LifecycleOutcome
     {
         $artifact = $this->backupRunner->run(new BackupRequest(
             engine: $schedule->engine,
@@ -47,12 +47,22 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
             environment: $schedule->environment,
         ));
 
-        return $artifact === null
-            ? 'backup produced no artifact'
-            : sprintf('backup %s stored', $artifact->id->value);
+        // A null artifact means exactly one thing: BackupRunner could not take the single-flight
+        // lock for this engine+environment, so it deliberately did not dump. Nothing ran and nothing
+        // failed — the occurrence is still owed, and reporting it as completed is what let a lost
+        // race silently consume a six-hour window.
+        if ($artifact === null) {
+            return LifecycleOutcome::skipped(sprintf(
+                'skipped: another %s/%s backup holds the single-flight lock',
+                $schedule->engine->value,
+                $schedule->environment,
+            ));
+        }
+
+        return LifecycleOutcome::completed(sprintf('backup %s stored', $artifact->id->value));
     }
 
-    private function runRetention(BackupSchedule $schedule): string
+    private function runRetention(BackupSchedule $schedule): LifecycleOutcome
     {
         $plan = $this->retentionEnforcer->enforce(
             $this->stores->store($this->storeKey),
@@ -62,10 +72,12 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
             apply: true,
         );
 
-        return sprintf('retention applied: kept %d, deleted %d', $plan->keptTotal(), count($plan->delete));
+        return LifecycleOutcome::completed(
+            sprintf('retention applied: kept %d, deleted %d', $plan->keptTotal(), count($plan->delete)),
+        );
     }
 
-    private function runDrill(BackupSchedule $schedule): string
+    private function runDrill(BackupSchedule $schedule): LifecycleOutcome
     {
         if ($this->drillRunner === null) {
             throw new \RuntimeException('backup drill scheduled but no DrillRunner is wired (install/configure restore drills).');
@@ -81,6 +93,6 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
             ));
         }
 
-        return sprintf('drill passed (rto=%dms)', $report->rtoMs);
+        return LifecycleOutcome::completed(sprintf('drill passed (rto=%dms)', $report->rtoMs));
     }
 }

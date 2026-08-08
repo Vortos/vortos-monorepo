@@ -13,6 +13,7 @@ use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Event\BackupEvent;
 use Vortos\Backup\Event\BackupEventSinkInterface;
 use Vortos\Backup\Runtime\BackupLifecycleRunnerInterface;
+use Vortos\Backup\Runtime\LifecycleOutcome;
 use Vortos\Backup\Runtime\BackupWorker;
 use Vortos\Backup\Runtime\InMemoryScheduleStateStore;
 use Vortos\Backup\Runtime\ScheduleState;
@@ -141,6 +142,61 @@ final class BackupWorkerTest extends TestCase
         $this->assertCount(1, $runner->executed);
     }
 
+    /**
+     * A lost single-flight race must not consume the occurrence.
+     *
+     * This is the bug that cost production four days of logical backups. The base-backup program and
+     * the worker's logical dump share one lock scope and both start with the container, so the dump
+     * reliably loses the race on a cold start. That skip was reported as a completed occurrence, the
+     * watermark advanced, and a six-hourly schedule then waited a full six hours — having backed up
+     * nothing. Nothing failed, so nothing retried and no alarm had anything to fire on.
+     */
+    public function test_a_skipped_occurrence_does_not_advance_the_watermark(): void
+    {
+        $runner = new RecordingLifecycleRunner(skipTimes: 1);
+        $state  = $this->warmStore('nightly', '2024-01-01 05:00:00');
+        $worker = new BackupWorker(
+            [$this->schedule('0 */6 * * *')],
+            $runner,
+            $state,
+            $this->clock('2024-01-01 06:00:00'),
+        );
+
+        $log = $worker->tick($this->at('2024-01-01 06:00:00'));
+        $this->assertStringContainsString('skipped', $log[0]['result']);
+        $this->assertSame([], $runner->executed, 'Nothing was backed up.');
+
+        // Still due on the very next tick — the occurrence is owed, not spent. Under the old
+        // behaviour this returned nothing until midday.
+        $log = $worker->tick($this->at('2024-01-01 06:00:30'));
+        $this->assertStringContainsString('fired', $log[0]['result']);
+        $this->assertSame(['nightly'], $runner->executed);
+    }
+
+    /** A skip is not a failure: it must not consume the retry budget or raise a dead-man alert. */
+    public function test_a_skipped_occurrence_is_not_counted_as_a_failure(): void
+    {
+        $runner = new RecordingLifecycleRunner(skipTimes: 5);
+        $events = new RecordingEventSink();
+        $state  = $this->warmStore('nightly', '2024-01-01 05:00:00');
+        $worker = new BackupWorker(
+            [$this->schedule('0 */6 * * *')],
+            $runner,
+            $state,
+            $this->clock('2024-01-01 06:00:00'),
+            events: $events,
+            maxRetries: 3,
+        );
+
+        foreach (['06:00:00', '06:00:30', '06:01:00', '06:01:30', '06:02:00'] as $t) {
+            $log = $worker->tick($this->at('2024-01-01 ' . $t));
+            $this->assertStringContainsString('skipped', $log[0]['result']);
+        }
+
+        $this->assertSame([], $events->events, 'A held lock is not a broken backup — no alert.');
+        $this->assertSame(5, $runner->calls, 'Every tick retried rather than backing off.');
+    }
+
     public function test_failure_backs_off_then_retries(): void
     {
         $runner = new RecordingLifecycleRunner(failTimes: 1);
@@ -225,18 +281,24 @@ final class RecordingLifecycleRunner implements BackupLifecycleRunnerInterface
     public array $executed = [];
     public int $calls = 0;
 
-    public function __construct(private int $failTimes = 0) {}
+    /** @param int $skipTimes leading occurrences that lose the single-flight race and do no work */
+    public function __construct(private int $failTimes = 0, private int $skipTimes = 0) {}
 
-    public function execute(BackupSchedule $schedule): string
+    public function execute(BackupSchedule $schedule): LifecycleOutcome
     {
         $this->calls++;
         if ($this->failTimes > 0) {
             $this->failTimes--;
             throw new \RuntimeException('boom');
         }
+        if ($this->skipTimes > 0) {
+            $this->skipTimes--;
+
+            return LifecycleOutcome::skipped('skipped: lock held');
+        }
         $this->executed[] = $schedule->name;
 
-        return 'ok';
+        return LifecycleOutcome::completed('ok');
     }
 }
 

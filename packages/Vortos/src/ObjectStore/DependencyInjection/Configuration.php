@@ -36,6 +36,12 @@ final class Configuration implements ConfigurationInterface
                     ->addDefaultsIfNotSet()
                     ->children()
                         ->scalarNode('name')->defaultValue('')->end()
+                        // A second bucket for write-ahead-log segments, when they must not share the
+                        // primary one. The case that forces it: Object Lock is a bucket-level setting,
+                        // and it is right for restore points and wrong for WAL — a segment lands every
+                        // few minutes and pruning old ones is the whole point, which immutability
+                        // forbids. Empty means WAL lives with everything else.
+                        ->scalarNode('wal_name')->defaultValue('')->end()
                         ->scalarNode('key_prefix')->defaultValue('')->end()
                         ->scalarNode('temporary_key_prefix')->defaultValue('tmp')->end()
                         ->scalarNode('public_base_url')->defaultNull()->end()

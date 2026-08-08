@@ -7,6 +7,7 @@ namespace Vortos\ObjectStore\DependencyInjection;
 final class ObjectStoreBucketConfig
 {
     private string $name = '';
+    private string $walName = '';
     private string $keyPrefix = '';
     private string $temporaryKeyPrefix = 'tmp';
     private ?string $publicBaseUrl = null;
@@ -18,6 +19,19 @@ final class ObjectStoreBucketConfig
     public function name(string $name): static
     {
         $this->name = $name;
+        return $this;
+    }
+
+    /**
+     * A second bucket for WAL segments, when they must not share the primary one.
+     *
+     * Object Lock is a bucket-level setting: right for restore points, wrong for WAL, where a segment
+     * lands every few minutes and pruning the old ones is the entire point. Empty keeps WAL with
+     * everything else.
+     */
+    public function walName(string $name): static
+    {
+        $this->walName = $name;
         return $this;
     }
 
@@ -68,6 +82,7 @@ final class ObjectStoreBucketConfig
     {
         return [
             'name'                        => $this->name,
+            'wal_name'                    => $this->walName,
             'key_prefix'                  => $this->keyPrefix,
             'temporary_key_prefix'        => $this->temporaryKeyPrefix,
             'public_base_url'             => $this->publicBaseUrl,

@@ -279,6 +279,56 @@ final class ObjectStoreExtension extends Extension
             ->setPublic(false);
 
         $container->setAlias(ImmediateObjectStoreInterface::class, ImmediateObjectStore::class)->setPublic(false);
+
+        $this->registerWalStore($container, $config);
+    }
+
+    /**
+     * A parallel store bound to a second bucket, for callers that must not write WAL into the primary.
+     *
+     * Registered here rather than assembled by whoever needs it: buckets and drivers are this
+     * package's concern, and reaching into S3CompatibleObjectStore from another package is exactly
+     * what the agnosticism lint exists to prevent. Consumers take `vortos_object_store.wal` by id and
+     * see the same ImmediateObjectStoreInterface they already use.
+     *
+     * The S3 client is shared with the primary store — same account, same credentials, different
+     * bucket — so this costs one extra driver instance and nothing else.
+     *
+     * @param array<string, mixed> $config
+     */
+    private function registerWalStore(ContainerBuilder $container, array $config): void
+    {
+        $walBucket = trim((string) ($config['bucket']['wal_name'] ?? ''));
+
+        // Only meaningful for a real object store. On the null/log drivers there is no second bucket
+        // to point at, and silently registering one would imply a separation that does not exist.
+        if ($walBucket === '' || $config['driver'] !== 's3') {
+            return;
+        }
+
+        $container->register('vortos_object_store.wal.driver', S3CompatibleObjectStore::class)
+            ->setArguments([
+                new Reference(\Aws\S3\S3Client::class),
+                $walBucket,
+                $config['provider'],
+                $config['multipart']['part_size_bytes'],
+            ])
+            ->setShared(true)
+            ->setPublic(false);
+
+        // Mirrors the primary chain (driver → middleware stack → immediate) so the two stores behave
+        // identically. A shorter chain here would mean WAL quietly skipping whatever the primary
+        // store's middlewares do.
+        $container->register('vortos_object_store.wal.sending_store', ObjectStoreMiddlewareStack::class)
+            ->setArgument('$driver', new Reference('vortos_object_store.wal.driver'))
+            ->setArgument('$middlewares', [])
+            ->setShared(true)
+            ->setPublic(false);
+
+        $container->register('vortos_object_store.wal', ImmediateObjectStore::class)
+            ->setArgument('$inner', new Reference('vortos_object_store.wal.sending_store'))
+            ->setShared(true)
+            ->setPublic(false);
     }
 
     private function registerDirectUploads(ContainerBuilder $container, array $config): void

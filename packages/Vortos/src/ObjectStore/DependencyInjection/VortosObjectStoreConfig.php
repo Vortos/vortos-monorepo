@@ -46,6 +46,7 @@ final class VortosObjectStoreConfig
 
         $this->bucketConfig
             ->name($_ENV['OBJECT_STORE_BUCKET'] ?? '')
+            ->walName($_ENV['OBJECT_STORE_WAL_BUCKET'] ?? '')
             ->keyPrefix($_ENV['OBJECT_STORE_KEY_PREFIX'] ?? '')
             ->temporaryKeyPrefix($_ENV['OBJECT_STORE_TEMPORARY_KEY_PREFIX'] ?? 'tmp')
             ->publicBaseUrl($_ENV['OBJECT_STORE_PUBLIC_BASE_URL'] ?? null);

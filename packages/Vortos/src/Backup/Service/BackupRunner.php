@@ -16,6 +16,7 @@ use Vortos\Backup\Event\BackupEvent;
 use Vortos\Backup\Event\BackupEventSinkInterface;
 use Vortos\Backup\Port\BackupStream;
 use Vortos\Backup\Port\BackupStoreInterface;
+use Vortos\Backup\Port\BackupStoreResolver;
 use Vortos\Backup\Port\BackupStoreRegistry;
 use Vortos\Backup\Port\BackupTargetRegistry;
 use Vortos\Backup\Service\EncryptionSeam\EnvelopeStreamTransform;
@@ -44,6 +45,9 @@ final class BackupRunner
         private readonly ClockInterface $clock,
         private readonly string $storeKey,
         private readonly string $keyPrefix,
+        // Optional, and last so existing positional construction is untouched: routes a kind to its
+        // own store (WAL to a lock-free bucket). Absent, everything is written to $storeKey as before.
+        private readonly ?BackupStoreResolver $storeResolver = null,
     ) {}
 
     public function run(BackupRequest $request, ?string $schemaFingerprint = null): ?BackupArtifact
@@ -57,7 +61,10 @@ final class BackupRunner
     {
         $now = $this->clock->now();
         $id = BackupId::generate($request->engine, $request->kind, $now);
-        $store = $this->stores->store($this->storeKey);
+        // Resolved from the KIND: this decides where a new artifact belongs, and configuration is the
+        // right authority for that. Reading resolves from the artifact instead — see BackupStoreResolver.
+        $targetStoreKey = $this->storeResolver?->forKind($request->kind) ?? $this->storeKey;
+        $store = $this->stores->store($targetStoreKey);
         $storeKey = '';
         $stored = null;
 
@@ -115,6 +122,10 @@ final class BackupRunner
                 null,
                 $schemaFingerprint,
                 $encryption,
+                null,
+                // Stamped so a later restore or prune finds these bytes without having to trust that
+                // configuration still says what it said when they were written.
+                $targetStoreKey,
             );
 
             $this->catalog->record($artifact);

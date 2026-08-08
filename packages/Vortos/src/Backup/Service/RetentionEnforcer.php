@@ -9,6 +9,9 @@ use Psr\Clock\ClockInterface;
 use Throwable;
 use Vortos\Backup\Catalog\BackupCatalogRepositoryInterface;
 use Vortos\Backup\Catalog\RetentionCatalogInterface;
+use Vortos\Backup\Domain\BackupArtifact;
+use Vortos\Backup\Port\BackupStoreRegistry;
+use Vortos\Backup\Port\BackupStoreResolver;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\Exception\RetentionFloorViolation;
@@ -32,6 +35,10 @@ final class RetentionEnforcer
         private readonly BackupEventSinkInterface $events,
         private readonly ClockInterface $clock,
         private readonly ?ObjectLockPolicy $lockPolicy = null,
+        // Optional: only needed once artifacts can live in more than one store. Without them every
+        // artifact is deleted from the store handed to enforce(), which is how it always worked.
+        private readonly ?BackupStoreRegistry $stores = null,
+        private readonly ?BackupStoreResolver $storeResolver = null,
     ) {}
 
     public function plan(DatabaseEngine $engine, string $environment, RetentionPolicy $policy): RetentionPlan
@@ -73,7 +80,11 @@ final class RetentionEnforcer
 
         foreach ($plan->delete as $artifact) {
             try {
-                $store->delete($artifact->storeKey);
+                // Delete from the store the artifact says it is in, not the one we were handed. With
+                // WAL routed to its own bucket these differ, and deleting a key from the wrong store
+                // is not an error there — it is a no-op that reports success, so retention would
+                // forget the catalog row while the object lived on, untracked, forever.
+                $this->storeFor($artifact, $store)->delete($artifact->storeKey);
                 $this->repository->forget($artifact->id->value());
                 $deleted[] = $artifact;
             } catch (Throwable $e) {
@@ -159,6 +170,22 @@ final class RetentionEnforcer
             $rpPlan->refused,
             $this->readModel->countWalFrom($engine, $environment, $oldestKeptBase),
         );
+    }
+
+    /** The store an artifact actually lives in, falling back to the one supplied by the caller. */
+    private function storeFor(BackupArtifact $artifact, BackupStoreInterface $fallback): BackupStoreInterface
+    {
+        if ($this->stores === null || $this->storeResolver === null) {
+            return $fallback;
+        }
+
+        $key = $this->storeResolver->forArtifact($artifact);
+
+        if ($key === $this->storeResolver->primaryStoreKey()) {
+            return $fallback;
+        }
+
+        return $this->stores->store($key);
     }
 
     /**

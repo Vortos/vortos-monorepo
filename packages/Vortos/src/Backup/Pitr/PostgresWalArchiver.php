@@ -204,6 +204,11 @@ final class PostgresWalArchiver
             null,
             null,
             $encryption,
+            null,
+            // The store this archiver was configured with. WAL may be routed to a bucket of its own,
+            // and a restore has to find these segments without trusting that config still points
+            // where it pointed when they were shipped.
+            $this->storeKey,
         );
     }
 

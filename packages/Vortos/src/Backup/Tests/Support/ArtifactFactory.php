@@ -21,6 +21,7 @@ final class ArtifactFactory
         BackupKind $kind = BackupKind::LogicalFull,
         DatabaseEngine $engine = DatabaseEngine::Postgres,
         string $env = 'prod',
+        ?string $storeId = null,
     ): BackupArtifact {
         $created = new DateTimeImmutable($iso);
 
@@ -35,6 +36,11 @@ final class ArtifactFactory
             sprintf('backups/%s/%s/%s/%s', $env, $engine->value, $kind->value, str_replace([':', '-', ' '], '', $iso)),
             CompressionCodec::None,
             SourceRef::none(),
+            null,
+            null,
+            null,
+            null,
+            $storeId,
         );
     }
 }

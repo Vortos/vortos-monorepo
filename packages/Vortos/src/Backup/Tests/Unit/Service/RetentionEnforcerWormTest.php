@@ -7,6 +7,8 @@ namespace Vortos\Backup\Tests\Unit\Service;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Vortos\Backup\Domain\BackupKind;
+use Vortos\Backup\Port\BackupStoreRegistry;
+use Vortos\Backup\Port\BackupStoreResolver;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\ObjectLockPolicy;
 use Vortos\Backup\Domain\RetentionPolicy;
@@ -188,5 +190,66 @@ final class RetentionEnforcerWormTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/deadlock/');
         $enforcer->enforce($store, DatabaseEngine::Postgres, 'prod', $policy, apply: true);
+    }
+
+    /**
+     * Retention must delete from the bucket the artifact is actually in.
+     *
+     * With WAL routed to its own store this is the failure mode to fear, because it is silent:
+     * deleting a key that is not in a store is not an error, it is a no-op that reports success. The
+     * catalog row would be forgotten while the object lived on in the other bucket — untracked,
+     * unprunable, and invisible to every count and cost report thereafter.
+     */
+    public function test_retention_deletes_from_the_store_the_artifact_lives_in(): void
+    {
+        $catalog = new InMemoryCatalogRepository();
+        $events  = new CollectingEventSink();
+        $clock   = new FixedClock(new DateTimeImmutable('2026-06-24'));
+
+        $keptBase = ArtifactFactory::at('2026-06-23 02:00:00', BackupKind::PhysicalBase);
+        $oldWal   = ArtifactFactory::at('2026-01-01 02:00:00', BackupKind::WalSegment, storeId: 'object-store-wal');
+        $catalog->record($keptBase);
+        $catalog->record($oldWal);
+
+        $primaryObjects = new InMemoryObjectStore();
+        $walObjects     = new InMemoryObjectStore();
+        $walObjects->objects[$oldWal->storeKey] = 'segment-bytes';
+
+        $primary = new ObjectStoreBackupStore($primaryObjects);
+        $wal     = new ObjectStoreBackupStore($walObjects);
+
+        $registry = new BackupStoreRegistry(new class ([
+            'object-store'     => $primary,
+            'object-store-wal' => $wal,
+        ]) implements \Psr\Container\ContainerInterface {
+            /** @param array<string, object> $services */
+            public function __construct(private array $services) {}
+
+            public function get(string $id): object
+            {
+                return $this->services[$id] ?? throw new class extends \RuntimeException implements \Psr\Container\NotFoundExceptionInterface {};
+            }
+
+            public function has(string $id): bool
+            {
+                return isset($this->services[$id]);
+            }
+        });
+
+        $enforcer = new RetentionEnforcer(
+            $catalog,
+            $catalog,
+            $events,
+            $clock,
+            null,
+            $registry,
+            new BackupStoreResolver('object-store', 'object-store-wal'),
+        );
+
+        $plan = $enforcer->enforce($primary, DatabaseEngine::Postgres, 'prod', new RetentionPolicy(), apply: true);
+
+        self::assertSame([], $walObjects->objects, 'The segment must be gone from the WAL bucket.');
+        self::assertArrayNotHasKey($oldWal->id->value(), $catalog->rows, 'And its catalog row with it.');
+        self::assertCount(1, $plan->delete);
     }
 }

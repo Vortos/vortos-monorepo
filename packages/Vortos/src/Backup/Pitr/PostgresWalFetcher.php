@@ -29,9 +29,12 @@ use Vortos\Secrets\Key\KeyProviderInterface;
  */
 final class PostgresWalFetcher
 {
+    /**
+     * @param non-empty-list<string> $storeKeys stores to search, in order
+     */
     public function __construct(
         private readonly BackupStoreRegistry $stores,
-        private readonly string $storeKey,
+        private readonly array $storeKeys,
         private readonly string $keyPrefix,
         private readonly ?EnvelopeStreamCipher $cipher = null,
         private readonly ?KeyProviderInterface $keyProvider = null,
@@ -42,10 +45,32 @@ final class PostgresWalFetcher
      */
     public function fetch(string $segmentName, string $destinationPath, string $environment): int
     {
-        $store = $this->stores->store($this->storeKey);
         $objectKey = sprintf('%s/%s/postgres/wal/%s', trim($this->keyPrefix, '/'), $environment, $segmentName);
 
-        if (!$store->exists($objectKey)) {
+        // EVERY configured store is searched, not just the current one.
+        //
+        // WAL may be split across buckets — Object Lock is bucket-level, so keeping restore points
+        // immutable while still pruning WAL means two of them — and a recovery routinely spans the
+        // instant the split was introduced. Segments archived before it are in the old bucket and
+        // segments after it in the new one, and replay needs both.
+        //
+        // The catalog knows which is which and is useless here: it lives in the database being
+        // restored. So this cannot resolve per artifact and must simply look.
+        //
+        // Getting this wrong is silent, which is why it is worth the loop. A miss is how Postgres
+        // learns where the archive ends, so a fetcher that could not see the older bucket would not
+        // fail — it would report the archive as ending at the split and stop replaying there,
+        // producing a database that looks successfully recovered to the wrong point in time.
+        $store = null;
+        foreach ($this->storeKeys as $candidate) {
+            $s = $this->stores->store($candidate);
+            if ($s->exists($objectKey)) {
+                $store = $s;
+                break;
+            }
+        }
+
+        if ($store === null) {
             // Not an error worth shouting about: Postgres probes for segments past the end of the
             // archive on every recovery, and that probe failing is how it learns where to stop.
             throw new ArchivedWalNotFoundException($segmentName);

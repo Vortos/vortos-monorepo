@@ -535,9 +535,11 @@ final class BackupExtension extends Extension
         // make recovery replay ciphertext, so these two are registered together on purpose.
         $container->register(PostgresWalFetcher::class, PostgresWalFetcher::class)
             ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
-            // Must match the archiver: encrypting WAL into one bucket and fetching from another would
-            // make recovery replay nothing at all.
-            ->setArgument('$storeKey', $walStoreKey ?? $storeKey)
+            // EVERY store, newest first — never just the one WAL currently ships to. A recovery
+            // spans the instant the split was introduced, and a fetcher that only knew the new
+            // bucket would report the archive as ending there and stop replaying, silently
+            // recovering to the wrong point in time.
+            ->setArgument('$storeKeys', $walStoreKey !== null ? [$walStoreKey, $storeKey] : [$storeKey])
             ->setArgument('$keyPrefix', $keyPrefix)
             ->setArgument('$cipher', new Reference(EnvelopeStreamCipher::class))
             ->setArgument('$keyProvider', $backupKeyProviderRef)

@@ -88,7 +88,7 @@ final class EncryptedWalRoundTripTest extends TestCase
     {
         return new PostgresWalFetcher(
             $this->stores($object),
-            'object-store',
+            ['object-store'],
             'backups',
             $keys !== null ? new EnvelopeStreamCipher() : null,
             $keys,
@@ -236,5 +236,51 @@ final class EncryptedWalRoundTripTest extends TestCase
 
         $this->fetcher(new InMemoryObjectStore(), new FakeKeyProvider())
             ->fetch('000000010000000000000099', $this->restoreDir . '/nope', 'prod');
+    }
+
+    /**
+     * A recovery that spans the instant WAL was split across buckets must replay both sides.
+     *
+     * This is the failure the loop in PostgresWalFetcher exists to prevent, and it is silent. A miss
+     * is how Postgres learns where the archive ends, so a fetcher that could only see the new bucket
+     * would not error — it would report the archive as ending at the split and stop replaying there,
+     * producing a database that looks successfully recovered to entirely the wrong point in time.
+     */
+    public function test_a_recovery_spanning_two_buckets_finds_segments_in_both(): void
+    {
+        $oldBucket = new InMemoryObjectStore();
+        $newBucket = new InMemoryObjectStore();
+
+        // One segment archived before the split, one after.
+        $oldBucket->objects['backups/production/postgres/wal/000000010000000000000001'] = 'before-the-split';
+        $newBucket->objects['backups/production/postgres/wal/000000010000000000000002'] = 'after-the-split';
+
+        $registry = new BackupStoreRegistry(new ServiceLocator([
+            'object-store'     => fn () => new ObjectStoreBackupStore($oldBucket),
+            'object-store-wal' => fn () => new ObjectStoreBackupStore($newBucket),
+        ]));
+
+        // Ordered as production wires it: current store first, previous one behind it.
+        $fetcher = new PostgresWalFetcher($registry, ['object-store-wal', 'object-store'], 'backups');
+
+        foreach (['000000010000000000000001' => 'before-the-split', '000000010000000000000002' => 'after-the-split'] as $segment => $expected) {
+            $dest = $this->restoreDir . '/' . $segment;
+            $fetcher->fetch($segment, $dest, 'production');
+            self::assertSame($expected, file_get_contents($dest), "Segment {$segment} must be replayable.");
+        }
+    }
+
+    /** A segment in neither store is still a clean not-found, which is how recovery learns to stop. */
+    public function test_a_segment_in_no_store_is_reported_missing(): void
+    {
+        $registry = new BackupStoreRegistry(new ServiceLocator([
+            'object-store'     => fn () => new ObjectStoreBackupStore(new InMemoryObjectStore()),
+            'object-store-wal' => fn () => new ObjectStoreBackupStore(new InMemoryObjectStore()),
+        ]));
+
+        $fetcher = new PostgresWalFetcher($registry, ['object-store-wal', 'object-store'], 'backups');
+
+        $this->expectException(\Vortos\Backup\Pitr\ArchivedWalNotFoundException::class);
+        $fetcher->fetch('0000000100000000000000FF', $this->restoreDir . '/x', 'production');
     }
 }

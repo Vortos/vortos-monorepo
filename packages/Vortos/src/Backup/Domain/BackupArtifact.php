@@ -38,6 +38,16 @@ final readonly class BackupArtifact
         public ?string $schemaFingerprint = null,
         public ?EncryptionMetadata $encryption = null,
         public ?string $secondaryStoreKey = null,
+        /**
+         * Which configured store holds these bytes, when it is not the primary one.
+         *
+         * NULL means the primary store. That is not a default standing in for missing data: a row
+         * written before this column existed is in the primary store because it was the only store
+         * there was, so NULL is the true answer for every one of them. It also cannot be backfilled —
+         * `trg_backup_catalog_no_update` forbids UPDATE on the catalog, which is the right call for a
+         * ledger of what you can restore from.
+         */
+        public ?string $storeId = null,
     ) {
         if ($environment === '') {
             throw new InvalidArgumentException('Backup environment must be non-empty.');
@@ -85,7 +95,7 @@ final readonly class BackupArtifact
      *   codec:string, source_ref:array{type:string,value:?string},
      *   parent_id:?string, schema_fingerprint:?string,
      *   encryption_provider:?string, encryption_recipient:?string, encryption_aead_id:?int,
-     *   secondary_store_key:?string
+     *   secondary_store_key:?string, store_id:?string
      * }
      */
     public function toArray(): array
@@ -108,6 +118,7 @@ final readonly class BackupArtifact
             'encryption_recipient' => $this->encryption?->recipientId,
             'encryption_aead_id' => $this->encryption?->aeadId,
             'secondary_store_key' => $this->secondaryStoreKey,
+            'store_id' => $this->storeId,
         ];
     }
 
@@ -155,6 +166,7 @@ final readonly class BackupArtifact
             (isset($row['schema_fingerprint']) && $row['schema_fingerprint'] !== '') ? (string) $row['schema_fingerprint'] : null,
             $encryption,
             (isset($row['secondary_store_key']) && $row['secondary_store_key'] !== '') ? (string) $row['secondary_store_key'] : null,
+            (isset($row['store_id']) && $row['store_id'] !== '') ? (string) $row['store_id'] : null,
         );
     }
 }

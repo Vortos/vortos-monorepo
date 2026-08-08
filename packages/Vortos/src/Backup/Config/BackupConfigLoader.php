@@ -90,6 +90,25 @@ final class BackupConfigLoader
     }
 
     /**
+     * The store WAL segments belong in, or null when they share the primary one.
+     *
+     * The env fallback exists so WAL can be split off without editing config/backup.php — useful
+     * precisely when the reason for splitting is that the primary bucket turned out to be immutable.
+     */
+    public function walStoreKey(?string $envFallback): ?string
+    {
+        $configured = $this->config()?->walStoreKeyValue();
+
+        if ($configured !== null) {
+            return $configured;
+        }
+
+        $fallback = $envFallback !== null ? trim($envFallback) : '';
+
+        return $fallback === '' ? null : $fallback;
+    }
+
+    /**
      * The environment label backups are catalogued under.
      *
      * Anything that *reads* the catalog must ask here rather than reaching for APP_ENV. The two are

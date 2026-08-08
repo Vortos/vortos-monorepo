@@ -31,6 +31,7 @@ final class BackupConfig
 {
     private ?DatabaseEngine $engine = null;
     private string $storeKey = 'object-store';
+    private ?string $walStoreKey = null;
     private string $keyPrefix = 'backups';
     private string $environment = DefaultEnvironment::NAME;
     private ScheduleSetBuilder $schedules;
@@ -77,6 +78,28 @@ final class BackupConfig
     public function keyPrefix(string $keyPrefix): self
     {
         $this->keyPrefix = $keyPrefix;
+
+        return $this;
+    }
+
+    /**
+     * Route WAL segments to a different store from restore points.
+     *
+     * Restore points and WAL want opposite things from a bucket. A base backup or a logical dump is
+     * exactly what you want immutable when someone is trying to destroy your data, so an Object Lock
+     * (WORM) bucket suits them. WAL is the reverse: a segment lands every few minutes and retention's
+     * entire job is to prune the ones older than the oldest retained base, which an immutable bucket
+     * forbids by design. Object Lock is bucket-level with no per-prefix exemption, so satisfying both
+     * needs two buckets.
+     *
+     * Left unset, WAL lives with everything else and nothing changes.
+     */
+    public function walStore(string $storeKey): self
+    {
+        if ($storeKey === '') {
+            throw new InvalidArgumentException('Backup WAL store key must not be empty.');
+        }
+        $this->walStoreKey = $storeKey;
 
         return $this;
     }
@@ -137,6 +160,12 @@ final class BackupConfig
     public function keyPrefixValue(): string
     {
         return $this->keyPrefix;
+    }
+
+    /** The store WAL segments belong in, or null when they share the primary store. */
+    public function walStoreKeyValue(): ?string
+    {
+        return $this->walStoreKey;
     }
 
     public function environmentValue(): string

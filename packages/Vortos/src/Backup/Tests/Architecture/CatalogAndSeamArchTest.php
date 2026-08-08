@@ -27,6 +27,39 @@ final class CatalogAndSeamArchTest extends TestCase
         $this->assertStringNotContainsString('executeStatement', $repo, 'No ad-hoc SQL mutation in the catalog repo.');
     }
 
+    /**
+     * Retention plans from the narrow {@see \Vortos\Backup\Catalog\RetentionCatalogInterface}, never
+     * the general read model.
+     *
+     * The read model's `list()` hydrates every artifact for an engine+environment. Restore points
+     * are bounded; WAL segments are not — one lands every few minutes, forever — so on a fixed
+     * memory_limit that call had a date on which it would begin failing, and it arrived, taking the
+     * backup lifecycle with it because retention runs ahead of the backup steps.
+     *
+     * The narrow port has no method that returns all WAL, which is what makes the bound structural
+     * rather than a convention someone has to remember. This test is the guard on that: it fails if
+     * the broad read model is ever reintroduced here, which is the one change that would quietly
+     * make the unbounded set reachable again.
+     */
+    public function test_retention_never_reaches_the_unbounded_read_model(): void
+    {
+        $enforcer = $this->src('Service/RetentionEnforcer.php');
+
+        $this->assertStringContainsString('RetentionCatalogInterface', $enforcer);
+        $this->assertStringNotContainsString(
+            'BackupCatalogReadModelInterface',
+            $enforcer,
+            'Retention must not depend on the read model whose list() is unbounded in WAL.',
+        );
+
+        $port = $this->src('Catalog/RetentionCatalogInterface.php');
+        $this->assertStringNotContainsString(
+            'function list(',
+            $port,
+            'The retention port must not offer a list-everything method.',
+        );
+    }
+
     public function test_runner_depends_only_on_the_event_sink_interface(): void
     {
         $runner = $this->src('Service/BackupRunner.php');

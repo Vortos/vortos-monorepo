@@ -20,6 +20,7 @@ use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
 use Vortos\Backup\Catalog\BackupCatalogRepositoryInterface;
 use Vortos\Backup\Catalog\CatalogManifestWriter;
 use Vortos\Backup\Catalog\DbalBackupCatalogReadModel;
+use Vortos\Backup\Catalog\RetentionCatalogInterface;
 use Vortos\Backup\Catalog\DbalBackupCatalogRepository;
 use Vortos\Backup\Console\BackupDrillCommand;
 use Vortos\Backup\Console\BackupDrRunbookCommand;
@@ -229,6 +230,7 @@ final class BackupExtension extends Extension
             ->setArgument('$table', $catalogTable)
             ->setPublic(false);
         $container->setAlias(BackupCatalogReadModelInterface::class, DbalBackupCatalogReadModel::class)->setPublic(false);
+        $container->setAlias(RetentionCatalogInterface::class, DbalBackupCatalogReadModel::class)->setPublic(false);
 
         $this->registerFreshnessCollector($container);
 
@@ -334,7 +336,7 @@ final class BackupExtension extends Extension
         }
 
         $container->register(RetentionEnforcer::class, RetentionEnforcer::class)
-            ->setArgument('$readModel', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$readModel', new Reference(RetentionCatalogInterface::class))
             ->setArgument('$repository', new Reference(BackupCatalogRepositoryInterface::class))
             ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
             ->setArgument('$clock', new Reference(SystemClock::class))

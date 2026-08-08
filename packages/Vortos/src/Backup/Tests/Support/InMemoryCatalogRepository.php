@@ -7,12 +7,16 @@ namespace Vortos\Backup\Tests\Support;
 use Vortos\Backup\Catalog\BackupAlreadyExistsException;
 use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
 use Vortos\Backup\Catalog\BackupCatalogRepositoryInterface;
+use Vortos\Backup\Catalog\RetentionCatalogInterface;
 use Vortos\Backup\Domain\BackupArtifact;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 
 /** @internal in-memory catalog for runner/retention tests */
-final class InMemoryCatalogRepository implements BackupCatalogRepositoryInterface, BackupCatalogReadModelInterface
+final class InMemoryCatalogRepository implements
+    BackupCatalogRepositoryInterface,
+    BackupCatalogReadModelInterface,
+    RetentionCatalogInterface
 {
     /** @var array<string, BackupArtifact> */
     public array $rows = [];
@@ -63,5 +67,35 @@ final class InMemoryCatalogRepository implements BackupCatalogRepositoryInterfac
         }
 
         return null;
+    }
+
+    public function listRestorePoints(DatabaseEngine $engine, string $environment): array
+    {
+        return array_values(array_filter(
+            $this->list($engine, $environment),
+            static fn (BackupArtifact $a): bool => $a->isRestorePoint(),
+        ));
+    }
+
+    public function listWalOlderThan(
+        DatabaseEngine $engine,
+        string $environment,
+        \DateTimeImmutable $before,
+    ): array {
+        return array_values(array_filter(
+            $this->list($engine, $environment, BackupKind::WalSegment),
+            static fn (BackupArtifact $a): bool => $a->createdAt < $before,
+        ));
+    }
+
+    public function countWalFrom(
+        DatabaseEngine $engine,
+        string $environment,
+        ?\DateTimeImmutable $from,
+    ): int {
+        return count(array_filter(
+            $this->list($engine, $environment, BackupKind::WalSegment),
+            static fn (BackupArtifact $a): bool => $from === null || $a->createdAt >= $from,
+        ));
     }
 }

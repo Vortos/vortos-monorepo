@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\Catalog;
 
+use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Vortos\Backup\Domain\BackupArtifact;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 
-final class DbalBackupCatalogReadModel implements BackupCatalogReadModelInterface
+final class DbalBackupCatalogReadModel implements BackupCatalogReadModelInterface, RetentionCatalogInterface
 {
     public function __construct(
         private readonly Connection $connection,
@@ -48,6 +49,73 @@ final class DbalBackupCatalogReadModel implements BackupCatalogReadModelInterfac
         $rows = $qb->executeQuery()->fetchAllAssociative();
 
         return array_map(static fn (array $row): BackupArtifact => BackupArtifact::fromArray($row), $rows);
+    }
+
+    public function listRestorePoints(DatabaseEngine $engine, string $environment): array
+    {
+        $rows = $this->scopedSelect($engine, $environment)
+            ->andWhere('kind <> :wal')
+            ->setParameter('wal', BackupKind::WalSegment->value)
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        return array_map(static fn (array $row): BackupArtifact => BackupArtifact::fromArray($row), $rows);
+    }
+
+    public function listWalOlderThan(
+        DatabaseEngine $engine,
+        string $environment,
+        DateTimeImmutable $before,
+    ): array {
+        $rows = $this->scopedSelect($engine, $environment)
+            ->andWhere('kind = :wal')
+            ->andWhere('created_at < :before')
+            ->setParameter('wal', BackupKind::WalSegment->value)
+            ->setParameter('before', BackupArtifact::encodeTimestamp($before))
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        return array_map(static fn (array $row): BackupArtifact => BackupArtifact::fromArray($row), $rows);
+    }
+
+    public function countWalFrom(
+        DatabaseEngine $engine,
+        string $environment,
+        ?DateTimeImmutable $from,
+    ): int {
+        $qb = $this->connection->createQueryBuilder()
+            ->select('COUNT(*)')
+            ->from($this->table)
+            ->where('engine = :engine')
+            ->andWhere('environment = :env')
+            ->andWhere('kind = :wal')
+            ->setParameter('engine', $engine->value)
+            ->setParameter('env', $environment)
+            ->setParameter('wal', BackupKind::WalSegment->value);
+
+        if ($from !== null) {
+            $qb->andWhere('created_at >= :from')
+                ->setParameter('from', BackupArtifact::encodeTimestamp($from));
+        }
+
+        return (int) $qb->executeQuery()->fetchOne();
+    }
+
+    /**
+     * The engine+environment slice, newest first — the ordering every caller below relies on, and
+     * the column order of `idx_backup_engine_env_created`.
+     */
+    private function scopedSelect(DatabaseEngine $engine, string $environment): \Doctrine\DBAL\Query\QueryBuilder
+    {
+        return $this->connection->createQueryBuilder()
+            ->select('*')
+            ->from($this->table)
+            ->where('engine = :engine')
+            ->andWhere('environment = :env')
+            ->setParameter('engine', $engine->value)
+            ->setParameter('env', $environment)
+            ->orderBy('created_at', 'DESC')
+            ->addOrderBy('id', 'DESC');
     }
 
     public function latest(DatabaseEngine $engine, string $environment): ?BackupArtifact

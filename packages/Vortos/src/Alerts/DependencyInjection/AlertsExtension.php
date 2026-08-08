@@ -32,6 +32,7 @@ use Vortos\Alerts\Console\AckCommand;
 use Vortos\Alerts\Console\DrainCommand;
 use Vortos\Alerts\Console\RotationShowCommand;
 use Vortos\Alerts\Console\SilenceCommand;
+use Vortos\Alerts\Console\SupervisorEventListenerCommand;
 use Vortos\Alerts\Console\TestAlertCommand;
 use Vortos\Alerts\Console\ValidateRulesCommand;
 use Vortos\Alerts\Dedupe\AlertStateStoreInterface;
@@ -556,6 +557,11 @@ final class AlertsExtension extends Extension
             ->addTag('console.command');
 
         $container->register(TestAlertCommand::class, TestAlertCommand::class)
+            ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
+            ->setPublic(true)
+            ->addTag('console.command');
+
+        $container->register(SupervisorEventListenerCommand::class, SupervisorEventListenerCommand::class)
             ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
             ->setPublic(true)
             ->addTag('console.command');

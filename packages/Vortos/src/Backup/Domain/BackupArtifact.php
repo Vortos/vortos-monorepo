@@ -50,6 +50,24 @@ final readonly class BackupArtifact
         }
     }
 
+    /**
+     * The catalog's on-the-wire encoding for an instant: DATE_ATOM, normalised to UTC.
+     *
+     * Shared by whatever writes a row and whatever compares against one, because those two must
+     * agree exactly and there is no driver-independent guarantee that they will otherwise. The
+     * column is a `datetime_immutable`, but its stored representation is a string on some drivers
+     * (TEXT on SQLite) and a parsed timestamp on others. A timestamp column forgives a differently
+     * shaped string by parsing it; a TEXT column compares it lexicographically and quietly returns
+     * the wrong rows. Retention deletes what these comparisons select, so "quietly wrong" is the
+     * failure mode that matters — and it is one that only shows up away from the driver used in
+     * production. Normalising to UTC keeps ATOM fixed-width, which is what makes the lexicographic
+     * ordering agree with the chronological one.
+     */
+    public static function encodeTimestamp(DateTimeImmutable $at): string
+    {
+        return $at->setTimezone(new DateTimeZone('UTC'))->format(DATE_ATOM);
+    }
+
     public function isRestorePoint(): bool
     {
         return $this->kind->isRestorePoint();
@@ -77,7 +95,7 @@ final readonly class BackupArtifact
             'engine' => $this->engine->value,
             'kind' => $this->kind->value,
             'environment' => $this->environment,
-            'created_at' => $this->createdAt->setTimezone(new DateTimeZone('UTC'))->format(DATE_ATOM),
+            'created_at' => self::encodeTimestamp($this->createdAt),
             'size_bytes' => $this->sizeBytes,
             'checksum_algo' => $this->checksum->algorithm,
             'checksum_hex' => $this->checksum->hex,
@@ -119,7 +137,15 @@ final readonly class BackupArtifact
             DatabaseEngine::from((string) $row['engine']),
             BackupKind::from((string) $row['kind']),
             (string) $row['environment'],
-            new DateTimeImmutable((string) $row['created_at']),
+            // Parsed as UTC, because {@see encodeTimestamp()} wrote UTC. Drivers do not agree on
+            // what comes back: SQLite returns the ATOM string as written (offset included, so this
+            // hint is ignored and the offset wins), while Postgres normalises into its timestamp
+            // column and returns a naive "Y-m-d H:i:s" with the offset gone. Left to PHP's default
+            // timezone that naive form silently becomes local time, and every artifact's instant
+            // shifts — invisible while the two sides of a comparison shift together, which is what
+            // reading them all into memory used to guarantee, and not invisible at all once one
+            // side of the comparison is a bound query parameter.
+            new DateTimeImmutable((string) $row['created_at'], new DateTimeZone('UTC')),
             (int) $row['size_bytes'],
             BackupChecksum::of((string) $row['checksum_algo'], (string) $row['checksum_hex']),
             (string) $row['store_key'],

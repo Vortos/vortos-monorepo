@@ -50,7 +50,12 @@ final class BackupRetentionCommand extends Command
         $plan = $this->enforcer->enforce($store, $engine, $env, $this->defaultPolicy, $apply);
 
         $serialized = $plan->serialize();
-        $output->writeln(sprintf('Keep:    %d', count($serialized['keep'])));
+        $output->writeln(sprintf(
+            'Keep:    %d (%d restore points + %d WAL segments)',
+            $plan->keptTotal(),
+            count($serialized['keep']),
+            $serialized['kept_wal_count'],
+        ));
         $output->writeln(sprintf('Delete:  %d', count($serialized['delete'])));
         $output->writeln(sprintf('Refused: %d', count($serialized['refused'])));
 

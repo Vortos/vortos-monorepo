@@ -39,6 +39,18 @@ final class InMemoryObjectStore implements ObjectStoreInterface
     /** Inject a failure after N bytes to simulate a mid-upload store error. */
     public ?int $failAfterBytes = null;
 
+    /**
+     * Keys the store will refuse to delete, as a WORM bucket does. The message mirrors R2's own
+     * wording ("The object is locked by the bucket policy") so the immutability matcher is tested
+     * against the string production actually returns rather than an invented one.
+     *
+     * @var list<string>
+     */
+    public array $immutableKeys = [];
+
+    /** When set, every delete throws with this message — for asserting non-immutability failures. */
+    public ?string $deleteError = null;
+
     public function put(ObjectKey|string $key, mixed $body, ?PutObjectOptions $options = null): StoredObject
     {
         $name = (string) $key;
@@ -87,6 +99,15 @@ final class InMemoryObjectStore implements ObjectStoreInterface
     public function delete(ObjectKey|string $key): DeleteResult
     {
         $name = (string) $key;
+
+        if ($this->deleteError !== null) {
+            throw new RuntimeException($this->deleteError);
+        }
+
+        if (in_array($name, $this->immutableKeys, true)) {
+            throw new RuntimeException('r2 object store error: The object is locked by the bucket policy.');
+        }
+
         $existed = isset($this->objects[$name]);
         unset($this->objects[$name]);
 

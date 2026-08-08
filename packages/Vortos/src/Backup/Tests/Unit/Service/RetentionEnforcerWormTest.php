@@ -15,6 +15,8 @@ use Vortos\Backup\Tests\Support\ArtifactFactory;
 use Vortos\Backup\Tests\Support\CollectingEventSink;
 use Vortos\Backup\Tests\Support\FixedClock;
 use Vortos\Backup\Tests\Support\InMemoryCatalogRepository;
+use Vortos\Backup\Tests\Support\InMemoryObjectStore;
+use Vortos\Backup\Driver\ObjectStore\ObjectStoreBackupStore;
 
 final class RetentionEnforcerWormTest extends TestCase
 {
@@ -91,5 +93,100 @@ final class RetentionEnforcerWormTest extends TestCase
 
         $this->assertTrue($policy->isWithinRetention($created, $within));
         $this->assertFalse($policy->isWithinRetention($created, $outside));
+    }
+
+    /**
+     * A WORM bucket with NO declared ObjectLockPolicy must not break retention.
+     *
+     * This is the production case. `sqoura-prod` has an R2 bucket lock rule and the app never
+     * declared VORTOS_BACKUP_OBJECT_LOCK_DAYS, so the very first locked object threw: retention
+     * failed its occurrence, burned five retries, raised an alert and pruned nothing — every day,
+     * indefinitely — while nothing was actually wrong. Whether the app mirrored the bucket's
+     * immutability in configuration has no bearing on what the store just told us.
+     */
+    public function test_store_immutability_is_honoured_without_a_declared_lock_policy(): void
+    {
+        $catalog = new InMemoryCatalogRepository();
+        $events  = new CollectingEventSink();
+        $clock   = new FixedClock(new DateTimeImmutable('2026-06-24'));
+
+        $keep    = ArtifactFactory::at('2026-06-23 02:00:00');
+        $locked  = ArtifactFactory::at('2026-01-01 02:00:00');
+        $catalog->record($keep);
+        $catalog->record($locked);
+
+        $object = new InMemoryObjectStore();
+        $object->objects[$locked->storeKey] = 'x';
+        $object->immutableKeys = [$locked->storeKey];
+        $store = new ObjectStoreBackupStore($object);
+
+        // NOTE: no ObjectLockPolicy passed — exactly the production wiring.
+        $enforcer = new RetentionEnforcer($catalog, $catalog, $events, $clock);
+        $policy   = new RetentionPolicy(daily: 1, weekly: 0, monthly: 0, yearly: 0, maxAgeDays: 30);
+
+        $plan = $enforcer->enforce($store, DatabaseEngine::Postgres, 'prod', $policy, apply: true);
+
+        $reasons = array_map(static fn (array $r): string => $r['reason'], $plan->refused);
+        self::assertContains('retained (locked by store)', $reasons, 'The refusal must be reported, not swallowed.');
+        self::assertSame([], $plan->delete, 'Nothing was actually deleted.');
+        self::assertArrayHasKey($locked->id->value(), $catalog->rows, 'The catalog row must survive with the object.');
+    }
+
+    /** The emitted event must count what was deleted, not what was merely planned. */
+    public function test_retention_event_counts_actual_deletions(): void
+    {
+        $catalog = new InMemoryCatalogRepository();
+        $events  = new CollectingEventSink();
+        $clock   = new FixedClock(new DateTimeImmutable('2026-06-24'));
+
+        $keep     = ArtifactFactory::at('2026-06-23 02:00:00');
+        $locked   = ArtifactFactory::at('2026-01-01 02:00:00');
+        $deletable = ArtifactFactory::at('2026-02-01 02:00:00');
+        foreach ([$keep, $locked, $deletable] as $a) { $catalog->record($a); }
+
+        $object = new InMemoryObjectStore();
+        foreach ([$locked, $deletable] as $a) { $object->objects[$a->storeKey] = 'x'; }
+        $object->immutableKeys = [$locked->storeKey];
+        $store = new ObjectStoreBackupStore($object);
+
+        $enforcer = new RetentionEnforcer($catalog, $catalog, $events, $clock);
+        $policy   = new RetentionPolicy(daily: 1, weekly: 0, monthly: 0, yearly: 0, maxAgeDays: 30);
+
+        $plan = $enforcer->enforce($store, DatabaseEngine::Postgres, 'prod', $policy, apply: true);
+
+        self::assertCount(1, $plan->delete, 'Only the deletable artifact counts as deleted.');
+        self::assertSame($deletable->id->value(), $plan->delete[0]->id->value());
+        self::assertArrayNotHasKey($deletable->id->value(), $catalog->rows);
+        self::assertArrayHasKey($locked->id->value(), $catalog->rows);
+    }
+
+    /**
+     * A database error in the same try block must still surface.
+     *
+     * The old matcher was `str_contains($msg, 'lock')`, which "deadlock detected" satisfies — so a
+     * transient Postgres failure during the catalog write would have been filed as an immutable
+     * object and the artifact quietly left behind.
+     */
+    public function test_a_deadlock_is_not_mistaken_for_immutability(): void
+    {
+        $catalog = new InMemoryCatalogRepository();
+        $events  = new CollectingEventSink();
+        $clock   = new FixedClock(new DateTimeImmutable('2026-06-24'));
+
+        $keep = ArtifactFactory::at('2026-06-23 02:00:00');
+        $old  = ArtifactFactory::at('2026-01-01 02:00:00');
+        $catalog->record($keep);
+        $catalog->record($old);
+
+        $object = new InMemoryObjectStore();
+        $object->deleteError = 'SQLSTATE[40P01]: deadlock detected';
+        $store = new ObjectStoreBackupStore($object);
+
+        $enforcer = new RetentionEnforcer($catalog, $catalog, $events, $clock);
+        $policy   = new RetentionPolicy(daily: 1, weekly: 0, monthly: 0, yearly: 0, maxAgeDays: 30);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/deadlock/');
+        $enforcer->enforce($store, DatabaseEngine::Postgres, 'prod', $policy, apply: true);
     }
 }

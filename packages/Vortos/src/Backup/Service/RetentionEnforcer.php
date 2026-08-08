@@ -68,21 +68,42 @@ final class RetentionEnforcer
             }
         }
 
+        $deleted = [];
+        $refused = $plan->refused;
+
         foreach ($plan->delete as $artifact) {
             try {
                 $store->delete($artifact->storeKey);
                 $this->repository->forget($artifact->id->value());
+                $deleted[] = $artifact;
             } catch (Throwable $e) {
-                if ($this->lockPolicy !== null && $this->isLockRejection($e)) {
+                // A store refusing to delete an immutable object is not an error and never was: it
+                // is the store enforcing exactly the guarantee it was configured to provide, and it
+                // said so in as many words. Retention's job is to record that and move on.
+                //
+                // This used to be conditional on `$this->lockPolicy !== null` — on whether the APP
+                // had declared an Object Lock policy. That is backwards. Immutability is a property
+                // of the bucket, discovered at the moment of the call; whether someone remembered to
+                // mirror it in configuration has no bearing on what just happened. With a WORM
+                // bucket and no declared policy, retention threw on the first locked object, so it
+                // failed its occurrence, exhausted its retries, raised an alert, and pruned nothing
+                // — daily, indefinitely. Not one line of that was true: nothing was broken.
+                if ($this->isLockRejection($e)) {
+                    $refused[] = ['artifact' => $artifact, 'reason' => 'retained (locked by store)'];
+
                     continue;
                 }
                 throw $e;
             }
         }
 
-        $this->events->emit(BackupEvent::retentionApplied($engine, $environment, count($plan->delete), $this->now()));
+        // Count what was actually deleted, not what was planned. The old code emitted the planned
+        // total even on the path that skipped locked objects, which is how a retention pass that
+        // removed nothing could report a healthy number of deletions.
+        $this->events->emit(BackupEvent::retentionApplied($engine, $environment, count($deleted), $this->now()));
 
-        return $plan;
+        // The returned plan describes what happened: refused now carries anything the store declined.
+        return new RetentionPlan($plan->keep, $deleted, $refused, $plan->keptWalCount);
     }
 
     private function applyLockExclusions(RetentionPlan $plan): RetentionPlan
@@ -140,11 +161,37 @@ final class RetentionEnforcer
         );
     }
 
+    /**
+     * Whether the store declined this delete because the object is immutable.
+     *
+     * Deliberately NOT a bare `str_contains($msg, 'lock')`, which is what this was. That also
+     * matches "deadlock detected" and "lock timeout" — errors from the catalog write in the same
+     * try block — so a transient database failure would have been silently recorded as an
+     * immutable object and the row left orphaned in the catalog while the object survived. The
+     * phrases below are specific to immutability, and "deadlock" matches none of them.
+     */
     private function isLockRejection(Throwable $e): bool
     {
         $msg = strtolower($e->getMessage());
 
-        return str_contains($msg, 'lock') || str_contains($msg, 'immutable') || str_contains($msg, 'worm');
+        foreach ([
+            'locked by',        // R2: "The object is locked by the bucket policy."
+            'object lock',
+            'objectlock',
+            'object is locked',
+            'immutable',
+            'worm',
+            'legal hold',
+            'retention period',
+            'compliance mode',
+            'governance mode',
+        ] as $needle) {
+            if (str_contains($msg, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function now(): DateTimeImmutable

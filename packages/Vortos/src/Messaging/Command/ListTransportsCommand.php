@@ -131,7 +131,7 @@ final class ListTransportsCommand extends Command
      * consumer silently receives nothing. Version is shown once it leaves 1, so
      * an upcast contract is not mistaken for the original.
      *
-     * @param array<string, array{as?: string|null, version?: int}> $publishes
+     * @param array<class-string, array{as?: string|null, version?: int}> $publishes
      *
      * @return list<string>
      */
@@ -140,18 +140,11 @@ final class ListTransportsCommand extends Command
         $described = [];
 
         foreach ($publishes as $eventClass => $meta) {
-            // Tolerant of the legacy list-of-strings shape, so an older
-            // compiled container still prints rather than fataling.
-            if (is_int($eventClass)) {
-                $described[] = $this->shortName((string) $meta);
-                continue;
-            }
-
             $label   = $this->shortName($eventClass);
-            $wire    = is_array($meta) ? ($meta['as'] ?? null) : null;
-            $version = is_array($meta) ? ($meta['version'] ?? 1) : 1;
+            $wire    = $meta['as'] ?? null;
+            $version = $meta['version'] ?? 1;
 
-            if (is_string($wire) && $wire !== '') {
+            if ($wire !== null && $wire !== '') {
                 $label .= sprintf(' <fg=gray>→ %s</>', $wire);
             }
 

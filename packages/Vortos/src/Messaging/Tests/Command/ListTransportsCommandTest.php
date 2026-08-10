@@ -221,21 +221,6 @@ final class ListTransportsCommandTest extends TestCase
         $this->assertStringContainsString('v3', $tester->getDisplay());
     }
 
-    /** An older compiled container still prints rather than fataling. */
-    public function test_tolerates_the_legacy_list_shape(): void
-    {
-        $producer              = $this->producerConfig('user.events');
-        $producer['publishes'] = ['App\\User\\Domain\\Event\\UserRegistered'];
-
-        $tester = $this->makeCommand(
-            ['user.events' => $this->transportConfig('user-events')],
-            ['user.events' => $producer],
-        );
-        $tester->execute([]);
-
-        $this->assertSame(0, $tester->getStatusCode());
-        $this->assertStringContainsString('UserRegistered', $tester->getDisplay());
-    }
 
     public function test_shows_compression_when_enabled(): void
     {

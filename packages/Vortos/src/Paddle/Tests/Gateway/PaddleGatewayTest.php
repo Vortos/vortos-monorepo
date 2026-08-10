@@ -57,6 +57,39 @@ final class PaddleGatewayTest extends TestCase
     }
 
     /**
+     * The description asserted above is internal to Paddle and never shown. It
+     * was set correctly all along while the checkout printed the shared
+     * product's name on both lines, so an order read "Tournament Registration"
+     * twice — once for the fee. The payer-facing field is the name.
+     */
+    public function testEachLineIsLabelledForThePayerAndNotJustInternally(): void
+    {
+        $this->gateway->createCharge($this->charge());
+
+        $items = $this->transactions->created[0]->items;
+
+        self::assertSame('Tournament registration', $items[0]->name);
+        self::assertSame('Processing & platform fee', $items[1]->name);
+    }
+
+    /**
+     * Both lines are priced by us for one specific registration. Left on
+     * Paddle's default bounds the checkout offers a quantity stepper and a
+     * remove button, so a payer can delete the entry fee and settle the fee
+     * line alone — an authorised-looking payment for an amount we never asked
+     * for.
+     */
+    public function testThePayerCannotRestateTheQuantityOfAPricedLine(): void
+    {
+        $this->gateway->createCharge($this->charge());
+
+        foreach ($this->transactions->created[0]->items as $item) {
+            self::assertTrue($item->fixedQuantity);
+            self::assertSame(1, $item->quantity);
+        }
+    }
+
+    /**
      * Without this, a settlement webhook cannot find the payment it settles —
      * which is a payer charged, a ledger uncredited, and a support ticket.
      */

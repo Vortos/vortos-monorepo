@@ -253,10 +253,14 @@ final class PaddleApiOutboxDispatcher implements PaddleOutboxDispatcherInterface
         }
 
         return TransactionItemRequest::nonCatalog(
-            productId:   $i['productId'],
-            unitPrice:   new Money($i['unitAmount'], $i['currency']),
-            quantity:    $i['quantity'],
-            description: $i['description'] ?? 'Registration payment',
+            productId:     $i['productId'],
+            unitPrice:     new Money($i['unitAmount'], $i['currency']),
+            quantity:      $i['quantity'],
+            description:   $i['description'] ?? 'Registration payment',
+            // Rows queued before these two fields existed carry neither, and
+            // ::nonCatalog's defaults are the behaviour we want for them.
+            name:          $i['name'] ?? null,
+            fixedQuantity: $i['fixedQuantity'] ?? true,
         );
     }
 }

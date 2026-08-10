@@ -19,6 +19,14 @@ use Vortos\Paddle\ValueObject\PaddlePriceId;
  *
  * The historical positional constructor `new TransactionItemRequest($priceId, $qty)`
  * still works unchanged; non-catalog lines are built via ::nonCatalog().
+ *
+ * ── $name is not $description ─────────────────────────────────────────────
+ * Paddle shows the inline price's `name` on the checkout, and falls back to the
+ * *product's* name when it is absent. `description` never reaches the payer at
+ * all — it is internal. Sending only a description therefore prints the shared
+ * product name on every line, so a two-line order reads as the same item twice.
+ * Both are carried, and ::nonCatalog() defaults the name to the description so
+ * a caller cannot accidentally set only the invisible one.
  */
 final class TransactionItemRequest
 {
@@ -28,6 +36,18 @@ final class TransactionItemRequest
         public readonly ?Money         $unitPrice = null,
         public readonly ?string        $productId = null,
         public readonly ?string        $description = null,
+        public readonly ?string        $name = null,
+        /**
+         * Pins the payer-facing quantity selector to exactly this quantity.
+         *
+         * Paddle's default bounds let the payer raise the quantity or remove
+         * the line from the checkout. On an inline price that is nearly always
+         * wrong: the amount was computed server-side for a specific thing being
+         * bought, and a payer who deletes one line of a priced order settles a
+         * total nobody authorised. Defaults to locked; pass false for a line
+         * that genuinely is a shopping-cart quantity.
+         */
+        public readonly bool           $fixedQuantity = true,
     ) {
         if ($priceId === null && ($unitPrice === null || $productId === null)) {
             throw new \InvalidArgumentException(
@@ -44,16 +64,23 @@ final class TransactionItemRequest
 
     /** An ad-hoc line: an inline price of $unitPrice on the existing product $productId. */
     public static function nonCatalog(
-        string $productId,
-        Money  $unitPrice,
-        int    $quantity = 1,
-        string $description = 'Registration payment',
+        string  $productId,
+        Money   $unitPrice,
+        int     $quantity = 1,
+        string  $description = 'Registration payment',
+        ?string $name = null,
+        bool    $fixedQuantity = true,
     ): self {
         return new self(
-            quantity:    $quantity,
-            unitPrice:   $unitPrice,
-            productId:   $productId,
-            description: $description,
+            quantity:      $quantity,
+            unitPrice:     $unitPrice,
+            productId:     $productId,
+            description:   $description,
+            // The description is what every existing caller already passes as
+            // the human label, so defaulting to it makes the payer see the
+            // right thing without each of them being changed.
+            name:          $name ?? $description,
+            fixedQuantity: $fixedQuantity,
         );
     }
 

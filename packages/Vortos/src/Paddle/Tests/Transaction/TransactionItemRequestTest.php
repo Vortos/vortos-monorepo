@@ -47,6 +47,51 @@ final class TransactionItemRequestTest extends TestCase
         $this->assertSame('Registration fee', $item->description);
     }
 
+    public function test_the_payer_facing_name_defaults_to_the_description(): void
+    {
+        $item = TransactionItemRequest::nonCatalog(
+            productId:   'pro_reg',
+            unitPrice:   new Money(6000, 'USD'),
+            description: 'Processing & platform fee',
+        );
+
+        // Without this, Paddle falls back to the product name and every line on
+        // the checkout reads the same.
+        $this->assertSame('Processing & platform fee', $item->name);
+    }
+
+    public function test_an_explicit_name_leaves_the_internal_description_alone(): void
+    {
+        $item = TransactionItemRequest::nonCatalog(
+            productId:   'pro_reg',
+            unitPrice:   new Money(6000, 'USD'),
+            description: 'REG-2026-000017',
+            name:        'Tournament registration',
+        );
+
+        $this->assertSame('Tournament registration', $item->name);
+        $this->assertSame('REG-2026-000017', $item->description);
+    }
+
+    public function test_quantity_is_fixed_unless_a_caller_opts_out(): void
+    {
+        $priced = TransactionItemRequest::nonCatalog(
+            productId:   'pro_reg',
+            unitPrice:   new Money(6000, 'USD'),
+            description: 'Registration fee',
+        );
+
+        $cart = TransactionItemRequest::nonCatalog(
+            productId:     'pro_reg',
+            unitPrice:     new Money(6000, 'USD'),
+            description:   'Merchandise',
+            fixedQuantity: false,
+        );
+
+        $this->assertTrue($priced->fixedQuantity, 'A server-priced line must default to locked.');
+        $this->assertFalse($cart->fixedQuantity);
+    }
+
     public function test_rejects_a_line_that_is_neither_catalog_nor_non_catalog(): void
     {
         $this->expectException(\InvalidArgumentException::class);

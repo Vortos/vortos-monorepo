@@ -7,6 +7,8 @@ namespace Vortos\Paddle\Transaction;
 use Paddle\SDK\Entities\Shared\CurrencyCode;
 use Paddle\SDK\Entities\Shared\CustomData;
 use Paddle\SDK\Entities\Shared\Money as SdkMoney;
+use Paddle\SDK\Entities\Shared\PriceQuantity;
+use Paddle\SDK\Undefined;
 use Paddle\SDK\Resources\Transactions\Operations\Create\TransactionCreateItem as SdkCreateItem;
 use Paddle\SDK\Resources\Transactions\Operations\Create\TransactionCreateItemWithPrice;
 use Paddle\SDK\Resources\Transactions\Operations\CreateTransaction;
@@ -58,14 +60,26 @@ final class ImmediateTransactionService implements ImmediateTransactionServiceIn
     private function toSdkCreateItem(TransactionItemRequest $item): SdkCreateItem|TransactionCreateItemWithPrice
     {
         if ($item->isNonCatalog()) {
+            $description = $item->description ?? 'Registration payment';
+
             return new TransactionCreateItemWithPrice(
                 new TransactionNonCatalogPrice(
-                    description: $item->description ?? 'Registration payment',
+                    description: $description,
                     unitPrice:   new SdkMoney(
                         $item->unitPrice->toAmountString(),
                         CurrencyCode::from(strtoupper($item->unitPrice->currencyCode)),
                     ),
                     productId:   $item->productId,
+                    // Left Undefined, Paddle prints the product's name on every
+                    // line — see TransactionItemRequest on why that is not the
+                    // same field as the description.
+                    name:        $item->name ?? $description,
+                    // Undefined means Paddle's default bounds, which render a
+                    // quantity stepper and a remove button on a server-priced
+                    // line. Pinned min = max = the quantity we priced.
+                    quantity:    $item->fixedQuantity
+                        ? new PriceQuantity($item->quantity, $item->quantity)
+                        : new Undefined(),
                 ),
                 $item->quantity,
             );

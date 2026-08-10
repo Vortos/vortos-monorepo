@@ -27,11 +27,13 @@ final class TransactionalTransactionService implements TransactionServiceInterfa
             'items'      => array_map(
                 fn($item) => $item->isNonCatalog()
                     ? [
-                        'productId'   => $item->productId,
-                        'unitAmount'  => $item->unitPrice->amount,
-                        'currency'    => $item->unitPrice->currencyCode,
-                        'description' => $item->description,
-                        'quantity'    => $item->quantity,
+                        'productId'     => $item->productId,
+                        'unitAmount'    => $item->unitPrice->amount,
+                        'currency'      => $item->unitPrice->currencyCode,
+                        'description'   => $item->description,
+                        'name'          => $item->name,
+                        'quantity'      => $item->quantity,
+                        'fixedQuantity' => $item->fixedQuantity,
                     ]
                     : ['priceId' => $item->priceId->value, 'quantity' => $item->quantity],
                 $request->items

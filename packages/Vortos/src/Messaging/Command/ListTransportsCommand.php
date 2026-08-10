@@ -85,10 +85,9 @@ final class ListTransportsCommand extends Command
 
                 $publishes = $producer['publishes'] ?? [];
                 if (!empty($publishes)) {
-                    $shortNames = array_map(fn(string $fqcn) => $this->shortName($fqcn), $publishes);
                     $output->writeln(sprintf(
                         '      <fg=gray>Publishes:</> %s',
-                        implode(', ', $shortNames),
+                        implode(', ', $this->describePublished($publishes)),
                     ));
                 } else {
                     $output->writeln('      <fg=gray>Publishes:</> <fg=gray>—</>');
@@ -116,6 +115,54 @@ final class ListTransportsCommand extends Command
         $port   = isset($parsed['port']) ? ':' . $parsed['port'] : '';
 
         return sprintf('%s://%s%s', $scheme, $host, $port);
+    }
+
+    /**
+     * Renders a producer's published events.
+     *
+     * The event class is the **key** of this map and its metadata is the value
+     * — the shape `AbstractProducerDefinition::publish()` builds. Reading the
+     * values as class names instead fatals on the first producer that publishes
+     * anything, which made this command unusable for answering the one question
+     * it exists to answer: did my transport register, and under what wire name?
+     *
+     * The wire name is shown whenever it was pinned, because a mismatch between
+     * the name in the code and the name on the wire is invisible until a
+     * consumer silently receives nothing. Version is shown once it leaves 1, so
+     * an upcast contract is not mistaken for the original.
+     *
+     * @param array<string, array{as?: string|null, version?: int}> $publishes
+     *
+     * @return list<string>
+     */
+    private function describePublished(array $publishes): array
+    {
+        $described = [];
+
+        foreach ($publishes as $eventClass => $meta) {
+            // Tolerant of the legacy list-of-strings shape, so an older
+            // compiled container still prints rather than fataling.
+            if (is_int($eventClass)) {
+                $described[] = $this->shortName((string) $meta);
+                continue;
+            }
+
+            $label   = $this->shortName($eventClass);
+            $wire    = is_array($meta) ? ($meta['as'] ?? null) : null;
+            $version = is_array($meta) ? ($meta['version'] ?? 1) : 1;
+
+            if (is_string($wire) && $wire !== '') {
+                $label .= sprintf(' <fg=gray>→ %s</>', $wire);
+            }
+
+            if ($version > 1) {
+                $label .= sprintf(' <fg=gray>v%d</>', $version);
+            }
+
+            $described[] = $label;
+        }
+
+        return $described;
     }
 
     private function shortName(string $fqcn): string

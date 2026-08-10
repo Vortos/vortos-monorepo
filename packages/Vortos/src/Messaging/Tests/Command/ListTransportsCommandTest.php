@@ -7,6 +7,7 @@ namespace Vortos\Messaging\Tests\Command;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 use Vortos\Messaging\Command\ListTransportsCommand;
+use Vortos\Messaging\Driver\Kafka\Definition\KafkaProducerDefinition;
 use Vortos\Messaging\Registry\ProducerRegistry;
 use Vortos\Messaging\Registry\TransportRegistry;
 
@@ -138,10 +139,10 @@ final class ListTransportsCommandTest extends TestCase
     public function test_shows_published_event_short_names(): void
     {
         $producer              = $this->producerConfig('user.events');
-        $producer['publishes'] = [
+        $producer['publishes'] = $this->publishedEvents(
             'App\\User\\Domain\\Event\\UserRegistered',
             'App\\User\\Domain\\Event\\UserDeleted',
-        ];
+        );
 
         $tester = $this->makeCommand(
             ['user.events' => $this->transportConfig('user-events')],
@@ -153,6 +154,87 @@ final class ListTransportsCommandTest extends TestCase
         $this->assertStringContainsString('UserRegistered', $display);
         $this->assertStringContainsString('UserDeleted', $display);
         $this->assertStringNotContainsString('App\\User\\Domain\\Event\\UserRegistered', $display);
+    }
+
+    /**
+     * The regression this file did not catch.
+     *
+     * `publishes` is a map keyed by event class, and the command read its
+     * values as class names — so it fatalled on the first producer that
+     * published anything, in every project, while this suite stayed green
+     * against a hand-written list of strings the framework never emits.
+     *
+     * The fixture is now built by the real producer definition, so the shape
+     * under test is the shape that ships.
+     */
+    public function test_renders_the_shape_a_real_producer_definition_compiles(): void
+    {
+        $producer              = $this->producerConfig('user.events');
+        $producer['publishes'] = KafkaProducerDefinition::create('user.events')
+            ->transport('user.events')
+            ->publish('App\\User\\Domain\\Event\\UserRegistered', as: 'identity.user_registered')
+            ->toArray()['publishes'];
+
+        $tester = $this->makeCommand(
+            ['user.events' => $this->transportConfig('user-events')],
+            ['user.events' => $producer],
+        );
+        $tester->execute([]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $this->assertStringContainsString('UserRegistered', $tester->getDisplay());
+    }
+
+    /**
+     * The wire name is what a consumer on the other side actually subscribes
+     * by, and a mismatch with the class is invisible until nothing arrives.
+     */
+    public function test_shows_the_pinned_wire_name_beside_the_class(): void
+    {
+        $producer              = $this->producerConfig('user.events');
+        $producer['publishes'] = ['App\\User\\Domain\\Event\\UserRegistered' => [
+            'as'      => 'identity.user_registered',
+            'version' => 1,
+        ]];
+
+        $tester = $this->makeCommand(
+            ['user.events' => $this->transportConfig('user-events')],
+            ['user.events' => $producer],
+        );
+        $tester->execute([]);
+
+        $this->assertStringContainsString('identity.user_registered', $tester->getDisplay());
+    }
+
+    /** A bumped contract must not read as the original. */
+    public function test_shows_the_schema_version_once_it_leaves_one(): void
+    {
+        $producer              = $this->producerConfig('user.events');
+        $producer['publishes'] = ['App\\User\\Domain\\Event\\UserRegistered' => ['as' => null, 'version' => 3]];
+
+        $tester = $this->makeCommand(
+            ['user.events' => $this->transportConfig('user-events')],
+            ['user.events' => $producer],
+        );
+        $tester->execute([]);
+
+        $this->assertStringContainsString('v3', $tester->getDisplay());
+    }
+
+    /** An older compiled container still prints rather than fataling. */
+    public function test_tolerates_the_legacy_list_shape(): void
+    {
+        $producer              = $this->producerConfig('user.events');
+        $producer['publishes'] = ['App\\User\\Domain\\Event\\UserRegistered'];
+
+        $tester = $this->makeCommand(
+            ['user.events' => $this->transportConfig('user-events')],
+            ['user.events' => $producer],
+        );
+        $tester->execute([]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+        $this->assertStringContainsString('UserRegistered', $tester->getDisplay());
     }
 
     public function test_shows_compression_when_enabled(): void
@@ -192,6 +274,23 @@ final class ListTransportsCommandTest extends TestCase
             'security'     => [],
             'serializer'   => $serializer,
         ];
+    }
+
+    /**
+     * Published events in the shape the producer definition compiles: keyed by
+     * event class, valued by its wire metadata.
+     *
+     * @return array<string, array{as: string|null, version: int}>
+     */
+    private function publishedEvents(string ...$eventClasses): array
+    {
+        $publishes = [];
+
+        foreach ($eventClasses as $eventClass) {
+            $publishes[$eventClass] = ['as' => null, 'version' => 1];
+        }
+
+        return $publishes;
     }
 
     private function producerConfig(string $transport, bool $outbox = true): array

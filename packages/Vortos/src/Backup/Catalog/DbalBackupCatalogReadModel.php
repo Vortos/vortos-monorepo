@@ -10,7 +10,7 @@ use Vortos\Backup\Domain\BackupArtifact;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 
-final class DbalBackupCatalogReadModel implements BackupCatalogReadModelInterface, RetentionCatalogInterface
+final class DbalBackupCatalogReadModel implements BackupCatalogReadModelInterface, RetentionCatalogInterface, WalVolumeReadModelInterface
 {
     public function __construct(
         private readonly Connection $connection,
@@ -99,6 +99,39 @@ final class DbalBackupCatalogReadModel implements BackupCatalogReadModelInterfac
         }
 
         return (int) $qb->executeQuery()->fetchOne();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * COALESCE on both aggregates: SUM over no rows is NULL, not 0, and an empty window is a normal
+     * state (a freshly provisioned host, or one where archiving has legitimately not fired yet).
+     * Returning null here would make "no segments" indistinguishable from "no data recorded" one
+     * layer up, where the difference decides whether to alarm.
+     */
+    public function walVolumeSince(
+        DatabaseEngine $engine,
+        string $environment,
+        DateTimeImmutable $from,
+    ): array {
+        $row = $this->connection->createQueryBuilder()
+            ->select('COUNT(*) AS segments', 'COALESCE(SUM(size_bytes), 0) AS bytes')
+            ->from($this->table)
+            ->where('engine = :engine')
+            ->andWhere('environment = :env')
+            ->andWhere('kind = :wal')
+            ->andWhere('created_at >= :from')
+            ->setParameter('engine', $engine->value)
+            ->setParameter('env', $environment)
+            ->setParameter('wal', BackupKind::WalSegment->value)
+            ->setParameter('from', BackupArtifact::encodeTimestamp($from))
+            ->executeQuery()
+            ->fetchAssociative();
+
+        return [
+            'segments' => (int) ($row['segments'] ?? 0),
+            'bytes'    => (int) ($row['bytes'] ?? 0),
+        ];
     }
 
     /**

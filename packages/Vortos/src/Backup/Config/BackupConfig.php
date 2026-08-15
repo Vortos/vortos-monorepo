@@ -6,9 +6,11 @@ namespace Vortos\Backup\Config;
 
 use Closure;
 use InvalidArgumentException;
+use Vortos\Backup\Domain\CompressionCodec;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\RetentionPolicy;
 use Vortos\Backup\Environment\DefaultEnvironment;
+use Vortos\Backup\Pitr\WalCompression;
 use Vortos\Backup\Schedule\BackupSchedule;
 
 /**
@@ -32,6 +34,8 @@ final class BackupConfig
     private ?DatabaseEngine $engine = null;
     private string $storeKey = 'object-store';
     private ?string $walStoreKey = null;
+    private CompressionCodec $walCodec = CompressionCodec::None;
+    private int $walCompressionLevel = WalCompression::DEFAULT_LEVEL;
     private string $keyPrefix = 'backups';
     private string $environment = DefaultEnvironment::NAME;
     private ScheduleSetBuilder $schedules;
@@ -102,6 +106,53 @@ final class BackupConfig
         $this->walStoreKey = $storeKey;
 
         return $this;
+    }
+
+    /**
+     * Compress WAL segments before they are shipped (and before they are encrypted).
+     *
+     * A WAL segment is a fixed 16 MiB file however much log it carries, and `archive_timeout` ships
+     * it on a clock rather than when it fills. On a server with steady low-volume writes almost all
+     * of what reaches the object store is therefore zero padding: one measured production system
+     * generated 262 MB/day of actual WAL records and shipped 22.7 GB/day of segments.
+     *
+     * This changes only the bytes at rest. The archiving cadence is untouched, so the RPO bought by
+     * `archive_timeout` is exactly what it was.
+     *
+     * Only `none` and `gzip` are honoured — Zstd is named by {@see CompressionCodec} but PHP reaches
+     * it only via a non-core extension, so it is rejected loudly rather than silently degraded.
+     *
+     * @param int $level zlib level 1-9; 1 already removes essentially all padding, higher levels buy
+     *                   little on WAL because the win is runs of zeros, not entropy coding
+     */
+    public function walCompression(string|CompressionCodec $codec, int $level = WalCompression::DEFAULT_LEVEL): self
+    {
+        $resolved = $codec instanceof CompressionCodec
+            ? $codec
+            : (CompressionCodec::tryFrom($codec) ?? throw new InvalidArgumentException(
+                sprintf("Unknown compression codec '%s'. Expected one of: none, gzip, zstd.", $codec),
+            ));
+
+        WalCompression::assertSupported($resolved);
+
+        if ($level < 1 || $level > 9) {
+            throw new InvalidArgumentException("WAL compression level must be 1-9, got {$level}.");
+        }
+
+        $this->walCodec            = $resolved;
+        $this->walCompressionLevel = $level;
+
+        return $this;
+    }
+
+    public function walCodecValue(): CompressionCodec
+    {
+        return $this->walCodec;
+    }
+
+    public function walCompressionLevelValue(): int
+    {
+        return $this->walCompressionLevel;
     }
 
     public function environment(string $environment): self

@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\Config;
 
+use InvalidArgumentException;
+use Vortos\Backup\Domain\CompressionCodec;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\RetentionPolicy;
 use Vortos\Backup\Environment\DefaultEnvironment;
+use Vortos\Backup\Pitr\WalCompression;
+use Vortos\Backup\Pitr\WalCompressionSettings;
 use Vortos\Backup\Schedule\BackupScheduleRegistry;
 
 /**
@@ -106,6 +110,42 @@ final class BackupConfigLoader
         $fallback = $envFallback !== null ? trim($envFallback) : '';
 
         return $fallback === '' ? null : $fallback;
+    }
+
+    /**
+     * The codec WAL segments are compressed with before shipping.
+     *
+     * The env fallback mirrors {@see walStoreKey()}: it exists so an operator staring at a storage
+     * bill can switch compression on without a release. Values are the {@see CompressionCodec}
+     * names; anything unrecognised throws rather than defaulting to 'none', because a typo that
+     * silently disables compression reproduces the exact fault this setting was added to fix.
+     */
+    public function walCompression(?string $codecFallback, ?string $levelFallback): WalCompressionSettings
+    {
+        $config = $this->config();
+
+        $codec = $config?->walCodecValue() ?? CompressionCodec::None;
+        $level = $config?->walCompressionLevelValue() ?? WalCompression::DEFAULT_LEVEL;
+
+        $codecOverride = $codecFallback !== null ? trim($codecFallback) : '';
+        if ($codecOverride !== '') {
+            $codec = CompressionCodec::tryFrom(strtolower($codecOverride)) ?? throw new InvalidArgumentException(sprintf(
+                "Unknown WAL compression codec '%s'. Expected one of: none, gzip.",
+                $codecOverride,
+            ));
+        }
+
+        $levelOverride = $levelFallback !== null ? trim($levelFallback) : '';
+        if ($levelOverride !== '') {
+            if (!ctype_digit($levelOverride) || (int) $levelOverride < 1 || (int) $levelOverride > 9) {
+                throw new InvalidArgumentException("WAL compression level must be an integer 1-9, got '{$levelOverride}'.");
+            }
+            $level = (int) $levelOverride;
+        }
+
+        // Constructor re-asserts codec support, so an unsupported codec reaching this from either
+        // source fails at boot rather than inside archive_command.
+        return new WalCompressionSettings($codec, $level);
     }
 
     /**

@@ -46,6 +46,14 @@ use Vortos\Backup\Service\EncryptionSeam\StreamTransformFactoryInterface;
  * ciphertext comparison would report every retry as a conflicting payload and fail the
  * archive_command, which Postgres treats as an un-archivable segment. The existing object is
  * therefore decrypted before comparison. That only happens on the rare re-archive path.
+ *
+ * **Compressed before encryption**, when a codec is configured. A segment is a fixed 16 MiB
+ * whatever it holds, and `archive_timeout` ships it on a clock rather than when it fills, so most
+ * of what reaches the store is zero padding — see {@see WalCompression} for the measured cost.
+ * Compression must precede encryption: ciphertext is indistinguishable from random and does not
+ * compress, so the reverse order would spend the CPU and save nothing. The envelope binds the
+ * codec into its authenticated header, which is what lets the read path reverse the pipeline
+ * without consulting the catalog (the catalog lives in the database being restored).
  */
 final class PostgresWalArchiver
 {
@@ -58,6 +66,8 @@ final class PostgresWalArchiver
         private readonly ?StreamTransformFactoryInterface $transforms = null,
         private readonly ?EnvelopeStreamCipher $cipher = null,
         private readonly ?KeyProviderInterface $keyProvider = null,
+        // Defaults to off, so a host that has not opted in behaves exactly as before.
+        private readonly WalCompressionSettings $compression = new WalCompressionSettings(),
     ) {}
 
     public function archive(string $absolutePath, string $environment): BackupArtifact
@@ -89,13 +99,20 @@ final class PostgresWalArchiver
         $transform = $this->transforms?->forBackup(
             DatabaseEngine::Postgres,
             BackupKind::WalSegment,
-            CompressionCodec::None,
+            $this->compression->codec,
         );
 
         try {
+            // BEFORE the transform, so the envelope encrypts compressed bytes rather than
+            // compressing encrypted ones. A read filter, so the transform still sees one plain
+            // readable resource and needs no knowledge of the codec beyond its header.
+            if ($this->compression->enabled()) {
+                WalCompression::attachDeflate($handle, $this->compression->level);
+            }
+
             $source = $transform !== null ? $transform->transform($handle) : $handle;
 
-            $stream = new BackupStream($source, DatabaseEngine::Postgres, BackupKind::WalSegment, CompressionCodec::None, SourceRef::none());
+            $stream = new BackupStream($source, DatabaseEngine::Postgres, BackupKind::WalSegment, $this->compression->codec, SourceRef::none());
             $stored = $store->store($stream, $objectKey);
         } finally {
             if (is_resource($handle)) {
@@ -107,10 +124,12 @@ final class PostgresWalArchiver
             ? $transform->lastMetadata()
             : null;
 
-        // Only meaningful unencrypted: with an envelope, the stored bytes are ciphertext and will
-        // never equal the plaintext digest. Ciphertext integrity is carried by the AEAD tag, which
-        // fails closed on read, so nothing is lost by skipping the comparison here.
-        if ($encryption === null && !$stored->checksum->equals($local)) {
+        // Only meaningful when the stored bytes ARE the segment bytes. With an envelope they are
+        // ciphertext, and with gzip they are a compressed member — neither will ever equal the
+        // plaintext digest. Integrity does not go unclaimed in those cases: the AEAD tag covers the
+        // envelope and the gzip CRC32/ISIZE trailer covers the member, and both fail closed on read
+        // (see WalCompression::maybeInflate, which finalises with ZLIB_FINISH for exactly this).
+        if ($encryption === null && !$this->compression->enabled() && !$stored->checksum->equals($local)) {
             $store->delete($objectKey);
             throw new BackupException("WAL segment {$segmentName} corrupted in transit (checksum mismatch).");
         }
@@ -133,14 +152,23 @@ final class PostgresWalArchiver
             throw new BackupException("Cannot read existing WAL segment '{$segmentName}' for idempotency check.");
         }
         try {
-            // Decrypt before digesting when the stored object is an envelope. Comparing ciphertext
-            // would fail every retry — the nonce is fresh per run, so identical plaintext produces
-            // different bytes — and a failed archive_command makes Postgres retry the same segment
-            // forever, eventually filling pg_wal and stopping writes. The comparison is defined on
-            // segment CONTENT, so content is what gets compared.
-            $existing = $this->isEnvelope($stream)
-                ? $this->checksumOfDecrypted($stream, $local, $segmentName)
-                : BackupChecksum::ofStream($stream, $local->algorithm);
+            // Reverse the FULL pipeline before digesting, envelope then codec, because the
+            // comparison is defined on segment CONTENT.
+            //
+            // Comparing stored bytes would fail every retry: the envelope nonce is fresh per run,
+            // so identical plaintext encrypts to different bytes, and gzip output varies with the
+            // level a past run happened to use. A failed archive_command makes Postgres retry the
+            // same segment forever, eventually filling pg_wal and stopping writes.
+            //
+            // Both layers are detected per object rather than read from configuration. The store
+            // holds segments from before encryption was switched on and from before compression
+            // was, and turning either on must not retroactively break the idempotency check for
+            // everything already archived under the old settings.
+            $plain = $this->isEnvelope($stream)
+                ? $this->decryptedChunks($stream, $segmentName)
+                : WalCompression::chunks($stream);
+
+            $existing = $this->checksumOfChunks(WalCompression::maybeInflate($plain), $local->algorithm);
         } finally {
             if (is_resource($stream)) {
                 fclose($stream);
@@ -170,22 +198,38 @@ final class PostgresWalArchiver
         return $magic === EnvelopeHeader::MAGIC;
     }
 
-    private function checksumOfDecrypted(mixed $stream, BackupChecksum $local, string $segmentName): BackupChecksum
+    /**
+     * @return \Generator<int, string, void, void>
+     *
+     * @throws BackupException
+     */
+    private function decryptedChunks(mixed $stream, string $segmentName): \Generator
     {
-        if ($this->cipher === null || $this->keyProvider === null) {
+        $cipher      = $this->cipher;
+        $keyProvider = $this->keyProvider;
+
+        if ($cipher === null || $keyProvider === null) {
             throw new BackupException(sprintf(
                 "WAL segment '%s' is encrypted but no key provider is configured — cannot verify idempotency.",
                 $segmentName,
             ));
         }
 
-        $context = hash_init($local->algorithm);
+        yield from $cipher->decryptStreamLazy($stream, static fn ($wrapped) => $keyProvider->unwrap($wrapped));
+    }
 
-        foreach ($this->cipher->decryptStreamLazy($stream, fn ($wrapped) => $this->keyProvider->unwrap($wrapped)) as $chunk) {
+    /**
+     * @param iterable<int, string> $chunks
+     */
+    private function checksumOfChunks(iterable $chunks, string $algorithm): BackupChecksum
+    {
+        $context = hash_init($algorithm);
+
+        foreach ($chunks as $chunk) {
             hash_update($context, $chunk);
         }
 
-        return BackupChecksum::of($local->algorithm, hash_final($context));
+        return BackupChecksum::of($algorithm, hash_final($context));
     }
 
     private function artifact(string $segmentName, string $environment, string $objectKey, BackupChecksum $checksum, int $size, ?EncryptionMetadata $encryption = null): BackupArtifact
@@ -199,7 +243,7 @@ final class PostgresWalArchiver
             $size,
             $checksum,
             $objectKey,
-            CompressionCodec::None,
+            $this->compression->codec,
             SourceRef::walLsn($segmentName),
             null,
             null,

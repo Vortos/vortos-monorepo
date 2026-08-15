@@ -91,7 +91,11 @@ final class PostgresWalFetcher
         $written = 0;
 
         try {
-            foreach ($this->chunks($source, $segmentName) as $chunk) {
+            // Decrypt first, then decompress — the exact reverse of the archiver, which compresses
+            // before encrypting because ciphertext does not compress. Both layers are detected from
+            // the bytes rather than from configuration, so a recovery spanning the day either was
+            // switched on replays segments from both sides of it without operator intervention.
+            foreach (WalCompression::maybeInflate($this->chunks($source, $segmentName)) as $chunk) {
                 $put = fwrite($out, $chunk);
                 if ($put === false) {
                     throw new BackupException("Short write restoring WAL segment '{$segmentName}'.");

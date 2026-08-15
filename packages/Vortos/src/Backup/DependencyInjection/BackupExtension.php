@@ -64,6 +64,7 @@ use Vortos\Backup\Immutability\ObjectLockProbe;
 use Vortos\Backup\Pitr\PitrPreflight;
 use Vortos\Backup\Pitr\PostgresWalArchiver;
 use Vortos\Backup\Pitr\PostgresWalFetcher;
+use Vortos\Backup\Pitr\WalCompressionSettings;
 use Vortos\Backup\Port\BackupStoreInterface;
 use Vortos\Backup\Port\BackupStoreRegistry;
 use Vortos\Backup\Port\BackupStoreResolver;
@@ -518,6 +519,15 @@ final class BackupExtension extends Extension
             ->setPublic(false);
 
         // ── PITR ──
+        // Resolved at RUNTIME through the loader, not read from env here, so config/backup.php is
+        // the single answer to "what is WAL compressed with" and the env vars stay a true override
+        // rather than a second, silently-winning source. Same shape as the retention policy above.
+        $container->register('vortos.backup.wal_compression', WalCompressionSettings::class)
+            ->setFactory([new Reference(\Vortos\Backup\Config\BackupConfigLoader::class), 'walCompression'])
+            ->setArgument('$codecFallback', $_ENV['VORTOS_BACKUP_WAL_CODEC'] ?? null)
+            ->setArgument('$levelFallback', $_ENV['VORTOS_BACKUP_WAL_LEVEL'] ?? null)
+            ->setPublic(false);
+
         $container->register(PostgresWalArchiver::class, PostgresWalArchiver::class)
             ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
             ->setArgument('$catalog', new Reference(BackupCatalogRepositoryInterface::class))
@@ -530,6 +540,10 @@ final class BackupExtension extends Extension
             ->setArgument('$transforms', new Reference(StreamTransformFactoryInterface::class))
             ->setArgument('$cipher', new Reference(EnvelopeStreamCipher::class))
             ->setArgument('$keyProvider', $backupKeyProviderRef)
+            // Compression is a WRITE-side setting only. The fetcher deliberately takes no codec:
+            // it detects one per segment from the bytes, because a store holds segments from both
+            // sides of the day this was switched on and a recovery routinely spans that instant.
+            ->setArgument('$compression', new Reference('vortos.backup.wal_compression'))
             ->setPublic(false);
         // The read counterpart of the archiver. Encrypting WAL without a decrypting fetch would
         // make recovery replay ciphertext, so these two are registered together on purpose.
@@ -592,6 +606,26 @@ final class BackupExtension extends Extension
         if (interface_exists(\Vortos\Health\Probe\HealthProbeInterface::class)) {
             $container->register(\Vortos\Backup\Health\BackupFreshnessProbe::class, \Vortos\Backup\Health\BackupFreshnessProbe::class)
                 ->setArgument('$inspector', new Reference(\Vortos\Backup\Health\BackupFreshnessInspector::class))
+                ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
+                ->setPublic(false);
+
+            // Cost, not success. Freshness above answers "did WAL arrive"; this answers "did it
+            // arrive at a sane size" — the question that went unasked while 443 GB of 98.8%-padding
+            // segments accumulated with every other signal green. Thresholds are overridable
+            // because the budget is a property of the workload, not of the framework.
+            $container->register(\Vortos\Backup\Health\WalEfficiencyProbeFactory::class, \Vortos\Backup\Health\WalEfficiencyProbeFactory::class)
+                ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
+                ->setPublic(false);
+
+            $container->register(\Vortos\Backup\Health\WalEfficiencyProbe::class, \Vortos\Backup\Health\WalEfficiencyProbe::class)
+                // Factory, not a literal environment: the catalog is written under 'production'
+                // while APP_ENV is 'prod', and hardcoding the wrong one is how the freshness gauge
+                // came to silently measure an empty set.
+                ->setFactory([new Reference(\Vortos\Backup\Health\WalEfficiencyProbeFactory::class), 'create'])
+                ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+                ->setArgument('$clock', new Reference(SystemClock::class))
+                ->setArgument('$minCompressionRatio', (float) ($_ENV['VORTOS_BACKUP_WAL_MIN_RATIO'] ?? 4.0))
+                ->setArgument('$maxDailyBytes', (int) ($_ENV['VORTOS_BACKUP_WAL_DAILY_BUDGET_BYTES'] ?? 5 * 1024 * 1024 * 1024))
                 ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
                 ->setPublic(false);
         }

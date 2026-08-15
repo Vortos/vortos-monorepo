@@ -676,6 +676,21 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
             $request['Range'] = $options->range()->headerValue();
         }
 
+        // Response overrides. On a presigned GET these become signed query
+        // parameters, so a recipient cannot drop them by editing the URL — which
+        // is what lets a disposition act as a real control over how the browser
+        // treats a third party's uploaded bytes rather than a hint.
+        //
+        // They are harmless on a direct read: the SDK sends them, the store
+        // echoes them onto a response nobody is rendering.
+        if ($options?->responseContentDisposition() !== null) {
+            $request['ResponseContentDisposition'] = $options->responseContentDisposition();
+        }
+
+        if ($options?->responseContentType() !== null) {
+            $request['ResponseContentType'] = $options->responseContentType();
+        }
+
         return $request;
     }
 

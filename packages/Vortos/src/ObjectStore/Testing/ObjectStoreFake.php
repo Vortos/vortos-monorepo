@@ -143,7 +143,21 @@ final class ObjectStoreFake implements ObjectStoreInterface
 
     public function temporaryDownloadUrl(ObjectKey|string $key, \DateTimeImmutable $expiresAt, ?GetObjectOptions $options = null): PresignedUrl
     {
-        return new PresignedUrl('https://object-store.fake/' . rawurlencode(ObjectKey::from($key)->value()), HttpMethod::Get, $expiresAt);
+        $url = 'https://object-store.fake/' . rawurlencode(ObjectKey::from($key)->value());
+
+        // Mirror the real driver's response overrides onto the URL. Without this a
+        // test that asserts "this download is forced to attachment" passes against
+        // the fake whether or not the application actually asked for it.
+        $query = array_filter([
+            'response-content-disposition' => $options?->responseContentDisposition(),
+            'response-content-type'        => $options?->responseContentType(),
+        ], static fn (?string $v): bool => $v !== null);
+
+        if ($query !== []) {
+            $url .= '?' . http_build_query($query);
+        }
+
+        return new PresignedUrl($url, HttpMethod::Get, $expiresAt);
     }
 
     public function temporaryUploadUrl(ObjectKey|string $key, TemporaryUploadUrlOptions $options): PresignedUploadUrl

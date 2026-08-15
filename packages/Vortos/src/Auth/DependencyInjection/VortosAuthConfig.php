@@ -48,6 +48,7 @@ final class VortosAuthConfig
     private string $auditHmacKey = '';
     private ?int $apiKeyMaxInactivitySeconds = null;
     private string $tenantClaim = 'tenant';
+    private ?RefreshCookieConfig $refreshCookie = null;
 
     /**
      * Add a pre-built signing key to the keyring.
@@ -353,6 +354,19 @@ final class VortosAuthConfig
      * Name of the JWT claim carrying the tenant id, used to populate TenantContext.
      * Default: 'tenant'.
      */
+    /**
+     * Deliver the refresh token as an httpOnly cookie instead of a JSON field, so
+     * script cannot read it and an XSS cannot lift the session.
+     *
+     * Off unless configured. Enabling it changes the wire contract with every
+     * client and invalidates refresh tokens the browser is still holding in
+     * localStorage, so it is a deliberate migration, not a default.
+     */
+    public function refreshCookie(): RefreshCookieConfig
+    {
+        return $this->refreshCookie ??= new RefreshCookieConfig();
+    }
+
     public function tenantClaim(string $claim): static
     {
         $this->tenantClaim = $claim;
@@ -389,6 +403,12 @@ final class VortosAuthConfig
             'audit_hmac_key'                         => $this->auditHmacKey,
             'api_key_max_inactivity_seconds'         => $this->apiKeyMaxInactivitySeconds ?? -1,
             'tenant_claim'                           => $this->tenantClaim,
+            // Defaults to the refresh-token TTL so the cookie and the token it
+            // carries expire together unless the application says otherwise.
+            'refresh_cookie'                         => [
+                ...($this->refreshCookie?->toArray() ?? (new RefreshCookieConfig())->toArray()),
+                'ttl' => $this->refreshCookie?->toArray()['ttl'] ?? $this->refreshTokenTtl,
+            ],
         ];
     }
 }

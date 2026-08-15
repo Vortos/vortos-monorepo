@@ -14,6 +14,7 @@ use Vortos\Auth\Contract\RehashableUserPersisterInterface;
 use Vortos\Auth\Contract\TokenStorageInterface;
 use Vortos\Auth\Listener\PasswordRehashListener;
 use Vortos\Auth\Hasher\ArgonPasswordHasher;
+use Vortos\Auth\Http\RefreshTokenCookie;
 use Vortos\Auth\Identity\CurrentUserProvider;
 use Vortos\Auth\Tracing\IdentityTracingMiddleware;
 use Vortos\Auth\Jwt\JwtConfig;
@@ -124,6 +125,21 @@ final class AuthExtension extends Extension
         // Exposed for TenantMiddlewareCompilerPass, which registers
         // TenantContextMiddleware after the merge pass (where TenantContext exists).
         $container->setParameter('vortos.auth.tenant_claim', $resolved['tenant_claim']);
+
+        // Refresh-token cookie transport. Always registered (so controllers can
+        // type-hint it unconditionally) but inert unless enabled — the service
+        // itself no-ops, which is what lets an application roll the migration
+        // forward or back with a config flag instead of a code change.
+        $cookie = $resolved['refresh_cookie'];
+        $container->register(RefreshTokenCookie::class, RefreshTokenCookie::class)
+            ->setArgument('$enabled',  $cookie['enabled'])
+            ->setArgument('$name',     $cookie['name'])
+            ->setArgument('$path',     $cookie['path'])
+            ->setArgument('$domain',   $cookie['domain'])
+            ->setArgument('$sameSite', $cookie['same_site'])
+            ->setArgument('$secure',   $cookie['secure'])
+            ->setArgument('$ttl',      $cookie['ttl'] ?? $resolved['refresh_token_ttl'])
+            ->setShared(true)->setPublic(true);
 
         if ($usesRedis) {
             $this->ensureRedisService($container, $env);

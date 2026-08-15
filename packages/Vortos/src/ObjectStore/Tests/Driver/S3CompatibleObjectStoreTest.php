@@ -81,6 +81,39 @@ final class S3CompatibleObjectStoreTest extends TestCase
         $this->assertSame('payload', $body->contents());
     }
 
+    public function test_presigned_download_signs_the_response_overrides(): void
+    {
+        $handler = new MockHandler();
+        $handler->append(new Result([]));
+
+        $url = $this->makeStore($handler)->temporaryDownloadUrl(
+            'registrations/passport.pdf',
+            new \DateTimeImmutable('+15 minutes'),
+            GetObjectOptions::forceDownload('passport.pdf'),
+        )->url();
+
+        // Signed into the URL, so a recipient cannot strip the forced download by
+        // editing it — the signature would stop matching.
+        $this->assertStringContainsString('response-content-disposition=', $url);
+        $this->assertStringContainsString(rawurlencode('attachment; filename="passport.pdf"'), $url);
+        $this->assertStringContainsString('response-content-type=' . rawurlencode('application/octet-stream'), $url);
+        $this->assertStringContainsString('X-Amz-Signature=', $url);
+    }
+
+    public function test_presigned_download_without_options_sends_no_overrides(): void
+    {
+        $handler = new MockHandler();
+        $handler->append(new Result([]));
+
+        $url = $this->makeStore($handler)->temporaryDownloadUrl(
+            'registrations/passport.pdf',
+            new \DateTimeImmutable('+15 minutes'),
+        )->url();
+
+        $this->assertStringNotContainsString('response-content-disposition', $url);
+        $this->assertStringNotContainsString('response-content-type', $url);
+    }
+
     public function test_head_object_maps_metadata(): void
     {
         $modified = new \DateTimeImmutable('2026-01-01T00:00:00+00:00');

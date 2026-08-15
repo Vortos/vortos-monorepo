@@ -41,7 +41,25 @@ final class SecurityHeadersMiddleware implements MiddlewareInterface
             $response->headers->set($name, $value);
         }
 
-        if ($this->csp !== null) {
+        // A route that already set its own Content-Security-Policy keeps it.
+        //
+        // This middleware runs as a response subscriber, so it is the LAST thing
+        // to touch the response — which meant a blanket `set()` silently replaced
+        // any policy a route had built for itself. That is backwards: the global
+        // value is a default for responses nobody thought about, and a route that
+        // did think about it knows strictly more.
+        //
+        // It matters most where the two policies cannot be reconciled by widening
+        // the global one. A server-rendered admin console emits a per-request
+        // nonce and loads its own assets; a static application-wide policy cannot
+        // express that nonce, so overwriting the console's header does not
+        // loosen its policy — it breaks the page, with no script, style or fetch
+        // permitted. Tightening the API's default should never be able to do that.
+        //
+        // Only an EXACT header-name match defers. A route that set
+        // Content-Security-Policy while the app is configured report-only (or the
+        // reverse) is not answering the same question, so the default still applies.
+        if ($this->csp !== null && !$response->headers->has($this->csp->headerName())) {
             $response->headers->set($this->csp->headerName(), $this->csp->headerValue());
         }
 

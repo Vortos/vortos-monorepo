@@ -58,7 +58,22 @@ final class ContentSecurityPolicyBuilder
 
         foreach ($cfg['extra'] ?? [] as $directive => $values) {
             if (!empty($values)) {
-                $directives[] = $directive . ' ' . implode(' ', $values);
+                // Underscores back to hyphens.
+                //
+                // The standard directives above are written with hyphens because
+                // they are hardcoded here. Custom ones arrive as ARRAY KEYS, and
+                // Symfony's Config component normalises keys by replacing hyphens
+                // with underscores — so `->directive('frame-ancestors', "'none'")`
+                // reached this loop as `frame_ancestors` and was emitted verbatim.
+                //
+                // Browsers do not error on an unknown directive, they ignore it.
+                // So the header looked correct in every review and the directive
+                // simply did nothing: an application that added frame-ancestors,
+                // base-uri or form-action got none of them, silently, and would
+                // only find out by reading a live response character by character.
+                // No CSP directive name contains an underscore, so this mapping is
+                // unambiguous.
+                $directives[] = str_replace('_', '-', $directive) . ' ' . implode(' ', $values);
             }
         }
 

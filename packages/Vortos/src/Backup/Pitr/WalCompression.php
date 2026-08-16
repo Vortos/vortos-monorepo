@@ -58,6 +58,26 @@ final class WalCompression
 
     public const DEFAULT_LEVEL = 6;
 
+    /**
+     * How much compressed input is handed to inflate_add() at a time.
+     *
+     * Deliberately far smaller than {@see CHUNK_SIZE}. inflate_add allocates its entire output as a
+     * single string and offers no cap on it, so the only available bound is the input side — and WAL
+     * is the pathological case, being mostly zero padding.
+     *
+     * MEASURED on a real 16 MiB segment (~1000:1 on the padding), largest single allocation:
+     *
+     *     64 KiB in -> 15.8 MB     <- the original defect; several of these killed the drill
+     *     16 KiB in -> 13.3 MB
+     *      4 KiB in ->  4.0 MB
+     *      1 KiB in ->  1.0 MB     <- chosen
+     *
+     * 1 KiB keeps the worst single allocation around a megabyte, which is safe inside the backup
+     * worker's 128 MB limit with room for everything else it is holding. The cost is ~300 extra
+     * inflate_add calls per segment, which is nothing next to the network fetch that precedes it.
+     */
+    private const INFLATE_INPUT_SLICE = 1024;
+
     private function __construct() {}
 
     /**
@@ -210,17 +230,27 @@ final class WalCompression
      */
     private static function inflateChunk(mixed $context, string $chunk): \Generator
     {
-        // Suppressed deliberately. inflate_add() raises a PHP warning *and* returns false on corrupt
-        // input; under an error handler that promotes warnings to ErrorException — Symfony's does —
-        // the warning would escape as an untyped exception before this typed one could be thrown,
-        // so a corrupt segment during a recovery would surface as a generic error rather than as a
-        // statement about the segment. The false return is the signal; the warning is noise.
-        $out = @inflate_add($context, $chunk);
-        if ($out === false) {
-            throw new BackupException('Archived WAL segment is not a readable gzip member (corrupt compressed data).');
-        }
-        if ($out !== '') {
-            yield $out;
+        // Fed in SMALL slices, because inflate_add() allocates its entire output as one string and
+        // WAL is the pathological input for that: a segment is mostly zero padding, which deflates
+        // at roughly 200:1, so handing it a 64 KiB compressed chunk asks for a ~13 MB allocation in
+        // a single call. A few of those together exhausted the backup worker's 128 MB limit and
+        // killed the drill outright — the streaming read path was streaming everywhere except here.
+        //
+        // Slicing the INPUT is the only lever: inflate_add offers no cap on output size. Sized from
+        // measurement rather than guessed — see INFLATE_INPUT_SLICE for the numbers.
+        foreach (str_split($chunk, self::INFLATE_INPUT_SLICE) as $slice) {
+            // Suppressed deliberately. inflate_add() raises a PHP warning *and* returns false on
+            // corrupt input; under an error handler that promotes warnings to ErrorException —
+            // Symfony's does — the warning would escape as an untyped exception before this typed
+            // one could be thrown, so a corrupt segment during a recovery would surface as a generic
+            // error rather than as a statement about the segment. The false return is the signal.
+            $out = @inflate_add($context, $slice);
+            if ($out === false) {
+                throw new BackupException('Archived WAL segment is not a readable gzip member (corrupt compressed data).');
+            }
+            if ($out !== '') {
+                yield $out;
+            }
         }
     }
 }

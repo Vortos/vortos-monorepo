@@ -167,6 +167,48 @@ final class WalCompressionTest extends TestCase
         $this->assertGreaterThan(10.0, $ratio);
     }
 
+    /**
+     * PEAK MEMORY, not just correctness. This is the bug the unit suite missed and a production
+     * drill found: inflate_add allocates its whole output as one string, so a 64 KiB compressed
+     * chunk of mostly-zero WAL asked for a ~13 MB allocation in one call, and several of those
+     * exhausted the backup worker's 128 MB limit and killed the drill.
+     *
+     * The earlier round-trip tests could not see it — they assert bytes, not allocation, and PHPUnit
+     * runs with a generous limit. Measuring the delta is what makes the streaming claim testable.
+     */
+    public function test_inflating_a_full_size_segment_does_not_balloon_memory(): void
+    {
+        $segment    = $this->sparseSegment();
+        $compressed = $this->deflate($segment);
+
+        $baseline = memory_get_usage(true);
+        $peakBefore = memory_get_peak_usage(true);
+
+        $bytes = 0;
+        foreach (WalCompression::maybeInflate(str_split($compressed, WalCompression::CHUNK_SIZE)) as $chunk) {
+            // Consume and discard, exactly as PostgresWalFetcher does when writing to disk.
+            $bytes += strlen($chunk);
+        }
+
+        $growth = memory_get_peak_usage(true) - max($baseline, $peakBefore);
+
+        $this->assertSame(strlen($segment), $bytes);
+        // 6 MB. Measured largest single inflate_add output at the 1 KiB input slice is ~1 MB; the
+        // rest is allocator granularity. On the unsliced code this was 20 MB, so the threshold
+        // separates the two clearly without being a brittle exact-figure assertion.
+        $this->assertLessThan(
+            6 * 1024 * 1024,
+            $growth,
+            sprintf(
+                'inflating a 16 MiB segment grew peak memory by %.1f MB. inflate_add allocates its '
+                . 'entire output as one string, so the compressed input must be fed in small slices; '
+                . 'a large slice of highly-compressible WAL allocates many MB at once and exhausts '
+                . 'the backup worker.',
+                $growth / 1048576,
+            ),
+        );
+    }
+
     public function test_rejects_a_codec_this_build_cannot_apply(): void
     {
         // Zstd is a real CompressionCodec case but needs a non-core extension. It must fail loudly

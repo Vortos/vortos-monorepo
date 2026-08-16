@@ -42,6 +42,14 @@ final class Configuration implements ConfigurationInterface
                         // few minutes and pruning old ones is the whole point, which immutability
                         // forbids. Empty means WAL lives with everything else.
                         ->scalarNode('wal_name')->defaultValue('')->end()
+                        // Restore points (base backups, logical dumps) in a bucket of their own,
+                        // separate from BOTH the application's uploads and from WAL. Sharing a
+                        // bucket with user uploads means one credential reaches both, so an
+                        // application compromise can read every backup; and it forces the Object
+                        // Lock rule to be prefix-conditional, where getting the prefix wrong either
+                        // freezes user uploads or silently unlocks the backups. Empty means restore
+                        // points live in the primary bucket, as before.
+                        ->scalarNode('backups_name')->defaultValue('')->end()
                         ->scalarNode('key_prefix')->defaultValue('')->end()
                         ->scalarNode('temporary_key_prefix')->defaultValue('tmp')->end()
                         ->scalarNode('public_base_url')->defaultNull()->end()

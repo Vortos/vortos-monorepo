@@ -280,53 +280,64 @@ final class ObjectStoreExtension extends Extension
 
         $container->setAlias(ImmediateObjectStoreInterface::class, ImmediateObjectStore::class)->setPublic(false);
 
-        $this->registerWalStore($container, $config);
+        // Two optional buckets alongside the primary. WAL and restore points want opposite things
+        // from a bucket (see the config tree), and both want to be somewhere the application's
+        // upload credential cannot reach.
+        $this->registerSecondaryStore($container, $config, 'wal', (string) ($config['bucket']['wal_name'] ?? ''));
+        $this->registerSecondaryStore($container, $config, 'backups', (string) ($config['bucket']['backups_name'] ?? ''));
     }
 
     /**
-     * A parallel store bound to a second bucket, for callers that must not write WAL into the primary.
+     * A parallel store bound to another bucket, exposed as `vortos_object_store.<name>`.
      *
      * Registered here rather than assembled by whoever needs it: buckets and drivers are this
      * package's concern, and reaching into S3CompatibleObjectStore from another package is exactly
-     * what the agnosticism lint exists to prevent. Consumers take `vortos_object_store.wal` by id and
-     * see the same ImmediateObjectStoreInterface they already use.
+     * what the agnosticism lint exists to prevent. Consumers take the service by id and see the same
+     * ImmediateObjectStoreInterface they already use.
+     *
+     * One implementation rather than one per bucket. The WAL store came first and the backups store
+     * is byte-for-byte the same wiring against a different name, so duplicating it would just create
+     * two places for the chain to drift — and a secondary store that quietly skips a middleware the
+     * primary applies is precisely the kind of divergence nobody notices until a restore.
      *
      * The S3 client is shared with the primary store — same account, same credentials, different
-     * bucket — so this costs one extra driver instance and nothing else.
+     * bucket — so each of these costs one extra driver instance and nothing else. Note that sharing
+     * the client means this alone does NOT isolate credentials; separating buckets is what makes a
+     * scoped-down credential possible, not what applies one.
      *
      * @param array<string, mixed> $config
      */
-    private function registerWalStore(ContainerBuilder $container, array $config): void
+    private function registerSecondaryStore(ContainerBuilder $container, array $config, string $name, string $bucket): void
     {
-        $walBucket = trim((string) ($config['bucket']['wal_name'] ?? ''));
+        $bucket = trim($bucket);
 
         // Only meaningful for a real object store. On the null/log drivers there is no second bucket
         // to point at, and silently registering one would imply a separation that does not exist.
-        if ($walBucket === '' || $config['driver'] !== 's3') {
+        if ($bucket === '' || $config['driver'] !== 's3') {
             return;
         }
 
-        $container->register('vortos_object_store.wal.driver', S3CompatibleObjectStore::class)
+        $container->register("vortos_object_store.{$name}.driver", S3CompatibleObjectStore::class)
             ->setArguments([
                 new Reference(\Aws\S3\S3Client::class),
-                $walBucket,
+                $bucket,
                 $config['provider'],
                 $config['multipart']['part_size_bytes'],
             ])
             ->setShared(true)
             ->setPublic(false);
 
-        // Mirrors the primary chain (driver → middleware stack → immediate) so the two stores behave
-        // identically. A shorter chain here would mean WAL quietly skipping whatever the primary
-        // store's middlewares do.
-        $container->register('vortos_object_store.wal.sending_store', ObjectStoreMiddlewareStack::class)
-            ->setArgument('$driver', new Reference('vortos_object_store.wal.driver'))
+        // Mirrors the primary chain (driver → middleware stack → immediate) so every store behaves
+        // identically. A shorter chain here would mean this bucket quietly skipping whatever the
+        // primary store's middlewares do.
+        $container->register("vortos_object_store.{$name}.sending_store", ObjectStoreMiddlewareStack::class)
+            ->setArgument('$driver', new Reference("vortos_object_store.{$name}.driver"))
             ->setArgument('$middlewares', [])
             ->setShared(true)
             ->setPublic(false);
 
-        $container->register('vortos_object_store.wal', ImmediateObjectStore::class)
-            ->setArgument('$inner', new Reference('vortos_object_store.wal.sending_store'))
+        $container->register("vortos_object_store.{$name}", ImmediateObjectStore::class)
+            ->setArgument('$inner', new Reference("vortos_object_store.{$name}.sending_store"))
             ->setShared(true)
             ->setPublic(false);
     }

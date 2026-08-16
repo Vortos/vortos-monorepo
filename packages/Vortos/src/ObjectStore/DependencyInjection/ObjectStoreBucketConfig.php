@@ -8,6 +8,7 @@ final class ObjectStoreBucketConfig
 {
     private string $name = '';
     private string $walName = '';
+    private string $backupsName = '';
     private string $keyPrefix = '';
     private string $temporaryKeyPrefix = 'tmp';
     private ?string $publicBaseUrl = null;
@@ -29,6 +30,13 @@ final class ObjectStoreBucketConfig
      * lands every few minutes and pruning the old ones is the entire point. Empty keeps WAL with
      * everything else.
      */
+    public function backupsName(string $name): static
+    {
+        $this->backupsName = $name;
+
+        return $this;
+    }
+
     public function walName(string $name): static
     {
         $this->walName = $name;
@@ -83,6 +91,7 @@ final class ObjectStoreBucketConfig
         return [
             'name'                        => $this->name,
             'wal_name'                    => $this->walName,
+            'backups_name'                => $this->backupsName,
             'key_prefix'                  => $this->keyPrefix,
             'temporary_key_prefix'        => $this->temporaryKeyPrefix,
             'public_base_url'             => $this->publicBaseUrl,

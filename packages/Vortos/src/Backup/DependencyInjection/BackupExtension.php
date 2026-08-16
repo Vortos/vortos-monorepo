@@ -124,6 +124,24 @@ final class BackupExtension extends Extension
         $walStoreKey = $walBucket === ''
             ? null
             : (trim((string) ($_ENV['VORTOS_BACKUP_WAL_STORE'] ?? '')) ?: 'object-store-wal');
+        // Restore points in a bucket of their own, away from the application's uploads. Same
+        // load-order reasoning as the WAL bucket above: keyed off the env var the object-store
+        // package reads, never off $container->has(), which races with extension registration.
+        $backupBucket = trim((string) ($_ENV['OBJECT_STORE_BACKUP_BUCKET'] ?? ''));
+        $backupStoreKey = $backupBucket === ''
+            ? null
+            : (trim((string) ($_ENV['VORTOS_BACKUP_RESTORE_POINT_STORE'] ?? '')) ?: 'object-store-backups');
+
+        // The bucket that was the default before any split — kept under its own name because reads
+        // must still be able to reach it. Artifacts written before the split recorded it as their
+        // store, and the WAL fetcher has to keep searching it.
+        $legacyStoreKey = $storeKey;
+
+        // What NEW restore points are written to. Reads still resolve per artifact from the store it
+        // recorded, so everything already in the primary bucket stays readable after the switch —
+        // which is the only reason this can be flipped on a live system at all.
+        $storeKey = $backupStoreKey ?? $storeKey;
+
         $keyPrefix = (string) ($_ENV['VORTOS_BACKUP_KEY_PREFIX'] ?? 'backups');
         $lockDir = (string) ($_ENV['VORTOS_BACKUP_LOCK_DIR'] ?? ($projectDir . '/var/backup-locks'));
         $mongoUri = (string) ($_ENV['VORTOS_BACKUP_MONGO_URI'] ?? '');
@@ -222,6 +240,14 @@ final class BackupExtension extends Extension
             $container->register('vortos.backup.store.wal', ObjectStoreBackupStore::class)
                 ->setArgument('$objectStore', new Reference('vortos_object_store.wal'))
                 ->addTag(CollectBackupStoresPass::TAG, ['key' => $walStoreKey])
+                ->setPublic(false);
+        }
+
+        // A third backup store over the restore-point bucket, same pattern as the WAL one.
+        if ($backupStoreKey !== null) {
+            $container->register('vortos.backup.store.backups', ObjectStoreBackupStore::class)
+                ->setArgument('$objectStore', new Reference('vortos_object_store.backups'))
+                ->addTag(CollectBackupStoresPass::TAG, ['key' => $backupStoreKey])
                 ->setPublic(false);
         }
 
@@ -553,7 +579,12 @@ final class BackupExtension extends Extension
             // spans the instant the split was introduced, and a fetcher that only knew the new
             // bucket would report the archive as ending there and stop replaying, silently
             // recovering to the wrong point in time.
-            ->setArgument('$storeKeys', $walStoreKey !== null ? [$walStoreKey, $storeKey] : [$storeKey])
+            // EVERY configured store, newest first, and de-duplicated. Dropping the pre-split
+            // primary here is the subtle way to break a recovery: segments archived before the WAL
+            // split recorded that bucket, and a fetcher that cannot see it does not error — Postgres
+            // reads a miss as "the archive ends here" and stops replaying, reporting a successful
+            // recovery to the wrong point in time.
+            ->setArgument('$storeKeys', array_values(array_unique(array_filter([$walStoreKey, $storeKey, $legacyStoreKey]))))
             ->setArgument('$keyPrefix', $keyPrefix)
             ->setArgument('$cipher', new Reference(EnvelopeStreamCipher::class))
             ->setArgument('$keyProvider', $backupKeyProviderRef)

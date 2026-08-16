@@ -34,7 +34,7 @@ use Vortos\Backup\Pitr\PostgresWalFetcher;
  *  - **Size.** A restored segment must be exactly `wal_segment_size`. A short one is the dangerous
  *    case: it is a well-formed PREFIX of real WAL, so Postgres replays it, stops early, and reports
  *    a successful recovery to an earlier instant than was asked for.
- *  - **Magic.** The leading two bytes must be an XLOG page magic. Catches a segment that is the
+ *  - **Magic.** The leading bytes must be an XLOG page magic. Catches a segment that is the
  *    right length but is not WAL — ciphertext written through unencrypted, or a partial inflate
  *    padded out.
  *  - **Continuity.** Segment names must form an unbroken hex sequence. A gap means replay stops
@@ -43,20 +43,24 @@ use Vortos\Backup\Pitr\PostgresWalFetcher;
 final class WalRestorableInvariant implements InvariantCheck
 {
     /**
-     * Every Postgres WAL page starts with XLOG_PAGE_MAGIC — a little-endian uint16 bumped each time
-     * the on-disk format changes. The value is version-specific, so this asserts only that the pair
-     * is one of the known ones rather than pinning a single release and failing every major upgrade.
+     * High byte of XLOG_PAGE_MAGIC, the uint16 every WAL page starts with.
+     *
+     * It is stored LITTLE-ENDIAN, so PostgreSQL 18's 0xD118 appears on disk as the bytes `18 D1` —
+     * confirmed by hexdumping a real restored segment, after an earlier version of this check
+     * compared against `D1 18` and rejected every valid segment in production. The unit test agreed
+     * with it, because the fixture was built from the same wrong constant; only real bytes settled
+     * it. Hence this now checks against a value read from production rather than reasoned about.
+     *
+     * A FAMILY check on the high byte, not an exact per-version list. The low byte is bumped on
+     * every on-disk format change, so pinning exact values means a major upgrade fails this
+     * invariant on correct data — and the failure would read as "backups are broken" during the one
+     * week someone is already nervous. The high byte has been 0xD0/0xD1 across every version this
+     * framework supports, which is specific enough to reject ciphertext, a partial inflate, or a
+     * file that simply is not WAL, while surviving an upgrade.
      *
      * @var list<string>
      */
-    private const XLOG_PAGE_MAGIC = [
-        "\xD1\x18", // PostgreSQL 18
-        "\xD1\x17", // 17
-        "\xD1\x16", // 16
-        "\xD1\x10", // 15
-        "\xD1\x0F", // 14
-        "\xD1\x0E", // 13
-    ];
+    private const XLOG_MAGIC_HIGH_BYTES = ["\xD1", "\xD0"];
 
     public function __construct(
         private readonly PostgresWalFetcher $fetcher,
@@ -115,8 +119,11 @@ final class WalRestorableInvariant implements InvariantCheck
                     fclose($handle);
                 }
 
-                if (!in_array($magic, self::XLOG_PAGE_MAGIC, true)) {
-                    $failures[] = sprintf('%s: not a WAL page (magic 0x%s)', $name, bin2hex($magic));
+                // Byte 1, not byte 0: the magic is a little-endian uint16, so the version-stable
+                // high byte is the SECOND one on disk.
+                $high = strlen($magic) === 2 ? $magic[1] : '';
+                if (!in_array($high, self::XLOG_MAGIC_HIGH_BYTES, true)) {
+                    $failures[] = sprintf('%s: not a WAL page (leading bytes 0x%s)', $name, bin2hex($magic));
                 }
             }
 

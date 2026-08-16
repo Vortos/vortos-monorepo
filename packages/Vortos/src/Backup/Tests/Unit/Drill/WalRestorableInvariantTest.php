@@ -58,10 +58,18 @@ final class WalRestorableInvariantTest extends TestCase
         return new WalRestorableInvariant($fetcher, $this->catalog($newest), 'production', $sample, self::SEGMENT_BYTES);
     }
 
-    /** A well-formed segment: PG18 page magic then padding to full size. */
+    /**
+     * A well-formed segment header, in the byte order a REAL segment has on disk.
+     *
+     * `18 D1` — XLOG_PAGE_MAGIC 0xD118 stored little-endian, taken from hexdumping an actual
+     * restored production segment. Written the other way round here originally, which made the
+     * fixture agree with a byte-swapped constant in the invariant: both were wrong, the test passed,
+     * and production rejected every valid segment. A fixture invented from the same assumption as
+     * the code under test proves only that the assumption is self-consistent.
+     */
     private function segment(): string
     {
-        return str_pad("\xD1\x18\x00\x00", self::SEGMENT_BYTES, "\0");
+        return str_pad("\x18\xD1\x00\x00", self::SEGMENT_BYTES, "\0");
     }
 
     /** @return array<string, string> the newest $n segments, correctly named */
@@ -109,6 +117,20 @@ final class WalRestorableInvariantTest extends TestCase
 
         $this->assertFalse($result->passed);
         $this->assertStringContainsString('not a WAL page', $result->detail);
+    }
+
+    /**
+     * Guards the endianness specifically. A byte-swapped magic must be REJECTED — this is the exact
+     * mistake that shipped, and without a test naming it the constant can silently flip back.
+     */
+    public function test_rejects_a_byte_swapped_magic(): void
+    {
+        $objects = $this->contiguous(3);
+        $objects[self::NEWEST] = str_pad("\xD1\x18\x00\x00", self::SEGMENT_BYTES, "\0");
+
+        $result = $this->invariant($objects)->check([]);
+
+        $this->assertFalse($result->passed, 'a byte-swapped page magic was accepted as valid WAL');
     }
 
     public function test_fails_when_a_segment_is_missing_entirely(): void

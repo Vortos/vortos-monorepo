@@ -21,6 +21,7 @@ final class RetentionBuilder
     private int $yearly = 1;
     private ?int $maxAgeDays = null;
     private int $minKeepFloor = 1;
+    private ?int $walRetentionDays = null;
 
     public function hourly(int $count): self
     {
@@ -65,6 +66,35 @@ final class RetentionBuilder
         return $this;
     }
 
+    /**
+     * How far back point-in-time recovery must reach, independent of how long restore points are kept.
+     *
+     * Left unset, WAL is retained back to the OLDEST retained restore point — so the WAL window is a
+     * side effect of restore-point retention rather than a decision. That conflates two different
+     * questions. Restore-point retention answers "how far back can I recover AT ALL"; this answers
+     * "how far back can I recover TO AN ARBITRARY INSTANT". They are rarely the same number: a
+     * mistake found weeks later is served fine by the nearest periodic dump, while to-the-second
+     * recovery is only ever wanted for something recent.
+     *
+     * Separating them is what pgBackRest does with `repo-retention-archive` versus
+     * `repo-retention-full`, and for the same reason: WAL volume tracks write ACTIVITY while restore
+     * points track database SIZE, so tying the two together makes the cheap knob unreachable.
+     *
+     * The window is a floor, never a ceiling. {@see \Vortos\Backup\Service\RetentionEnforcer}
+     * anchors pruning to the newest retained base at or before the cutoff, so the effective window
+     * is whatever is needed to keep that base replayable — it can exceed this value (a weekly base
+     * cadence with a 1-day window still keeps up to a week of WAL) but can never fall short of it.
+     */
+    public function walRetentionDays(?int $days): self
+    {
+        if ($days !== null && $days < 1) {
+            throw new \InvalidArgumentException('Retention walRetentionDays must be >= 1 or null.');
+        }
+        $this->walRetentionDays = $days;
+
+        return $this;
+    }
+
     public function minKeepFloor(int $floor): self
     {
         $this->minKeepFloor = $floor;
@@ -93,6 +123,7 @@ final class RetentionBuilder
             yearly: $this->yearly,
             maxAgeDays: $this->maxAgeDays,
             minKeepFloor: $this->minKeepFloor,
+            walRetentionDays: $this->walRetentionDays,
         );
     }
 }

@@ -46,7 +46,7 @@ final class RetentionEnforcer
         $restorePoints = $this->readModel->listRestorePoints($engine, $environment);
 
         $rpPlan = $policy->plan($restorePoints, $this->clock->now());
-        $merged = $this->mergeWalPlan($rpPlan, $engine, $environment);
+        $merged = $this->mergeWalPlan($rpPlan, $engine, $environment, $policy->walRetentionDays);
 
         if ($this->lockPolicy !== null) {
             return $this->applyLockExclusions($merged);
@@ -149,27 +149,83 @@ final class RetentionEnforcer
      * by the prune itself; the retained side is unbounded and is therefore only counted. Deriving
      * either by filtering "every artifact" in PHP is what exhausted the worker's memory limit.
      */
-    private function mergeWalPlan(RetentionPlan $rpPlan, DatabaseEngine $engine, string $environment): RetentionPlan
-    {
-        $oldestKeptBase = null;
-        foreach ($rpPlan->keep as $kept) {
-            if ($kept->kind === BackupKind::PhysicalBase) {
-                if ($oldestKeptBase === null || $kept->createdAt < $oldestKeptBase) {
-                    $oldestKeptBase = $kept->createdAt;
-                }
-            }
-        }
+    private function mergeWalPlan(
+        RetentionPlan $rpPlan,
+        DatabaseEngine $engine,
+        string $environment,
+        ?int $walRetentionDays = null,
+    ): RetentionPlan {
+        $anchor = $walRetentionDays === null
+            ? $this->oldestKeptBase($rpPlan)
+            : $this->windowedWalAnchor($rpPlan, $walRetentionDays);
 
-        $deleteWal = $oldestKeptBase === null
+        $deleteWal = $anchor === null
             ? []
-            : $this->readModel->listWalOlderThan($engine, $environment, $oldestKeptBase);
+            : $this->readModel->listWalOlderThan($engine, $environment, $anchor);
 
         return new RetentionPlan(
             $rpPlan->keep,
             [...$rpPlan->delete, ...$deleteWal],
             $rpPlan->refused,
-            $this->readModel->countWalFrom($engine, $environment, $oldestKeptBase),
+            $this->readModel->countWalFrom($engine, $environment, $anchor),
         );
+    }
+
+    /** The oldest retained physical base, or null when none is retained. */
+    private function oldestKeptBase(RetentionPlan $rpPlan): ?DateTimeImmutable
+    {
+        $oldest = null;
+        foreach ($rpPlan->keep as $kept) {
+            if ($kept->kind !== BackupKind::PhysicalBase) {
+                continue;
+            }
+            if ($oldest === null || $kept->createdAt < $oldest) {
+                $oldest = $kept->createdAt;
+            }
+        }
+
+        return $oldest;
+    }
+
+    /**
+     * The pruning anchor for an explicit PITR window: the NEWEST retained base at or before the
+     * cutoff.
+     *
+     * Choosing the newest such base — rather than the cutoff instant itself — is the whole safety
+     * argument. WAL is only meaningful replayed forward from a base, so pruning to the raw cutoff
+     * would discard the segments between the last base and that instant and leave the window
+     * unrecoverable at its far end: the base would still be listed, still restore to its own
+     * consistency point, and silently refuse to roll forward to the times the policy promises.
+     * Anchoring on the base instead means every retained base stays replayable, and any instant
+     * inside the window is reachable because a base exists at or before it with unbroken WAL after.
+     *
+     * The window is therefore a FLOOR, not a ceiling. With a weekly base cadence and a one-day
+     * window the effective retention is up to a week — whatever keeps the anchor usable. Erring
+     * long is the only acceptable direction here; erring short destroys recoverability silently,
+     * and nothing downstream would notice until a restore was attempted.
+     *
+     * Falls back to {@see oldestKeptBase()} when no retained base is old enough — a freshly
+     * provisioned host, or a window longer than the restore-point retention. That prunes strictly
+     * less, never more.
+     */
+    private function windowedWalAnchor(RetentionPlan $rpPlan, int $walRetentionDays): ?DateTimeImmutable
+    {
+        $cutoff = $this->clock->now()->modify("-{$walRetentionDays} days");
+
+        $anchor = null;
+        foreach ($rpPlan->keep as $kept) {
+            if ($kept->kind !== BackupKind::PhysicalBase || $kept->createdAt > $cutoff) {
+                continue;
+            }
+            if ($anchor === null || $kept->createdAt > $anchor) {
+                $anchor = $kept->createdAt;
+            }
+        }
+
+        // Scanning $rpPlan->keep in PHP is safe here and deliberately different from how WAL is
+        // handled: restore points are a bounded set (hundreds), while the WAL slice is the
+        // unbounded one that must always be queried in aggregate. See WalVolumeReadModelInterface.
+        return $anchor ?? $this->oldestKeptBase($rpPlan);
     }
 
     /** The store an artifact actually lives in, falling back to the one supplied by the caller. */

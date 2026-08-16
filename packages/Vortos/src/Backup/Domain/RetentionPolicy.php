@@ -33,6 +33,14 @@ final readonly class RetentionPolicy
         public int $yearly = 1,
         public ?int $maxAgeDays = null,
         public int $minKeepFloor = 1,
+        /**
+         * How far back point-in-time recovery must reach, as distinct from how long restore points
+         * are kept. Null means the legacy behaviour: WAL is retained back to the oldest retained
+         * restore point, making the PITR window an accident of restore-point retention rather than
+         * a decision. Consumed by {@see \Vortos\Backup\Service\RetentionEnforcer}, not by
+         * {@see plan()} — this class only ever sees restore points.
+         */
+        public ?int $walRetentionDays = null,
     ) {
         foreach (['hourly' => $hourly, 'daily' => $daily, 'weekly' => $weekly, 'monthly' => $monthly, 'yearly' => $yearly] as $name => $value) {
             if ($value < 0) {
@@ -41,6 +49,9 @@ final readonly class RetentionPolicy
         }
         if ($maxAgeDays !== null && $maxAgeDays < 1) {
             throw new InvalidArgumentException('Retention maxAgeDays must be >= 1 or null.');
+        }
+        if ($walRetentionDays !== null && $walRetentionDays < 1) {
+            throw new InvalidArgumentException('Retention walRetentionDays must be >= 1 or null.');
         }
         if ($minKeepFloor < 1) {
             throw new InvalidArgumentException('Retention minKeepFloor must be >= 1 (never risk deleting the only copy).');

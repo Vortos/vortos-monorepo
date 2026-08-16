@@ -135,6 +135,41 @@ final class DbalBackupCatalogReadModel implements BackupCatalogReadModelInterfac
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * Reads the name from `source_ref` rather than parsing it out of `store_key`: the object key is
+     * a storage-layout detail that a key-prefix change would silently reshape, while the source ref
+     * is what the archiver recorded the segment AS. {@see \Vortos\Backup\Domain\SourceRef::walLsn()}
+     * writes it, so the shape is owned in one place.
+     */
+    public function newestWalSegmentName(DatabaseEngine $engine, string $environment): ?string
+    {
+        $row = $this->connection->createQueryBuilder()
+            ->select('source_ref')
+            ->from($this->table)
+            ->where('engine = :engine')
+            ->andWhere('environment = :env')
+            ->andWhere('kind = :wal')
+            ->setParameter('engine', $engine->value)
+            ->setParameter('env', $environment)
+            ->setParameter('wal', BackupKind::WalSegment->value)
+            ->orderBy('created_at', 'DESC')
+            ->addOrderBy('id', 'DESC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchOne();
+
+        if (!is_string($row) || $row === '') {
+            return null;
+        }
+
+        $decoded = json_decode($row, true);
+        $value   = is_array($decoded) ? ($decoded['value'] ?? null) : null;
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
      * The engine+environment slice, newest first — the ordering every caller below relies on, and
      * the column order of `idx_backup_engine_env_created`.
      */

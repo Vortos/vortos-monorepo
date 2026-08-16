@@ -29,6 +29,11 @@ final class WalEfficiencyProbeTest extends TestCase
                 return ['segments' => $this->segments, 'bytes' => $this->bytes];
             }
 
+            public function newestWalSegmentName(DatabaseEngine $engine, string $environment): ?string
+            {
+                return null;
+            }
+
         };
 
         return new WalEfficiencyProbe(
@@ -104,6 +109,11 @@ final class WalEfficiencyProbeTest extends TestCase
             public function walVolumeSince(DatabaseEngine $engine, string $environment, DateTimeImmutable $from): array
             {
                 throw new \RuntimeException('connection refused');
+            }
+
+            public function newestWalSegmentName(DatabaseEngine $engine, string $environment): ?string
+            {
+                return null;
             }
 
         };

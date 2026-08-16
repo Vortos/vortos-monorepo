@@ -40,4 +40,13 @@ interface WalVolumeReadModelInterface
         string $environment,
         DateTimeImmutable $from,
     ): array;
+
+    /**
+     * The name of the most recently archived WAL segment, or null when none exists.
+     *
+     * One row, resolved in the database. The caller that wants this — the drill's restorability
+     * invariant — needs a starting point to walk backwards from, and listing the WAL slice to take
+     * its head would hydrate the unbounded set for a single value.
+     */
+    public function newestWalSegmentName(DatabaseEngine $engine, string $environment): ?string;
 }

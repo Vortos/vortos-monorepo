@@ -445,6 +445,25 @@ final class BackupExtension extends Extension
             ->addTag(CollectInvariantChecksPass::TAG)
             ->setPublic(false);
 
+        // The drill restores a logical dump, which needs no WAL — so a completely broken WAL pipeline
+        // produced a PASSING drill. Not hypothetical: switching WAL to gzip-before-encrypt rewrote the
+        // whole read path, and the weekly drill would have stayed green whatever that did to
+        // recoverability. This asserts the restore_command path separately.
+        //
+        // Uses the environment from config, not APP_ENV: they differ deliberately ('production' vs
+        // 'prod'), and the wrong one finds no segments and passes as "no archived WAL" — a vacuous
+        // green, which is the exact failure RowCountInvariant above already had once.
+        $container->register(\Vortos\Backup\Drill\Check\WalRestorableInvariantFactory::class, \Vortos\Backup\Drill\Check\WalRestorableInvariantFactory::class)
+            ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\Drill\Check\WalRestorableInvariant::class, \Vortos\Backup\Drill\Check\WalRestorableInvariant::class)
+            ->setFactory([new Reference(\Vortos\Backup\Drill\Check\WalRestorableInvariantFactory::class), 'create'])
+            ->setArgument('$fetcher', new Reference(PostgresWalFetcher::class))
+            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+            ->addTag(CollectInvariantChecksPass::TAG)
+            ->setPublic(false);
+
         // Restore drills need an ephemeral-database provisioner, which only binds when one of the two
         // provisioning modes is configured. Registering DrillRunner unconditionally left its
         // $provisioner port unbound and broke every console/worker boot on a stock backup install.

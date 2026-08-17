@@ -93,8 +93,36 @@ final class CorsMiddleware implements MiddlewareInterface
             $response->headers->set('Access-Control-Expose-Headers', implode(', ', $config['exposed_headers']));
         }
 
-        // Vary: Origin tells proxies to cache separately per origin
-        $response->headers->set('Vary', 'Origin');
+        // Vary: Origin tells proxies to cache separately per origin.
+        //
+        // Added to whatever the response already varies on rather than replacing it.
+        // A plain set() here silently discarded every Vary a controller had chosen —
+        // Accept-Encoding on the flag bootstrap, Authorization on the permission
+        // list — on precisely the cross-origin responses where an SPA reads them.
+        $this->addVary($response, 'Origin');
+    }
+
+    /**
+     * Appends a field to Vary, preserving what is already there and not repeating a
+     * field the response already varies on (case-insensitively — Vary field names are
+     * header names).
+     */
+    private function addVary(Response $response, string $field): void
+    {
+        $existing = array_filter(array_map(
+            'trim',
+            explode(',', (string) $response->headers->get('Vary', '')),
+        ), static fn (string $value): bool => $value !== '');
+
+        foreach ($existing as $value) {
+            if (strcasecmp($value, $field) === 0 || $value === '*') {
+                return;
+            }
+        }
+
+        $existing[] = $field;
+
+        $response->headers->set('Vary', implode(', ', $existing));
     }
 
     private function isOriginAllowed(string $origin, array $allowed): bool

@@ -11,6 +11,7 @@ use Vortos\Audit\Enum\Scope;
 use Vortos\Audit\Enum\Sensitivity;
 use Vortos\Audit\Query\AuditCursor;
 use Vortos\Audit\Query\AuditQuery;
+use Vortos\AuditAdmin\Http\AuditWindow;
 use Vortos\AuditAdmin\Http\Serializer\AuditRecordPresenter;
 use Vortos\Auth\Attribute\RequiresAuth;
 use Vortos\Authorization\Attribute\RequiresPermission;
@@ -37,7 +38,8 @@ final class OrgAuditController
 
     public function __invoke(Request $request): JsonResponse
     {
-        $orgId = $this->tenantContext->requireTenantId();
+        $orgId  = $this->tenantContext->requireTenantId();
+        $window = AuditWindow::fromRequest($request);
 
         $query = new AuditQuery(
             scope:          Scope::Tenant,
@@ -47,6 +49,8 @@ final class OrgAuditController
             minSensitivity: Sensitivity::tryFrom((string) $request->query->get('minSensitivity', '')),
             outcome:        Outcome::tryFrom((string) $request->query->get('outcome', '')),
             targetId:       $request->query->get('targetId') ?: null,
+            from:           $window->from,
+            to:             $window->to,
             cursor:         AuditCursor::decode((string) $request->query->get('cursor', '')),
             limit:          (int) $request->query->get('limit', 50),
             actionPrefix:   $request->query->get('actionPrefix') ?: null,

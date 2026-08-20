@@ -11,6 +11,7 @@ use Vortos\Audit\Enum\Scope;
 use Vortos\Audit\Enum\Sensitivity;
 use Vortos\Audit\Query\AuditCursor;
 use Vortos\Audit\Query\AuditQuery;
+use Vortos\AuditAdmin\Http\AuditWindow;
 use Vortos\AuditAdmin\Http\Serializer\AuditRecordPresenter;
 use Vortos\Auth\Attribute\RequiresAuth;
 use Vortos\Authorization\Attribute\RequiresPermission;
@@ -34,6 +35,7 @@ final class PlatformAuditController
     {
         $scope    = Scope::tryFrom((string) $request->query->get('scope', 'platform')) ?? Scope::Platform;
         $tenantId = $scope === Scope::Tenant ? (string) $request->query->get('tenantId', '') : null;
+        $window   = AuditWindow::fromRequest($request);
 
         $query = new AuditQuery(
             scope:          $scope,
@@ -42,6 +44,8 @@ final class PlatformAuditController
             action:         $request->query->get('action') ?: null,
             minSensitivity: Sensitivity::tryFrom((string) $request->query->get('minSensitivity', '')),
             outcome:        Outcome::tryFrom((string) $request->query->get('outcome', '')),
+            from:           $window->from,
+            to:             $window->to,
             cursor:         AuditCursor::decode((string) $request->query->get('cursor', '')),
             limit:          (int) $request->query->get('limit', 50),
             actionPrefix:   $request->query->get('actionPrefix') ?: null,

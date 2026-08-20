@@ -36,6 +36,9 @@ final class PipelineDefinitionBuilder
     private ?string $baseImageDigest = null;
     private bool $emitSbom = true;
     private string $dockerfilePath = 'Dockerfile';
+    private ?string $serveTarget = null;
+    private ?string $opsTarget = null;
+    private ?string $opsScanIgnoreFile = null;
     private bool $emitScanGate = false;
     private bool $emitSign = false;
     private bool $buildCache = false;
@@ -225,6 +228,48 @@ final class PipelineDefinitionBuilder
     {
         $clone = clone $this;
         $clone->dockerfilePath = $path;
+
+        return $clone;
+    }
+
+    /**
+     * Split the serving image from the deploy-ops image.
+     *
+     * `$serveTarget` is the stage that answers requests; `$opsTarget` is that stage plus the docker
+     * CLI the cutover one-shots shell out to, published as a `:sha-<sha>-ops` sibling tag. Both are
+     * required together — declaring only the ops stage would leave the serving build taking the
+     * Dockerfile's last stage, which is the ops stage, defeating the split.
+     */
+    public function splitOpsImage(string $serveTarget, string $opsTarget, ?string $opsScanIgnoreFile = null): self
+    {
+        $clone = clone $this;
+        $clone->serveTarget = $serveTarget;
+        $clone->opsTarget = $opsTarget;
+        $clone->opsScanIgnoreFile = $opsScanIgnoreFile;
+
+        return $clone;
+    }
+
+    public function serveTarget(?string $target): self
+    {
+        $clone = clone $this;
+        $clone->serveTarget = $target;
+
+        return $clone;
+    }
+
+    public function opsTarget(?string $target): self
+    {
+        $clone = clone $this;
+        $clone->opsTarget = $target;
+
+        return $clone;
+    }
+
+    public function opsScanIgnoreFile(?string $path): self
+    {
+        $clone = clone $this;
+        $clone->opsScanIgnoreFile = $path;
 
         return $clone;
     }
@@ -501,6 +546,9 @@ final class PipelineDefinitionBuilder
             baseImageDigest: $this->baseImageDigest,
             emitSbom: $this->emitSbom,
             dockerfilePath: $this->dockerfilePath,
+            serveTarget: $this->serveTarget,
+            opsTarget: $this->opsTarget,
+            opsScanIgnoreFile: $this->opsScanIgnoreFile,
             emitScanGate: $this->emitScanGate,
             emitSign: $this->emitSign,
             buildCache: $this->buildCache,

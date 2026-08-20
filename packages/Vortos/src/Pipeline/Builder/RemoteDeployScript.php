@@ -35,7 +35,13 @@ final class RemoteDeployScript
         string $repo,
         string $digestExpr,
         string $envExpr,
+        ?string $opsImageRef = null,
     ): string {
+        // Every one-shot runs out of the ops image when there is one: they are deploy tooling, and
+        // the cutover ones shell out to a docker CLI that the serving image deliberately no longer
+        // carries. `--image-digest` below stays the SERVING digest — that is what the cutover writes
+        // into the compose and what actually ends up answering requests.
+        $toolingRef = $opsImageRef ?? $imageRef;
         $arch = $definition->targetArch->value;
         $deployDir = $definition->remoteDeployDir;
         $network = $definition->appNetwork;
@@ -134,7 +140,7 @@ final class RemoteDeployScript
             $fileSecretMounts,
             $secretsFlags,
             $edgeConfigMount,
-            $imageRef,
+            $toolingRef,
         );
 
         // The VPS pulls the image, so it authenticates to the registry there. Provider-driven so any
@@ -146,6 +152,13 @@ final class RemoteDeployScript
         }
 
         $lines[] = sprintf('docker pull %s', $imageRef);
+        if ($opsImageRef !== null) {
+            // Pull both: the serving image is what the cutover starts, the ops image is what runs
+            // every command up to it. Pulling here rather than letting `docker run` do it keeps a
+            // registry failure in the pull step, where it reads as one, instead of surfacing as a
+            // migration one-shot that mysteriously cannot start.
+            $lines[] = sprintf('docker pull %s', $opsImageRef);
+        }
 
         // G8: create the tmpfs secret dirs (0700) so the one-shot's read-write mount target exists.
         foreach ($fileSecretDirs as $dir) {
@@ -169,7 +182,7 @@ final class RemoteDeployScript
                 'docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/.env.prod',
                 $deployDir,
                 $deployDir,
-                $imageRef,
+                $toolingRef,
                 $definition->sealedEnvRevealScript,
                 $definition->sealedEnvFile,
                 $deployDir,

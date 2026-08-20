@@ -55,6 +55,38 @@ final readonly class PipelineDefinition
         public ?string $baseImageDigest = null,
         public bool $emitSbom = true,
         public string $dockerfilePath = 'Dockerfile',
+        /**
+         * Dockerfile stage that produces the SERVING image — the one the cutover runs as
+         * app/worker. Null builds the Dockerfile's default (last) stage, which is the historical
+         * behaviour and correct for a single-image app.
+         *
+         * Set this whenever {@see $opsTarget} is set: adding a later stage to a Dockerfile silently
+         * moves the default target, so leaving this null would ship the ops stage as the serving
+         * image — the exact thing the split exists to prevent.
+         */
+        public ?string $serveTarget = null,
+        /**
+         * Dockerfile stage that produces the DEPLOY-OPS image, published as a sibling
+         * `:sha-<sha>-ops` tag in the same repository.
+         *
+         * Deploy one-shots need a docker CLI in the image to drive the cutover; the long-running
+         * app and worker never invoke one. Building them as one image means the internet-facing
+         * container permanently carries the docker CLI and compose plugin, and every Go stdlib CVE
+         * published against those binaries fails the scan gate for the serving image — a gate that
+         * is supposed to describe the request-serving attack surface.
+         *
+         * Null keeps the single-image behaviour: one artifact serves traffic and runs the one-shots.
+         */
+        public ?string $opsTarget = null,
+        /**
+         * Trivy ignore file applied to the OPS image scan only.
+         *
+         * The serving image is deliberately given no ignore file: once the deploy toolchain is out
+         * of it, a finding there is a real finding. The ops image is short-lived, runs only during a
+         * cutover and is not reachable from the internet, so its toolchain findings are reviewed
+         * under their own policy rather than the serving image's.
+         */
+        public ?string $opsScanIgnoreFile = null,
         public bool $emitScanGate = false,
         public bool $emitSign = false,
         /**

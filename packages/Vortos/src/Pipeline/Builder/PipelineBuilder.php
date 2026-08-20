@@ -280,6 +280,9 @@ final class PipelineBuilder
             'provenance' => 'true',
             'sbom' => $definition->emitSbom ? 'true' : 'false',
             'tags' => $repo . ':sha-${{ github.sha }}',
+            // Explicit when declared. A Dockerfile that gained an ops stage would otherwise build
+            // that stage here — `docker build` with no target builds the LAST one — and ship the
+            // deploy toolchain in the serving image, silently undoing the split.
             // Stamp the OCI source labels explicitly.
             //
             // Without these, the image still CARRIES org.opencontainers.image.revision — inherited
@@ -300,6 +303,10 @@ final class PipelineBuilder
                 'org.opencontainers.image.created=${{ github.event.repository.updated_at }}',
             ]),
         ];
+
+        if ($definition->serveTarget !== null) {
+            $buildWith['target'] = $definition->serveTarget;
+        }
 
         if ($definition->baseImageDigest !== null) {
             // Explicit pin is authoritative.
@@ -399,6 +406,77 @@ final class PipelineBuilder
             );
         }
 
+        // ── Deploy-ops image ───────────────────────────────────────────────────────────────────
+        // A sibling artifact in the same repository, built from the ops stage: the serving image
+        // plus the docker CLI the cutover one-shots shell out to. Published as `:sha-<sha>-ops`, so
+        // no second repository, no second credential, and the same retention.
+        //
+        // It is signed and verified exactly like the serving image — the deploy runs console
+        // commands out of it against production data, so an unverified ops image would be a hole
+        // straight through the supply chain the serving image is carefully protected by.
+        //
+        // Its scan runs under its own ignore policy. The deploy toolchain is a pile of Go binaries
+        // that attract every Go stdlib CVE, and holding a short-lived container that is unreachable
+        // from the internet to the same bar as the request-serving image is what forced the serving
+        // gate to be waived in the first place.
+        if ($definition->opsTarget !== null) {
+            $opsTag = $repo . ':sha-${{ github.sha }}-ops';
+
+            $opsWith = $buildWith;
+            $opsWith['target'] = $definition->opsTarget;
+            $opsWith['tags'] = $opsTag;
+            // Never SBOM/provenance the ops image: it is not the artifact that serves anybody, and
+            // attaching them doubles the attestation surface for no consumer.
+            $opsWith['sbom'] = 'false';
+            $opsWith['provenance'] = 'false';
+
+            $steps[] = new ActionStep('Build and push deploy-ops image', KnownActionFactory::buildPush(), $opsWith, id: 'buildops');
+
+            $opsDigestRef = $repo . '@${{ steps.buildops.outputs.digest }}';
+
+            $steps[] = new CommandStep(
+                'Expose deploy-ops digest',
+                'echo "opsdigest=${{ steps.buildops.outputs.digest }}" >> "$GITHUB_OUTPUT"',
+                id: 'opsimage',
+            );
+
+            if ($definition->emitScanGate) {
+                $opsScan = [
+                    'image-ref' => $opsDigestRef,
+                    'format' => 'table',
+                    'exit-code' => '1',
+                    'severity' => 'HIGH,CRITICAL',
+                    'ignore-unfixed' => 'true',
+                ];
+                if ($definition->opsScanIgnoreFile !== null) {
+                    $opsScan['trivyignores'] = $definition->opsScanIgnoreFile;
+                }
+                $steps[] = new ActionStep(
+                    'Scan deploy-ops image for vulnerabilities (CVE gate)',
+                    KnownActionFactory::trivyImageScan(),
+                    $opsScan,
+                );
+            }
+
+            if ($definition->emitSign) {
+                $steps[] = new CommandStep(
+                    'Sign deploy-ops image (keyless, Sigstore)',
+                    sprintf('cosign sign --yes %s', $opsDigestRef),
+                    id: 'signops',
+                );
+                $steps[] = new CommandStep(
+                    'Verify deploy-ops image signature',
+                    sprintf(
+                        'cosign verify --certificate-identity-regexp "%s" --certificate-oidc-issuer "%s" %s',
+                        '^${{ github.server_url }}/${{ github.repository }}/',
+                        'https://token.actions.githubusercontent.com',
+                        $opsDigestRef,
+                    ),
+                    id: 'verifyops',
+                );
+            }
+        }
+
         $semverTagStep = new CommandStep(
             'Tag with release version',
             "docker buildx imagetools create --tag {$repo}:\${{ github.ref_name }} {$digestRef}",
@@ -439,7 +517,12 @@ final class PipelineBuilder
             runner: $runner,
             permissions: $permissions,
             timeoutMinutes: $definition->defaultTimeoutMinutes,
-            outputs: ['image' => '${{ steps.image.outputs.digest }}'],
+            outputs: $definition->opsTarget !== null
+                ? [
+                    'image' => '${{ steps.image.outputs.digest }}',
+                    'opsimage' => '${{ steps.opsimage.outputs.opsdigest }}',
+                ]
+                : ['image' => '${{ steps.image.outputs.digest }}'],
             condition: $this->pushToDeploymentBranchCondition($definition) . " || github.ref_type == 'tag'",
         );
     }
@@ -484,7 +567,11 @@ final class PipelineBuilder
         $imageRef = $repo . '@' . $digestExpr;
         $envExpr = '${{ matrix.environment }}';
 
-        $remoteScript = (new RemoteDeployScript())->build($definition, $imageRef, $repo, $digestExpr, $envExpr);
+        $opsImageRef = $definition->opsTarget !== null
+            ? $repo . '@${{ needs.build.outputs.opsimage }}'
+            : null;
+
+        $remoteScript = (new RemoteDeployScript())->build($definition, $imageRef, $repo, $digestExpr, $envExpr, $opsImageRef);
 
         $steps = [
             new ActionStep('Checkout', KnownActionFactory::checkout()),
@@ -509,6 +596,21 @@ final class PipelineBuilder
                     $imageRef,
                 ),
             );
+
+            // The ops image runs console commands against production data — migrations, seeds,
+            // the cutover itself. Verifying only the serving image would leave the artifact with
+            // the most dangerous reach as the one nobody checked.
+            if ($opsImageRef !== null) {
+                $steps[] = new CommandStep(
+                    'Verify the deploy-ops image signature before releasing it',
+                    sprintf(
+                        'cosign verify --certificate-identity-regexp "%s" --certificate-oidc-issuer "%s" %s',
+                        '^${{ github.server_url }}/${{ github.repository }}/',
+                        'https://token.actions.githubusercontent.com',
+                        $opsImageRef,
+                    ),
+                );
+            }
         }
 
         $steps[] = $this->sshSetupStep($definition);

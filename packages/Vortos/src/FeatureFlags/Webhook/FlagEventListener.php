@@ -11,6 +11,7 @@ use Vortos\FeatureFlags\Domain\Event\FlagEnabledEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagRulesChangedEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagScheduledEvent;
 use Vortos\FeatureFlags\Domain\Event\FlagVariantsChangedEvent;
+use Vortos\Messaging\Attribute\AsEventHandler;
 
 /**
  * Listens to flag domain events and dispatches webhooks (Block 18).
@@ -34,8 +35,34 @@ final class FlagEventListener
         private readonly WebhookDispatcher $dispatcher,
     ) {}
 
+    #[AsEventHandler(handlerId: 'vortos.flags.webhook.created', consumer: FlagWebhookMessagingConfig::CONSUMER)]
+    public function onCreated(FlagCreatedEvent $event): void { $this->handleEvent($event); }
+
+    #[AsEventHandler(handlerId: 'vortos.flags.webhook.enabled', consumer: FlagWebhookMessagingConfig::CONSUMER)]
+    public function onEnabled(FlagEnabledEvent $event): void { $this->handleEvent($event); }
+
+    #[AsEventHandler(handlerId: 'vortos.flags.webhook.disabled', consumer: FlagWebhookMessagingConfig::CONSUMER)]
+    public function onDisabled(FlagDisabledEvent $event): void { $this->handleEvent($event); }
+
+    #[AsEventHandler(handlerId: 'vortos.flags.webhook.rules_changed', consumer: FlagWebhookMessagingConfig::CONSUMER)]
+    public function onRulesChanged(FlagRulesChangedEvent $event): void { $this->handleEvent($event); }
+
+    #[AsEventHandler(handlerId: 'vortos.flags.webhook.variants_changed', consumer: FlagWebhookMessagingConfig::CONSUMER)]
+    public function onVariantsChanged(FlagVariantsChangedEvent $event): void { $this->handleEvent($event); }
+
+    #[AsEventHandler(handlerId: 'vortos.flags.webhook.scheduled', consumer: FlagWebhookMessagingConfig::CONSUMER)]
+    public function onScheduled(FlagScheduledEvent $event): void { $this->handleEvent($event); }
+
+    #[AsEventHandler(handlerId: 'vortos.flags.webhook.archived', consumer: FlagWebhookMessagingConfig::CONSUMER)]
+    public function onArchived(FlagArchivedEvent $event): void { $this->handleEvent($event); }
+
     /**
      * Handle a domain event — resolve its type and dispatch to matching webhooks.
+     *
+     * One registered method per event rather than a single object-typed handler, because the
+     * bus resolves handlers by the first typed parameter: a `handleEvent(object $event)` cannot
+     * be routed to, which is why this listener sat unwired while looking complete. The methods
+     * above are the registration; this remains the shared body.
      */
     public function handleEvent(object $event): void
     {

@@ -346,17 +346,19 @@ final class JwtService
      *
      * Normalising here rather than asking every consumer to handle both shapes keeps the
      * contract honest: what getClaims() put in is what getAttribute() gets back.
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
      */
     private function identityAttributes(array $payload): array
     {
-        return self::toArrayDeep($payload['attrs'] ?? []);
+        /** @var array<string, mixed> $claims */
+        $claims = self::toArrayDeep($payload['attrs'] ?? []);
+
+        return $claims;
     }
 
-    /**
-     * Recursively converts stdClass to associative arrays, leaving scalars untouched.
-     *
-     * @return mixed
-     */
+    /** Recursively converts stdClass to associative arrays, leaving scalars untouched. */
     private static function toArrayDeep(mixed $value): mixed
     {
         if ($value instanceof \stdClass) {

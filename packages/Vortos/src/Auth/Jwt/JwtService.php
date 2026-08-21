@@ -328,8 +328,45 @@ final class JwtService
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
+    /**
+     * The app-defined claims, converted all the way down to arrays.
+     *
+     * `JWT::decode()` returns JSON objects as stdClass, and a `(array)` cast converts only the
+     * TOP level — so a claim shaped `attrs: {imp: {...}}` arrives here with `attrs` as an array
+     * whose `imp` value is still an object. Consumers written against
+     * {@see UserIdentityInterface::getAttribute()} then receive a stdClass where the claim they
+     * wrote was an array, and the usual `is_array()` guard silently rejects a perfectly valid
+     * claim.
+     *
+     * That is a trap rather than an inconvenience: the symptom is a claim that round-trips
+     * correctly through issue() and unit tests (which build the identity directly, never through
+     * a decoded token) and then reads as absent in production. Flat claims — strings, numbers,
+     * lists — are unaffected, so it only bites the first consumer to nest an object, and it bites
+     * them at runtime.
+     *
+     * Normalising here rather than asking every consumer to handle both shapes keeps the
+     * contract honest: what getClaims() put in is what getAttribute() gets back.
+     */
     private function identityAttributes(array $payload): array
     {
-        return (array) ($payload['attrs'] ?? []);
+        return self::toArrayDeep($payload['attrs'] ?? []);
+    }
+
+    /**
+     * Recursively converts stdClass to associative arrays, leaving scalars untouched.
+     *
+     * @return mixed
+     */
+    private static function toArrayDeep(mixed $value): mixed
+    {
+        if ($value instanceof \stdClass) {
+            $value = (array) $value;
+        }
+
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        return array_map(static fn (mixed $item): mixed => self::toArrayDeep($item), $value);
     }
 }

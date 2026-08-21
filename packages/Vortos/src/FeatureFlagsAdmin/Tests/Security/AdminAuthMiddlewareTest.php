@@ -168,7 +168,7 @@ final class AdminAuthMiddlewareTest extends TestCase
                 return $this->verified;
             }
 
-            public function getChallengeUrl(): string
+            public function getChallengeUrl(?\Vortos\Auth\Contract\UserIdentityInterface $identity = null): string
             {
                 return $this->challengeUrl;
             }

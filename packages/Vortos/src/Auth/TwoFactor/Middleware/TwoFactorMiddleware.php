@@ -62,7 +62,7 @@ final class TwoFactorMiddleware implements MiddlewareInterface
                 [
                     'error'         => 'Two-Factor Authentication Required',
                     'message'       => 'This action requires 2FA verification.',
-                    'challenge_url' => $this->verifier->getChallengeUrl(),
+                    'challenge_url' => $this->verifier->getChallengeUrl($identity),
                 ],
                 Response::HTTP_FORBIDDEN,
             );

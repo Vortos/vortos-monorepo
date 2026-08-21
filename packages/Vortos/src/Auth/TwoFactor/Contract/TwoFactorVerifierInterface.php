@@ -18,5 +18,17 @@ use Vortos\Auth\Contract\UserIdentityInterface;
 interface TwoFactorVerifierInterface
 {
     public function isVerified(UserIdentityInterface $identity, Request $request): bool;
-    public function getChallengeUrl(): string;
+
+    /**
+     * Where the caller must go to satisfy the challenge.
+     *
+     * The identity is passed because the answer usually depends on WHO is being challenged:
+     * a deployment may put staff behind a hardware key and ordinary users behind a code, and
+     * those are different URLs. Without it an implementation has to guess, and guessing wrong
+     * points somebody at a challenge that cannot open the window they need — the request looks
+     * broken rather than merely gated.
+     *
+     * Optional so existing implementations keep working unchanged; they may ignore it.
+     */
+    public function getChallengeUrl(?UserIdentityInterface $identity = null): string;
 }

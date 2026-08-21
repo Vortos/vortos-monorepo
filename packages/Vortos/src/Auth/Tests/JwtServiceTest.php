@@ -35,6 +35,52 @@ final class JwtServiceTest extends TestCase
         $this->jwtService = new JwtService($this->config, $this->tokenStorage);
     }
 
+    public function test_a_nested_object_claim_survives_the_round_trip_as_an_array(): void
+    {
+        // The trap this guards: JWT::decode() returns JSON objects as stdClass, and a top-level
+        // (array) cast leaves nested ones untouched. A consumer that put an array into
+        // getClaims() would get a stdClass back out, and the ordinary is_array() guard would
+        // reject its own perfectly valid claim.
+        //
+        // It only bites the first consumer to nest an object, it never shows up in tests that
+        // build the identity directly instead of decoding a token, and the symptom in production
+        // is a claim reading as absent rather than as malformed.
+        $identity = new UserIdentity('user-1', ['admin'], [
+            'plan' => 'pro',
+            'imp'  => ['v' => 1, 'sid' => 'session-1', 'scope' => 'read'],
+        ]);
+
+        $token     = $this->jwtService->issue($identity);
+        $validated = $this->jwtService->validate($token->accessToken);
+
+        $imp = $validated->identity->getAttribute('imp');
+
+        self::assertIsArray($imp, 'A nested claim must come back as an array, not stdClass.');
+        self::assertSame(1, $imp['v']);
+        self::assertSame('session-1', $imp['sid']);
+        self::assertSame('read', $imp['scope']);
+        self::assertSame('pro', $validated->identity->getAttribute('plan'));
+    }
+
+    public function test_deeply_nested_claims_are_converted_all_the_way_down(): void
+    {
+        $identity = new UserIdentity('user-1', [], [
+            'a' => ['b' => ['c' => ['d' => 'deep']]],
+            'list' => [['x' => 1], ['x' => 2]],
+        ]);
+
+        $validated = $this->jwtService->validate($this->jwtService->issue($identity)->accessToken);
+
+        $a = $validated->identity->getAttribute('a');
+        self::assertIsArray($a['b']['c']);
+        self::assertSame('deep', $a['b']['c']['d']);
+
+        // Objects inside a list are converted too — a list is where this is easiest to miss.
+        $list = $validated->identity->getAttribute('list');
+        self::assertIsArray($list[0]);
+        self::assertSame(1, $list[0]['x']);
+    }
+
     protected function tearDown(): void
     {
         $this->tokenStorage->clear();

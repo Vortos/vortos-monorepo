@@ -136,13 +136,13 @@ final class TwoFactorCompilerPassTest extends TestCase
 class TfcpVerifierA implements TwoFactorVerifierInterface
 {
     public function isVerified(UserIdentityInterface $identity, Request $request): bool { return true; }
-    public function getChallengeUrl(): string { return '/a'; }
+    public function getChallengeUrl(?UserIdentityInterface $identity = null): string { return '/a'; }
 }
 
 class TfcpVerifierB implements TwoFactorVerifierInterface
 {
     public function isVerified(UserIdentityInterface $identity, Request $request): bool { return true; }
-    public function getChallengeUrl(): string { return '/b'; }
+    public function getChallengeUrl(?UserIdentityInterface $identity = null): string { return '/b'; }
 }
 
 class TfcpProtectedController

@@ -28,6 +28,8 @@ final readonly class AuditExportFilter
         public ?\DateTimeImmutable $from = null,
         public ?\DateTimeImmutable $to = null,
         public ?string             $search = null,
+        /** Restrict the export to actions performed under an impersonation session. */
+        public bool                $impersonatedOnly = false,
     ) {}
 
     /** Rebuild the full query for a given scope/tenant. Pagination is left at defaults; the
@@ -47,6 +49,7 @@ final readonly class AuditExportFilter
             to:             $this->to,
             actionPrefix:   $this->actionPrefix,
             search:         $this->search,
+            impersonatedOnly: $this->impersonatedOnly,
         );
     }
 
@@ -64,6 +67,7 @@ final readonly class AuditExportFilter
             'from'            => $this->from?->format('Y-m-d\TH:i:s.uP'),
             'to'              => $this->to?->format('Y-m-d\TH:i:s.uP'),
             'search'          => $this->search,
+            'impersonated'    => $this->impersonatedOnly,
         ];
     }
 
@@ -81,6 +85,7 @@ final readonly class AuditExportFilter
             from:           self::date($data['from'] ?? null),
             to:             self::date($data['to'] ?? null),
             search:         self::str($data['search'] ?? null),
+            impersonatedOnly: (bool) ($data['impersonated'] ?? false),
         );
     }
 

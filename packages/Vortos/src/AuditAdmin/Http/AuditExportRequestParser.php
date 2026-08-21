@@ -27,6 +27,11 @@ final class AuditExportRequestParser
             return $v === null || $v === '' ? null : (string) $v;
         };
 
+        $flag = static function (string $key) use ($body, $request): bool {
+            $v = $body[$key] ?? $request->query->get($key);
+            return \is_bool($v) ? $v : \in_array(strtolower((string) $v), ['1', 'true', 'yes', 'on'], true);
+        };
+
         return new AuditExportFilter(
             actorId:        $get('actorId'),
             action:         $get('action'),
@@ -38,6 +43,7 @@ final class AuditExportRequestParser
             from:           ($f = $get('from')) !== null ? new \DateTimeImmutable($f) : null,
             to:             ($t = $get('to')) !== null ? new \DateTimeImmutable($t) : null,
             search:         $get('search'),
+            impersonatedOnly: $flag('impersonated'),
         );
     }
 }

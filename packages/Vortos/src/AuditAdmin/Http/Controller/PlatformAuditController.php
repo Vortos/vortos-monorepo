@@ -50,6 +50,9 @@ final class PlatformAuditController
             limit:          (int) $request->query->get('limit', 50),
             actionPrefix:   $request->query->get('actionPrefix') ?: null,
             search:         $request->query->get('search') ?: null,
+            // ?impersonated=true — "what admins really did", filtered server-side so the
+            // console's chip counts the whole trail rather than the page it happens to hold.
+            impersonatedOnly: $request->query->getBoolean('impersonated'),
         );
 
         $page = $this->audit->page($query);

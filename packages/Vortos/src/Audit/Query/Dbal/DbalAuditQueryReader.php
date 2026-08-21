@@ -26,6 +26,19 @@ use Vortos\Audit\Storage\Dbal\StoredAuditEventRowMapper;
  */
 final class DbalAuditQueryReader implements AuditQueryInterface
 {
+    /**
+     * LIKE pattern that matches an actor JSON blob carrying an impersonation chain.
+     *
+     * {@see \Vortos\Audit\Event\AuditActor::toArray()} always emits the `on_behalf_of` key, so
+     * the discriminator is the value: `null` when the action was performed directly, an object
+     * (`{`) when it was performed on someone's behalf. Matching the literal `"on_behalf_of":{`
+     * is therefore exact — and portable, because `actor` is a text column on every driver.
+     *
+     * {@see \Vortos\Audit\Storage\Dbal\Postgres\PostgresAuditExtrasInstaller::installImpersonationIndex()}
+     * builds a partial index over exactly this predicate, so keep the two byte-identical.
+     */
+    public const IMPERSONATED_LIKE = '%"on_behalf_of":{%';
+
     private readonly AuditSearchIndexInterface $search;
 
     public function __construct(
@@ -112,6 +125,11 @@ final class DbalAuditQueryReader implements AuditQueryInterface
             // actor is JSON; match the top-level id without a JSON operator for portability.
             $parts[]           = "actor LIKE :actor_id";
             $params['actor_id'] = '%"id":"' . $query->actorId . '"%';
+        }
+        if ($query->impersonatedOnly) {
+            // Actions taken under an impersonation session: the actor blob carries a chain.
+            $parts[]                = 'actor LIKE :impersonated';
+            $params['impersonated'] = self::IMPERSONATED_LIKE;
         }
         if ($query->action !== null) {
             $parts[]         = 'action = :action';

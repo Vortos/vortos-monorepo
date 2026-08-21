@@ -32,6 +32,12 @@ final readonly class AuditQuery
         public ?string             $actionPrefix = null,
         /** Free-text terms matched across actor label + action + target + context (driver-dependent). */
         public ?string             $search = null,
+        /**
+         * Restrict to actions performed under an impersonation / on-behalf-of session — the
+         * rows whose actor carries an `on_behalf_of` chain. Server-side so the console's
+         * "Impersonations" view stays truthful across pagination.
+         */
+        public bool                $impersonatedOnly = false,
     ) {
         if ($scope->requiresTenantId() && ($tenantId === null || $tenantId === '')) {
             throw new \InvalidArgumentException('A tenant-scoped audit query requires a tenantId.');
@@ -48,7 +54,7 @@ final readonly class AuditQuery
         return new self(
             $this->scope, $this->tenantId, $this->actorId, $this->action, $this->minSensitivity,
             $this->outcome, $this->targetType, $this->targetId, $this->from, $this->to, $cursor, $this->limit,
-            $this->actionPrefix, $this->search,
+            $this->actionPrefix, $this->search, $this->impersonatedOnly,
         );
     }
 
@@ -57,7 +63,7 @@ final readonly class AuditQuery
         return new self(
             $this->scope, $this->tenantId, $this->actorId, $this->action, $this->minSensitivity,
             $this->outcome, $this->targetType, $this->targetId, $this->from, $this->to, $this->cursor, $limit,
-            $this->actionPrefix, $this->search,
+            $this->actionPrefix, $this->search, $this->impersonatedOnly,
         );
     }
 }

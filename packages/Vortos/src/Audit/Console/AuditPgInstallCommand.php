@@ -36,6 +36,7 @@ final class AuditPgInstallCommand extends Command
         $this->addOption('rls', null, InputOption::VALUE_NONE, 'Enable row-level security regardless of config.');
         $this->addOption('no-rls', null, InputOption::VALUE_NONE, 'Disable row-level security.');
         $this->addOption('skip-fts', null, InputOption::VALUE_NONE, 'Skip the FTS GIN index.');
+        $this->addOption('skip-impersonation-index', null, InputOption::VALUE_NONE, 'Skip the impersonation partial index.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -50,6 +51,11 @@ final class AuditPgInstallCommand extends Command
         if (!$input->getOption('skip-fts')) {
             $this->installer->installFtsIndex();
             $io->writeln('· FTS GIN index installed.');
+        }
+
+        if (!$input->getOption('skip-impersonation-index')) {
+            $this->installer->installImpersonationIndex();
+            $io->writeln('· Impersonation partial index installed.');
         }
 
         $enableRls = $input->getOption('rls') || ($this->rlsConfigured && !$input->getOption('no-rls'));

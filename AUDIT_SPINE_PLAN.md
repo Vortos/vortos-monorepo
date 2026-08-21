@@ -31,6 +31,18 @@ one console per audience. Locked decisions:
 - TENANT ISOLATION: query-layer scoping + Postgres RLS on audit_events (defense-in-depth).
 - Retention+cold-archive on scheduler; legacy org_audit_log/platform_audit_log/vortos.audit_log
   Contract-dropped.
+## V2 STATUS: COMPLETE (2026-07-12)
+F1+F2 published (fw alpha-224→230, incl. new vortos/vortos-audit-admin). A1+A2+A3 deployed to prod +
+verified (async ingestion, auth+org+platform+payments/registration unified, HMAC signed, RLS forced +
+enforced via AuditTenantRlsMiddleware, FTS GIN, framework admin module adopted, 3 legacy tables dropped,
+retention scheduled + archive target wired). U1 (front #3) + U2 (sqoura-admin #3) merged → Cloudflare:
+search + facets + saved-views + impersonation lens + signed export + (admin) cross-tenant picker +
+integrity verify. Prod `vortos:audit:doctor` = no failing checks; retention dry-run sane; platform chain
+1..8 contiguous + all signed. Every framework bug fixed IN framework → published → consumed → on VPS
+(see backend FRAMEWORK_BUGS.md; FB-3 closed alpha-230). H remaining (needs a superadmin token / test org):
+formal /security-review of the full diff, async N-thousand load test, cross-tenant pen-check + 2FA-export
+step-up check.
+
 ## V2 PROGRESS
 - F1 DONE (local, green — publishing as alpha-224): fluent `VortosAuditConfig` (closure-loaded
   config/audit.php, HMAC by env-name only) + `AuditExtension::loadConfig` closure loader + legacy-array

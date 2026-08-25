@@ -8,6 +8,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadataFactory;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Console\Tester\CommandTester;
 use Vortos\Migration\Generator\MigrationClassGenerator;
 use Vortos\Migration\Service\DependencyFactoryProviderInterface;
@@ -97,5 +98,40 @@ final class OrmDiffCommandTest extends TestCase
         $tester->execute(['--check' => true]);
 
         $this->assertSame(1, $tester->getStatusCode());
+    }
+
+    /**
+     * The classification the whole gate rests on.
+     *
+     * Failing on the entire diff made this unusable: a real application reported a hundred
+     * and fourteen statements, every one cosmetic. Only a missing table or column is
+     * certainly fatal — the application names it in a query and the database refuses,
+     * every request, from the first.
+     *
+     * @param non-empty-string $sql
+     */
+    #[DataProvider('schemaStatements')]
+    public function test_only_missing_structure_counts_as_a_failure(string $sql, bool $fatal): void
+    {
+        $method = new \ReflectionMethod(OrmDiffCommand::class, 'isMissingFromSchema');
+
+        $this->assertSame($fatal, $method->invoke(null, $sql), $sql);
+    }
+
+    /** @return iterable<string, array{string, bool}> */
+    public static function schemaStatements(): iterable
+    {
+        // Fatal: the application will name these and be refused.
+        yield 'missing table'  => ['CREATE TABLE qualification_withdrawals (id VARCHAR(36) NOT NULL)', true];
+        yield 'missing column' => ['ALTER TABLE qualification_withdrawals ADD lock_version INT NOT NULL', true];
+        yield 'lowercase'      => ['alter table foo add bar INT', true];
+
+        // Not fatal: untidy, and invisible to a running application.
+        yield 'foreign key'    => ['ALTER TABLE forms ADD CONSTRAINT fk_forms FOREIGN KEY (tournament_id) REFERENCES tournaments (id)', false];
+        yield 'dropped fk'     => ['ALTER TABLE forms DROP CONSTRAINT forms_tournament_id_fkey', false];
+        yield 'dropped default'=> ['ALTER TABLE forms ALTER status DROP DEFAULT', false];
+        yield 'renamed index'  => ['ALTER INDEX uq_resubmission_offer_token RENAME TO UNIQ_A7D4E2045F37A13B', false];
+        yield 'changed type'   => ['ALTER TABLE registration_submissions ALTER payment_intent TYPE JSON', false];
+        yield 'set default'    => ['ALTER TABLE offers ALTER lock_version SET DEFAULT 1', false];
     }
 }

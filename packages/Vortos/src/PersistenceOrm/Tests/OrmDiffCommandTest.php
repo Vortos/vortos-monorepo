@@ -71,4 +71,31 @@ final class OrmDiffCommandTest extends TestCase
         // With no SQL diff, returns early regardless of dry-run
         $this->assertSame(0, $tester->getStatusCode());
     }
+
+    /**
+     * The guard that makes --check meaningful.
+     *
+     * With no entities mapped the diff is empty, and a plain "nothing to do" would be this
+     * gate passing on a run that examined nothing. That is worse than having no gate: it
+     * reports safety it never checked.
+     */
+    public function test_check_fails_when_no_entities_are_mapped(): void
+    {
+        $tester = $this->tester();
+        $tester->execute(['--check' => true]);
+
+        $this->assertStringContainsString('No mapped entities', $tester->getDisplay());
+        $this->assertSame(1, $tester->getStatusCode());
+    }
+
+    public function test_check_does_not_write_a_migration(): void
+    {
+        // The whole point of the mode: CI reports, it never edits the repository.
+        $this->factoryProvider->expects($this->never())->method('create');
+
+        $tester = $this->tester();
+        $tester->execute(['--check' => true]);
+
+        $this->assertSame(1, $tester->getStatusCode());
+    }
 }

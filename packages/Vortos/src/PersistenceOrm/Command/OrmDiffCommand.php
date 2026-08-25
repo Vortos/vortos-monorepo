@@ -14,9 +14,32 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Migration\Generator\MigrationClassGenerator;
 use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 
+/**
+ * The difference between what the entities describe and what the database actually is.
+ *
+ * Two jobs, because they are the same question asked for two reasons. By default it writes
+ * the migration that closes the gap. With `--check` it writes nothing and fails when a gap
+ * exists, which is what CI needs.
+ *
+ * ## Why --check is worth having
+ *
+ * A migration can apply perfectly and still build a table the mapping cannot read: a
+ * missing column, a wrong type, an absent index. Nothing else catches that. A test suite
+ * on in-memory doubles has no schema; static analysis cannot see the join between a
+ * mapping and a table; and {@see \Vortos\Migration\Command\MigrateVerifyCommand} checks
+ * only framework module migrations, because Vortos holds no schema definition for
+ * application ones. So the first thing to notice is the query failing in production.
+ *
+ * ## Why DROP is still filtered under --check
+ *
+ * A database legitimately holds tables no entity maps — framework bookkeeping, another
+ * service's, something retired but not yet dropped. Failing on those would make the gate
+ * cry wolf until somebody turned it off. What is left is the set of things the mapping
+ * NEEDS and the schema lacks, and every one of those is a query that will fail.
+ */
 #[AsCommand(
     name: 'vortos:orm:diff',
-    description: 'Generate a migration from ORM entity diff against the current database schema',
+    description: 'Generate a migration from ORM entity diff, or with --check fail when the schema does not match the mapping',
 )]
 final class OrmDiffCommand extends Command
 {
@@ -31,22 +54,51 @@ final class OrmDiffCommand extends Command
     protected function configure(): void
     {
         $this->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print the SQL diff without writing a migration file');
+        $this->addOption('check', null, InputOption::VALUE_NONE, 'Write nothing and exit non-zero if the schema does not match the mapping (for CI)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $dryRun = (bool) $input->getOption('dry-run');
+        $check  = (bool) $input->getOption('check');
 
         $tool  = new SchemaTool($this->em);
         $metas = $this->em->getMetadataFactory()->getAllMetadata();
+
+        // Never pass on nothing. A run that mapped no entities is a broken check reporting
+        // success, which is worse than no check at all — and under --check it is the whole
+        // point of the command.
+        if ($check && $metas === []) {
+            $output->writeln('<error>No mapped entities were found — this check cannot mean anything.</error>');
+
+            return Command::FAILURE;
+        }
         $sqls = array_values(array_filter(
             $tool->getUpdateSchemaSql($metas),
             static fn(string $sql) => !preg_match('/^\s*DROP\s/i', $sql),
         ));
 
         if (empty($sqls)) {
-            $output->writeln('<info>Schema is up to date — nothing to generate.</info>');
+            $output->writeln($check
+                ? sprintf('<info>OK: the schema matches all %d mapped entities.</info>', count($metas))
+                : '<info>Schema is up to date — nothing to generate.</info>');
+
             return Command::SUCCESS;
+        }
+
+        if ($check) {
+            $output->writeln('<error>The schema does not match the mapping.</error>');
+            $output->writeln('');
+
+            foreach ($sqls as $sql) {
+                $output->writeln('  ' . $sql . ';');
+            }
+
+            $output->writeln('');
+            $output->writeln('<comment>Each line is a query the application will run and the database will refuse.</comment>');
+            $output->writeln('<comment>Add a migration for it — vortos:orm:diff without --check writes one.</comment>');
+
+            return Command::FAILURE;
         }
 
         if ($dryRun) {

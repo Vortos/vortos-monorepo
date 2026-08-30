@@ -8,10 +8,34 @@ use Aws\Exception\AwsException;
 use Aws\S3\S3Client;
 use Vortos\Foundation\Health\Attribute\AsHealthCheck;
 use Vortos\Foundation\Health\Contract\HealthCheckInterface;
+use Vortos\Foundation\Health\Contract\HealthCheckKind;
 use Vortos\Foundation\Health\HealthResult;
 
 /**
- * Readiness probe for the object store: a `HeadBucket` against the configured bucket.
+ * Monitoring probe for the object store: a `HeadBucket` against the configured bucket.
+ *
+ * ## Why this is Monitoring and not Readiness
+ *
+ * It was Readiness, and that was a correlated-failure bug rather than a preference. The bucket is a
+ * SHARED external dependency: every replica of every color reaches the same one, so a provider blip
+ * fails this probe everywhere at the same instant, the edge finds no healthy upstream, and the whole
+ * service goes down — including the majority of requests that never touch object storage at all. A
+ * degraded subsystem became a total outage, which is precisely the trade a readiness gate is supposed
+ * to avoid.
+ *
+ * Object-store failure is handled where it can be handled per-operation instead: enable
+ * `circuit_breaker` in the object-store config and the calls that actually need the bucket fast-fail
+ * while everything else keeps serving. This probe's job is to make the condition VISIBLE — it is
+ * sampled by the monitor tick and reported at /health/monitor, and it alerts — never to stop traffic.
+ *
+ * `critical: true` is retained and still meaningful: it decides fail vs warn on the monitoring
+ * surface, so an unreachable bucket is a hard red there rather than a shrug. It just no longer
+ * reaches the traffic gate.
+ *
+ * A footnote on cost, since it is what surfaced this: on Cloudflare R2 every HeadBucket is a billed
+ * Class B operation. As a readiness probe it ran on each container's healthcheck interval and each
+ * edge active-health interval, forever, on an idle system — millions of operations a month to answer
+ * a question nothing was allowed to act on.
  *
  * ## Cold-start resilience
  *
@@ -25,7 +49,7 @@ use Vortos\Foundation\Health\HealthResult;
  * budget. Steady-state (warm connection) probes succeed on the first attempt and pay no
  * extra latency.
  */
-#[AsHealthCheck(critical: true, timeoutMs: 8000)]
+#[AsHealthCheck(critical: true, timeoutMs: 8000, kind: HealthCheckKind::Monitoring)]
 final class S3ObjectStoreHealthCheck implements HealthCheckInterface
 {
     public function __construct(

@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Vortos\ObjectStore\DependencyInjection;
 
 /**
- * Readiness-probe cold-start resilience for the object store (see S3ObjectStoreHealthCheck).
+ * Cold-start resilience for the object-store MONITORING probe (see S3ObjectStoreHealthCheck).
  *
  * A freshly (re)started worker pays for DNS + TLS + SDK init on its first bucket call; a
- * one-shot probe run at that instant can transiently fail even though the store is healthy,
- * false-negativing a blue-green health gate. These knobs let the probe retry a small,
- * bounded number of times before reporting unhealthy.
+ * one-shot probe run at that instant can transiently fail even though the store is healthy.
+ * These knobs let the probe retry a small, bounded number of times before reporting unhealthy,
+ * so a cold-connection blip does not raise a false alert.
+ *
+ * The probe no longer gates traffic (it is HealthCheckKind::Monitoring), so a false negative here
+ * costs an alert rather than a rolled-back deploy — but a quiet alert channel is worth keeping.
  */
 final class ObjectStoreHealthConfig
 {

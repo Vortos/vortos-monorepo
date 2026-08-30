@@ -12,7 +12,9 @@ use Vortos\Foundation\Health\Contract\HealthCheckInterface;
 use Vortos\Foundation\Health\HealthResult;
 use Vortos\Health\DependencyInjection\Compiler\BridgeLegacyHealthChecksPass;
 use Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass;
+use Vortos\Foundation\Health\Contract\HealthCheckKind;
 use Vortos\Health\Probe\Bridge\LegacyHealthCheckProbe;
+use Vortos\Health\Probe\ProbeKind;
 
 final class BridgeLegacyHealthChecksPassTest extends TestCase
 {
@@ -77,8 +79,37 @@ final class BridgeLegacyHealthChecksPassTest extends TestCase
         self::assertFalse($optionalBridge->getArgument('$critical'));
     }
 
-    private function createLegacyCheckClass(string $shortName, bool $critical): string
+    public function testDefaultsToReadinessAndHonoursAnExplicitMonitoringKind(): void
     {
+        $container = new ContainerBuilder();
+
+        $container->setDefinition('test.gating', new Definition(
+            $this->createLegacyCheckClass('GatingHealthCheck', true),
+        ));
+        $container->setDefinition('test.external', new Definition(
+            $this->createLegacyCheckClass('ExternalHealthCheck', true, HealthCheckKind::Monitoring),
+        ));
+
+        (new BridgeLegacyHealthChecksPass())->process($container);
+
+        // An undeclared kind must keep gating traffic, or upgrading the framework would silently
+        // stop a database check from holding an unready instance out of the pool.
+        self::assertSame(
+            ProbeKind::Readiness,
+            $container->getDefinition('vortos.health.bridge.gating')->getArgument('$kind'),
+        );
+        // A declared Monitoring check must land off-gate — this is the whole point of the seam.
+        self::assertSame(
+            ProbeKind::Monitoring,
+            $container->getDefinition('vortos.health.bridge.external')->getArgument('$kind'),
+        );
+    }
+
+    private function createLegacyCheckClass(
+        string $shortName,
+        bool $critical,
+        HealthCheckKind $kind = HealthCheckKind::Readiness,
+    ): string {
         $ns = 'Vortos\\Health\\Tests\\Fixtures\\Generated';
         $fqcn = $ns . '\\' . $shortName;
 
@@ -87,15 +118,17 @@ final class BridgeLegacyHealthChecksPassTest extends TestCase
         }
 
         $criticalStr = $critical ? 'true' : 'false';
+        $kindStr = 'HealthCheckKind::' . $kind->name;
 
         eval(<<<PHP
 namespace {$ns};
 
 use Vortos\\Foundation\\Health\\Attribute\\AsHealthCheck;
 use Vortos\\Foundation\\Health\\Contract\\HealthCheckInterface;
+use Vortos\\Foundation\\Health\\Contract\\HealthCheckKind;
 use Vortos\\Foundation\\Health\\HealthResult;
 
-#[AsHealthCheck(critical: {$criticalStr})]
+#[AsHealthCheck(critical: {$criticalStr}, kind: {$kindStr})]
 final class {$shortName} implements HealthCheckInterface
 {
     public function name(): string { return 'test'; }

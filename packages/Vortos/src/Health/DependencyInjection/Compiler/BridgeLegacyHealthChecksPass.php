@@ -10,7 +10,9 @@ use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Foundation\Health\Attribute\AsHealthCheck;
 use Vortos\Foundation\Health\Contract\HealthCheckInterface;
+use Vortos\Foundation\Health\Contract\HealthCheckKind;
 use Vortos\Health\Probe\Bridge\LegacyHealthCheckProbe;
+use Vortos\Health\Probe\ProbeKind;
 
 final class BridgeLegacyHealthChecksPass implements CompilerPassInterface
 {
@@ -53,11 +55,24 @@ final class BridgeLegacyHealthChecksPass implements CompilerPassInterface
             $bridgeDef->setArgument('$delegate', new Reference($id));
             $bridgeDef->setArgument('$driverKey', $bridgeKey);
             $bridgeDef->setArgument('$critical', $attr->critical);
+            $bridgeDef->setArgument('$kind', self::toProbeKind($attr->kind));
             $bridgeDef->addTag(CollectHealthProbesPass::TAG, ['key' => $bridgeKey]);
             $bridgeDef->setPublic(false);
 
             $container->setDefinition($bridgeId, $bridgeDef);
         }
+    }
+
+    /**
+     * The two enums are separate only because vortos-foundation cannot depend on vortos-health; this
+     * is the seam where the declared intent becomes the registry's kind.
+     */
+    private static function toProbeKind(HealthCheckKind $kind): ProbeKind
+    {
+        return match ($kind) {
+            HealthCheckKind::Readiness  => ProbeKind::Readiness,
+            HealthCheckKind::Monitoring => ProbeKind::Monitoring,
+        };
     }
 
     private function deriveCheckName(string $class): string

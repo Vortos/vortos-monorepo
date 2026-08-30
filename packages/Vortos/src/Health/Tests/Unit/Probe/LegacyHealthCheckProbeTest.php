@@ -47,12 +47,30 @@ final class LegacyHealthCheckProbeTest extends TestCase
         self::assertSame('legacy_check_degraded', $result->errorCode);
     }
 
-    public function testLegacyProbeIsReadinessKind(): void
+    public function testLegacyProbeDefaultsToReadinessKind(): void
     {
         $legacy = $this->createLegacyCheck(healthy: true);
         $probe = new LegacyHealthCheckProbe($legacy, 'legacy-test', true);
 
         self::assertSame(ProbeKind::Readiness, $probe->kind());
+    }
+
+    public function testLegacyProbeReportsTheKindItWasGiven(): void
+    {
+        $legacy = $this->createLegacyCheck(healthy: true);
+        $probe = new LegacyHealthCheckProbe($legacy, 'legacy-test', true, ProbeKind::Monitoring);
+
+        self::assertSame(ProbeKind::Monitoring, $probe->kind());
+    }
+
+    public function testMonitoringKindPropagatesIntoTheFailureResult(): void
+    {
+        $legacy = $this->createLegacyCheck(healthy: false);
+        $probe = new LegacyHealthCheckProbe($legacy, 'legacy-test', true, ProbeKind::Monitoring);
+
+        // The result must carry Monitoring too, or the aggregator would file a failing external
+        // dependency back onto the readiness surface it was moved off.
+        self::assertSame(ProbeKind::Monitoring, $probe->check()->kind);
     }
 
     public function testCapabilitiesDeclareDependencyCheck(): void

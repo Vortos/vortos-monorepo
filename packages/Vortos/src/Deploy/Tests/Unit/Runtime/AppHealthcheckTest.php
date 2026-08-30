@@ -22,6 +22,7 @@ final class AppHealthcheckTest extends TestCase
             timeout: '3s',
             retries: 5,
             startPeriod: '10s',
+            startInterval: '1s',
         );
 
         $this->assertSame([
@@ -30,6 +31,7 @@ final class AppHealthcheckTest extends TestCase
             'timeout' => '3s',
             'retries' => 5,
             'start_period' => '10s',
+            'start_interval' => '1s',
         ], $hc->toArray());
     }
 
@@ -40,9 +42,20 @@ final class AppHealthcheckTest extends TestCase
         $this->assertSame('CMD-SHELL', $array['test'][0]);
         $this->assertStringContainsString('curl', $array['test'][1]);
         $this->assertStringContainsString('http://127.0.0.1:8080/health/ready', $array['test'][1]);
-        // A ~70s window (10s start-period + 20×3s) — wider than the deploy readiness gate.
-        $this->assertSame(20, $array['retries']);
+        // Boot stays fast (3s start_interval inside the 10s start-period) so the worker's
+        // service_healthy gate flips promptly; steady state settles to 30s x 5 (~2.5 min) so a
+        // healthy container is not probing — nor exercising its dependencies — every few seconds.
+        $this->assertSame('30s', $array['interval']);
+        $this->assertSame('3s', $array['start_interval']);
+        $this->assertSame(5, $array['retries']);
         $this->assertSame('10s', $array['start_period']);
+    }
+
+    public function test_start_interval_must_be_a_compose_duration(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        AppHealthcheck::command(test: ['CMD', 'true'], startInterval: '3seconds');
     }
 
     public function test_http_readiness_honors_custom_port_and_path(): void

@@ -35,15 +35,48 @@ final readonly class AppHealthcheck
     public const DEFAULT_READINESS_PATH = '/health/ready';
 
     /**
+     * Steady-state probe cadence, once the container has reported healthy at least once.
+     *
+     * This was 3s, chosen so the worker's a depends_on condition of 'service_healthy' gate would flip quickly at
+     * boot. It did — and then kept firing every 3 seconds for the life of the container, forever, on
+     * an idle system. A readiness probe is not free: it occupies a request-handling thread for its
+     * whole duration (the app tier's real concurrency is a fixed worker-thread count), and every
+     * dependency it touches is exercised at that cadence, which on a metered provider is a line item.
+     *
+     * 30s sits in the normal band for a steady-state probe — Kubernetes' periodSeconds defaults to
+     * 10 and 10-30s is the usual range. Fast BOOT detection is preserved by {@see $startInterval}
+     * rather than by punishing the entire steady state for it.
+     */
+    public const DEFAULT_INTERVAL = '30s';
+
+    /**
+     * Probe cadence DURING the start period — Compose start_interval, which needs Docker Engine 25+
+     * (API 1.44+). This is what makes a slow steady-state interval safe: the container is still
+     * polled every 3s while it boots, so service_healthy flips as promptly as it ever did and the
+     * deploy's readiness gate is unaffected.
+     */
+    public const DEFAULT_START_INTERVAL = '3s';
+
+    /**
+     * Consecutive failures before a HEALTHY container is declared unhealthy.
+     *
+     * Reduced from 20 alongside the interval change, because retries multiply it: 20 x 3s was a ~60s
+     * detection window, while 20 x 30s would have been ten minutes. 5 x 30s restores a ~2.5 minute
+     * window. Failures inside the start period do not count toward this, so boot is unaffected.
+     */
+    public const DEFAULT_RETRIES = 5;
+
+    /**
      * @param list<string> $test compose 'test' list, e.g. ['CMD-SHELL', '…']; empty when disabled
      */
     public function __construct(
         public bool $disabled,
         public array $test = [],
-        public string $interval = '3s',
+        public string $interval = self::DEFAULT_INTERVAL,
         public string $timeout = '5s',
-        public int $retries = 20,
+        public int $retries = self::DEFAULT_RETRIES,
         public string $startPeriod = '10s',
+        public string $startInterval = self::DEFAULT_START_INTERVAL,
     ) {
         if ($disabled) {
             if ($test !== []) {
@@ -71,7 +104,12 @@ final readonly class AppHealthcheck
             ));
         }
 
-        foreach (['interval' => $interval, 'timeout' => $timeout, 'startPeriod' => $startPeriod] as $field => $value) {
+        foreach ([
+            'interval'      => $interval,
+            'timeout'       => $timeout,
+            'startPeriod'   => $startPeriod,
+            'startInterval' => $startInterval,
+        ] as $field => $value) {
             if (preg_match('/^\d+(ms|s|m|h)$/', $value) !== 1) {
                 throw new \InvalidArgumentException(sprintf(
                     'AppHealthcheck.%s must be a Compose duration (e.g. "3s", "1m"), got "%s".',
@@ -103,10 +141,11 @@ final readonly class AppHealthcheck
      */
     public static function command(
         array $test,
-        string $interval = '3s',
+        string $interval = self::DEFAULT_INTERVAL,
         string $timeout = '5s',
-        int $retries = 20,
+        int $retries = self::DEFAULT_RETRIES,
         string $startPeriod = '10s',
+        string $startInterval = self::DEFAULT_START_INTERVAL,
     ): self {
         return new self(
             disabled: false,
@@ -115,6 +154,7 @@ final readonly class AppHealthcheck
             timeout: $timeout,
             retries: $retries,
             startPeriod: $startPeriod,
+            startInterval: $startInterval,
         );
     }
 
@@ -123,20 +163,23 @@ final readonly class AppHealthcheck
      * curl (present in the framework app image — it is the tool the inherited HTTP healthcheck already
      * used) against the LOOPBACK container port, so the probe is independent of the edge and of DNS.
      *
-     * Defaults give a ~70s window before the container is marked unhealthy (10s start-period + 20×3s),
-     * comfortably wider than the deploy readiness gate, so nothing that would pass the gate fails this.
+     * Defaults poll every 3s while booting (10s start-period, {@see DEFAULT_START_INTERVAL}) so the
+     * worker's service_healthy gate flips promptly, then settle to 30s with 5 retries — a ~2.5 minute
+     * window before a running container is marked unhealthy. Nothing that would pass the deploy's
+     * readiness gate fails this.
      */
     public static function httpReadiness(
         int $port,
         string $path = self::DEFAULT_READINESS_PATH,
-        string $interval = '3s',
+        string $interval = self::DEFAULT_INTERVAL,
         string $timeout = '5s',
-        int $retries = 20,
+        int $retries = self::DEFAULT_RETRIES,
         string $startPeriod = '10s',
+        string $startInterval = self::DEFAULT_START_INTERVAL,
     ): self {
         $test = sprintf('curl -fsS -o /dev/null http://127.0.0.1:%d%s || exit 1', $port, $path);
 
-        return self::command(['CMD-SHELL', $test], $interval, $timeout, $retries, $startPeriod);
+        return self::command(['CMD-SHELL', $test], $interval, $timeout, $retries, $startPeriod, $startInterval);
     }
 
     /** @return array<string, mixed> */
@@ -152,6 +195,7 @@ final readonly class AppHealthcheck
             'timeout' => $this->timeout,
             'retries' => $this->retries,
             'start_period' => $this->startPeriod,
+            'start_interval' => $this->startInterval,
         ];
     }
 }

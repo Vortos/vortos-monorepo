@@ -72,10 +72,11 @@ final class RuntimeServiceSpecTest extends TestCase
             // signal the worker gates on so its consumer fan-out cannot race the readiness gate.
             'app_healthcheck' => [
                 'test' => ['CMD-SHELL', 'curl -fsS -o /dev/null http://127.0.0.1:9000/health/ready || exit 1'],
-                'interval' => '3s',
+                'interval' => '30s',
                 'timeout' => '5s',
-                'retries' => 20,
+                'retries' => 5,
                 'start_period' => '10s',
+                'start_interval' => '3s',
             ],
             // Always concrete: inheriting the daemon's stock 1024 descriptor limit is never correct
             // for a container serving connections, so there is no "unset" state to fall through to.

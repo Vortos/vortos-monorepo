@@ -58,6 +58,7 @@ use Vortos\ObjectStore\Metrics\ObjectStoreMetricDefinitions;
 use Vortos\ObjectStore\Multipart\S3ServerSideMultipartMaintenance;
 use Vortos\ObjectStore\Multipart\S3ServerSideMultipartUploadManager;
 use Vortos\ObjectStore\Health\S3ObjectStoreHealthCheck;
+use Vortos\ObjectStore\Preflight\ObjectStoreReachableDoctorCheck;
 use Vortos\ObjectStore\Lifecycle\NullLifecycleManager;
 use Vortos\ObjectStore\Lifecycle\S3LifecycleManager;
 use Vortos\ObjectStore\Outbox\ObjectOperationSerializer;
@@ -668,6 +669,26 @@ final class ObjectStoreExtension extends Extension
                 ->setArgument('$provider', $config['provider'])
                 ->setArgument('$coldStartAttempts', (int) ($config['health']['cold_start_attempts'] ?? 3))
                 ->setArgument('$coldStartBackoffMs', (int) ($config['health']['cold_start_backoff_milliseconds'] ?? 200))
+                ->setShared(true)
+                ->setPublic(false);
+        }
+
+        // Deploy-time reachability gate. Guarded on vortos-deploy being installed, mirroring
+        // Vortos\Health\DependencyInjection\HealthExtension — the object store must not start
+        // requiring the deploy package just to register a doctor check.
+        //
+        // This is what keeps "the bucket is misconfigured" a blocking condition now that the
+        // readiness probe no longer answers it. See ObjectStoreReachableDoctorCheck for why the
+        // two questions belong in different places.
+        if (interface_exists(\Vortos\Deploy\Preflight\PreflightCheckInterface::class)) {
+            $container->register(ObjectStoreReachableDoctorCheck::class, ObjectStoreReachableDoctorCheck::class)
+                ->setArgument(
+                    '$storeCheck',
+                    $config['driver'] === 's3' ? new Reference(S3ObjectStoreHealthCheck::class) : null,
+                )
+                ->setArgument('$driver', $config['driver'])
+                ->setArgument('$provider', $config['provider'])
+                ->setArgument('$bucket', $config['bucket']['name'])
                 ->setShared(true)
                 ->setPublic(false);
         }

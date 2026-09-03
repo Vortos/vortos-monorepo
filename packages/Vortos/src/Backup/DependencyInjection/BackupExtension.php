@@ -540,7 +540,12 @@ final class BackupExtension extends Extension
                 // rather than 404 under a least-privilege token, so the store alone cannot tell
                 // "past the end of the log" from "cannot read" — and guessing "past the end" would
                 // end a recovery early and call it a success.
-                ->setArgument('$walCatalog', new Reference(\Vortos\Backup\Catalog\WalVolumeReadModelInterface::class))
+                //
+                // Referenced through BackupCatalogReadModelInterface, which is the id the DBAL read
+                // model is actually registered under; it implements WalVolumeReadModelInterface too
+                // (as the WAL restorability invariant above already relies on). Referencing the
+                // narrower interface by class name looks tidier and resolves to nothing.
+                ->setArgument('$walCatalog', new Reference(BackupCatalogReadModelInterface::class))
                 ->setPublic(false);
 
             $container->register(PostgresPitrRestoreTarget::class, PostgresPitrRestoreTarget::class)

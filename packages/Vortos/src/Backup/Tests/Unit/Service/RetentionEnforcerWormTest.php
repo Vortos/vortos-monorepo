@@ -250,6 +250,10 @@ final class RetentionEnforcerWormTest extends TestCase
 
         self::assertSame([], $walObjects->objects, 'The segment must be gone from the WAL bucket.');
         self::assertArrayNotHasKey($oldWal->id->value(), $catalog->rows, 'And its catalog row with it.');
-        self::assertCount(1, $plan->delete);
+        // The WAL segment is streamed, so it is reported as a prune count, not listed in `delete` —
+        // which holds only restore points (none here; the base is kept). What matters for this test
+        // is unchanged: it was deleted from the WAL store, routed by storeId, not the primary.
+        self::assertSame([], $plan->delete, 'No restore point was deleted — only the WAL segment.');
+        self::assertSame(1, $plan->walPruneCount, 'The one prunable WAL segment was streamed out and counted.');
     }
 }

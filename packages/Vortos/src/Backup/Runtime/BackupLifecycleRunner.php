@@ -73,7 +73,7 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
         );
 
         return LifecycleOutcome::completed(
-            sprintf('retention applied: kept %d, deleted %d', $plan->keptTotal(), count($plan->delete)),
+            sprintf('retention applied: kept %d, deleted %d', $plan->keptTotal(), $plan->deletedTotal()),
         );
     }
 

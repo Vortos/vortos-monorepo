@@ -62,20 +62,84 @@ final class DbalBackupCatalogReadModel implements BackupCatalogReadModelInterfac
         return array_map(static fn (array $row): BackupArtifact => BackupArtifact::fromArray($row), $rows);
     }
 
-    public function listWalOlderThan(
+    public function iterateWalOlderThan(
         DatabaseEngine $engine,
         string $environment,
         DateTimeImmutable $before,
-    ): array {
-        $rows = $this->scopedSelect($engine, $environment)
+        int $batchSize = 1000,
+    ): iterable {
+        $beforeEnc = BackupArtifact::encodeTimestamp($before);
+
+        // Keyset cursor over (created_at, id), ascending. Ascending so the segments furthest past
+        // the anchor — the ones a lapsed pass most needs to shed — go first. Keyset, not OFFSET, so
+        // that the caller deleting each yielded row as it goes cannot shift a not-yet-seen row into
+        // a page we already walked past; a value cursor is immune to the set shrinking under it.
+        $cursorTs = null;
+        $cursorId = null;
+
+        while (true) {
+            $qb = $this->connection->createQueryBuilder()
+                ->select('*')
+                ->from($this->table)
+                ->where('engine = :engine')
+                ->andWhere('environment = :env')
+                ->andWhere('kind = :wal')
+                ->andWhere('created_at < :before')
+                ->setParameter('engine', $engine->value)
+                ->setParameter('env', $environment)
+                ->setParameter('wal', BackupKind::WalSegment->value)
+                ->setParameter('before', $beforeEnc)
+                ->orderBy('created_at', 'ASC')
+                ->addOrderBy('id', 'ASC')
+                ->setMaxResults($batchSize);
+
+            if ($cursorTs !== null) {
+                $qb->andWhere('(created_at > :cts OR (created_at = :cts AND id > :cid))')
+                    ->setParameter('cts', $cursorTs)
+                    ->setParameter('cid', $cursorId);
+            }
+
+            $rows = $qb->executeQuery()->fetchAllAssociative();
+
+            if ($rows === []) {
+                return;
+            }
+
+            foreach ($rows as $row) {
+                $cursorTs = $row['created_at'];
+                $cursorId = $row['id'];
+                yield BackupArtifact::fromArray($row);
+            }
+
+            // A short page is the last page: there cannot be more rows than the cursor's tail.
+            if (count($rows) < $batchSize) {
+                return;
+            }
+        }
+    }
+
+    public function countWalOlderThan(
+        DatabaseEngine $engine,
+        string $environment,
+        ?DateTimeImmutable $before,
+    ): int {
+        if ($before === null) {
+            return 0;
+        }
+
+        return (int) $this->connection->createQueryBuilder()
+            ->select('COUNT(*)')
+            ->from($this->table)
+            ->where('engine = :engine')
+            ->andWhere('environment = :env')
             ->andWhere('kind = :wal')
             ->andWhere('created_at < :before')
+            ->setParameter('engine', $engine->value)
+            ->setParameter('env', $environment)
             ->setParameter('wal', BackupKind::WalSegment->value)
             ->setParameter('before', BackupArtifact::encodeTimestamp($before))
             ->executeQuery()
-            ->fetchAllAssociative();
-
-        return array_map(static fn (array $row): BackupArtifact => BackupArtifact::fromArray($row), $rows);
+            ->fetchOne();
     }
 
     public function countWalFrom(

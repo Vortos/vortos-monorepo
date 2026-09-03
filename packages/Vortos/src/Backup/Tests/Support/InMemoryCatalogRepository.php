@@ -77,12 +77,32 @@ final class InMemoryCatalogRepository implements
         ));
     }
 
-    public function listWalOlderThan(
+    public function iterateWalOlderThan(
         DatabaseEngine $engine,
         string $environment,
         \DateTimeImmutable $before,
-    ): array {
-        return array_values(array_filter(
+        int $batchSize = 1000,
+    ): iterable {
+        // Oldest first, mirroring the DBAL keyset order so tests observe the same stream. `list()`
+        // returns newest-first, so reverse the filtered slice.
+        $wal = array_values(array_filter(
+            $this->list($engine, $environment, BackupKind::WalSegment),
+            static fn (BackupArtifact $a): bool => $a->createdAt < $before,
+        ));
+
+        yield from array_reverse($wal);
+    }
+
+    public function countWalOlderThan(
+        DatabaseEngine $engine,
+        string $environment,
+        ?\DateTimeImmutable $before,
+    ): int {
+        if ($before === null) {
+            return 0;
+        }
+
+        return count(array_filter(
             $this->list($engine, $environment, BackupKind::WalSegment),
             static fn (BackupArtifact $a): bool => $a->createdAt < $before,
         ));

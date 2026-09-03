@@ -84,13 +84,20 @@ final class RetentionEnforcerTest extends TestCase
             $this->catalog->record($a);
         }
 
-        $policy = new RetentionPolicy(daily: 30, weekly: 0, monthly: 0, yearly: 0);
-        $plan = $this->enforcer()->plan(DatabaseEngine::Postgres, 'prod', $policy);
+        // Prunable WAL is streamed out by enforce(), never listed in the plan, so the assertion is
+        // on what the store actually deleted rather than on plan->delete.
+        $object = new InMemoryObjectStore();
+        foreach ([$base, $walAfter, $walBefore] as $a) {
+            $object->objects[$a->storeKey] = 'x';
+        }
 
-        $deleteIds = array_map(static fn ($a) => $a->id->value(), $plan->delete);
-        $this->assertContains($walBefore->id->value(), $deleteIds, 'WAL older than the oldest retained base is prunable.');
-        $this->assertNotContains($walAfter->id->value(), $deleteIds, 'WAL at/after the base must be kept.');
-        $this->assertNotContains($base->id->value(), $deleteIds);
+        $policy = new RetentionPolicy(daily: 30, weekly: 0, monthly: 0, yearly: 0);
+        $plan = $this->enforcer()->enforce(new ObjectStoreBackupStore($object), DatabaseEngine::Postgres, 'prod', $policy, apply: true);
+
+        $this->assertArrayNotHasKey($walBefore->storeKey, $object->objects, 'WAL older than the oldest retained base is prunable.');
+        $this->assertArrayHasKey($walAfter->storeKey, $object->objects, 'WAL at/after the base must be kept.');
+        $this->assertArrayHasKey($base->storeKey, $object->objects);
+        $this->assertSame(1, $plan->walPruneCount, 'Exactly the one segment older than the base was pruned.');
     }
 
     public function test_wal_never_deleted_when_no_base_retained(): void
@@ -98,10 +105,14 @@ final class RetentionEnforcerTest extends TestCase
         $wal = ArtifactFactory::at('2020-01-01 00:00:00', BackupKind::WalSegment);
         $this->catalog->record($wal);
 
-        $policy = new RetentionPolicy(daily: 1, weekly: 0, monthly: 0, yearly: 0, maxAgeDays: 1);
-        $plan = $this->enforcer()->plan(DatabaseEngine::Postgres, 'prod', $policy);
+        $object = new InMemoryObjectStore();
+        $object->objects[$wal->storeKey] = 'x';
 
-        $deleteIds = array_map(static fn ($a) => $a->id->value(), $plan->delete);
-        $this->assertNotContains($wal->id->value(), $deleteIds, 'Without a retained base, WAL is kept conservatively.');
+        $policy = new RetentionPolicy(daily: 1, weekly: 0, monthly: 0, yearly: 0, maxAgeDays: 1);
+        $plan = $this->enforcer()->enforce(new ObjectStoreBackupStore($object), DatabaseEngine::Postgres, 'prod', $policy, apply: true);
+
+        $this->assertArrayHasKey($wal->storeKey, $object->objects, 'Without a retained base, WAL is kept conservatively.');
+        $this->assertNull($plan->walPruneAnchor, 'No retained base means no prune anchor.');
+        $this->assertSame(0, $plan->walPruneCount);
     }
 }

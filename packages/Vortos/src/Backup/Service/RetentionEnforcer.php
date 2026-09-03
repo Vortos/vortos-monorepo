@@ -108,13 +108,39 @@ final class RetentionEnforcer
             }
         }
 
+        // Prunable WAL, streamed from the anchor and deleted one segment at a time. This is the set
+        // that must never be hydrated: the generator keyset-paginates and we delete as we go, so a
+        // pass that has to clear tens of thousands of backlogged segments holds one at a time, not
+        // all of them. Counted, never accumulated — appending the deleted WAL to $deleted would
+        // rebuild the very list this whole path exists to avoid.
+        $walDeleted = 0;
+        if ($plan->walPruneAnchor !== null) {
+            foreach ($this->readModel->iterateWalOlderThan($engine, $environment, $plan->walPruneAnchor) as $artifact) {
+                try {
+                    $this->storeFor($artifact, $store)->delete($artifact->storeKey);
+                    $this->repository->forget($artifact->id->value());
+                    $walDeleted++;
+                } catch (Throwable $e) {
+                    // A locked WAL segment is left in place for a later pass to retry; the keyset
+                    // cursor has already advanced past it, so this cannot loop. It is not listed in
+                    // `refused` — that set is for the bounded, safety-critical restore-point
+                    // near-misses, and WAL refusals are the other unbounded set.
+                    if ($this->isLockRejection($e)) {
+                        continue;
+                    }
+                    throw $e;
+                }
+            }
+        }
+
         // Count what was actually deleted, not what was planned. The old code emitted the planned
         // total even on the path that skipped locked objects, which is how a retention pass that
         // removed nothing could report a healthy number of deletions.
-        $this->events->emit(BackupEvent::retentionApplied($engine, $environment, count($deleted), $this->now()));
+        $this->events->emit(BackupEvent::retentionApplied($engine, $environment, count($deleted) + $walDeleted, $this->now()));
 
-        // The returned plan describes what happened: refused now carries anything the store declined.
-        return new RetentionPlan($plan->keep, $deleted, $refused, $plan->keptWalCount);
+        // The returned plan describes what happened: `delete` is the deleted restore points, refused
+        // carries anything the store declined, and walPruneCount is the WAL actually streamed out.
+        return new RetentionPlan($plan->keep, $deleted, $refused, $plan->keptWalCount, $plan->walPruneAnchor, $walDeleted);
     }
 
     private function applyLockExclusions(RetentionPlan $plan): RetentionPlan
@@ -133,7 +159,10 @@ final class RetentionEnforcer
             }
         }
 
-        return new RetentionPlan($keep, $delete, $refused, $plan->keptWalCount);
+        // The WAL prune anchor and count carry through untouched: lock exclusions apply to restore
+        // points (the artifacts an Object Lock window protects), and dropping them here would
+        // silently disable WAL pruning for any deployment that declares a lock policy.
+        return new RetentionPlan($keep, $delete, $refused, $plan->keptWalCount, $plan->walPruneAnchor, $plan->walPruneCount);
     }
 
     /**
@@ -145,9 +174,11 @@ final class RetentionEnforcer
      * anchor to replay onto, and the only safe reading of that is "prune nothing" — deleting WAL on
      * the strength of an absent base is how a PITR window silently becomes unrecoverable.
      *
-     * Both branches ask the catalogue for exactly the set they need. The prunable side is bounded
-     * by the prune itself; the retained side is unbounded and is therefore only counted. Deriving
-     * either by filtering "every artifact" in PHP is what exhausted the worker's memory limit.
+     * Neither WAL set is ever hydrated here. The retained side is counted; the prunable side is
+     * only recorded as its anchor and a count, and {@see enforce()} streams the actual deletion
+     * from that anchor one segment at a time. Materialising either — the prunable side included,
+     * whatever its momentary size — is what exhausted the worker's memory limit, so the plan is
+     * kept free of both by construction rather than by the prune happening to be small.
      */
     private function mergeWalPlan(
         RetentionPlan $rpPlan,
@@ -159,15 +190,13 @@ final class RetentionEnforcer
             ? $this->oldestKeptBase($rpPlan)
             : $this->windowedWalAnchor($rpPlan, $walRetentionDays);
 
-        $deleteWal = $anchor === null
-            ? []
-            : $this->readModel->listWalOlderThan($engine, $environment, $anchor);
-
         return new RetentionPlan(
             $rpPlan->keep,
-            [...$rpPlan->delete, ...$deleteWal],
+            $rpPlan->delete,
             $rpPlan->refused,
             $this->readModel->countWalFrom($engine, $environment, $anchor),
+            $anchor,
+            $anchor === null ? 0 : $this->readModel->countWalOlderThan($engine, $environment, $anchor),
         );
     }
 

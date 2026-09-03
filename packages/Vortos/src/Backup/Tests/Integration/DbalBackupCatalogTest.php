@@ -111,10 +111,11 @@ final class DbalBackupCatalogTest extends TestCase
         $this->repo->record(ArtifactFactory::at('2026-06-23 02:00:01', BackupKind::WalSegment));
         $this->repo->record(ArtifactFactory::at('2026-06-23 02:00:00', BackupKind::PhysicalBase));
 
-        $older = $this->readModel->listWalOlderThan(DatabaseEngine::Postgres, 'prod', $boundary);
+        $older = iterator_to_array($this->readModel->iterateWalOlderThan(DatabaseEngine::Postgres, 'prod', $boundary), false);
 
         $this->assertCount(1, $older, 'Only the segment strictly before the boundary is prunable.');
         $this->assertSame('2026-06-23 01:59:59', $older[0]->createdAt->format('Y-m-d H:i:s'));
+        $this->assertSame(1, $this->readModel->countWalOlderThan(DatabaseEngine::Postgres, 'prod', $boundary), 'The prune count must agree with the stream.');
 
         // The two halves must account for every segment and overlap nowhere: whatever the driver
         // does to a datetime on the way in and out, the split stays a partition.
@@ -144,7 +145,7 @@ final class DbalBackupCatalogTest extends TestCase
             $this->repo->record(ArtifactFactory::at('2026-06-23T03:00:00+00:00', BackupKind::WalSegment));
 
             $boundary = new \DateTimeImmutable('2026-06-23 02:00:00', new \DateTimeZone('UTC'));
-            $older = $this->readModel->listWalOlderThan(DatabaseEngine::Postgres, 'prod', $boundary);
+            $older = iterator_to_array($this->readModel->iterateWalOlderThan(DatabaseEngine::Postgres, 'prod', $boundary), false);
 
             $this->assertCount(1, $older);
             $this->assertSame('2026-06-23 01:00:00', $older[0]->createdAt->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'));
@@ -162,7 +163,8 @@ final class DbalBackupCatalogTest extends TestCase
         $this->repo->record(ArtifactFactory::at('2026-06-21 02:00:00', BackupKind::WalSegment, DatabaseEngine::Mongo));
         $this->repo->record(ArtifactFactory::at('2026-06-21 02:00:00', BackupKind::WalSegment, DatabaseEngine::Postgres, 'staging'));
 
-        $this->assertCount(1, $this->readModel->listWalOlderThan(DatabaseEngine::Postgres, 'prod', $boundary));
+        $this->assertCount(1, iterator_to_array($this->readModel->iterateWalOlderThan(DatabaseEngine::Postgres, 'prod', $boundary), false));
+        $this->assertSame(1, $this->readModel->countWalOlderThan(DatabaseEngine::Postgres, 'prod', $boundary), 'Prune count is engine/env-scoped too.');
         $this->assertSame(0, $this->readModel->countWalFrom(DatabaseEngine::Postgres, 'prod', $boundary));
         $this->assertSame(1, $this->readModel->countWalFrom(DatabaseEngine::Postgres, 'staging', null));
     }

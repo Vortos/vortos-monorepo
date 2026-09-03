@@ -56,9 +56,17 @@ final class BackupRetentionCommand extends Command
             count($serialized['keep']),
             $serialized['kept_wal_count'],
         ));
-        $output->writeln(sprintf('Delete:  %d', count($serialized['delete'])));
+        $output->writeln(sprintf(
+            'Delete:  %d (%d restore points + %d WAL segments)',
+            count($serialized['delete']) + $serialized['wal_prune_count'],
+            count($serialized['delete']),
+            $serialized['wal_prune_count'],
+        ));
         $output->writeln(sprintf('Refused: %d', count($serialized['refused'])));
 
+        // Restore points are listed individually — a bounded set, and each one is a decision worth
+        // showing. WAL is deliberately not enumerated: its prunable slice is the unbounded set, and
+        // printing tens of thousands of segment ids is the same materialisation this path avoids.
         foreach ($serialized['delete'] as $id) {
             $output->writeln(sprintf('  <comment>delete</comment> %s', $id));
         }

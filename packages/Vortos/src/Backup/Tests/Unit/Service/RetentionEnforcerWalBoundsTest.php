@@ -12,8 +12,10 @@ use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\RetentionPlan;
 use Vortos\Backup\Domain\RetentionPolicy;
+use Vortos\Backup\Driver\ObjectStore\ObjectStoreBackupStore;
 use Vortos\Backup\Service\RetentionEnforcer;
 use Vortos\Backup\Tests\Support\ArtifactFactory;
+use Vortos\Backup\Tests\Support\InMemoryObjectStore;
 use Vortos\Backup\Tests\Support\CollectingEventSink;
 use Vortos\Backup\Tests\Support\FixedClock;
 use Vortos\Backup\Tests\Support\InMemoryCatalogRepository;
@@ -70,8 +72,12 @@ final class RetentionEnforcerWalBoundsTest extends TestCase
         );
     }
 
-    /** The prunable side is bounded too: only the segments actually being deleted are loaded. */
-    public function test_planning_hydrates_only_the_wal_it_deletes(): void
+    /**
+     * Planning never touches the prunable WAL at all: it reports the count and leaves the artifacts
+     * in the database. Hydration — bounded, one segment at a time — happens only when enforce()
+     * streams the deletion, which the next test covers.
+     */
+    public function test_planning_reports_prunable_wal_as_a_count_without_hydrating_it(): void
     {
         $catalog = new CountingRetentionCatalog(
             restorePoints: [
@@ -89,8 +95,47 @@ final class RetentionEnforcerWalBoundsTest extends TestCase
             new RetentionPolicy(daily: 1, weekly: 0, monthly: 0, yearly: 0, maxAgeDays: 30),
         );
 
-        self::assertSame(12, $catalog->hydrated, 'Only the segments being pruned may be loaded.');
+        self::assertSame(12, $plan->walPruneCount, 'Prunable WAL must be reported as a count.');
         self::assertSame(100_000, $plan->keptWalCount);
+        self::assertSame(0, $catalog->hydrated, 'Planning must not hydrate any WAL — prunable or retained.');
+        self::assertFalse($plan->isNoop(), 'A plan with prunable WAL is not a noop, even with nothing else to delete.');
+    }
+
+    /**
+     * Enforcing the prune streams the prunable segments — however many there are — one at a time,
+     * so peak memory does not scale with the size of the backlog. This is the delete-path twin of
+     * the planning bound above, and the path that actually took production down: retention ran, the
+     * prune set was tens of thousands of segments after a lapse, and loading them at once exhausted
+     * the worker. A hundred thousand here must delete a hundred thousand and stay bounded.
+     */
+    public function test_enforce_streams_the_prune_without_materialising_it(): void
+    {
+        $catalog = new CountingRetentionCatalog(
+            restorePoints: [ArtifactFactory::at('2026-06-23 02:00:00', BackupKind::PhysicalBase)],
+            walFrom: new DateTimeImmutable('2026-06-23 02:00:00'),
+            walCount: 0,
+            prunableWalCount: 100_000,
+        );
+        $store = new ObjectStoreBackupStore(new InMemoryObjectStore());
+
+        $before = memory_get_usage();
+        $plan = $this->enforcer($catalog)->enforce(
+            $store,
+            DatabaseEngine::Postgres,
+            'prod',
+            // Anchor on the retained base so the whole prunable history is older than it.
+            new RetentionPolicy(daily: 1, weekly: 0, monthly: 0, yearly: 0, maxAgeDays: 30),
+            apply: true,
+        );
+        $used = memory_get_usage() - $before;
+
+        self::assertSame(100_000, $plan->walPruneCount, 'Every prunable segment must be deleted.');
+        self::assertSame(100_000, $catalog->hydrated, 'Each deleted segment is hydrated exactly once, as it is streamed.');
+        self::assertLessThan(
+            16 * 1024 * 1024,
+            $used,
+            sprintf('Enforcing the prune allocated %d bytes; streaming must not scale with the backlog.', $used),
+        );
     }
 
     /**
@@ -103,6 +148,54 @@ final class RetentionEnforcerWalBoundsTest extends TestCase
      */
     public function test_delete_set_matches_the_original_in_memory_algorithm(): void
     {
+        $policies = [
+            'defaults' => new RetentionPolicy(),
+            'gfs with max age' => new RetentionPolicy(daily: 7, weekly: 4, monthly: 6, yearly: 1, maxAgeDays: 30),
+            'aggressive' => new RetentionPolicy(daily: 1, weekly: 0, monthly: 0, yearly: 0, maxAgeDays: 2),
+            'floor only' => new RetentionPolicy(daily: 0, weekly: 0, monthly: 0, yearly: 0, minKeepFloor: 3),
+        ];
+
+        foreach ($policies as $label => $policy) {
+            // Fresh seed per policy: enforce() mutates the catalogue (it forgets what it deletes),
+            // unlike the old plan()-only comparison, so the policies cannot share one catalogue.
+            [$catalog, $seeded] = $this->seedProductionShapedCatalog();
+            $object = new InMemoryObjectStore();
+            foreach ($seeded as $artifact) {
+                $object->objects[$artifact->storeKey] = 'x';
+            }
+
+            $this->enforcer($catalog)->enforce(
+                new ObjectStoreBackupStore($object),
+                DatabaseEngine::Postgres,
+                'prod',
+                $policy,
+                apply: true,
+            );
+
+            // What enforce() actually removed from the store — restore points and streamed WAL
+            // alike — against what the pre-fix algorithm would have deleted. Compared by store key
+            // as a set; order is irrelevant and nothing downstream depends on it.
+            $actual = $this->deletedStoreKeys($seeded, $object);
+            $expected = $this->deleteKeys($this->originalPlan($seeded, $policy, new DateTimeImmutable(self::NOW)));
+
+            self::assertSame(
+                $expected,
+                $actual,
+                sprintf('Delete set diverged from the original algorithm under the "%s" policy.', $label),
+            );
+            self::assertNotSame([], $actual, sprintf('The "%s" policy deleted nothing, so it proves nothing.', $label));
+        }
+    }
+
+    /**
+     * A catalogue shaped like production: daily bases and logical dumps going back two years, with a
+     * handful of WAL segments per day — one landing exactly on a base's instant, the boundary where
+     * "strictly older" has to stay strict.
+     *
+     * @return array{0: InMemoryCatalogRepository, 1: list<BackupArtifact>}
+     */
+    private function seedProductionShapedCatalog(): array
+    {
         $catalog = new InMemoryCatalogRepository();
         $seeded = [];
 
@@ -114,8 +207,6 @@ final class RetentionEnforcerWalBoundsTest extends TestCase
                 $catalog->record($artifact);
                 $seeded[] = $artifact;
             }
-            // A handful of segments per day, including one landing exactly on a base backup's
-            // instant — the boundary where "strictly older" has to be strict.
             foreach (['+0 hours', '+3 hours', '+11 hours', '+19 hours'] as $offset) {
                 $artifact = ArtifactFactory::at(
                     $cursor->modify($offset)->format('Y-m-d H:i:s'),
@@ -127,27 +218,37 @@ final class RetentionEnforcerWalBoundsTest extends TestCase
             $cursor = $cursor->modify('+1 day');
         }
 
-        $policies = [
-            'defaults' => new RetentionPolicy(),
-            'gfs with max age' => new RetentionPolicy(daily: 7, weekly: 4, monthly: 6, yearly: 1, maxAgeDays: 30),
-            'aggressive' => new RetentionPolicy(daily: 1, weekly: 0, monthly: 0, yearly: 0, maxAgeDays: 2),
-            'floor only' => new RetentionPolicy(daily: 0, weekly: 0, monthly: 0, yearly: 0, minKeepFloor: 3),
-        ];
+        return [$catalog, $seeded];
+    }
 
-        foreach ($policies as $label => $policy) {
-            $actual = $this->enforcer($catalog)->plan(DatabaseEngine::Postgres, 'prod', $policy);
-            $expected = $this->originalPlan($seeded, $policy, new DateTimeImmutable(self::NOW));
-
-            // Compared as sets: the catalogue returns newest-first and the oracle walks its seed
-            // list chronologically, and nothing downstream depends on the order — enforce() deletes
-            // every entry. What must not differ is which artifacts are in it.
-            self::assertSame(
-                $this->deletedIds($expected),
-                $this->deletedIds($actual),
-                sprintf('Delete set diverged from the original algorithm under the "%s" policy.', $label),
-            );
-            self::assertNotSame([], $this->deletedIds($actual), sprintf('The "%s" policy deleted nothing, so it proves nothing.', $label));
+    /**
+     * The store keys that enforce() deleted: everything seeded that no longer exists in the store.
+     *
+     * @param list<BackupArtifact> $seeded
+     * @return list<string> sorted, so two runs compare as sets
+     */
+    private function deletedStoreKeys(array $seeded, InMemoryObjectStore $object): array
+    {
+        $deleted = [];
+        foreach ($seeded as $artifact) {
+            if (!\array_key_exists($artifact->storeKey, $object->objects)) {
+                $deleted[] = $artifact->storeKey;
+            }
         }
+        sort($deleted);
+
+        return $deleted;
+    }
+
+    /**
+     * @return list<string> the plan's delete set as sorted store keys
+     */
+    private function deleteKeys(RetentionPlan $plan): array
+    {
+        $keys = array_map(static fn (BackupArtifact $a): string => $a->storeKey, $plan->delete);
+        sort($keys);
+
+        return $keys;
     }
 
     /**
@@ -173,21 +274,10 @@ final class RetentionEnforcerWalBoundsTest extends TestCase
             new RetentionPolicy(daily: 1, weekly: 0, monthly: 0, yearly: 0, maxAgeDays: 1),
         );
 
-        self::assertSame([], array_values(array_filter(
-            $plan->delete,
-            static fn (BackupArtifact $a): bool => $a->isWalSegment(),
-        )), 'WAL must never be pruned without a retained base backup to replay it onto.');
+        self::assertNull($plan->walPruneAnchor, 'With no retained base there is no anchor, so nothing is prunable.');
+        self::assertSame(0, $plan->walPruneCount, 'WAL must never be pruned without a retained base backup to replay it onto.');
         self::assertSame(5_000, $plan->keptWalCount);
         self::assertSame(0, $catalog->hydrated);
-    }
-
-    /** @return list<string> deleted artifact ids, sorted so two plans compare as sets */
-    private function deletedIds(RetentionPlan $plan): array
-    {
-        $ids = array_map(static fn (BackupArtifact $a): string => $a->id->value(), $plan->delete);
-        sort($ids);
-
-        return $ids;
     }
 
     private function enforcer(RetentionCatalogInterface $catalog): RetentionEnforcer
@@ -276,18 +366,28 @@ final class CountingRetentionCatalog implements RetentionCatalogInterface
         return $sorted;
     }
 
-    public function listWalOlderThan(DatabaseEngine $engine, string $environment, DateTimeImmutable $before): array
-    {
-        $out = [];
+    public function iterateWalOlderThan(
+        DatabaseEngine $engine,
+        string $environment,
+        DateTimeImmutable $before,
+        int $batchSize = 1000,
+    ): iterable {
+        // A generator: each segment is built only as it is yielded, and $hydrated counts them one
+        // by one. A consumer that holds the whole stream drives $hydrated to prunableWalCount while
+        // never letting more than a single artifact — plus whatever it chooses to keep — live at
+        // once. That is the property under test, so the double must not pre-build the list.
         for ($i = 0; $i < $this->prunableWalCount; $i++) {
-            $out[] = ArtifactFactory::at(
+            $this->hydrated++;
+            yield ArtifactFactory::at(
                 $this->walFrom->modify(sprintf('-%d minutes', $i + 1))->format('Y-m-d H:i:s'),
                 BackupKind::WalSegment,
             );
-            $this->hydrated++;
         }
+    }
 
-        return $out;
+    public function countWalOlderThan(DatabaseEngine $engine, string $environment, ?DateTimeImmutable $before): int
+    {
+        return $before === null ? 0 : $this->prunableWalCount;
     }
 
     public function countWalFrom(DatabaseEngine $engine, string $environment, ?DateTimeImmutable $from): int

@@ -76,12 +76,25 @@ final class WalRetentionWindowTest extends TestCase
                 return $this->restorePoints;
             }
 
-            /** Records the anchor the enforcer chose — the value under test. */
-            public function listWalOlderThan(DatabaseEngine $engine, string $environment, DateTimeImmutable $before): array
+            public function iterateWalOlderThan(
+                DatabaseEngine $engine,
+                string $environment,
+                DateTimeImmutable $before,
+                int $batchSize = 1000,
+            ): iterable {
+                return [];
+            }
+
+            /**
+             * Records the anchor the enforcer chose — the value under test. Planning now sizes the
+             * prunable slice with a count rather than listing it, so this is where the anchor is
+             * observed; it is only reached when an anchor exists, exactly as the delete path is.
+             */
+            public function countWalOlderThan(DatabaseEngine $engine, string $environment, ?DateTimeImmutable $before): int
             {
                 $this->askedFor = $before;
 
-                return [];
+                return 0;
             }
 
             public function countWalFrom(DatabaseEngine $engine, string $environment, ?DateTimeImmutable $from): int

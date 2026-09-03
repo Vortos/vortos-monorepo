@@ -82,7 +82,9 @@ final class RecordingContainerRuntime implements ContainerRuntimeInterface
             ($this->onPoll)($this);
         }
 
-        return implode("\n", $this->log);
+        // Trailing newline, like a real container log: every COMPLETE line ends with one, and the
+        // feeder relies on that to tell a finished line from a poll that landed mid-write.
+        return $this->log === [] ? '' : implode("\n", $this->log) . "\n";
     }
 
     public function remove(ContainerHandle $handle): void

@@ -157,7 +157,8 @@ final class WalArchiveFeeder
     public function feed(ContainerHandle $handle, callable $probe, int $startedAtUnix): PitrRecoveryOutcome
     {
         $deadline = microtime(true) + $this->timeoutSeconds;
-        $served = [];
+        $distinctServed = [];
+        $servedTotal = 0;
         $absent = [];
         $lastSegment = null;
         $startLsn = null;
@@ -166,12 +167,13 @@ final class WalArchiveFeeder
         $reachedEndOfWal = false;
         $promoted = false;
         $begin = microtime(true);
-        $seenLines = [];
+        $consumedLines = 0;
+        $ticks = 0;
 
         while (microtime(true) < $deadline) {
             $log = $this->runtime->logsSince($handle, $startedAtUnix);
 
-            foreach ($this->newLines($log, $seenLines) as $line) {
+            foreach ($this->unconsumedLines($log, $consumedLines) as $line) {
                 // PostgreSQL's own startup messages carry the two LSNs that bracket the replay.
                 // `lc_messages` is pinned to C in the recovery configuration precisely so these
                 // strings cannot shift under a locale and quietly stop matching.
@@ -190,11 +192,25 @@ final class WalArchiveFeeder
                 }
 
                 $segment = trim(substr($line, strpos($line, self::WANT_PREFIX) + \strlen(self::WANT_PREFIX)));
-                if ($segment === '' || isset($served[$segment]) || isset($absent[$segment])) {
+                if ($segment === '') {
                     continue;
                 }
 
-                if (\count($served) >= $this->maxSegments) {
+                // Absence is permanent within one recovery — the archive does not grow a segment it
+                // was missing a moment ago — and the marker file stays in the container, so a repeat
+                // request is answered by the script without another pointless round trip to the store.
+                if (isset($absent[$segment])) {
+                    continue;
+                }
+
+                // A REPEAT REQUEST FOR A SEGMENT ALREADY SERVED IS NORMAL AND MUST BE SERVED AGAIN.
+                // PostgreSQL reads the checkpoint segment first to start backup recovery, then asks
+                // for it a second time to replay forward through it; the in-container script MOVES
+                // the staged file into pg_wal, so the copy it was given no longer exists. Treating
+                // "already served once" as "nothing to do" is what stalled the first production
+                // drill at two segments: recovery sat waiting for a file that was never going to
+                // arrive, and only the drill timeout would have ended it.
+                if ($servedTotal >= $this->maxSegments) {
                     throw new RuntimeException(sprintf(
                         'PITR drill refused to serve more than %d WAL segments (asked for %s). The base '
                         . 'backup is too far behind the end of the archive to replay within the configured '
@@ -206,7 +222,8 @@ final class WalArchiveFeeder
                 }
 
                 if ($this->serve($handle, $segment)) {
-                    $served[$segment] = true;
+                    $distinctServed[$segment] = true;
+                    $servedTotal++;
                     $lastSegment = $segment;
                 } else {
                     $absent[$segment] = true;
@@ -220,18 +237,25 @@ final class WalArchiveFeeder
                 }
             }
 
-            $state = $probe();
-            if ($state !== null) {
-                $timeline ??= $state['timeline'];
-                if ($state['replay_lsn'] !== null) {
-                    $endLsn = strtoupper($state['replay_lsn']);
-                }
-                if ($state['in_recovery'] === false) {
-                    // Promoted. `pg_last_wal_replay_lsn()` reads NULL from here on, which is why the
-                    // end LSN is captured DURING recovery and from the log, not asked for after.
-                    $endLsn ??= $state['current_lsn'] !== null ? strtoupper($state['current_lsn']) : null;
-                    $promoted = true;
-                    break;
+            // Probed every ~2s rather than every pass. Each attempt before the cluster is consistent
+            // is refused and LOGGED by PostgreSQL, and this reads that same log as its request
+            // channel — so a tight probe loop buries the segment requests it is trying to see under
+            // its own rejected connections, and grows the log it re-reads on every iteration.
+            if ($ticks++ % 10 === 0) {
+                $state = $probe();
+                if ($state !== null) {
+                    $timeline ??= $state['timeline'];
+                    if ($state['replay_lsn'] !== null) {
+                        $endLsn = strtoupper($state['replay_lsn']);
+                    }
+                    if ($state['in_recovery'] === false) {
+                        // Promoted. `pg_last_wal_replay_lsn()` reads NULL from here on, which is why
+                        // the end LSN is captured DURING recovery and from the log, not asked for
+                        // after.
+                        $endLsn ??= $state['current_lsn'] !== null ? strtoupper($state['current_lsn']) : null;
+                        $promoted = true;
+                        break;
+                    }
                 }
             }
 
@@ -243,13 +267,13 @@ final class WalArchiveFeeder
                 'PITR recovery did not complete within %ds (%d segments served, last %s). The cluster '
                 . 'never left recovery, so nothing about the archive has been proved.',
                 $this->timeoutSeconds,
-                \count($served),
+                \count($distinctServed),
                 $lastSegment ?? 'none',
             ));
         }
 
         return new PitrRecoveryOutcome(
-            segmentsServed: \count($served),
+            segmentsServed: \count($distinctServed),
             startLsn: $startLsn,
             endLsn: $endLsn,
             lastSegment: $lastSegment,
@@ -366,22 +390,38 @@ final class WalArchiveFeeder
     }
 
     /**
-     * @param array<string, true> $seen
+     * Log lines not yet processed, by POSITION rather than by content.
+     *
+     * The container log is re-read whole on every poll, so something has to remember what has
+     * already been handled. Doing that by remembering the TEXT of each line seemed obvious and was
+     * wrong: PostgreSQL asks for the same segment twice during a normal recovery, the request line
+     * is byte-identical both times, and a content-keyed filter silently swallows the second one.
+     * The drill then waits out its whole timeout for a file nobody is going to be asked to deliver.
+     *
+     * The last element is deliberately not consumed: a poll can land mid-write and return a partial
+     * final line, which would otherwise be parsed as a truncated request and then never re-read once
+     * it was complete.
      *
      * @return list<string>
      */
-    private function newLines(string $log, array &$seen): array
+    private function unconsumedLines(string $log, int &$consumed): array
     {
-        $out = [];
+        $lines = explode("\n", $log);
+        $complete = \count($lines) - 1;
 
-        foreach (explode("\n", $log) as $line) {
-            $line = rtrim($line, "\r");
-            if ($line === '' || isset($seen[$line])) {
-                continue;
-            }
-            $seen[$line] = true;
-            $out[] = $line;
+        if ($complete <= $consumed) {
+            return [];
         }
+
+        $out = [];
+        for ($i = $consumed; $i < $complete; $i++) {
+            $line = rtrim($lines[$i], "\r");
+            if ($line !== '') {
+                $out[] = $line;
+            }
+        }
+
+        $consumed = $complete;
 
         return $out;
     }

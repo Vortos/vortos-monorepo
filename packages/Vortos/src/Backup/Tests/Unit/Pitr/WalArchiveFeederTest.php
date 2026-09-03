@@ -93,6 +93,28 @@ final class WalArchiveFeederTest extends TestCase
         return $runtime;
     }
 
+    /** Promotes once $deliveries segment bodies have been uploaded. */
+    private function probeAfter(RecordingContainerRuntime $runtime, int $deliveries): callable
+    {
+        return static function () use ($runtime, $deliveries): ?array {
+            $parts = 0;
+            foreach ($runtime->uploadedNames() as $name) {
+                if (str_ends_with($name, '.part')) {
+                    $parts++;
+                }
+            }
+
+            $done = $parts >= $deliveries;
+
+            return [
+                'in_recovery' => !$done,
+                'replay_lsn' => $done ? null : '0/4000000',
+                'current_lsn' => $done ? '0/5000100' : null,
+                'timeline' => '1',
+            ];
+        };
+    }
+
     /** @param callable(int): bool $promoteAfter */
     private function probe(RecordingContainerRuntime $runtime, string $endLsn = '0/5000100'): callable
     {
@@ -156,6 +178,40 @@ final class WalArchiveFeederTest extends TestCase
             static fn (array $u): bool => str_contains($u['bytes'], (string) self::SEGMENT_BYTES),
         ));
         self::assertNotEmpty($marker, 'the ready marker must carry the expected byte count');
+    }
+
+    /**
+     * THE STALL THAT KILLED THE FIRST PRODUCTION DRILL.
+     *
+     * PostgreSQL reads the checkpoint segment to start backup recovery and then asks for the SAME
+     * segment again to replay forward through it. The in-container script moves the staged file into
+     * pg_wal, so the copy it was given is gone and the second request has to be answered with fresh
+     * bytes. The request line is byte-identical both times, which is why this is also a test that
+     * the log is consumed by position rather than by content.
+     */
+    public function testItServesTheSameSegmentAgainWhenRecoveryAsksTwice(): void
+    {
+        $seg = $this->segmentName(1);
+        $runtime = new RecordingContainerRuntime();
+        // Exactly the shape production produced: D0, then CF, then D0 again.
+        $runtime->log = [
+            'VORTOS-WAL-WANT ' . $seg,
+            'LOG:  redo starts at 0/3000028',
+            'VORTOS-WAL-WANT ' . $seg,
+        ];
+
+        $outcome = $this->feeder($runtime, [1])
+            ->feed(new ContainerHandle('c', 'c', 'c'), $this->probeAfter($runtime, 2), time() - 1);
+
+        $parts = array_filter(
+            $runtime->uploadedNames(),
+            static fn (string $n): bool => $n === $seg . '.part',
+        );
+
+        self::assertCount(2, $parts, 'a repeat request must be answered with the bytes again');
+        // Distinct segments, not deliveries: one segment was replayed, however many times it was
+        // handed over.
+        self::assertSame(1, $outcome->segmentsServed);
     }
 
     /**

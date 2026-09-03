@@ -14,9 +14,21 @@ use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Drill\DrillRunner;
 use Vortos\Backup\Environment\DefaultEnvironment;
 
-#[AsCommand(name: 'backup:drill', description: 'Run a restore drill (provision → restore → invariants → teardown).')]
+#[AsCommand(name: BackupDrillCommand::NAME, description: 'Run a restore drill (provision → restore → invariants → teardown).')]
 final class BackupDrillCommand extends Command
 {
+    public const NAME = 'backup:drill';
+
+    /**
+     * Taken from here by {@see \Vortos\Backup\Schedule\CronFragmentGenerator} rather than written
+     * out by hand, so a generated crontab cannot drift from the option it is trying to pass. The
+     * emitted WAL shipper and base-backup scripts both once invoked names that had never existed and
+     * failed silently for weeks; the rule that came out of it is that generated artifacts derive
+     * every command and option name from the class that defines it.
+     */
+    public const OPTION_PITR = 'pitr';
+
+
     public function __construct(private readonly ?DrillRunner $runner)
     {
         parent::__construct();
@@ -32,7 +44,7 @@ final class BackupDrillCommand extends Command
             // reaching for it wants to prove: not "drill a physical_base" but "show me that we can
             // recover to the last archived minute".
             ->addOption(
-                'pitr',
+                self::OPTION_PITR,
                 null,
                 InputOption::VALUE_NONE,
                 'Drill the point-in-time path: restore the newest physical base backup and replay '
@@ -52,7 +64,7 @@ final class BackupDrillCommand extends Command
         $engine = DatabaseEngine::fromString((string) $input->getOption('engine'));
         $env = (string) $input->getOption('env');
         $shallow = (bool) $input->getOption('shallow');
-        $onlyKind = (bool) $input->getOption('pitr') ? BackupKind::PhysicalBase : null;
+        $onlyKind = (bool) $input->getOption(self::OPTION_PITR) ? BackupKind::PhysicalBase : null;
 
         if ($onlyKind !== null && $shallow) {
             // A shallow drill decrypts the artifact and discards it. Combined with --pitr it would

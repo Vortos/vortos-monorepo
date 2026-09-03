@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\Schedule;
 
+use Vortos\Backup\Console\BackupDrillCommand;
+use Vortos\Backup\Domain\BackupKind;
+
 /**
  * Renders declared {@see BackupSchedule}s into a managed crontab fragment that invokes
  * `vortos backup:run`. The framework owns the bytes between the managed markers, so the
@@ -46,8 +49,14 @@ final class CronFragmentGenerator
 
     /**
      * The full console command (verb + args) for a schedule. R8-6: retention/drill no longer collapse
-     * to backup:run — each type emits its own verb. Only Backup carries --kind (a restore-point kind);
-     * retention and drill are engine+env scoped.
+     * to backup:run — each type emits its own verb. Backup carries --kind (a restore-point kind);
+     * retention is engine+env scoped.
+     *
+     * A DRILL CARRIES ITS KIND TOO, and omitting it is not cosmetic. `backup:drill` with no kind
+     * restores the newest artifact it can, which on any installation taking frequent logical dumps
+     * is always a dump — so a crontab generated for a weekly point-in-time drill would run a logical
+     * restore on that schedule and report it green, proving nothing about the WAL chain under a line
+     * that says otherwise. The option name comes from the command class so the two cannot drift.
      */
     private function commandFor(BackupSchedule $schedule): string
     {
@@ -64,9 +73,11 @@ final class CronFragmentGenerator
                 $schedule->environment,
             ),
             BackupScheduleType::Drill => sprintf(
-                'backup:drill --engine=%s --env=%s',
+                '%s --engine=%s --env=%s%s',
+                BackupDrillCommand::NAME,
                 $schedule->engine->value,
                 $schedule->environment,
+                $schedule->kind === BackupKind::PhysicalBase ? ' --' . BackupDrillCommand::OPTION_PITR : '',
             ),
         };
     }

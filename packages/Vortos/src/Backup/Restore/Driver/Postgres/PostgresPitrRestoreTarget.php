@@ -93,7 +93,7 @@ final class PostgresPitrRestoreTarget implements RestoreTargetInterface
         // Ordering is the whole reason this target needs a create/start split: PostgreSQL reads
         // recovery.signal and postgresql.auto.conf once, at boot, and a data directory that gains
         // them afterwards is simply a cluster that started normally at the base backup's instant.
-        $this->installControlFiles($handle);
+        $this->installControlFiles($handle, $pgdata);
 
         // The base backup is already a tar — `pg_basebackup --format=tar` — so it is forwarded to
         // Docker byte for byte. Never parsed, never buffered, never written to disk: the decrypted
@@ -131,17 +131,30 @@ final class PostgresPitrRestoreTarget implements RestoreTargetInterface
     }
 
     /**
-     * The `restore_command` script and the directories it reads, placed before the container starts.
+     * The data directory, the `restore_command` script, and the directories it reads — all placed
+     * before the container starts.
      *
      * Uploaded to `/` with the paths carried inside the tar, because Docker's archive endpoint
-     * requires its `path` argument to already exist while the extractor happily creates intermediate
+     * requires its `path` argument to already exist, while the extractor happily creates
      * directories from the entries themselves.
+     *
+     * THE DATA DIRECTORY HAS TO BE CREATED HERE, which is not obvious and cost a production drill
+     * to learn. The official image declares `PGDATA=/var/lib/postgresql/18/docker` but only
+     * `/var/lib/postgresql` exists in the image; the `18/docker` path is created by the entrypoint
+     * at startup. A point-in-time restore writes the cluster in BEFORE anything starts, so it must
+     * create that path itself — otherwise the base backup upload fails with a bare Docker 404 that
+     * reads like a broken artifact rather than a missing directory.
+     *
+     * Mode 0700 and uid 70 from the outset: PostgreSQL rejects a data directory with group or world
+     * permissions, and the image's own `/var/lib/postgresql` is mode 1777 for its initdb step, so a
+     * child inheriting anything laxer would fail at startup complaining about permissions.
      */
-    private function installControlFiles(ContainerHandle $handle): void
+    private function installControlFiles(ContainerHandle $handle, string $pgdata): void
     {
         $vortosDir = ltrim(\dirname(WalArchiveFeeder::SCRIPT_PATH), '/');
 
         $tar = (new TarStream())
+            ->addDirectory(ltrim($pgdata, '/'), 0o700)
             ->addDirectory($vortosDir, 0o755)
             ->addFile(
                 ltrim(WalArchiveFeeder::SCRIPT_PATH, '/'),

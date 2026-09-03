@@ -34,6 +34,14 @@ use Vortos\Deploy\Preflight\PreflightFinding;
  *
  * Only applies when physical base backups are declared; a logical-dump-only setup never needs
  * replication access and must not be gated on it.
+ *
+ * AND ONLY WHEN THIS NODE CAN ACTUALLY ASK. The probe opens a replication connection with a
+ * PostgreSQL client, which the lean deploy image deliberately does not carry — the whole point of
+ * {@see \Vortos\Deploy\Definition\DeploymentDefinitionBuilder::backupToolchainExternal()}. Run
+ * there without deferring, this gate blocks every deploy with "the database refuses a replication
+ * connection" on a cluster that is configured perfectly, because the only thing it really
+ * discovered is that it has no client. So it honours the same declaration the toolchain gate does,
+ * and points at the node that can answer the question.
  */
 final class BackupReplicationAccessCheck implements PreflightCheckInterface
 {
@@ -42,6 +50,8 @@ final class BackupReplicationAccessCheck implements PreflightCheckInterface
         private readonly BackupScheduleRegistry $schedules,
         private readonly ?string $configuredEngine,
         private readonly string $dsn,
+        /** Env-derived default; config/deploy.php wins when it says anything at all. */
+        private readonly bool $toolchainExternal = false,
     ) {
     }
 
@@ -72,6 +82,20 @@ final class BackupReplicationAccessCheck implements PreflightCheckInterface
                 $this->id(),
                 $this->category(),
                 sprintf('Unknown backup engine "%s" — replication access check skipped.', $this->configuredEngine),
+            );
+        }
+
+        // Resolved exactly as BackupToolchainCheck resolves it, so one declaration governs both
+        // gates and they cannot disagree about whether this image carries a database client.
+        $external = $context->definition->backupToolchainExternal ?? $this->toolchainExternal;
+        if ($external) {
+            return PreflightFinding::pass(
+                $this->id(),
+                $this->category(),
+                'Backup toolchain is external — replication access is verified on the backup role, not here.',
+                'The lean deploy image intentionally omits the database client, so no replication '
+                . 'connection can be opened from it. Verify with backup:doctor on the backup role/worker '
+                . 'image, which carries the toolchain.',
             );
         }
 

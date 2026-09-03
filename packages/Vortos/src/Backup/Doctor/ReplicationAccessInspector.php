@@ -32,12 +32,12 @@ use Vortos\Backup\Domain\DatabaseEngine;
  */
 final class ReplicationAccessInspector
 {
-    /** @var \Closure(string): array{ok: bool, error: string|null} */
+    /** @var \Closure(string): array{ok: bool, error: string|null, client_missing?: bool} */
     private \Closure $probe;
 
     /**
-     * @param (\Closure(string): array{ok: bool, error: string|null})|null $probe injectable so the
-     *        check is testable without a live cluster
+     * @param (\Closure(string): array{ok: bool, error: string|null, client_missing?: bool})|null $probe
+     *        injectable so the check is testable without a live cluster
      */
     public function __construct(?\Closure $probe = null)
     {
@@ -70,6 +70,31 @@ final class ReplicationAccessInspector
         if ($result['ok']) {
             return ReplicationAccessFinding::satisfied(
                 'Replication connection accepted — pg_basebackup can run.',
+            );
+        }
+
+        // "I could not ask" is not "the answer is no", and conflating them is worse than either.
+        // This check shells out to a PostgreSQL client, and the lean deploy image deliberately
+        // omits one (the toolchain lives on the backup role — see backupToolchainExternal). Reported
+        // as a refused replication connection, a missing binary sends the operator to pg_hba.conf
+        // and a REPLICATION role attribute to fix a cluster that was configured correctly all along.
+        if (($result['client_missing'] ?? false) === true) {
+            return ReplicationAccessFinding::failed(
+                'Replication access could not be verified: no PostgreSQL client is available on this '
+                . 'node, so nothing here can open a replication connection. This says nothing about '
+                . 'whether the database would accept one.',
+                <<<'FIX'
+                Verify replication access where the backup toolchain actually lives — run
+                `backup:doctor` on the backup role/worker image, which carries the client.
+
+                If this is a lean deploy image that intentionally omits the client, declare it:
+
+                    // config/deploy.php
+                    ->backupToolchainExternal(true)
+
+                That is the same declaration the backup.toolchain gate already honours, and it tells
+                this gate to defer rather than guess.
+                FIX,
             );
         }
 
@@ -112,6 +137,16 @@ final class ReplicationAccessInspector
     private function defaultProbe(): \Closure
     {
         return static function (string $dsn): array {
+            // Probe for the client before probing with it, so its absence is reported as itself.
+            $located = @shell_exec('command -v psql 2>/dev/null');
+            if ($located === null || trim((string) $located) === '') {
+                return [
+                    'ok' => false,
+                    'error' => 'psql is not installed on this node',
+                    'client_missing' => true,
+                ];
+            }
+
             $command = sprintf(
                 'psql %s -Atc %s 2>&1',
                 escapeshellarg($dsn),

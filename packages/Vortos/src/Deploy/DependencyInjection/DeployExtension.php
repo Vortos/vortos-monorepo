@@ -1192,6 +1192,9 @@ final class DeployExtension extends Extension
                 ->setArgument('$schedules', new Reference(\Vortos\Backup\Schedule\BackupScheduleRegistry::class))
                 ->setArgument('$configuredEngine', $_ENV['VORTOS_BACKUP_ENGINE'] ?? null)
                 ->setArgument('$dsn', (string) ($_ENV['VORTOS_WRITE_DB_DSN'] ?? ''))
+                // Same source as the toolchain gate above: this check cannot open a replication
+                // connection without the client that flag says lives elsewhere.
+                ->setArgument('$toolchainExternal', self::envFlag($_ENV['VORTOS_BACKUP_TOOLCHAIN_EXTERNAL'] ?? null))
                 ->addTag(self::PREFLIGHT_CHECK_TAG)
                 ->setPublic(false);
         }

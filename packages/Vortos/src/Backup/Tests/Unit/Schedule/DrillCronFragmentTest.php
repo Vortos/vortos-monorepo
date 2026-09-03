@@ -43,9 +43,29 @@ final class DrillCronFragmentTest extends TestCase
         self::assertStringContainsString('--pitr', $this->line(BackupKind::PhysicalBase));
     }
 
-    public function testALogicalDrillDoesNot(): void
+    /**
+     * The other direction, and it was observed on production: without a kind, a plain `backup:drill`
+     * chose a base backup that happened to be four hours newer than the latest dump and spent two
+     * minutes replaying WAL — on the line generated for the fast daily logical drill.
+     */
+    public function testALogicalDrillNamesItsKindInsteadOfPitr(): void
     {
-        self::assertStringNotContainsString('--pitr', $this->line(BackupKind::LogicalFull));
+        $line = $this->line(BackupKind::LogicalFull);
+
+        self::assertStringNotContainsString('--pitr', $line);
+        self::assertStringContainsString('--kind=logical_full', $line);
+    }
+
+    /** Whatever the kind, the emitted line must never leave the choice to chance. */
+    public function testEveryDrillLineConstrainsTheArtifactKind(): void
+    {
+        foreach ([BackupKind::LogicalFull, BackupKind::PhysicalBase] as $kind) {
+            $line = $this->line($kind);
+            self::assertTrue(
+                str_contains($line, '--kind=') || str_contains($line, '--pitr'),
+                "generated drill line for {$kind->value} leaves the artifact kind unconstrained: {$line}",
+            );
+        }
     }
 
     /**
@@ -60,6 +80,9 @@ final class DrillCronFragmentTest extends TestCase
         self::assertSame(\Vortos\Backup\Console\BackupDrillCommand::NAME, $command->getName());
         self::assertTrue(
             $command->getDefinition()->hasOption(\Vortos\Backup\Console\BackupDrillCommand::OPTION_PITR),
+        );
+        self::assertTrue(
+            $command->getDefinition()->hasOption(\Vortos\Backup\Console\BackupDrillCommand::OPTION_KIND),
         );
     }
 }

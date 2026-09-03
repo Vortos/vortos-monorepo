@@ -52,11 +52,19 @@ final class CronFragmentGenerator
      * to backup:run — each type emits its own verb. Backup carries --kind (a restore-point kind);
      * retention is engine+env scoped.
      *
-     * A DRILL CARRIES ITS KIND TOO, and omitting it is not cosmetic. `backup:drill` with no kind
-     * restores the newest artifact it can, which on any installation taking frequent logical dumps
-     * is always a dump — so a crontab generated for a weekly point-in-time drill would run a logical
-     * restore on that schedule and report it green, proving nothing about the WAL chain under a line
-     * that says otherwise. The option name comes from the command class so the two cannot drift.
+     * A DRILL CARRIES ITS KIND TOO, in BOTH directions, and omitting it is not cosmetic.
+     * `backup:drill` with no kind restores the newest artifact it can — of any kind. Which one that
+     * is depends on the relative timing of two independent cadences, so the emitted line does not
+     * reliably drill anything in particular:
+     *
+     *   - omitted on a point-in-time schedule, it picks the frequent logical dump and reports green
+     *     for a WAL chain it never touched;
+     *   - omitted on a logical schedule, it picks the base backup whenever one is newer — which was
+     *     observed on production, where a plain `backup:drill` chose a base backup four hours newer
+     *     than the latest dump and spent two minutes replaying WAL the daily drill is not for.
+     *
+     * Both names come from the command class so a generated crontab cannot drift from the options
+     * that command actually registers.
      */
     private function commandFor(BackupSchedule $schedule): string
     {
@@ -73,11 +81,15 @@ final class CronFragmentGenerator
                 $schedule->environment,
             ),
             BackupScheduleType::Drill => sprintf(
-                '%s --engine=%s --env=%s%s',
+                '%s --engine=%s --env=%s %s',
                 BackupDrillCommand::NAME,
                 $schedule->engine->value,
                 $schedule->environment,
-                $schedule->kind === BackupKind::PhysicalBase ? ' --' . BackupDrillCommand::OPTION_PITR : '',
+                // --pitr for the physical path because that is the name operators know it by; the
+                // general --kind for everything else. They mean the same thing to the command.
+                $schedule->kind === BackupKind::PhysicalBase
+                    ? '--' . BackupDrillCommand::OPTION_PITR
+                    : '--' . BackupDrillCommand::OPTION_KIND . '=' . $schedule->kind->value,
             ),
         };
     }

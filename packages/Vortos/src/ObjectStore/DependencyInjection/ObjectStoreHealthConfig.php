@@ -21,7 +21,7 @@ final class ObjectStoreHealthConfig
     private int $coldStartBackoffMs     = 200;
 
     /**
-     * HeadBucket attempts before reporting unhealthy. 1 disables cold-start retry.
+     * HeadObject attempts before reporting unhealthy. 1 disables cold-start retry.
      */
     public function coldStartAttempts(int $attempts): static
     {

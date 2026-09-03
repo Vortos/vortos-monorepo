@@ -127,7 +127,7 @@ final class Configuration implements ConfigurationInterface
                         ->integerNode('cold_start_attempts')
                             ->min(1)
                             ->defaultValue(3)
-                            ->info('HeadBucket attempts before reporting unhealthy; absorbs a cold-connection blip on a freshly-started worker. Each attempt is a billed Class B operation on metered providers such as R2.')
+                            ->info('HeadObject attempts before reporting unhealthy; absorbs a cold-connection blip on a freshly-started worker. Each attempt is a billed Class B operation on metered providers such as R2.')
                         ->end()
                         ->integerNode('cold_start_backoff_milliseconds')
                             ->min(0)

@@ -663,12 +663,19 @@ final class ObjectStoreExtension extends Extension
         }
 
         if ($config['driver'] === 's3') {
+            // The sentinel key the probe HEADs, carrying the configured key prefix so a
+            // prefix-scoped credential is exercised inside its grant. Never created — a 404 is the
+            // healthy answer — so the leading dot is cosmetic, just a key unlikely to collide.
+            $keyPrefix = trim((string) ($config['bucket']['key_prefix'] ?? ''), '/');
+            $probeKey  = $keyPrefix === '' ? '.vortos-health-probe' : $keyPrefix . '/.vortos-health-probe';
+
             $container->register(S3ObjectStoreHealthCheck::class, S3ObjectStoreHealthCheck::class)
                 ->setArgument('$client', new Reference(\Aws\S3\S3Client::class))
                 ->setArgument('$bucket', $config['bucket']['name'])
                 ->setArgument('$provider', $config['provider'])
                 ->setArgument('$coldStartAttempts', (int) ($config['health']['cold_start_attempts'] ?? 3))
                 ->setArgument('$coldStartBackoffMs', (int) ($config['health']['cold_start_backoff_milliseconds'] ?? 200))
+                ->setArgument('$probeKey', $probeKey)
                 ->setShared(true)
                 ->setPublic(false);
         }

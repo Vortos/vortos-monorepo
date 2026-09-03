@@ -12,7 +12,25 @@ use Vortos\Foundation\Health\Contract\HealthCheckKind;
 use Vortos\Foundation\Health\HealthResult;
 
 /**
- * Monitoring probe for the object store: a `HeadBucket` against the configured bucket.
+ * Monitoring probe for the object store: a `HeadObject` on a sentinel key in the configured bucket.
+ *
+ * ## Why HeadObject, not HeadBucket
+ *
+ * `HeadBucket` is a bucket-level operation, and a correctly scoped object-store credential is not
+ * allowed to make it. On Cloudflare R2 an API token scoped to "Object Read & Write" — the least
+ * privilege this application actually needs — is denied every bucket-level call, so `HeadBucket`
+ * returns `AccessDenied` while uploads and downloads work perfectly. That is exactly the false
+ * positive this probe produced in production: a permanent critical "object store unreachable" on a
+ * store that was serving passport scans and logos without a hiccup, because the probe asked a
+ * question the credential is designed not to answer.
+ *
+ * `HeadObject` is an object-level operation, so it exercises the permission the application relies
+ * on rather than one it should never hold. The sentinel key does not need to exist: a signed
+ * `HeadObject` that reaches the store and comes back `404 Not Found` has already proved everything
+ * the probe cares about — the bucket is reachable and the credential is accepted for object access.
+ * A `404` is therefore HEALTHY and expected; `403 AccessDenied` is the real "your credentials cannot
+ * touch this bucket" signal, and a transport failure is unreachability. The probe never creates the
+ * object, so it neither depends on nor mutates bucket contents.
  *
  * ## Why this is Monitoring and not Readiness
  *
@@ -32,10 +50,10 @@ use Vortos\Foundation\Health\HealthResult;
  * surface, so an unreachable bucket is a hard red there rather than a shrug. It just no longer
  * reaches the traffic gate.
  *
- * A footnote on cost, since it is what surfaced this: on Cloudflare R2 every HeadBucket is a billed
- * Class B operation. As a readiness probe it ran on each container's healthcheck interval and each
- * edge active-health interval, forever, on an idle system — millions of operations a month to answer
- * a question nothing was allowed to act on.
+ * A footnote on cost: on Cloudflare R2 a HeadObject is a billed Class B operation, the same class
+ * and the same one-per-run as the HeadBucket it replaces, so the switch is cost-neutral. (The
+ * separate move of this probe off the readiness gate — see below — is what stopped it running on
+ * every container and edge health interval; that reduction stands regardless of the verb.)
  *
  * ## Cold-start resilience
  *
@@ -58,6 +76,11 @@ final class S3ObjectStoreHealthCheck implements HealthCheckInterface
         private readonly string $provider = 's3',
         private readonly int $coldStartAttempts = 3,
         private readonly int $coldStartBackoffMs = 200,
+        // A key the probe HEADs. It is never written, so it need not exist — a 404 is the proof of
+        // reachability we want. It carries the configured key prefix so a prefix-scoped credential
+        // (a token allowed only under `orgs/…`, say) is exercised inside its own grant rather than
+        // being denied at the root and read as an outage.
+        private readonly string $probeKey = '.vortos-health-probe',
     ) {}
 
     public function name(): string
@@ -74,17 +97,18 @@ final class S3ObjectStoreHealthCheck implements HealthCheckInterface
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             try {
-                $this->client->headBucket(['Bucket' => $this->bucket]);
+                $this->client->headObject(['Bucket' => $this->bucket, 'Key' => $this->probeKey]);
 
-                return new HealthResult(
-                    name: $this->name(),
-                    healthy: true,
-                    latencyMs: $this->ms($start),
-                    error: $this->provider === 'r2' ? 'Cloudflare R2 bucket reachable.' : null,
-                    errorCode: $this->provider === 'r2' ? 'object_store_r2_reachable' : null,
-                    critical: true,
-                );
+                return $this->reachable($start);
             } catch (AwsException $e) {
+                // A 404 is the healthy answer, not a failure: the request was signed, reached the
+                // store, and the store authoritatively said "no such object". Reachability and
+                // object-level authorization are both proved; the sentinel simply is not there, by
+                // design. Only 403 (the credential cannot touch the bucket) and transport failures
+                // are genuine unhealth.
+                if ($e->getStatusCode() === 404) {
+                    return $this->reachable($start);
+                }
                 $lastError = $e->getAwsErrorMessage() ?? $e->getMessage();
             } catch (\Throwable $e) {
                 $lastError = $e->getMessage();
@@ -103,6 +127,18 @@ final class S3ObjectStoreHealthCheck implements HealthCheckInterface
             latencyMs: $this->ms($start),
             error: $lastError,
             errorCode: $lastCode,
+        );
+    }
+
+    private function reachable(int $start): HealthResult
+    {
+        return new HealthResult(
+            name: $this->name(),
+            healthy: true,
+            latencyMs: $this->ms($start),
+            error: $this->provider === 'r2' ? 'Cloudflare R2 bucket reachable.' : null,
+            errorCode: $this->provider === 'r2' ? 'object_store_r2_reachable' : null,
+            critical: true,
         );
     }
 

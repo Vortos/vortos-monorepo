@@ -37,7 +37,7 @@ use Vortos\Foundation\Health\Contract\HealthCheckInterface;
  * a wrong answer must never stop traffic. Readiness could only express the second, so it was made to
  * carry the first — at the price of running it every few seconds forever.
  *
- * Answered here it costs ONE HeadBucket per deploy instead of one per probe interval per container
+ * Answered here it costs ONE HeadObject per deploy instead of one per probe interval per container
  * per color, for the entire life of the deployment, which on a metered provider is the difference
  * between a rounding error and a line item. The doctor is also the honest place for it: a
  * misconfigured bucket is a deploy defect, and this is where deploy defects are reported.

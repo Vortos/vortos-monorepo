@@ -36,7 +36,17 @@ final class PostgresPitrRestoreTargetTest extends TestCase
 
         return new PostgresPitrRestoreTarget(
             $runtime,
-            new WalArchiveFeeder($runtime, $fetcher, 'production', 10, 1, 4096, sys_get_temp_dir()),
+            // Named arguments: this list has grown twice, and positional construction silently
+            // shifted the scratch directory into a new int parameter the first time it did.
+            new WalArchiveFeeder(
+                runtime: $runtime,
+                fetcher: $fetcher,
+                environment: 'production',
+                maxSegments: 10,
+                timeoutSeconds: 1,
+                segmentBytes: 4096,
+                scratchDir: sys_get_temp_dir(),
+            ),
             5,
         );
     }

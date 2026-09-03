@@ -40,6 +40,7 @@ final class WalArchiveFeederTest extends TestCase
         array $available,
         int $maxSegments = 100,
         int $timeout = 10,
+        int $attempts = 4,
     ): WalArchiveFeeder {
         $store = new InMemoryObjectStore();
         foreach ($available as $n) {
@@ -53,13 +54,14 @@ final class WalArchiveFeederTest extends TestCase
         );
 
         return new WalArchiveFeeder(
-            $runtime,
-            $fetcher,
-            'production',
-            $maxSegments,
-            $timeout,
-            self::SEGMENT_BYTES,
-            sys_get_temp_dir(),
+            runtime: $runtime,
+            fetcher: $fetcher,
+            environment: 'production',
+            maxSegments: $maxSegments,
+            timeoutSeconds: $timeout,
+            segmentBytes: self::SEGMENT_BYTES,
+            fetchAttempts: $attempts,
+            scratchDir: sys_get_temp_dir(),
         );
     }
 
@@ -265,6 +267,70 @@ final class WalArchiveFeederTest extends TestCase
     }
 
     /**
+     * A store that fails once mid-run must not fail the drill.
+     *
+     * The first production run served ~325 segments and then took a single 403 from R2 on an object
+     * that fetched perfectly a second later. A drill that turns a blip into a red DR alert teaches
+     * people to ignore it.
+     */
+    public function testATransientStoreFailureIsRetried(): void
+    {
+        $seg = $this->segmentName(1);
+        $runtime = new RecordingContainerRuntime();
+        $runtime->log = ['LOG:  redo starts at 0/3000028', 'VORTOS-WAL-WANT ' . $seg];
+
+        $store = new InMemoryObjectStore();
+        $store->objects[self::PREFIX . $seg] = str_repeat('W', self::SEGMENT_BYTES);
+        $store->failOpenTimes = 2; // fail twice, succeed on the third attempt
+
+        $fetcher = new PostgresWalFetcher(
+            new BackupStoreRegistry(new ServiceLocator(['s' => fn () => new ObjectStoreBackupStore($store)])),
+            ['s'],
+            'backups',
+        );
+
+        $feeder = new WalArchiveFeeder(
+            runtime: $runtime, fetcher: $fetcher, environment: 'production', maxSegments: 100,
+            timeoutSeconds: 15, segmentBytes: self::SEGMENT_BYTES, fetchAttempts: 4,
+            scratchDir: sys_get_temp_dir(),
+        );
+        $outcome = $feeder->feed(new ContainerHandle('c', 'c', 'c'), $this->probeAfter($runtime, 1), time() - 1);
+
+        self::assertSame(1, $outcome->segmentsServed);
+    }
+
+    /**
+     * But a store that keeps failing must still fail the drill — never be answered as absence, which
+     * would end recovery early and report a clean restore to the wrong instant.
+     */
+    public function testAPersistentStoreFailureStillFailsTheDrill(): void
+    {
+        $seg = $this->segmentName(1);
+        $runtime = new RecordingContainerRuntime();
+        $runtime->log = ['VORTOS-WAL-WANT ' . $seg];
+
+        $store = new InMemoryObjectStore();
+        $store->objects[self::PREFIX . $seg] = str_repeat('W', self::SEGMENT_BYTES);
+        $store->failOpenTimes = 99;
+
+        $fetcher = new PostgresWalFetcher(
+            new BackupStoreRegistry(new ServiceLocator(['s' => fn () => new ObjectStoreBackupStore($store)])),
+            ['s'],
+            'backups',
+        );
+
+        $feeder = new WalArchiveFeeder(
+            runtime: $runtime, fetcher: $fetcher, environment: 'production', maxSegments: 100,
+            timeoutSeconds: 10, segmentBytes: self::SEGMENT_BYTES, fetchAttempts: 2,
+            scratchDir: sys_get_temp_dir(),
+        );
+
+        $this->expectExceptionMessageMatches('/after 2 attempts/');
+
+        $feeder->feed(new ContainerHandle('c', 'c', 'c'), static fn (): ?array => null, time() - 1);
+    }
+
+    /**
      * "Not in the archive" and "could not be read" must never be conflated. An unreadable segment
      * answered as absence ends recovery early and reports a clean restore to the wrong instant.
      */
@@ -283,7 +349,10 @@ final class WalArchiveFeederTest extends TestCase
             'backups',
         );
 
-        $feeder = new WalArchiveFeeder($runtime, $fetcher, 'production', 100, 5, self::SEGMENT_BYTES, sys_get_temp_dir());
+        $feeder = new WalArchiveFeeder(
+            runtime: $runtime, fetcher: $fetcher, environment: 'production', maxSegments: 100,
+            timeoutSeconds: 5, segmentBytes: self::SEGMENT_BYTES, scratchDir: sys_get_temp_dir(),
+        );
 
         $this->expectExceptionMessageMatches('/refusing to replay a truncated segment/');
 

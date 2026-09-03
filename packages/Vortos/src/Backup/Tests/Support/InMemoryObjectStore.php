@@ -40,6 +40,14 @@ final class InMemoryObjectStore implements ObjectStoreInterface
     public ?int $failAfterBytes = null;
 
     /**
+     * Make the next N reads throw, as a throttled or briefly unavailable store does.
+     *
+     * Modelled on a real production failure: a point-in-time drill served ~325 WAL segments and then
+     * took a single 403 from R2 on an object that read back perfectly a second later.
+     */
+    public int $failOpenTimes = 0;
+
+    /**
      * Keys the store will refuse to delete, as a WORM bucket does. The message mirrors R2's own
      * wording ("The object is locked by the bucket policy") so the immutability matcher is tested
      * against the string production actually returns rather than an invented one.
@@ -74,6 +82,12 @@ final class InMemoryObjectStore implements ObjectStoreInterface
 
     public function stream(ObjectKey|string $key, ?GetObjectOptions $options = null): mixed
     {
+        if ($this->failOpenTimes > 0) {
+            $this->failOpenTimes--;
+
+            throw new RuntimeException('r2 object store error: 403 Forbidden');
+        }
+
         $resource = fopen('php://temp', 'r+b');
         if ($resource === false) {
             throw new RuntimeException('Cannot open temp stream.');

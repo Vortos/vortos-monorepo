@@ -70,6 +70,16 @@ final class WalArchiveFeeder
         private readonly int $maxSegments = 12000,
         private readonly int $timeoutSeconds = 5400,
         private readonly int $segmentBytes = 16 * 1024 * 1024,
+        /**
+         * Attempts per segment before a fetch failure fails the drill.
+         *
+         * A point-in-time drill makes one store request per segment and replays hundreds of them
+         * back to back — the first production run served ~325 before the object store returned a
+         * single 403, on an object that fetched perfectly three times a second later. Retrying a
+         * transient blip is the difference between a drill that reports on the archive and one that
+         * reports on the weather.
+         */
+        private readonly int $fetchAttempts = 4,
         /** Where segments are decrypted before upload; one segment at a time, removed immediately. */
         private readonly ?string $scratchDir = null,
     ) {}
@@ -293,25 +303,45 @@ final class WalArchiveFeeder
         $scratch = $this->scratchDir ?? sys_get_temp_dir();
         $path = $scratch . '/' . $segment . '.vortos-feed';
 
-        try {
-            $this->fetcher->fetch($segment, $path, $this->environment);
-        } catch (ArchivedWalNotFoundException) {
-            @unlink($path);
-            $this->markAbsent($handle, $segment);
+        $lastError = null;
 
-            return false;
-        } catch (Throwable $e) {
-            @unlink($path);
+        for ($attempt = 1; $attempt <= $this->fetchAttempts; $attempt++) {
+            try {
+                $this->fetcher->fetch($segment, $path, $this->environment);
+                $lastError = null;
+                break;
+            } catch (ArchivedWalNotFoundException) {
+                // NEVER retried. A miss is not a failure — it is how PostgreSQL learns where the
+                // archive ends — and retrying it would add a multi-second stall to the end of every
+                // single recovery.
+                @unlink($path);
+                $this->markAbsent($handle, $segment);
 
-            // Anything OTHER than "not in the archive" must fail the drill rather than be answered
-            // with an absent marker. A decryption failure or an unreachable store answered as
-            // absence would end recovery early and report a clean point-in-time restore to the
-            // wrong instant — the exact silent failure this drill exists to catch.
+                return false;
+            } catch (Throwable $e) {
+                @unlink($path);
+                $lastError = $e;
+
+                if ($attempt < $this->fetchAttempts) {
+                    // Exponential backoff. The failure this exists for is throughput-related, so
+                    // backing off is the response most likely to succeed as well as the politest.
+                    usleep(500_000 * (2 ** ($attempt - 1)));
+                }
+            }
+        }
+
+        if ($lastError !== null) {
+            // A persistent failure is still fatal, and deliberately never answered with an absent
+            // marker. Anything OTHER than "not in the archive" — a decryption failure, an
+            // unreachable store, credentials that stopped working — reported as absence would end
+            // recovery early and declare a clean point-in-time restore to the wrong instant, which
+            // is the exact silent failure this drill exists to catch.
             throw new RuntimeException(sprintf(
-                "Failed to serve WAL segment '%s' from the archive: %s",
+                "Failed to serve WAL segment '%s' from the archive after %d attempts: %s",
                 $segment,
-                $e->getMessage(),
-            ), 0, $e);
+                $this->fetchAttempts,
+                $lastError->getMessage(),
+            ), 0, $lastError);
         }
 
         try {

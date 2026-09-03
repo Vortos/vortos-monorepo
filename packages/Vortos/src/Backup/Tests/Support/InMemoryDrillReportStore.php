@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\Tests\Support;
 
+use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Drill\DrillReport;
 use Vortos\Backup\Drill\DrillReportStoreInterface;
 
@@ -20,9 +21,22 @@ final class InMemoryDrillReportStore implements DrillReportStoreInterface
 
     public function latest(string $engine, string $environment): ?DrillReport
     {
+        return $this->newest(static fn (DrillReport $r): bool => true, $engine, $environment);
+    }
+
+    public function latestOfKind(string $engine, string $environment, BackupKind $kind): ?DrillReport
+    {
+        return $this->newest(static fn (DrillReport $r): bool => $r->kind === $kind, $engine, $environment);
+    }
+
+    /** @param callable(DrillReport): bool $extra */
+    private function newest(callable $extra, string $engine, string $environment): ?DrillReport
+    {
         $matches = array_filter(
             $this->reports,
-            static fn (DrillReport $r): bool => $r->engine->value === $engine && $r->environment === $environment,
+            static fn (DrillReport $r): bool => $r->engine->value === $engine
+                && $r->environment === $environment
+                && $extra($r),
         );
 
         if ($matches === []) {
@@ -31,6 +45,6 @@ final class InMemoryDrillReportStore implements DrillReportStoreInterface
 
         usort($matches, static fn (DrillReport $a, DrillReport $b): int => $b->startedAt <=> $a->startedAt);
 
-        return $matches[0];
+        return array_values($matches)[0];
     }
 }

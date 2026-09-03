@@ -32,4 +32,5 @@ enum MetricLabel: string
     case Program = 'program';
     case Engine = 'engine';
     case Environment = 'environment';
+    case Kind = 'kind';
 }

@@ -27,6 +27,11 @@ enum FrameworkMetric: string
     case BackupPresent = 'backup_present';
     case BackupLastSuccessAgeSeconds = 'backup_last_success_age_seconds';
     case BackupLastSuccessSizeBytes = 'backup_last_success_size_bytes';
+    case BackupDrillLastOutcome = 'backup_drill_last_outcome';
+    case BackupDrillLastRtoMs = 'backup_drill_last_rto_ms';
+    case BackupDrillLastAgeSeconds = 'backup_drill_last_age_seconds';
+    case BackupDrillWalSegmentsReplayed = 'backup_drill_wal_segments_replayed';
+    case BackupDrillRestorePointAgeSeconds = 'backup_drill_restore_point_age_seconds';
     case SupervisorProgramUp = 'supervisor_program_up';
     case SupervisorProgramUptimeSeconds = 'supervisor_program_uptime_seconds';
     case SupervisorProgramRestartsTotal = 'supervisor_program_restarts_total';

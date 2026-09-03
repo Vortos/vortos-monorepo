@@ -216,6 +216,23 @@ final class FakeContainerRuntime implements ContainerRuntimeInterface
         return new ContainerHandle('container-' . $spec->name, $spec->name, $this->failReady ? '127.0.0.1' : $spec->name);
     }
 
+    // The create/start split and the archive/log calls exist for the point-in-time drill, which has
+    // to place a data directory into a container BEFORE its postmaster boots. The logical
+    // provisioner under test here never reaches for them.
+    public function create(ContainerSpec $spec): ContainerHandle
+    {
+        return $this->run($spec);
+    }
+
+    public function start(ContainerHandle $handle): void {}
+
+    public function putArchive(ContainerHandle $handle, string $path, iterable $tarChunks): void {}
+
+    public function logsSince(ContainerHandle $handle, int $sinceUnixSeconds): string
+    {
+        return '';
+    }
+
     public function remove(ContainerHandle $handle): void
     {
         $this->removed[] = $handle->id;

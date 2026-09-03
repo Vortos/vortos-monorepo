@@ -83,7 +83,15 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
             throw new \RuntimeException('backup drill scheduled but no DrillRunner is wired (install/configure restore drills).');
         }
 
-        $report = $this->drillRunner->run($schedule->engine, $schedule->environment);
+        // The schedule's kind is passed through rather than letting the runner pick the newest
+        // restorable artifact. Two drills on two cadences prove two different things, and a runner
+        // choosing for itself would take whichever backup happened to be newer — in practice always
+        // the frequent logical dump, leaving the point-in-time schedule green and vacuous.
+        $report = $this->drillRunner->run(
+            $schedule->engine,
+            $schedule->environment,
+            onlyKind: $schedule->kind,
+        );
 
         if (!$report->passed()) {
             throw new \RuntimeException(sprintf(
@@ -93,6 +101,10 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
             ));
         }
 
-        return LifecycleOutcome::completed(sprintf('drill passed (rto=%dms)', $report->rtoMs));
+        return LifecycleOutcome::completed(sprintf(
+            'drill passed (%s, rto=%dms)',
+            $report->kind->value ?? 'unknown kind',
+            $report->rtoMs,
+        ));
     }
 }

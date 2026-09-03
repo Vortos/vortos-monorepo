@@ -12,11 +12,14 @@ use Vortos\Backup\Domain\BackupArtifact;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Event\BackupEvent;
+use Vortos\Backup\Drill\Check\WalReplayedInvariant;
 use Vortos\Backup\Event\BackupEventSinkInterface;
+use Vortos\Backup\Pitr\PitrRecoveryRecorder;
 use Vortos\Backup\Port\BackupStoreInterface;
 use Vortos\Backup\Port\BackupStoreRegistry;
 use Vortos\Backup\Restore\Capability\RestoreTargetCapability;
 use Vortos\Backup\Restore\RestoreCoordinator;
+use Vortos\Backup\Restore\Driver\Postgres\PostgresPitrRestoreTarget;
 use Vortos\Backup\Restore\RestoreRequest;
 use Vortos\Secrets\Key\KeyProviderInterface;
 
@@ -40,9 +43,32 @@ final class DrillRunner
         private readonly array $invariantChecks,
         private readonly string $storeKey,
         private readonly ?KeyProviderInterface $keyProvider = null,
+        /**
+         * Provisions a cluster for a PHYSICAL restore: created but not started, so a base backup and
+         * its recovery configuration can be written before the postmaster boots.
+         *
+         * Null when point-in-time drilling is not configured, and that is a hard gate rather than a
+         * degradation — see {@see targetSupportsPointInTime()}. A base backup handed to the logical
+         * provisioner would be restored into a running empty server, which cannot work and, worse,
+         * would fail for a reason that says nothing about the backup.
+         */
+        private readonly ?DrillEnvironmentProvisionerInterface $pitrProvisioner = null,
     ) {}
 
-    public function run(DatabaseEngine $engine, string $environment, bool $shallow = false): DrillReport
+    /**
+     * @param BackupKind|null $onlyKind restrict the drill to one kind of artifact rather than taking
+     *                                  the newest restorable one. A schedule uses this to say which
+     *                                  RESTORE PATH it is proving: a daily logical drill and a weekly
+     *                                  point-in-time drill answer different questions, and left to
+     *                                  pick for itself the runner would always take whichever backup
+     *                                  happened to be newer and silently stop exercising the other.
+     */
+    public function run(
+        DatabaseEngine $engine,
+        string $environment,
+        bool $shallow = false,
+        ?BackupKind $onlyKind = null,
+    ): DrillReport
     {
         // Ask for the newest RESTORABLE artifact, never simply the newest row.
         //
@@ -65,11 +91,7 @@ final class DrillRunner
         // artifact was always a ~2.5 MB logical dump and the drill quietly stayed on the path that
         // worked. Fixing the read path would have made this pick the base instead and turned a
         // green weekly drill red — the fix breaking the alarm that was supposed to watch it.
-        $candidateKinds = [BackupKind::LogicalFull, BackupKind::MongoArchive];
-
-        if ($this->targetSupportsPointInTime($engine)) {
-            $candidateKinds[] = BackupKind::PhysicalBase;
-        }
+        $candidateKinds = $this->candidateKinds($engine, $onlyKind);
 
         $artifact = $this->catalog->latestOfKind($engine, $environment, $candidateKinds);
 
@@ -83,6 +105,13 @@ final class DrillRunner
                 $environment,
             ));
         }
+
+        // A physical base is restored by an entirely different mechanism from a dump, and the choice
+        // is driven by the ARTIFACT rather than by the caller's intent — so an unqualified drill that
+        // happens to pick a base backup takes the point-in-time path too, instead of handing it to a
+        // target that cannot consume it.
+        $isPointInTime = $artifact->kind === BackupKind::PhysicalBase;
+        $recorder = $isPointInTime ? new PitrRecoveryRecorder() : null;
 
         $start = $this->clock->now();
         $drillEnv = null;
@@ -102,19 +131,27 @@ final class DrillRunner
                     $rtoMs,
                     'passed',
                     [InvariantResult::pass('shallow_decrypt', 'envelope header + AEAD decrypt verified')],
+                    null,
+                    $artifact->kind,
                 );
             } else {
-                $drillEnv = $this->provisioner->provision($engine);
+                $drillEnv = ($isPointInTime ? $this->requirePitrProvisioner() : $this->provisioner)
+                    ->provision($engine);
+
+                $options = $drillEnv->options;
+                if ($recorder !== null) {
+                    $options[PostgresPitrRestoreTarget::OPTION_RECORDER] = $recorder;
+                }
 
                 $this->restoreCoordinator->restore(
                     $artifact,
                     $store,
-                    new RestoreRequest($drillEnv->dsn),
+                    new RestoreRequest($drillEnv->dsn, options: $options),
                 );
 
                 $connParams = $this->parseConnParams($drillEnv->dsn);
                 $results = [];
-                foreach ($this->invariantChecks as $check) {
+                foreach ($this->checksFor($recorder) as $check) {
                     $results[] = $check->check($connParams);
                 }
 
@@ -135,6 +172,7 @@ final class DrillRunner
                     $allPassed ? 'passed' : 'failed',
                     $results,
                     $allPassed ? null : 'One or more invariant checks failed.',
+                    $artifact->kind,
                 );
             }
         } catch (Throwable $e) {
@@ -149,6 +187,7 @@ final class DrillRunner
                 'failed',
                 [],
                 $e->getMessage(),
+                $artifact->kind,
             );
         } finally {
             if ($drillEnv !== null) {
@@ -235,16 +274,89 @@ final class DrillRunner
     }
 
     /**
-     * Can the configured restore target actually perform a point-in-time (physical) restore?
+     * Which kinds of artifact this drill may select.
      *
-     * Answered from the target's own capability descriptor rather than assumed, so a future target
-     * that gains the capability starts being drilled with base backups automatically, and one that
-     * lacks it is never handed an artifact it cannot consume.
+     * @return non-empty-list<BackupKind>
      */
-    private function targetSupportsPointInTime(DatabaseEngine $engine): bool
+    private function candidateKinds(DatabaseEngine $engine, ?BackupKind $onlyKind): array
     {
+        if ($onlyKind !== null) {
+            // An explicit request must fail loudly when it cannot be honoured. Quietly falling back
+            // to the newest logical dump would leave a schedule named for a point-in-time drill
+            // reporting green having never touched a base backup or a WAL segment — the failure
+            // this whole capability gate exists to prevent, reintroduced one layer up.
+            if ($onlyKind === BackupKind::PhysicalBase && !$this->supportsPointInTime($engine)) {
+                throw new \RuntimeException(sprintf(
+                    'A point-in-time drill was requested for %s but this installation cannot perform '
+                    . 'one: it needs a restore target declaring the point_in_time capability AND a '
+                    . 'provisioner able to start a cluster over a restored data directory. Configure '
+                    . 'container-mode drills (VORTOS_BACKUP_DRILL_DOCKER_HOST) to enable it.',
+                    $engine->value,
+                ));
+            }
+
+            return [$onlyKind];
+        }
+
+        $candidateKinds = [BackupKind::LogicalFull, BackupKind::MongoArchive];
+
+        if ($this->supportsPointInTime($engine)) {
+            $candidateKinds[] = BackupKind::PhysicalBase;
+        }
+
+        return $candidateKinds;
+    }
+
+    /**
+     * The invariants for this drill.
+     *
+     * A point-in-time drill gets one extra, and it is not optional garnish: every other invariant
+     * passes just as happily on a base backup that started up having replayed no WAL at all, which
+     * is a restore to the base's own instant rather than point-in-time recovery.
+     *
+     * @return list<InvariantCheck>
+     */
+    private function checksFor(?PitrRecoveryRecorder $recorder): array
+    {
+        $checks = $this->invariantChecks;
+
+        if ($recorder !== null) {
+            $checks[] = new WalReplayedInvariant($recorder);
+        }
+
+        return $checks;
+    }
+
+    private function requirePitrProvisioner(): DrillEnvironmentProvisionerInterface
+    {
+        if ($this->pitrProvisioner === null) {
+            throw new \RuntimeException(
+                'A physical base backup was selected for this drill but no point-in-time provisioner '
+                . 'is configured. Restoring it through the logical provisioner is not a degraded '
+                . 'drill — it cannot work, and it would fail for a reason unrelated to the backup.',
+            );
+        }
+
+        return $this->pitrProvisioner;
+    }
+
+    /**
+     * Can this installation actually perform a point-in-time (physical) restore?
+     *
+     * BOTH halves are required, and the second is easy to forget. The target's capability descriptor
+     * says the restore MECHANISM exists; the provisioner says something can stand up a cluster for
+     * it to restore into. A target registered without its provisioner would advertise the capability
+     * and then fail at provision time — after the drill had already selected a base backup and
+     * discarded the logical dump it could have proved something with.
+     */
+    private function supportsPointInTime(DatabaseEngine $engine): bool
+    {
+        if ($this->pitrProvisioner === null) {
+            return false;
+        }
+
         try {
-            $target = $this->restoreCoordinator->targetFor($engine);
+            $target = $this->restoreCoordinator->targetFor($engine, BackupKind::PhysicalBase);
         } catch (\Throwable) {
             return false; // no target registered for this engine — nothing is drillable anyway
         }

@@ -8,6 +8,12 @@ use Psr\Clock\ClockInterface;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Observability\BackupFreshnessCollector;
 use Vortos\Backup\Observability\BackupFreshnessCollectorFactory;
+use Vortos\Backup\Observability\DrillOutcomeCollector;
+use Vortos\Backup\Observability\DrillOutcomeCollectorFactory;
+use Vortos\Backup\Pitr\WalArchiveFeeder;
+use Vortos\Backup\Pitr\WalArchiveFeederFactory;
+use Vortos\Backup\Restore\Driver\Postgres\PostgresPitrRestoreTarget;
+use Vortos\Backup\Drill\Driver\Postgres\RecoveringPostgresProvisioner;
 use Vortos\Metrics\Contract\MetricsCollectorInterface;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 use Doctrine\DBAL\Connection;
@@ -172,6 +178,21 @@ final class BackupExtension extends Extension
             explode(',', (string) ($_ENV['VORTOS_BACKUP_DRILL_ROW_COUNT_TABLES'] ?? '')),
         ), static fn (string $t): bool => $t !== ''));
         $drillRowCountMinRows = max(1, (int) ($_ENV['VORTOS_BACKUP_DRILL_ROW_COUNT_MIN'] ?? 1));
+        // ── Point-in-time drill bounds ──────────────────────────────────────────────────────────
+        //
+        // A PITR drill replays every WAL segment archived since the base backup it restores, so its
+        // duration is a function of how OLD that base is — roughly one segment per minute of elapsed
+        // production time on a busy cluster. The default ceiling is deliberately generous (a week of
+        // continuous archiving at 60s segment switching is ~10,000 segments) so the guard only fires
+        // on a genuinely broken cadence rather than on a slow week; when it does fire it says so as
+        // itself, instead of the drill running for hours and being discovered by a timeout.
+        $drillPitrMaxSegments = max(1, (int) ($_ENV['VORTOS_BACKUP_DRILL_PITR_MAX_SEGMENTS'] ?? 12000));
+        $drillPitrTimeout = max(60, (int) ($_ENV['VORTOS_BACKUP_DRILL_PITR_TIMEOUT_SECONDS'] ?? 5400));
+        // Must match the PGDATA of the drill image. PostgreSQL 18's official image places its
+        // cluster at /var/lib/postgresql/18/docker; pinning the drill image to 17 or earlier means
+        // overriding this, and getting it wrong produces a container that starts an empty cluster
+        // beside the restored one rather than an error.
+        $drillPitrPgdata = (string) ($_ENV['VORTOS_BACKUP_DRILL_PITR_PGDATA'] ?? '/var/lib/postgresql/18/docker');
         $secondaryStoreName = (string) ($_ENV['VORTOS_BACKUP_SECONDARY_STORE'] ?? '');
         $objectLockDays = (int) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_DAYS'] ?? 0);
         $objectLockMode = (string) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_MODE'] ?? 'compliance');
@@ -493,6 +514,45 @@ final class BackupExtension extends Extension
                 ->setArgument('$network', $drillNetwork !== '' ? $drillNetwork : null)
                 ->setPublic(false);
             $container->setAlias(DrillEnvironmentProvisionerInterface::class, \Vortos\Backup\Drill\Driver\Postgres\ContainerizedDatabaseProvisioner::class);
+
+            // ── Point-in-time restore path ──────────────────────────────────────────────────────
+            //
+            // Registered ONLY in container mode, and that is a correctness gate rather than a
+            // convenience. Point-in-time recovery means starting a postmaster over a data directory
+            // restored from a base backup; there is no way to do that against the shared ephemeral
+            // server the DSN mode nominates, which is usually the production primary. Both halves —
+            // the target and the provisioner — are required before DrillRunner will report the
+            // capability, so a partial wiring can never advertise a drill it cannot perform.
+            // Built through a factory so the catalog environment is resolved at RUNTIME from
+            // config/backup.php, never baked in from APP_ENV — the two differ deliberately, and the
+            // wrong one makes every WAL lookup miss, which recovery reads as the end of the archive.
+            $container->register(WalArchiveFeederFactory::class, WalArchiveFeederFactory::class)
+                ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
+                ->setPublic(false);
+
+            $container->register(WalArchiveFeeder::class, WalArchiveFeeder::class)
+                ->setFactory([new Reference(WalArchiveFeederFactory::class), 'create'])
+                ->setArgument('$runtime', new Reference(\Vortos\Backup\Drill\Container\ContainerRuntimeInterface::class))
+                ->setArgument('$fetcher', new Reference(PostgresWalFetcher::class))
+                ->setArgument('$maxSegments', $drillPitrMaxSegments)
+                ->setArgument('$timeoutSeconds', $drillPitrTimeout)
+                ->setPublic(false);
+
+            $container->register(PostgresPitrRestoreTarget::class, PostgresPitrRestoreTarget::class)
+                ->setArgument('$runtime', new Reference(\Vortos\Backup\Drill\Container\ContainerRuntimeInterface::class))
+                ->setArgument('$feeder', new Reference(WalArchiveFeeder::class))
+                ->addTag(CollectRestoreTargetsPass::TAG)
+                ->setPublic(false);
+
+            $container->register(RecoveringPostgresProvisioner::class, RecoveringPostgresProvisioner::class)
+                ->setArgument('$runtime', new Reference(\Vortos\Backup\Drill\Container\ContainerRuntimeInterface::class))
+                // The connection the backups are taken through: a physical restore reproduces that
+                // cluster exactly, so its roles and database name are the only ones that will exist.
+                ->setArgument('$source', new Reference(Connection::class))
+                ->setArgument('$image', $drillImage)
+                ->setArgument('$network', $drillNetwork !== '' ? $drillNetwork : null)
+                ->setArgument('$pgdata', $drillPitrPgdata)
+                ->setPublic(false);
         } elseif ($drillDsn !== '') {
             $container->register(\Vortos\Backup\Drill\Driver\Postgres\EphemeralDatabaseProvisioner::class)
                 ->setArgument('$drillDsn', $drillDsn)
@@ -517,6 +577,12 @@ final class BackupExtension extends Extension
                 ->setArgument('$invariantChecks', [])
                 ->setArgument('$storeKey', $storeKey)
                 ->setArgument('$keyProvider', $backupKeyProviderRef)
+                // Null unless container-mode drills are configured, which is what makes
+                // "can this installation do point-in-time recovery?" a question with an honest
+                // answer rather than an assumption.
+                ->setArgument('$pitrProvisioner', $container->has(RecoveringPostgresProvisioner::class)
+                    ? new Reference(RecoveringPostgresProvisioner::class)
+                    : null)
                 ->setPublic(false);
         }
 
@@ -830,6 +896,24 @@ final class BackupExtension extends Extension
         // app never configured.
         $container->register(BackupFreshnessCollector::class, BackupFreshnessCollector::class)
             ->setFactory([new Reference(BackupFreshnessCollectorFactory::class), 'create'])
+            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$clock', new Reference(ClockInterface::class))
+            ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('vortos.metrics_collector')
+            ->setPublic(false);
+
+        // Drill health, per RESTORE PATH. The freshness collector above answers "is there a recent
+        // backup"; this answers "has it been proved restorable, and by which path". They are
+        // genuinely different questions: a green logical drill says nothing about whether the WAL
+        // chain replays, and once two drills run on two cadences an unlabelled "last drill" series
+        // always reports the more frequent one.
+        $container->register(DrillOutcomeCollectorFactory::class, DrillOutcomeCollectorFactory::class)
+            ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
+            ->setPublic(false);
+
+        $container->register(DrillOutcomeCollector::class, DrillOutcomeCollector::class)
+            ->setFactory([new Reference(DrillOutcomeCollectorFactory::class), 'create'])
+            ->setArgument('$reports', new Reference(DrillReportStoreInterface::class))
             ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
             ->setArgument('$clock', new Reference(ClockInterface::class))
             ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))

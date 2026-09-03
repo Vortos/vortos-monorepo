@@ -29,11 +29,28 @@ final readonly class ContainerSpec
          */
         public array $command = [],
         /**
+         * Overrides the image ENTRYPOINT. The PITR drill needs this: the official PostgreSQL image
+         * entrypoint assumes it is initialising or starting a cluster it owns, whereas a recovery
+         * drill has to fix up ownership on a data directory that arrived from somewhere else before
+         * handing over to that entrypoint. An empty list leaves the image's own ENTRYPOINT alone.
+         *
+         * @var list<string>
+         */
+        public array $entrypoint = [],
+        /**
          * tmpfs mount for the database's data directory. A drill database is write-heavy, entirely
          * disposable, and read exactly once — putting it in RAM makes the restore markedly faster and,
          * more importantly, means a container that escapes teardown leaves nothing on disk to reclaim.
          */
         public ?string $tmpfsPath = null,
         public int $tmpfsSizeBytes = 1073741824,
+        /**
+         * Size of the container's /dev/shm. PostgreSQL allocates parallel-query DSM segments there
+         * (`dynamic_shared_memory_type = posix`), so a cluster restored from a production base
+         * inherits that setting and can outgrow Docker's 64 MiB default. Left at the default here
+         * to match the production database container, which runs with exactly that and is the
+         * standing proof the value is adequate for this workload.
+         */
+        public int $shmSizeBytes = 67108864,
     ) {}
 }

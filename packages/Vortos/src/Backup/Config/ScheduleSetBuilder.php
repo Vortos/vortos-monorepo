@@ -31,9 +31,26 @@ final class ScheduleSetBuilder
         return $this->add($cron, BackupScheduleType::Retention, BackupKind::LogicalFull, $name);
     }
 
-    public function drill(string $cron, ?string $name = null): self
-    {
-        return $this->add($cron, BackupScheduleType::Drill, BackupKind::LogicalFull, $name);
+    /**
+     * @param string|BackupKind $kind which RESTORE PATH this drill proves.
+     *
+     * `logical_full` restores a dump — fast, standalone, and it needs no WAL at all.
+     * `physical_base` restores a base backup and replays archived WAL on top of it, which is the
+     * only drill that exercises the point-in-time chain.
+     *
+     * It matters that this is declared rather than inferred. Left to choose for itself the runner
+     * takes the newest restorable artifact, and since logical dumps are taken far more often than
+     * base backups, an installation running both would drill the dump every single time and never
+     * once prove that WAL is replayable — while reporting a green restore drill throughout.
+     */
+    public function drill(
+        string $cron,
+        ?string $name = null,
+        string|BackupKind $kind = BackupKind::LogicalFull,
+    ): self {
+        $resolved = $kind instanceof BackupKind ? $kind : BackupKind::from($kind);
+
+        return $this->add($cron, BackupScheduleType::Drill, $resolved, $name);
     }
 
     /**

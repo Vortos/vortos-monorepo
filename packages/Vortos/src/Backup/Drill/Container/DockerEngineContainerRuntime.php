@@ -63,7 +63,7 @@ final class DockerEngineContainerRuntime implements ContainerRuntimeInterface
         }
     }
 
-    public function run(ContainerSpec $spec): ContainerHandle
+    public function create(ContainerSpec $spec): ContainerHandle
     {
         $config = [
             'Image' => $spec->image,
@@ -74,7 +74,9 @@ final class DockerEngineContainerRuntime implements ContainerRuntimeInterface
             ),
             'Labels' => $spec->labels,
             'Cmd' => $spec->command !== [] ? $spec->command : null,
+            'Entrypoint' => $spec->entrypoint !== [] ? $spec->entrypoint : null,
             'HostConfig' => [
+                'ShmSize' => $spec->shmSizeBytes,
                 // Disposable by construction: never restart, and take the anonymous volumes with it.
                 'RestartPolicy' => ['Name' => 'no'],
                 'AutoRemove' => false, // we remove explicitly, so teardown failures stay visible
@@ -107,15 +109,181 @@ final class DockerEngineContainerRuntime implements ContainerRuntimeInterface
             throw new RuntimeException('Docker did not return a container id: ' . $body);
         }
 
-        [$startStatus, $startBody] = $this->request('POST', '/containers/' . $id . '/start');
-        if ($startStatus >= 400) {
-            // Don't leak the container we just created because it failed to start.
-            $this->remove(new ContainerHandle($id, $spec->name, $spec->name));
+        return new ContainerHandle($id, $spec->name, $spec->name);
+    }
 
-            throw new RuntimeException(sprintf('Cannot start drill container (HTTP %d): %s', $startStatus, $startBody));
+    public function run(ContainerSpec $spec): ContainerHandle
+    {
+        $handle = $this->create($spec);
+
+        try {
+            $this->start($handle);
+        } catch (RuntimeException $e) {
+            // Don't leak the container we just created because it failed to start.
+            $this->remove($handle);
+
+            throw $e;
         }
 
-        return new ContainerHandle($id, $spec->name, $spec->name);
+        return $handle;
+    }
+
+    public function start(ContainerHandle $handle): void
+    {
+        [$status, $body] = $this->request('POST', '/containers/' . $handle->id . '/start');
+
+        // 304 is "already started", which is success for an idempotent caller.
+        if ($status >= 400) {
+            throw new RuntimeException(sprintf('Cannot start drill container (HTTP %d): %s', $status, $body));
+        }
+    }
+
+    public function putArchive(ContainerHandle $handle, string $path, iterable $tarChunks): void
+    {
+        [$status, $body] = $this->upload(
+            '/' . $this->apiVersion() . '/containers/' . $handle->id . '/archive?path=' . rawurlencode($path),
+            $tarChunks,
+        );
+
+        if ($status >= 400) {
+            throw new RuntimeException(sprintf(
+                'Cannot upload archive to %s in drill container %s (HTTP %d): %s',
+                $path,
+                $handle->name,
+                $status,
+                $body,
+            ));
+        }
+    }
+
+    public function logsSince(ContainerHandle $handle, int $sinceUnixSeconds): string
+    {
+        [$status, $body] = $this->rawRequest(
+            'GET',
+            sprintf(
+                '/%s/containers/%s/logs?stdout=1&stderr=1&since=%d',
+                $this->apiVersion(),
+                $handle->id,
+                max(0, $sinceUnixSeconds),
+            ),
+        );
+
+        if ($status >= 400) {
+            // Reading logs is a poll on a hot loop; a transient failure must not abort a recovery
+            // that is otherwise progressing. An empty read simply means "no request seen yet", and
+            // the caller's own timeout is what turns a persistently unreadable stream into an error.
+            return '';
+        }
+
+        return $this->demultiplex($body);
+    }
+
+    /**
+     * Strip Docker's stream framing.
+     *
+     * A container started without a TTY has its output multiplexed: each frame is an 8-byte header
+     * — stream type, three reserved zero bytes, then a big-endian uint32 length — followed by that
+     * many payload bytes. Left in place those headers interleave binary bytes with the text being
+     * searched, and a naive strip (deleting control characters, say) can corrupt the payload of the
+     * very line being looked for. A container started WITH a TTY emits raw bytes and no headers, so
+     * this validates the framing before trusting it and passes the body through unchanged otherwise.
+     */
+    private function demultiplex(string $body): string
+    {
+        $out = '';
+        $offset = 0;
+        $length = \strlen($body);
+
+        while ($offset + 8 <= $length) {
+            $streamType = \ord($body[$offset]);
+            // A valid header has a stream type of 0/1/2 and three zero bytes after it. Anything
+            // else means this is not framed output, so the whole body is returned untouched rather
+            // than being sliced at an offset that means nothing.
+            if ($streamType > 2 || $body[$offset + 1] !== "\0" || $body[$offset + 2] !== "\0" || $body[$offset + 3] !== "\0") {
+                return $body;
+            }
+
+            /** @var array{1: int} $unpacked */
+            $unpacked = unpack('N', substr($body, $offset + 4, 4)) ?: [1 => 0];
+            $frameLength = $unpacked[1];
+            $offset += 8;
+            $out .= substr($body, $offset, $frameLength);
+            $offset += $frameLength;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Stream a request body of unknown length.
+     *
+     * Chunked transfer encoding rather than a buffered body with a Content-Length, because the
+     * largest payload is a decrypted base backup: its plaintext size is not known until the last
+     * byte has been decrypted, and buffering it to find out would put a full copy of the production
+     * database in memory (or on disk) purely to fill in a header. Verified against the production
+     * socket-proxy before this was built — a 40 MiB chunked upload arrives byte-exact.
+     *
+     * @param iterable<string> $chunks
+     *
+     * @return array{0: int, 1: string} [status, body]
+     */
+    private function upload(string $path, iterable $chunks): array
+    {
+        $url = rtrim($this->httpEndpoint(), '/') . $path;
+
+        $ch = curl_init($url);
+        if ($ch === false) {
+            throw new RuntimeException('Cannot initialise HTTP client for the Docker Engine API.');
+        }
+
+        $iterator = (static function () use ($chunks): \Generator {
+            yield from $chunks;
+        })();
+
+        $buffer = '';
+        $done = false;
+
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+        curl_setopt($ch, CURLOPT_UPLOAD, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        // No CURLOPT_TIMEOUT here, deliberately, unlike every other call in this class. This one
+        // uploads a whole base backup; a fixed timeout would cap the size of database the drill can
+        // restore, and it would do so by failing a recovery that was progressing normally.
+        // CURLOPT_LOW_SPEED_* bounds it by STALL instead, which is the property actually wanted.
+        curl_setopt($ch, CURLOPT_LOW_SPEED_LIMIT, 1);
+        curl_setopt($ch, CURLOPT_LOW_SPEED_TIME, $this->timeoutSeconds);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/x-tar',
+            'Transfer-Encoding: chunked',
+            // libcurl otherwise negotiates a 100-continue for streamed uploads and waits out its
+            // own timeout when the proxy in front of the daemon does not answer with one.
+            'Expect:',
+        ]);
+        curl_setopt($ch, CURLOPT_READFUNCTION, static function ($handle, $stream, int $wanted) use (&$buffer, &$done, $iterator): string {
+            while (\strlen($buffer) < $wanted && !$done) {
+                if (!$iterator->valid()) {
+                    $done = true;
+                    break;
+                }
+                $buffer .= $iterator->current();
+                $iterator->next();
+            }
+
+            $piece = substr($buffer, 0, $wanted);
+            $buffer = substr($buffer, $wanted);
+
+            return $piece;
+        });
+
+        $body = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+
+        if ($body === false) {
+            throw new RuntimeException(sprintf('Docker Engine API upload failed (PUT %s): %s', $path, $error));
+        }
+
+        return [$status, (string) $body];
     }
 
     public function remove(ContainerHandle $handle): void

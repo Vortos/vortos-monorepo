@@ -22,6 +22,42 @@ interface ContainerRuntimeInterface
     public function run(ContainerSpec $spec): ContainerHandle;
 
     /**
+     * Create a container WITHOUT starting it.
+     *
+     * The point-in-time drill cannot use {@see run()}: PostgreSQL has to find its data directory
+     * already populated at the instant it boots, so the base backup and the recovery configuration
+     * must be written into a container that exists but is not yet running. Splitting create from
+     * start is what makes that ordering expressible.
+     */
+    public function create(ContainerSpec $spec): ContainerHandle;
+
+    /** Start a container created by {@see create()}. */
+    public function start(ContainerHandle $handle): void;
+
+    /**
+     * Extract a tar stream into $path inside the container — the Engine API's equivalent of
+     * `docker cp`, and the only way to place bytes inside a container without a bind mount, a
+     * shared volume, or a shell in the image.
+     *
+     * Chunks are streamed with chunked transfer encoding rather than buffered, because the largest
+     * thing this carries is a multi-hundred-megabyte base backup whose decrypted length is not
+     * known until the last byte has been read.
+     *
+     * @param iterable<string> $tarChunks a well-formed tar archive, in order
+     */
+    public function putArchive(ContainerHandle $handle, string $path, iterable $tarChunks): void;
+
+    /**
+     * Container output produced at or after $sinceUnixSeconds, demultiplexed to plain text.
+     *
+     * The PITR drill reads this as a REQUEST CHANNEL, not for diagnostics: the `restore_command`
+     * running inside a PHP-less PostgreSQL image announces the WAL segment it needs on stderr, and
+     * this is how the drill hears it. That makes this method load-bearing rather than incidental,
+     * and it is why the frame headers must be stripped properly instead of approximately.
+     */
+    public function logsSince(ContainerHandle $handle, int $sinceUnixSeconds): string;
+
+    /**
      * Stop and remove a container along with its anonymous volumes. MUST be idempotent and MUST NOT
      * throw when the container is already gone — teardown runs in a `finally` and must never mask the
      * drill's own outcome.

@@ -6,6 +6,7 @@ namespace Vortos\Backup\Drill;
 
 use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
+use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 
 final class DbalDrillReportStore implements DrillReportStoreInterface
@@ -24,6 +25,7 @@ final class DbalDrillReportStore implements DrillReportStoreInterface
             'artifact_id' => $report->artifactId,
             'started_at' => $report->startedAt->format(DATE_ATOM),
             'rto_ms' => $report->rtoMs,
+            'kind' => $report->kind?->value,
             'outcome' => $report->outcome,
             'invariants' => json_encode(
                 array_map(static fn (InvariantResult $r): array => $r->toArray(), $report->invariants),
@@ -47,10 +49,14 @@ final class DbalDrillReportStore implements DrillReportStoreInterface
             ->executeQuery()
             ->fetchAssociative();
 
-        if ($row === false) {
-            return null;
-        }
+        return $row === false ? null : $this->hydrate($row);
+    }
 
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function hydrate(array $row): DrillReport
+    {
         /** @var list<array{name:string, passed:bool, detail:string}> $invariants */
         $invariants = json_decode((string) $row['invariants'], true) ?: [];
 
@@ -69,6 +75,28 @@ final class DbalDrillReportStore implements DrillReportStoreInterface
                 $invariants,
             ),
             isset($row['error']) && $row['error'] !== '' ? (string) $row['error'] : null,
+            // Reports written before the column existed carry no kind; BackupKind::tryFrom keeps
+            // that a null rather than an exception on a historical row.
+            isset($row['kind']) && \is_string($row['kind']) ? BackupKind::tryFrom($row['kind']) : null,
         );
+    }
+
+    public function latestOfKind(string $engine, string $environment, BackupKind $kind): ?DrillReport
+    {
+        $row = $this->connection->createQueryBuilder()
+            ->select('*')
+            ->from($this->table)
+            ->where('engine = :engine')
+            ->andWhere('environment = :env')
+            ->andWhere('kind = :kind')
+            ->setParameter('engine', $engine)
+            ->setParameter('env', $environment)
+            ->setParameter('kind', $kind->value)
+            ->orderBy('started_at', 'DESC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchAssociative();
+
+        return $row === false ? null : $this->hydrate($row);
     }
 }

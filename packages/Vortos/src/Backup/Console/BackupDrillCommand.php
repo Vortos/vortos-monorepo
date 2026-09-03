@@ -28,6 +28,8 @@ final class BackupDrillCommand extends Command
      */
     public const OPTION_PITR = 'pitr';
 
+    public const OPTION_KIND = 'kind';
+
 
     public function __construct(private readonly ?DrillRunner $runner)
     {
@@ -49,6 +51,18 @@ final class BackupDrillCommand extends Command
                 InputOption::VALUE_NONE,
                 'Drill the point-in-time path: restore the newest physical base backup and replay '
                 . 'archived WAL on top of it to the end of the archive',
+            )
+            // The general form of --pitr, and the reason it exists: without it there is no way to
+            // ask for the LOGICAL path either. Unqualified, the runner takes the newest restorable
+            // artifact — which, once base backups are drillable, is whichever kind happens to be
+            // newer. That is fine for an ad-hoc "prove something restores", and useless for
+            // reproducing what a specific schedule does.
+            ->addOption(
+                self::OPTION_KIND,
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Restrict the drill to one artifact kind: logical_full|physical_base (default: the '
+                . 'newest restorable artifact of any kind)',
             );
     }
 
@@ -64,14 +78,38 @@ final class BackupDrillCommand extends Command
         $engine = DatabaseEngine::fromString((string) $input->getOption('engine'));
         $env = (string) $input->getOption('env');
         $shallow = (bool) $input->getOption('shallow');
-        $onlyKind = (bool) $input->getOption(self::OPTION_PITR) ? BackupKind::PhysicalBase : null;
+        $pitr = (bool) $input->getOption(self::OPTION_PITR);
+        $kindOption = $input->getOption(self::OPTION_KIND);
+
+        if ($pitr && \is_string($kindOption) && $kindOption !== BackupKind::PhysicalBase->value) {
+            $output->writeln(sprintf(
+                '<error>--pitr and --kind=%s contradict each other: --pitr IS --kind=%s.</error>',
+                $kindOption,
+                BackupKind::PhysicalBase->value,
+            ));
+
+            return self::FAILURE;
+        }
+
+        $onlyKind = match (true) {
+            $pitr => BackupKind::PhysicalBase,
+            \is_string($kindOption) && $kindOption !== '' => BackupKind::tryFrom($kindOption),
+            default => null,
+        };
+
+        if (\is_string($kindOption) && $kindOption !== '' && $onlyKind === null) {
+            $output->writeln(sprintf('<error>Unknown backup kind "%s".</error>', $kindOption));
+
+            return self::FAILURE;
+        }
 
         if ($onlyKind !== null && $shallow) {
             // A shallow drill decrypts the artifact and discards it. Combined with --pitr it would
             // decrypt a base backup, replay nothing, and report a pass — the precise shape of a
             // drill that proves nothing while looking like the strongest one available.
-            $output->writeln('<error>--pitr and --shallow are mutually exclusive: a shallow drill '
-                . 'never replays WAL, so it cannot verify point-in-time recovery.</error>');
+            $output->writeln('<error>--pitr/--kind and --shallow are mutually exclusive: a shallow '
+                . 'drill decrypts an artifact and discards it, so it can neither replay WAL nor '
+                . 'prove anything about a particular restore path.</error>');
 
             return self::FAILURE;
         }

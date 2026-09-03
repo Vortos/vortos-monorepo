@@ -30,7 +30,7 @@ final class Dedupe
         // Never seen, or quiet for long enough that this is a genuinely new episode rather than a
         // continuation — announce it.
         if ($previous === null || $this->windowExpired($previous, $window, $now)) {
-            return new DedupeOutcome(DedupeDecision::New, AlertState::firstSeen($fingerprint, $now));
+            return new DedupeOutcome(DedupeDecision::New, AlertState::firstSeen($fingerprint, $now, $event->ruleId));
         }
 
         $next = $previous->withOccurrence($now);

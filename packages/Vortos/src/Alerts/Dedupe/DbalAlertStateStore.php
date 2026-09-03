@@ -48,6 +48,27 @@ final class DbalAlertStateStore implements AlertStateStoreInterface
         return array_map(fn (array $row): AlertState => $this->fromRow($row), $rows);
     }
 
+    public function hasActiveRuleSince(string $ruleId, \DateTimeImmutable $threshold): bool
+    {
+        // Any open alert for this rule, seen at or after the threshold, means the rule is firing
+        // right now. Indexed on rule_id (see the state_rule_id migration) so this stays a lookup,
+        // not a scan, on every dispatch. `>=` not `>`: a source that fired at exactly the threshold
+        // is active — the boundary belongs to "still firing", the inhibiting side.
+        $found = $this->connection->fetchOne(
+            sprintf(
+                'SELECT 1 FROM %s WHERE rule_id = :ruleId AND status = :status AND last_seen_at >= :threshold LIMIT 1',
+                $this->table,
+            ),
+            [
+                'ruleId' => $ruleId,
+                'status' => AlertStateStatus::Open->value,
+                'threshold' => $threshold->format(DateTimeImmutable::ATOM),
+            ],
+        );
+
+        return $found !== false;
+    }
+
     public function save(AlertState $state): void
     {
         $this->connection->transactional(function (Connection $conn) use ($state): void {
@@ -88,6 +109,8 @@ final class DbalAlertStateStore implements AlertStateStoreInterface
             // back to full volume — which on a blue/green deploy is several times a day.
             'last_notified_at' => $state->lastNotifiedAt?->format(DateTimeImmutable::ATOM),
             'reminder_count' => $state->reminderCount,
+            // The rule this state belongs to — what inhibition's "is the source firing?" lookup keys on.
+            'rule_id' => $state->ruleId,
         ];
     }
 
@@ -105,6 +128,7 @@ final class DbalAlertStateStore implements AlertStateStoreInterface
             flapEscalatedAt: $row['flap_escalated_at'] !== null ? new DateTimeImmutable((string) $row['flap_escalated_at']) : null,
             lastNotifiedAt: isset($row['last_notified_at']) ? new DateTimeImmutable((string) $row['last_notified_at']) : null,
             reminderCount: (int) ($row['reminder_count'] ?? 0),
+            ruleId: isset($row['rule_id']) ? (string) $row['rule_id'] : null,
         );
     }
 }

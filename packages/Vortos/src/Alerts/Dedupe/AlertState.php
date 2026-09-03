@@ -39,12 +39,18 @@ final readonly class AlertState
          * actually told — the only thing that should govern how loud we keep being.
          */
         public int $reminderCount = 0,
+        /**
+         * The rule this state belongs to, carried so inhibition can ask "is this source rule firing
+         * anywhere right now?" without reversing the fingerprint hash. Nullable for rows written
+         * before the column existed; every transition preserves it once set.
+         */
+        public ?string $ruleId = null,
     ) {}
 
-    public static function firstSeen(string $fingerprint, DateTimeImmutable $now): self
+    public static function firstSeen(string $fingerprint, DateTimeImmutable $now, ?string $ruleId = null): self
     {
         // A first sighting is always notified, so the backoff clock starts here.
-        return new self($fingerprint, AlertStateStatus::Open, $now, $now, 1, lastNotifiedAt: $now);
+        return new self($fingerprint, AlertStateStatus::Open, $now, $now, 1, lastNotifiedAt: $now, ruleId: $ruleId);
     }
 
     public function withOccurrence(DateTimeImmutable $now): self
@@ -60,6 +66,7 @@ final readonly class AlertState
             $this->flapEscalatedAt,
             $this->lastNotifiedAt,
             $this->reminderCount,
+            $this->ruleId,
         );
     }
 
@@ -77,6 +84,7 @@ final readonly class AlertState
             $this->flapEscalatedAt,
             $now,
             $this->reminderCount + 1,
+            $this->ruleId,
         );
     }
 
@@ -93,6 +101,7 @@ final readonly class AlertState
             $this->flapEscalatedAt,
             $this->lastNotifiedAt,
             $this->reminderCount,
+            $this->ruleId,
         );
     }
 
@@ -110,6 +119,7 @@ final readonly class AlertState
             $flap['flapEscalatedAt'],
             $this->lastNotifiedAt,
             $this->reminderCount,
+            $this->ruleId,
         );
     }
 }

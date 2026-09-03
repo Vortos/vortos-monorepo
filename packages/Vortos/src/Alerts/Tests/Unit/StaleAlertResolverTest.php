@@ -73,6 +73,8 @@ final class StaleAlertResolverTest extends TestCase
             {
                 throw new \RuntimeException('state store unavailable');
             }
+
+            public function hasActiveRuleSince(string $ruleId, DateTimeImmutable $threshold): bool { return false; }
         };
 
         $closed = (new StaleAlertResolver($store))->resolveStale(new DateTimeImmutable(self::NOW));

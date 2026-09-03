@@ -25,6 +25,20 @@ final class InMemoryAlertStateStore implements AlertStateStoreInterface
         ));
     }
 
+    public function hasActiveRuleSince(string $ruleId, \DateTimeImmutable $threshold): bool
+    {
+        foreach ($this->states as $s) {
+            if ($s->ruleId === $ruleId
+                && $s->status === AlertStateStatus::Open
+                && $s->lastSeenAt >= $threshold
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function save(AlertState $state): void
     {
         $this->states[$state->fingerprint] = $state;

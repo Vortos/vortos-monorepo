@@ -15,7 +15,9 @@ final class Inhibitor
 {
     /**
      * @param list<InhibitionRule> $rules
-     * @param callable(string $ruleId): bool $isSourceActive
+     * @param callable(string $ruleId, int $windowSeconds): bool $isSourceActive whether the source
+     *        rule has fired within the last $windowSeconds — the window is the rule's own, so the
+     *        caller checks activity against exactly the horizon each inhibition declares.
      */
     public function shouldSuppress(array $rules, string $candidateRuleId, callable $isSourceActive, DateTimeImmutable $now): bool
     {
@@ -23,7 +25,7 @@ final class Inhibitor
             if ($rule->suppressedRuleId !== $candidateRuleId) {
                 continue;
             }
-            if ($isSourceActive($rule->sourceRuleId)) {
+            if ($isSourceActive($rule->sourceRuleId, $rule->windowSeconds)) {
                 return true;
             }
         }

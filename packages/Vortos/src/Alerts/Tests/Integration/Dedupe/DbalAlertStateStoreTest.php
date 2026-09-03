@@ -31,7 +31,8 @@ final class DbalAlertStateStoreTest extends TestCase
                 flap_window_start_at VARCHAR(32),
                 flap_escalated_at VARCHAR(32),
                 last_notified_at VARCHAR(32),
-                reminder_count INTEGER NOT NULL DEFAULT 0
+                reminder_count INTEGER NOT NULL DEFAULT 0,
+                rule_id VARCHAR(191)
             )',
         );
         $this->store = new DbalAlertStateStore($this->connection, 'alerts_state');

@@ -35,10 +35,13 @@ use Vortos\Alerts\Console\SilenceCommand;
 use Vortos\Alerts\Console\SupervisorEventListenerCommand;
 use Vortos\Alerts\Console\TestAlertCommand;
 use Vortos\Alerts\Console\ValidateRulesCommand;
+use Vortos\Alerts\Dedupe\AlertInhibitionSet;
 use Vortos\Alerts\Dedupe\AlertStateStoreInterface;
 use Vortos\Alerts\Dedupe\Dedupe;
 use Vortos\Alerts\Dedupe\DbalAlertStateStore;
 use Vortos\Alerts\Dedupe\DedupeWindow;
+use Vortos\Alerts\Dedupe\Inhibitor;
+use Vortos\Alerts\Dedupe\InhibitionRuleSetFactory;
 use Vortos\Alerts\Dedupe\ReminderBackoff;
 use Vortos\Alerts\Dedupe\InMemoryAlertStateStore;
 use Vortos\Alerts\Escalation\AckStoreInterface;
@@ -297,6 +300,19 @@ final class AlertsExtension extends Extension
             ->setArguments(['%kernel.project_dir%'])
             ->setPublic(true);
 
+        // Root-cause suppression rules, declared in config/alert_inhibitions.php and assembled by
+        // the factory — parallel to the alert rules above. Absent file → empty set → nothing is ever
+        // suppressed, so this is inert until the app declares an inhibition on purpose.
+        $container->register(InhibitionRuleSetFactory::class, InhibitionRuleSetFactory::class)
+            ->setPublic(false);
+
+        $container->register(AlertInhibitionSet::class, AlertInhibitionSet::class)
+            ->setFactory([new Reference(InhibitionRuleSetFactory::class), '__invoke'])
+            ->setArguments(['%kernel.project_dir%'])
+            ->setPublic(true);
+
+        $container->register(Inhibitor::class, Inhibitor::class)->setPublic(false);
+
         $container->register(AlertRuleValidator::class, AlertRuleValidator::class)->setPublic(false);
         $container->register(AlertRuleEvaluator::class, AlertRuleEvaluator::class)->setPublic(false);
     }
@@ -420,6 +436,8 @@ final class AlertsExtension extends Extension
             ->setArgument('$notifiers', new Reference(NotifierRegistry::class))
             ->setArgument('$rateLimiter', new Reference(OutboundRateLimiterInterface::class))
             ->setArgument('$auditRecorder', new Reference(AlertAuditRecorderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$inhibitor', new Reference(Inhibitor::class))
+            ->setArgument('$inhibitions', new Reference(AlertInhibitionSet::class))
             ->setPublic(false);
 
         $container->setAlias(AlertDispatcherInterface::class, AlertDispatcher::class)->setPublic(false);

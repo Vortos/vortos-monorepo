@@ -29,4 +29,14 @@ interface AlertStateStoreInterface
      * @return list<AlertState>
      */
     public function openSince(\DateTimeImmutable $threshold): array;
+
+    /**
+     * Whether any OPEN alert for $ruleId has been seen at or after $threshold — i.e. the rule is
+     * firing right now, within the caller's window.
+     *
+     * This is what inhibition asks before suppressing a dependent alert: "is the root cause
+     * (host-down) currently active?" State is keyed by fingerprint, so the same rule firing for
+     * several hosts is several rows; this is the rule-level rollup a fingerprint lookup cannot give.
+     */
+    public function hasActiveRuleSince(string $ruleId, \DateTimeImmutable $threshold): bool;
 }

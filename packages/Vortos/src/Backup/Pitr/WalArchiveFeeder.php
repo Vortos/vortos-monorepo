@@ -6,6 +6,8 @@ namespace Vortos\Backup\Pitr;
 
 use RuntimeException;
 use Throwable;
+use Vortos\Backup\Catalog\WalVolumeReadModelInterface;
+use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Drill\Container\ContainerHandle;
 use Vortos\Backup\Drill\Container\ContainerRuntimeInterface;
 use Vortos\Backup\Drill\Container\TarStream;
@@ -80,6 +82,23 @@ final class WalArchiveFeeder
          * reports on the weather.
          */
         private readonly int $fetchAttempts = 4,
+        /**
+         * The catalog's view of how far the archive extends — the authority on where WAL ends.
+         *
+         * Needed because the object store cannot answer that question on every provider. R2 returns
+         * `403 Forbidden` rather than `404 Not Found` for an object that does not exist when the
+         * token lacks `s3:ListBucket`, which is the normal least-privilege shape. Verified against
+         * production: a segment that was never archived and one the credentials cannot read produce
+         * byte-identical errors.
+         *
+         * That ambiguity has to be resolved somewhere, and resolving it in favour of "absent" would
+         * be the worst possible guess — a broken credential read as the end of the log ends recovery
+         * early and reports a clean point-in-time restore to the wrong instant. So it is resolved
+         * against the catalog instead, which is this system's own record of what it successfully
+         * shipped. Beyond the newest archived segment is genuinely past the end; at or below it, an
+         * error is an error.
+         */
+        private readonly ?WalVolumeReadModelInterface $walCatalog = null,
         /** Where segments are decrypted before upload; one segment at a time, removed immediately. */
         private readonly ?string $scratchDir = null,
     ) {}
@@ -322,6 +341,16 @@ final class WalArchiveFeeder
                 @unlink($path);
                 $lastError = $e;
 
+                // Checked before the first retry, not after the last: on a store that cannot report
+                // a missing object as such, EVERY recovery ends on this path, and burning the full
+                // backoff ladder would add several seconds to the end of every drill for an outcome
+                // that was never in doubt.
+                if ($this->isBeyondArchiveHead($segment)) {
+                    $this->markAbsent($handle, $segment);
+
+                    return false;
+                }
+
                 if ($attempt < $this->fetchAttempts) {
                     // Exponential backoff. The failure this exists for is throughput-related, so
                     // backing off is the response most likely to succeed as well as the politest.
@@ -374,6 +403,39 @@ final class WalArchiveFeeder
         }
 
         return true;
+    }
+
+    /**
+     * Is this segment past the newest segment the archive actually holds?
+     *
+     * The single-row question, asked of the catalog rather than by listing the WAL slice — that set
+     * is unbounded, and hydrating it is what once exhausted the worker's memory limit and left
+     * retention dead for days.
+     *
+     * Names are compared as fixed-width uppercase hex, which is why a plain string comparison is
+     * correct here: a WAL name is exactly 24 hex characters and is monotonic within a timeline, so
+     * lexical and numeric order agree.
+     *
+     * Answers false when there is no catalog to ask. Without one there is no evidence the segment is
+     * past the end, and the safe reading of an unexplained store error is that it is an error.
+     */
+    private function isBeyondArchiveHead(string $segment): bool
+    {
+        if ($this->walCatalog === null || !$this->isWalSegmentName($segment)) {
+            return false;
+        }
+
+        try {
+            $newest = $this->walCatalog->newestWalSegmentName(DatabaseEngine::Postgres, $this->environment);
+        } catch (Throwable) {
+            return false;
+        }
+
+        if ($newest === null) {
+            return false;
+        }
+
+        return strtoupper($segment) > strtoupper($newest);
     }
 
     private function markAbsent(ContainerHandle $handle, string $segment): void

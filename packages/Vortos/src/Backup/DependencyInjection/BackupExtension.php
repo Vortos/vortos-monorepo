@@ -536,6 +536,11 @@ final class BackupExtension extends Extension
                 ->setArgument('$fetcher', new Reference(PostgresWalFetcher::class))
                 ->setArgument('$maxSegments', $drillPitrMaxSegments)
                 ->setArgument('$timeoutSeconds', $drillPitrTimeout)
+                // The authority on where the archive ends. R2 answers a missing object with 403
+                // rather than 404 under a least-privilege token, so the store alone cannot tell
+                // "past the end of the log" from "cannot read" — and guessing "past the end" would
+                // end a recovery early and call it a success.
+                ->setArgument('$walCatalog', new Reference(\Vortos\Backup\Catalog\WalVolumeReadModelInterface::class))
                 ->setPublic(false);
 
             $container->register(PostgresPitrRestoreTarget::class, PostgresPitrRestoreTarget::class)

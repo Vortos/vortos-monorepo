@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Backup\Pitr;
 
+use Vortos\Backup\Catalog\WalVolumeReadModelInterface;
 use Vortos\Backup\Config\BackupConfigLoader;
 use Vortos\Backup\Drill\Container\ContainerRuntimeInterface;
 
@@ -33,13 +34,15 @@ final class WalArchiveFeederFactory
         PostgresWalFetcher $fetcher,
         int $maxSegments,
         int $timeoutSeconds,
+        ?WalVolumeReadModelInterface $walCatalog = null,
     ): WalArchiveFeeder {
         return new WalArchiveFeeder(
-            $runtime,
-            $fetcher,
-            $this->loader->environment(),
-            $maxSegments,
-            $timeoutSeconds,
+            runtime: $runtime,
+            fetcher: $fetcher,
+            environment: $this->loader->environment(),
+            maxSegments: $maxSegments,
+            timeoutSeconds: $timeoutSeconds,
+            walCatalog: $walCatalog,
         );
     }
 }

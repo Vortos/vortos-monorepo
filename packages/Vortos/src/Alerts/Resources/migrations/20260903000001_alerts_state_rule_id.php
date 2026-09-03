@@ -47,10 +47,12 @@ return new class extends AbstractModuleSchemaProvider {
             $table->addColumn('rule_id', 'string', ['length' => 191, 'notnull' => false]);
         }
 
-        // The inhibition lookup is (rule_id, status, last_seen_at); index the leading column so
-        // "is this rule active" does not scan the table on every dispatch.
-        if (!$table->hasIndex($this->t('alerts_state') . '_rule_id_idx')) {
-            $table->addIndex(['rule_id'], $this->t('alerts_state') . '_rule_id_idx');
-        }
+        // Deliberately NO index on rule_id. alerts_state holds one row per currently-firing
+        // fingerprint — a set bounded by the number of distinct live alerts, which is dozens, not
+        // millions — so the inhibition lookup is a scan of a handful of rows, already trivial. An
+        // index here would buy nothing measurable and, being a CREATE INDEX, would take an exclusive
+        // lock (the migrate:analyze lock-safety gate rejects the non-concurrent form). If this table
+        // ever grew unexpectedly, a CONCURRENTLY-built index in its own non-transactional migration
+        // is the answer — not folding it into this additive column change.
     }
 };

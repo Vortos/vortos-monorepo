@@ -51,9 +51,9 @@ final class DbalAlertStateStore implements AlertStateStoreInterface
     public function hasActiveRuleSince(string $ruleId, \DateTimeImmutable $threshold): bool
     {
         // Any open alert for this rule, seen at or after the threshold, means the rule is firing
-        // right now. Indexed on rule_id (see the state_rule_id migration) so this stays a lookup,
-        // not a scan, on every dispatch. `>=` not `>`: a source that fired at exactly the threshold
-        // is active — the boundary belongs to "still firing", the inhibiting side.
+        // right now. No index is needed: alerts_state holds a row per live fingerprint (dozens, not
+        // millions), so this is a scan of a handful of rows. `>=` not `>`: a source that fired at
+        // exactly the threshold is active — the boundary belongs to "still firing", the inhibiting side.
         $found = $this->connection->fetchOne(
             sprintf(
                 'SELECT 1 FROM %s WHERE rule_id = :ruleId AND status = :status AND last_seen_at >= :threshold LIMIT 1',

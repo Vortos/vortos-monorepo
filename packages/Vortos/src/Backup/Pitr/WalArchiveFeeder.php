@@ -322,9 +322,22 @@ final class WalArchiveFeeder
         $scratch = $this->scratchDir ?? sys_get_temp_dir();
         $path = $scratch . '/' . $segment . '.vortos-feed';
 
+        // A TIMELINE HISTORY FILE IS NOT A WAL SEGMENT, and not having one is the normal state.
+        // PostgreSQL asks for `00000002.history` immediately after it promotes, to find out whether
+        // the timeline it just created has a recorded ancestry; a cluster that has never diverged has
+        // no history files at all. On a store that reports a missing object as 403 this arrived as a
+        // fetch error and failed a drill that had already replayed the entire archive successfully.
+        //
+        // Safe to answer as absent unconditionally, and specifically because recovery is pinned to
+        // `recovery_target_timeline = 'current'`: replay never follows a timeline switch, so a
+        // history file cannot change which log is replayed or where recovery stops. Retrying it
+        // would only add the backoff ladder to the end of every drill.
+        $isSegment = $this->isWalSegmentName($segment);
+        $attempts = $isSegment ? $this->fetchAttempts : 1;
+
         $lastError = null;
 
-        for ($attempt = 1; $attempt <= $this->fetchAttempts; $attempt++) {
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             try {
                 $this->fetcher->fetch($segment, $path, $this->environment);
                 $lastError = null;
@@ -345,13 +358,13 @@ final class WalArchiveFeeder
                 // a missing object as such, EVERY recovery ends on this path, and burning the full
                 // backoff ladder would add several seconds to the end of every drill for an outcome
                 // that was never in doubt.
-                if ($this->isBeyondArchiveHead($segment)) {
+                if (!$isSegment || $this->isBeyondArchiveHead($segment)) {
                     $this->markAbsent($handle, $segment);
 
                     return false;
                 }
 
-                if ($attempt < $this->fetchAttempts) {
+                if ($attempt < $attempts) {
                     // Exponential backoff. The failure this exists for is throughput-related, so
                     // backing off is the response most likely to succeed as well as the politest.
                     usleep(500_000 * (2 ** ($attempt - 1)));
@@ -368,7 +381,7 @@ final class WalArchiveFeeder
             throw new RuntimeException(sprintf(
                 "Failed to serve WAL segment '%s' from the archive after %d attempts: %s",
                 $segment,
-                $this->fetchAttempts,
+                $attempts,
                 $lastError->getMessage(),
             ), 0, $lastError);
         }

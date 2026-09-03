@@ -355,6 +355,42 @@ final class WalArchiveFeederTest extends TestCase
     }
 
     /**
+     * A timeline history file that the store cannot produce is never an error.
+     *
+     * PostgreSQL asks for `00000002.history` the moment it promotes, to learn whether the timeline
+     * it just created has a recorded ancestry — and a cluster that never diverged has none. On a
+     * store that reports a missing object as 403 this arrived as a fetch failure and failed a drill
+     * that had already replayed the entire archive.
+     */
+    public function testAnUnreadableTimelineHistoryFileIsNeverAnError(): void
+    {
+        $runtime = new RecordingContainerRuntime();
+        $runtime->log = ['LOG:  redo starts at 0/3000028', 'VORTOS-WAL-WANT 00000002.history'];
+
+        $store = new InMemoryObjectStore();
+        $store->failOpenTimes = 99;
+
+        $fetcher = new PostgresWalFetcher(
+            new BackupStoreRegistry(new ServiceLocator(['s' => fn () => new ObjectStoreBackupStore($store)])),
+            ['s'],
+            'backups',
+        );
+
+        $feeder = new WalArchiveFeeder(
+            runtime: $runtime, fetcher: $fetcher, environment: 'production', maxSegments: 100,
+            timeoutSeconds: 10, segmentBytes: self::SEGMENT_BYTES, fetchAttempts: 4,
+            walCatalog: $this->walCatalog($this->segmentName(9)), scratchDir: sys_get_temp_dir(),
+        );
+
+        $outcome = $feeder->feed(new ContainerHandle('c', 'c', 'c'), $this->probe($runtime), time() - 1);
+
+        // Absent, but NOT the end of the archive: counting a missing history file as end-of-WAL
+        // would let a recovery that replayed nothing claim it reached the last archived instant.
+        self::assertFalse($outcome->reachedEndOfWal);
+        self::assertSame(0, $outcome->segmentsServed);
+    }
+
+    /**
      * A store that fails once mid-run must not fail the drill.
      *
      * The first production run served ~325 segments and then took a single 403 from R2 on an object

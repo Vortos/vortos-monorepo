@@ -7,6 +7,7 @@ namespace Vortos\PersistenceOrm\Tests;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\TestCase;
+use Symfony\Contracts\Service\ResetInterface;
 use Vortos\PersistenceOrm\Transaction\OrmUnitOfWork;
 
 final class OrmUnitOfWorkTest extends TestCase
@@ -135,5 +136,40 @@ final class OrmUnitOfWorkTest extends TestCase
 
         $this->assertNotNull($caught);
         $this->assertSame('bad input', $caught->getMessage());
+    }
+
+    public function test_closed_em_is_reset_after_a_failure(): void
+    {
+        // The cascade fix: a failure that leaves the EntityManager closed must rebuild it before the
+        // next message runs, so one poison message cannot dead-letter every message behind it.
+        $conn = $this->makeConn();
+        $conn->method('beginTransaction');
+        $conn->method('rollBack');
+
+        $em = $this->createMockForIntersectionOfInterfaces([EntityManagerInterface::class, ResetInterface::class]);
+        $em->method('getConnection')->willReturn($conn);
+        $em->method('isOpen')->willReturn(false); // the failure closed it
+        $em->expects($this->once())->method('reset');
+
+        $this->expectException(\RuntimeException::class);
+        (new OrmUnitOfWork($em))->run(function () { throw new \RuntimeException('flush blew up and closed the EM'); });
+    }
+
+    public function test_open_em_is_not_reset_after_a_failure(): void
+    {
+        // A handler that throws without closing the EM (the common case in the DBAL-transaction
+        // design) must not be reset — clearing a healthy manager on every ordinary failure would be
+        // needless churn.
+        $conn = $this->makeConn();
+        $conn->method('beginTransaction');
+        $conn->method('rollBack');
+
+        $em = $this->createMockForIntersectionOfInterfaces([EntityManagerInterface::class, ResetInterface::class]);
+        $em->method('getConnection')->willReturn($conn);
+        $em->method('isOpen')->willReturn(true); // still healthy
+        $em->expects($this->never())->method('reset');
+
+        $this->expectException(\RuntimeException::class);
+        (new OrmUnitOfWork($em))->run(function () { throw new \RuntimeException('ordinary domain failure'); });
     }
 }

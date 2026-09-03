@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\PersistenceOrm\Transaction;
 
 use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Contracts\Service\ResetInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\Tenant\Session\TenantGucBinderInterface;
 
@@ -21,9 +22,16 @@ use Vortos\Tenant\Session\TenantGucBinderInterface;
  *
  * The injected EntityManagerInterface is ResettableEntityManager, which owns
  * ResetInterface. Between requests, Runner::cleanUp() calls reset() on it —
- * clearing Doctrine's identity map and recreating the inner EntityManager via
- * EntityManager::create() if it was closed. This class does not need its own
- * ResetInterface; all request-boundary cleanup happens in the wrapper.
+ * clearing Doctrine's identity map and rebuilding the inner EntityManager (via
+ * the ORM 3 constructor, on the same DBAL connection) if it was closed.
+ *
+ * That request-boundary reset is not enough on its own for a long-running
+ * consumer, which processes many messages between two boundaries: if one
+ * message closes the EM, every message after it in the same batch would inherit
+ * the closed manager and fail with EntityManagerClosed — one poison message
+ * dead-lettering a whole run. So run() also resets the manager in its own catch
+ * when a failure left it closed, containing the damage to the message that
+ * caused it rather than waiting for the next boundary.
  *
  * ## Connection resilience
  *
@@ -68,6 +76,20 @@ final class OrmUnitOfWork implements UnitOfWorkInterface
             return $result;
         } catch (\Throwable $e) {
             $conn->rollBack();
+
+            // If the failure closed the EntityManager — a flush that hit a constraint or an
+            // optimistic-lock conflict, anything Doctrine treats as unrecoverable — rebuild it
+            // before returning to the caller. In a long-running consumer the SAME manager serves the
+            // next message, and a closed one turns a single poison message into an
+            // EntityManagerClosed cascade that dead-letters every message behind it. reset() reuses
+            // the same DBAL connection, so services holding it directly (the outbox writer) are
+            // untouched; it is a no-op unless the manager is actually closed. The wrapper's
+            // request-boundary reset still runs, this just stops the closure leaking to the very
+            // next message instead of waiting for that boundary.
+            if ($this->em instanceof ResetInterface && !$this->em->isOpen()) {
+                $this->em->reset();
+            }
+
             throw $e;
         }
     }

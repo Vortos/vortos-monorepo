@@ -6,9 +6,6 @@ namespace Vortos\Backup\Tests\Unit\Pitr;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ServiceLocator;
-use DateTimeImmutable;
-use Vortos\Backup\Catalog\WalVolumeReadModelInterface;
-use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Drill\Container\ContainerHandle;
 use Vortos\Backup\Driver\ObjectStore\ObjectStoreBackupStore;
 use Vortos\Backup\Pitr\PostgresWalFetcher;
@@ -29,24 +26,6 @@ final class WalArchiveFeederTest extends TestCase
 {
     private const SEGMENT_BYTES = 4096; // stand-in for 16 MiB; keeps the fixtures small
     private const PREFIX = 'backups/production/postgres/wal/';
-
-    /** A catalog whose archive ends at $newest. */
-    private function walCatalog(?string $newest): WalVolumeReadModelInterface
-    {
-        return new class ($newest) implements WalVolumeReadModelInterface {
-            public function __construct(private readonly ?string $newest) {}
-
-            public function walVolumeSince(DatabaseEngine $e, string $env, DateTimeImmutable $f): array
-            {
-                return ['segments' => 0, 'bytes' => 0];
-            }
-
-            public function newestWalSegmentName(DatabaseEngine $e, string $env): ?string
-            {
-                return $this->newest;
-            }
-        };
-    }
 
     private function segmentName(int $n): string
     {
@@ -288,73 +267,6 @@ final class WalArchiveFeederTest extends TestCase
     }
 
     /**
-     * THE SECOND PRODUCTION FAILURE. R2 answers a missing object with `403 Forbidden` rather than
-     * `404 Not Found` when the token lacks ListBucket, so a store error and the end of the archive
-     * are byte-identical. Both production drills reached the true end of the log and reported a
-     * store failure.
-     *
-     * The catalog resolves it: past the newest segment actually shipped, an unreadable object IS the
-     * end of the archive.
-     */
-    public function testAnUnreadableSegmentPastTheArchiveHeadIsTheEndOfTheArchive(): void
-    {
-        $runtime = new RecordingContainerRuntime();
-        // Asks for segment 5; the archive only ever held up to segment 4.
-        $runtime->log = ['LOG:  redo starts at 0/3000028', 'VORTOS-WAL-WANT ' . $this->segmentName(5)];
-
-        $store = new InMemoryObjectStore();
-        $store->failOpenTimes = 99; // every read 403s, exactly as R2 does for a missing key
-
-        $fetcher = new PostgresWalFetcher(
-            new BackupStoreRegistry(new ServiceLocator(['s' => fn () => new ObjectStoreBackupStore($store)])),
-            ['s'],
-            'backups',
-        );
-
-        $feeder = new WalArchiveFeeder(
-            runtime: $runtime, fetcher: $fetcher, environment: 'production', maxSegments: 100,
-            timeoutSeconds: 10, segmentBytes: self::SEGMENT_BYTES, fetchAttempts: 4,
-            walCatalog: $this->walCatalog($this->segmentName(4)), scratchDir: sys_get_temp_dir(),
-        );
-
-        $outcome = $feeder->feed(new ContainerHandle('c', 'c', 'c'), $this->probe($runtime), time() - 1);
-
-        self::assertTrue($outcome->reachedEndOfWal);
-        self::assertSame(0, $outcome->segmentsServed);
-    }
-
-    /**
-     * The other half, and the one that keeps this honest: an unreadable segment that is WITHIN the
-     * archive is a real failure. Credentials that stopped working must never be read as the end of
-     * the log — that ends recovery early and declares a clean restore to the wrong instant.
-     */
-    public function testAnUnreadableSegmentInsideTheArchiveStillFailsTheDrill(): void
-    {
-        $runtime = new RecordingContainerRuntime();
-        $runtime->log = ['VORTOS-WAL-WANT ' . $this->segmentName(2)];
-
-        $store = new InMemoryObjectStore();
-        $store->objects[self::PREFIX . $this->segmentName(2)] = str_repeat('W', self::SEGMENT_BYTES);
-        $store->failOpenTimes = 99;
-
-        $fetcher = new PostgresWalFetcher(
-            new BackupStoreRegistry(new ServiceLocator(['s' => fn () => new ObjectStoreBackupStore($store)])),
-            ['s'],
-            'backups',
-        );
-
-        $feeder = new WalArchiveFeeder(
-            runtime: $runtime, fetcher: $fetcher, environment: 'production', maxSegments: 100,
-            timeoutSeconds: 10, segmentBytes: self::SEGMENT_BYTES, fetchAttempts: 2,
-            walCatalog: $this->walCatalog($this->segmentName(9)), scratchDir: sys_get_temp_dir(),
-        );
-
-        $this->expectExceptionMessageMatches('/after 2 attempts/');
-
-        $feeder->feed(new ContainerHandle('c', 'c', 'c'), static fn (): ?array => null, time() - 1);
-    }
-
-    /**
      * A timeline history file that the store cannot produce is never an error.
      *
      * PostgreSQL asks for `00000002.history` the moment it promotes, to learn whether the timeline
@@ -379,7 +291,7 @@ final class WalArchiveFeederTest extends TestCase
         $feeder = new WalArchiveFeeder(
             runtime: $runtime, fetcher: $fetcher, environment: 'production', maxSegments: 100,
             timeoutSeconds: 10, segmentBytes: self::SEGMENT_BYTES, fetchAttempts: 4,
-            walCatalog: $this->walCatalog($this->segmentName(9)), scratchDir: sys_get_temp_dir(),
+            scratchDir: sys_get_temp_dir(),
         );
 
         $outcome = $feeder->feed(new ContainerHandle('c', 'c', 'c'), $this->probe($runtime), time() - 1);

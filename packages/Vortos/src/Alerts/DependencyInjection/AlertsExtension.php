@@ -562,6 +562,11 @@ final class AlertsExtension extends Extension
         $container->register(\Vortos\Alerts\Integration\Backup\BackupEventAlertSink::class, \Vortos\Alerts\Integration\Backup\BackupEventAlertSink::class)
             ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
             ->addTag(\Vortos\Backup\DependencyInjection\Compiler\CollectBackupEventSinksPass::TAG)
+            // Failures and warnings reach people; successes reach metrics. Raise it to `info` only
+            // where the chatter is genuinely the only evidence of life.
+            ->setArgument('$minimumSeverity', \Vortos\Alerts\Severity::tryFrom(
+                strtolower((string) ($_ENV['VORTOS_ALERTS_BACKUP_MIN_SEVERITY'] ?? '')),
+            ) ?? \Vortos\Alerts\Severity::Warning)
             ->setPublic(false);
     }
 

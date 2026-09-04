@@ -26,14 +26,38 @@ final class BackupEventAlertSink implements BackupEventSinkInterface
 {
     public function __construct(
         private readonly AlertDispatcherInterface $dispatcher,
+        /**
+         * Floor for what reaches a human. Defaults to Warning, so successes do not.
+         *
+         * A backup lifecycle emits Info on every success — each backup, each retention pass, each
+         * restore drill — and routing those to a chat channel is alert fatigue with nothing bought
+         * for it. "I stopped seeing the success message" is not something people reliably notice,
+         * and it is already covered mechanically and far better by the freshness dead-man, which
+         * pages when a backup STOPS ARRIVING rather than when one fails.
+         *
+         * Successes are not discarded; they are recorded where success belongs — the drill report
+         * table and the backup gauges (backup_last_success_age_seconds,
+         * backup_drill_last_outcome, backup_drill_last_age_seconds). Those are queryable, graphable
+         * and alertable on absence, which a chat message is not.
+         *
+         * Overridable, because an installation with no metrics pipeline may genuinely want the
+         * chatter as its only evidence of life.
+         */
+        private readonly Severity $minimumSeverity = Severity::Warning,
     ) {}
 
     public function emit(BackupEvent $event): void
     {
+        $severity = $this->mapSeverity($event->severity);
+
+        if ($severity->rank() < $this->minimumSeverity->rank()) {
+            return;
+        }
+
         try {
             $this->dispatcher->dispatch(AlertEvent::scrubbed(
                 ruleId: $event->type,
-                severity: $this->mapSeverity($event->severity),
+                severity: $severity,
                 title: sprintf('Backup event: %s', $event->type),
                 summary: $event->message . ($event->error !== null ? ' — ' . $event->error : ''),
                 source: AlertSource::Backup,

@@ -18,7 +18,6 @@
 > cost scales linearly with base age at roughly 62 segments per hour.
 >
 > ```
-> ```
 >
 > The logical drill passes separately at RTO ~9s. Schedules live: logical drill daily 04:00,
 > PITR drill weekly Sun 05:00, `physical_base` weekly Sun 02:00 — moved off the now-deleted

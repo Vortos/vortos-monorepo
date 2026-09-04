@@ -541,8 +541,27 @@ final class AlertsExtension extends Extension
             return;
         }
 
+        // TAGGED, not merely registered. vortos-backup fans its lifecycle events out through
+        // CompositeBackupEventSink, which is populated by CollectBackupEventSinksPass from this tag
+        // — and an untagged sink is simply never collected.
+        //
+        // It was untagged from the day it was written, and the effect was total: no backup event has
+        // ever produced an alert. Not a failed backup, not a failed restore drill, not an integrity
+        // or replication failure. The audit log across the whole life of the installation contains
+        // zero deliveries for any `backup.*` rule id.
+        //
+        // It went unnoticed because the one backup signal that DOES work arrives by another route:
+        // `backup-stale` is a health-probe rule that polls the catalog, so "backups stopped
+        // happening" pages while "a backup ran and failed" does not. The dead man was covering for
+        // the alarm, which is the most misleading way for this to be broken — and it is the same
+        // shape as the July 2026 outage, where the component that reports failures was itself the
+        // component that had stopped.
+        //
+        // Autoconfiguration does not help here: it only applies to definitions marked
+        // setAutoconfigured(true), which a hand-registered service like this one is not.
         $container->register(\Vortos\Alerts\Integration\Backup\BackupEventAlertSink::class, \Vortos\Alerts\Integration\Backup\BackupEventAlertSink::class)
             ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
+            ->addTag(\Vortos\Backup\DependencyInjection\Compiler\CollectBackupEventSinksPass::TAG)
             ->setPublic(false);
     }
 

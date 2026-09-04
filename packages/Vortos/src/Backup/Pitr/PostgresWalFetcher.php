@@ -61,13 +61,50 @@ final class PostgresWalFetcher
         // learns where the archive ends, so a fetcher that could not see the older bucket would not
         // fail — it would report the archive as ending at the split and stop replaying there,
         // producing a database that looks successfully recovered to the wrong point in time.
+        // A store that cannot ANSWER is not a store that says no, and it must not end the search.
+        //
+        // The configured list is a superset by design — it includes the primary bucket so a recovery
+        // spanning the WAL split can still find pre-split segments — and the identity doing the
+        // fetching does not necessarily hold rights to all of it. On this deployment the backup node
+        // reads its own WAL and backup buckets and is deliberately denied the application's bucket,
+        // which is correct least privilege: a backup sidecar has no business reading user content.
+        //
+        // Without this the loop was fatal on the FIRST store it could not query. The WAL bucket
+        // answered a missing segment cleanly (404 → false), the search fell through to the
+        // application bucket, that returned 403, and the exception escaped — so
+        // ArchivedWalNotFoundException was never thrown and callers never learned the archive had
+        // ended. It failed two production point-in-time drills that had replayed the entire log.
+        //
+        // Errors are collected rather than dropped: if NO store could answer, that is a real outage
+        // and must surface as one. Reporting it as a clean miss would tell a recovery the log ends
+        // here, which is the failure this class exists to prevent.
         $store = null;
+        $failures = [];
+
         foreach ($this->storeKeys as $candidate) {
-            $s = $this->stores->store($candidate);
-            if ($s->exists($objectKey)) {
-                $store = $s;
-                break;
+            try {
+                $s = $this->stores->store($candidate);
+                if ($s->exists($objectKey)) {
+                    $store = $s;
+                    break;
+                }
+            } catch (\Throwable $e) {
+                $failures[$candidate] = $e;
+                continue;
             }
+        }
+
+        if ($store === null && \count($failures) === \count($this->storeKeys)) {
+            $first = reset($failures);
+
+            throw new BackupException(sprintf(
+                "Cannot determine whether WAL segment '%s' is archived: every configured store failed "
+                . '(%s). This is not the end of the archive — treating it as one would recover to the '
+                . 'wrong point in time. First error: %s',
+                $segmentName,
+                implode(', ', array_keys($failures)),
+                $first instanceof \Throwable ? $first->getMessage() : 'unknown',
+            ), 0, $first instanceof \Throwable ? $first : null);
         }
 
         if ($store === null) {

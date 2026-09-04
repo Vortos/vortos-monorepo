@@ -48,6 +48,13 @@ final class InMemoryObjectStore implements ObjectStoreInterface
     public int $failOpenTimes = 0;
 
     /**
+     * Model a bucket this identity cannot read at all: every request is refused, so the store can
+     * neither confirm nor deny that a key exists. That is exactly what a 403 is, and it is the
+     * normal state of the application's bucket as seen by the backup node's credentials.
+     */
+    public bool $denyAll = false;
+
+    /**
      * Keys the store will refuse to delete, as a WORM bucket does. The message mirrors R2's own
      * wording ("The object is locked by the bucket policy") so the immutability matcher is tested
      * against the string production actually returns rather than an invented one.
@@ -82,8 +89,10 @@ final class InMemoryObjectStore implements ObjectStoreInterface
 
     public function stream(ObjectKey|string $key, ?GetObjectOptions $options = null): mixed
     {
-        if ($this->failOpenTimes > 0) {
-            $this->failOpenTimes--;
+        if ($this->denyAll || $this->failOpenTimes > 0) {
+            if (!$this->denyAll) {
+                $this->failOpenTimes--;
+            }
 
             throw new RuntimeException('r2 object store error: 403 Forbidden');
         }
@@ -107,6 +116,10 @@ final class InMemoryObjectStore implements ObjectStoreInterface
 
     public function exists(ObjectKey|string $key): bool
     {
+        if ($this->denyAll) {
+            throw new RuntimeException('r2 object store error: 403 Forbidden');
+        }
+
         return isset($this->objects[(string) $key]);
     }
 

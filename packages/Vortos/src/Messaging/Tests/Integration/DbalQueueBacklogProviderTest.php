@@ -33,6 +33,7 @@ final class DbalQueueBacklogProviderTest extends TestCase
             'CREATE TABLE failed_messages (
                 id INTEGER PRIMARY KEY,
                 transport_name VARCHAR(64) NOT NULL,
+                status VARCHAR(20) NOT NULL,
                 failed_at DATETIME NOT NULL
             )'
         );
@@ -111,15 +112,51 @@ final class DbalQueueBacklogProviderTest extends TestCase
     {
         // Prefixes keep a rule scoped to one surface: "anything in the DLQ" must not accidentally
         // also match a transport of the same name on the outbox.
-        $this->connection->insert('failed_messages', [
-            'transport_name' => 'kafka',
-            'failed_at' => (new \DateTimeImmutable('-10 minutes'))->format('Y-m-d H:i:s'),
-        ]);
+        $this->insertDeadLetter('failed', '-10 minutes');
 
         $backlogs = $this->byQueue();
 
         self::assertArrayHasKey('dlq:kafka', $backlogs);
         self::assertSame(1, $backlogs['dlq:kafka']->depth);
+    }
+
+    /**
+     * A replayed dead letter is history, not backlog.
+     *
+     * Replaying sets status='replayed' but keeps the row for audit, and this reading counted every
+     * row in the table — so the gauge only ever climbed and a `dlq-not-empty` rule with the obvious
+     * threshold of zero could never resolve again once anything had ever been dead-lettered.
+     *
+     * Production ran that way: 21 messages dead-lettered in July 2026 were replayed successfully
+     * and the alert went on paging for weeks against 21 rows of history, while `vortos:dlq:list`
+     * showed an empty queue the whole time — because the repository filters status='failed'. The
+     * tool operators check and the alarm that paged them disagreed, and the alarm was wrong.
+     */
+    public function test_replayed_dead_letters_are_not_backlog(): void
+    {
+        $this->insertDeadLetter('replayed', '-3 days');
+        $this->insertDeadLetter('replayed', '-2 days');
+
+        self::assertArrayNotHasKey('dlq:kafka', $this->byQueue());
+    }
+
+    /** A drained queue must read as drained even while its audit history remains. */
+    public function test_only_the_still_failed_rows_count_toward_depth(): void
+    {
+        $this->insertDeadLetter('replayed', '-3 days');
+        $this->insertDeadLetter('failed', '-1 hour');
+        $this->insertDeadLetter('replayed', '-2 days');
+
+        self::assertSame(1, $this->byQueue()['dlq:kafka']->depth);
+    }
+
+    private function insertDeadLetter(string $status, string $failedAt, string $transport = 'kafka'): void
+    {
+        $this->connection->insert('failed_messages', [
+            'transport_name' => $transport,
+            'status' => $status,
+            'failed_at' => (new \DateTimeImmutable($failedAt))->format('Y-m-d H:i:s'),
+        ]);
     }
 
     public function test_a_database_failure_yields_no_readings_rather_than_false_zeros(): void

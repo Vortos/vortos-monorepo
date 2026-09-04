@@ -57,7 +57,25 @@ final class DbalQueueBacklogProvider implements QueueBacklogProviderInterface
         }
     }
 
-    /** @return list<QueueBacklog> */
+    /**
+     * Still-failed rows only. A replayed dead letter is history, not backlog.
+     *
+     * This counted every row in the table, forever. Replaying a dead letter sets status='replayed'
+     * and stamps replayed_at, but the row stays for audit — so the gauge only ever climbed, and a
+     * `dlq-not-empty` rule with the obvious threshold of zero could never resolve again once
+     * anything had ever been dead-lettered.
+     *
+     * Production ran that way: 21 messages dead-lettered in July 2026 were replayed successfully,
+     * and the alert went on paging for weeks afterwards against 21 rows of history. `vortos:dlq:list`
+     * showed an empty queue throughout, because {@see DeadLetterRepository} filters on
+     * status = 'failed' — so the tool operators check and the alarm that pages them disagreed, and
+     * the alarm was the one that was wrong.
+     *
+     * The predicate is the repository's, deliberately, so "what the DLQ contains" has one answer.
+     * {@see outboxBacklogs()} below already applied exactly this rule to its own surface.
+     *
+     * @return list<QueueBacklog>
+     */
     private function deadLetterBacklogs(): array
     {
         $rows = $this->connection->fetchAllAssociative(
@@ -65,6 +83,7 @@ final class DbalQueueBacklogProvider implements QueueBacklogProviderInterface
                     COUNT(*) AS depth,
                     MIN(failed_at) AS oldest
              FROM {$this->deadLetterTable}
+             WHERE status = 'failed'
              GROUP BY transport_name",
         );
 

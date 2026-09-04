@@ -79,7 +79,8 @@ final class PostgresWalFetcher
         // and must surface as one. Reporting it as a clean miss would tell a recovery the log ends
         // here, which is the failure this class exists to prevent.
         $store = null;
-        $failures = [];
+        $unreachable = [];
+        $firstFailure = null;
 
         foreach ($this->storeKeys as $candidate) {
             try {
@@ -89,22 +90,21 @@ final class PostgresWalFetcher
                     break;
                 }
             } catch (\Throwable $e) {
-                $failures[$candidate] = $e;
+                $unreachable[] = $candidate;
+                $firstFailure ??= $e;
                 continue;
             }
         }
 
-        if ($store === null && \count($failures) === \count($this->storeKeys)) {
-            $first = reset($failures);
-
+        if ($store === null && $firstFailure !== null && \count($unreachable) === \count($this->storeKeys)) {
             throw new BackupException(sprintf(
                 "Cannot determine whether WAL segment '%s' is archived: every configured store failed "
                 . '(%s). This is not the end of the archive — treating it as one would recover to the '
                 . 'wrong point in time. First error: %s',
                 $segmentName,
-                implode(', ', array_keys($failures)),
-                $first instanceof \Throwable ? $first->getMessage() : 'unknown',
-            ), 0, $first instanceof \Throwable ? $first : null);
+                implode(', ', $unreachable),
+                $firstFailure->getMessage(),
+            ), 0, $firstFailure);
         }
 
         if ($store === null) {

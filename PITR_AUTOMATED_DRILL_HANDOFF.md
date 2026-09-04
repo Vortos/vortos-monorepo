@@ -2,15 +2,22 @@
 
 > **STATUS: COMPLETE — shipped and proven on production 2026-09-03.**
 >
-> Framework `v1.0.0-alpha-361` … `v1.0.0-alpha-371`; backend deployed, prod healthy.
+> Framework `v1.0.0-alpha-361` … `v1.0.0-alpha-373`; backend deployed, prod healthy.
 > Live proof on the shipped build:
 >
 > ```
-> Drill passed: postgres/production (physical_base) — RTO 140923ms
+> Drill passed: postgres/production (physical_base) — RTO 426944ms
 >   ✓ row_count / referential_integrity / smoke_query
 >   ✓ wal_restorable: 5 segments fetched, 16777216 bytes each, sequence contiguous
->   ✓ wal_replayed: 227 WAL segments replayed, DA/CF000028 → DB/B2000000,
->     reached end of archive in 129090ms
+>   ✓ wal_replayed: 723 WAL segments replayed, DA/CF000028 → DD/A2000000,
+>     reached end of archive in 418049ms
+> ```
+>
+> That run replayed 12 hours of WAL because the base it anchored on was 12 hours old. On the real
+> schedule the base is three hours old at drill time, which is ~190 segments and ~2 minutes — the
+> cost scales linearly with base age at roughly 62 segments per hour.
+>
+> ```
 > ```
 >
 > The logical drill passes separately at RTO ~9s. Schedules live: logical drill daily 04:00,
@@ -18,11 +25,14 @@
 > `docker/backup/base-backup.sh` stamp loop so the drill can be anchored a fixed three hours
 > behind the base it restores.
 >
-> **One item deliberately left open, for you:** grant the prod R2 token `s3:ListBucket` on the
-> WAL bucket. Without it R2 answers a request for a missing object with `403 Forbidden` rather
-> than `404`, so "not archived yet" and "cannot read" are the same response. The feeder resolves
-> that against the backup catalog and is correct either way, but fixing it at source would
-> remove the ambiguity rather than work around it.
+> **Nothing is left open, and no R2 token needs changing.** An earlier revision of this note asked
+> for `s3:ListBucket` on the WAL bucket; that was a misdiagnosis. Measured with the backup node's
+> own key, `sqoura-prod-wal` and `sqoura-backups` both list fine and return a clean `404` for a
+> missing object. The 403 came from the THIRD store in the fetcher's search path — the application
+> bucket `sqoura-prod`, which the backup node is deliberately denied, and whose exception aborted
+> the whole lookup before `ArchivedWalNotFoundException` could be raised. Fixed in `alpha-373`:
+> a store that cannot answer no longer ends the search, while every store failing is still an
+> error rather than a miss.
 >
 > The design notes below are kept as the record of what was built and why.
 

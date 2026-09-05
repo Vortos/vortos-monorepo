@@ -18,6 +18,7 @@ use Vortos\Deploy\Console\DoctorCommand;
 use Vortos\Deploy\Console\MaterializeFileSecretsCommand;
 use Vortos\Deploy\Console\EdgeDriftCommand;
 use Vortos\Deploy\Console\EdgeHydrateConfigCommand;
+use Vortos\Deploy\Console\ComposeSyncCommand;
 use Vortos\Deploy\Console\ProvisionCommand;
 use Vortos\Deploy\Console\PullAgentReconcileCommand;
 use Vortos\Deploy\Console\RollbackCommand;
@@ -1237,6 +1238,14 @@ final class DeployExtension extends Extension
 
         $container->register(ProvisionCommand::class, ProvisionCommand::class)
             ->setArgument('$provisioner', new Reference(FirstDeployProvisioner::class))
+            ->addTag('console.command')
+            ->setPublic(false);
+
+        // Converges the host's compose topology onto the copy carried in the release image. No
+        // constructor dependencies on purpose: it reads two paths and writes one file, and giving it
+        // container-resolved collaborators would make a step that can rewrite how the database runs
+        // depend on the container compiling correctly.
+        $container->register(ComposeSyncCommand::class, ComposeSyncCommand::class)
             ->addTag('console.command')
             ->setPublic(false);
 

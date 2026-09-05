@@ -62,7 +62,18 @@ final class HealthController
      * HEALTH_DETAILS policy — so an operator can always diagnose a warn/fail over HTTP, even when the
      * anonymous policy is "never". A missing/invalid token returns 401 (authorization failure), which
      * is deliberately distinct from a health status so scrapers never mistake it for unreadiness, and
-     * unauthenticated callers learn nothing. Body carries the same readiness report as /health/ready.
+     * unauthenticated callers learn nothing.
+     *
+     * `?mode=monitor` returns the MONITORING report instead of the readiness one. Without it this
+     * surface could only ever diagnose readiness, which is the half that already reports itself
+     * loudly — a failing readiness probe takes the node out of rotation. The Monitoring-kind probes
+     * are the quiet half: they never gate traffic, they exist to be alerted on, and until now there
+     * was no authenticated way to ask a node what any of them actually said. `/health/monitor` gives
+     * a single aggregate pass/fail and no per-probe breakdown.
+     *
+     * That gap matters beyond diagnosis. Alert evaluation runs on one node, but a probe can only be
+     * answered by the node that owns the dependency — so an evaluator has to be able to ASK the
+     * owner. This is that endpoint.
      */
     #[Route('/health/detail', name: 'vortos.health.detail', methods: ['GET'])]
     public function detail(Request $request): JsonResponse
@@ -79,7 +90,12 @@ final class HealthController
             return $response;
         }
 
-        $report = $this->aggregator->ready();
+        // Monitoring probes never gate traffic, so the monitor report's HTTP status is always 200 by
+        // construction; the readiness report keeps its own status code so an operator curling this
+        // endpoint still sees unreadiness as a non-200.
+        $monitor = $request->query->get('mode') === 'monitor';
+        $report = $monitor ? $this->aggregator->monitor() : $this->aggregator->ready();
+
         $response = new JsonResponse(
             $report->toDetailedArray($this->detailPolicy->allowsRawErrors()),
             $report->httpStatusCode(),

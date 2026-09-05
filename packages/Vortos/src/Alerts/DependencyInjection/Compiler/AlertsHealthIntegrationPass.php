@@ -15,6 +15,7 @@ use Vortos\Alerts\Integration\Health\CertExpiryAlertSource;
 use Vortos\Alerts\Integration\Health\DbalUptimeUnknownStreakStore;
 use Vortos\Alerts\Integration\Health\HealthProbeAlertSource;
 use Vortos\Alerts\Integration\Health\InMemoryUptimeUnknownStreakStore;
+use Vortos\Alerts\Integration\Health\RemoteHealthProbeReader;
 use Vortos\Alerts\Integration\Health\SyntheticUptimeAlertSource;
 use Vortos\Alerts\Integration\Health\UptimeUnknownStreakStoreInterface;
 use Vortos\Alerts\Rule\AlertRuleEvaluator;
@@ -55,14 +56,55 @@ final class AlertsHealthIntegrationPass implements CompilerPassInterface
             return; // already registered.
         }
 
+        // Probes this node must not answer for itself, read from their owner instead. Format is a
+        // comma-separated `ruleProbeLabel:ownerCheckName` list, because the two names genuinely
+        // differ: a rule targets the registry key (`legacy-s3-object-store`, derived by
+        // BridgeLegacyHealthChecksPass from the class name) while the owner reports the check under
+        // its own name() (`object_store`). Silently assuming they match would delegate to a name
+        // nobody reports, which reads as "cannot assess" and disables the rule.
+        $delegated = [];
+        foreach (explode(',', (string) ($_ENV['VORTOS_ALERTS_DELEGATED_PROBES'] ?? '')) as $entry) {
+            $entry = trim($entry);
+            if ($entry === '' || !str_contains($entry, ':')) {
+                continue;
+            }
+            [$label, $remoteName] = explode(':', $entry, 2);
+            $label = trim($label);
+            $remoteName = trim($remoteName);
+            if ($label !== '' && $remoteName !== '') {
+                $delegated[$label] = $remoteName;
+            }
+        }
+
+        $peerUrls = array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) ($_ENV['VORTOS_ALERTS_PEER_HEALTH_URLS'] ?? '')),
+        )));
+
+        $container->register(RemoteHealthProbeReader::class, RemoteHealthProbeReader::class)
+            ->setArgument('$baseUrls', $peerUrls)
+            // The same token the owner's /health/detail requires. Already present wherever health
+            // detail is configured; without it the reader reports itself unconfigured and every
+            // delegated probe is skipped rather than guessed at.
+            ->setArgument('$token', (string) ($_ENV['HEALTH_TOKEN'] ?? ''))
+            ->setPublic(false);
+
         foreach ([HealthProbeAlertSource::class, CapacityAlertSource::class, CertExpiryAlertSource::class] as $source) {
-            $container->register($source, $source)
+            $definition = $container->register($source, $source)
                 ->setArgument('$probes', new Reference(HealthProbeRegistry::class))
                 ->setArgument('$rules', new Reference(AlertRuleSet::class))
                 ->setArgument('$evaluator', new Reference(AlertRuleEvaluator::class))
                 ->setArgument('$dispatcher', new Reference(AlertDispatcherInterface::class))
                 ->addTag(AlertsExtension::SOURCE_TAG)
                 ->setPublic(true);
+
+            // Only the probe source delegates; capacity and cert-expiry read local resources that no
+            // other node could answer for.
+            if ($source === HealthProbeAlertSource::class) {
+                $definition
+                    ->setArgument('$remote', new Reference(RemoteHealthProbeReader::class))
+                    ->setArgument('$delegatedProbes', $delegated);
+            }
         }
 
         if (!$container->has(UptimeMonitorRegistry::class)) {

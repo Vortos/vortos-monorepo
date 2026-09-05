@@ -358,6 +358,7 @@ final class PipelineBuilder
                 'Generate SBOM',
                 KnownActionFactory::sbomAttest(),
                 ['image' => $digestRef, 'format' => 'spdx-json'],
+                continueOnError: $definition->sbomContinueOnError,
             );
         }
 

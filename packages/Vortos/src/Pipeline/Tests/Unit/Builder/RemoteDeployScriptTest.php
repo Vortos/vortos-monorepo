@@ -386,6 +386,76 @@ final class RemoteDeployScriptTest extends TestCase
         $this->assertLessThan($seed, $install);
     }
 
+    public function test_compose_topology_sync_is_absent_unless_asked_for(): void
+    {
+        $script = $this->script(new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+        ));
+
+        $this->assertStringNotContainsString('vortos:deploy:compose:sync', $script);
+    }
+
+    public function test_compose_topology_sync_reports_without_applying_by_default(): void
+    {
+        $script = $this->script(new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            syncComposeTopology: true,
+        ));
+
+        $this->assertStringContainsString('vortos:deploy:compose:sync --json', $script);
+        $this->assertStringNotContainsString('--apply', $script);
+    }
+
+    public function test_compose_topology_sync_runs_as_root_before_any_migration(): void
+    {
+        $script = $this->script(new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            syncComposeTopology: true,
+            syncComposeTopologyApply: true,
+        ));
+
+        $sync = strpos($script, 'vortos:deploy:compose:sync --apply --json');
+        $analyze = strpos($script, 'vortos:migrate:analyze');
+
+        $this->assertNotFalse($sync);
+        $this->assertNotFalse($analyze);
+        // Topology must be settled before anything touches the schema: the analyze gate and every
+        // step after it run against the host this file describes.
+        $this->assertLessThan($analyze, $sync);
+
+        // The target lives in the deploy-owned directory, which the image's non-root uid cannot
+        // write — the same reason the sealed-env reveal runs as root.
+        $line = self::lineContaining($script, 'vortos:deploy:compose:sync');
+        $this->assertStringContainsString('--user 0:0', $line);
+        $this->assertStringContainsString('-v /opt/vortos:/opt/vortos', $line);
+    }
+
+    private static function lineContaining(string $script, string $needle): string
+    {
+        foreach (explode("\n", $script) as $line) {
+            if (str_contains($line, $needle)) {
+                return $line;
+            }
+        }
+
+        self::fail('No line containing ' . $needle);
+    }
+
     public function test_pre_cutover_commands_reject_shell_metacharacters(): void
     {
         $this->expectException(\InvalidArgumentException::class);

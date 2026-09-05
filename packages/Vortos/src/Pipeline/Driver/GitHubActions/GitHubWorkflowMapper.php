@@ -229,6 +229,10 @@ final class GitHubWorkflowMapper
             $mapped['env'] = $step->env;
         }
 
+        if ($step->continueOnError) {
+            $mapped['continue-on-error'] = true;
+        }
+
         return $mapped;
     }
 

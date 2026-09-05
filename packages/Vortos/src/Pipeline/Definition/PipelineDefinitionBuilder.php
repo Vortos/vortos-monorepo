@@ -35,6 +35,9 @@ final class PipelineDefinitionBuilder
     private ?DeployPosture $posture = null;
     private ?string $baseImageDigest = null;
     private bool $emitSbom = true;
+    private bool $sbomContinueOnError = false;
+    private bool $syncComposeTopology = false;
+    private bool $syncComposeTopologyApply = false;
     private string $dockerfilePath = 'Dockerfile';
     private ?string $serveTarget = null;
     private ?string $opsTarget = null;
@@ -212,6 +215,41 @@ final class PipelineDefinitionBuilder
     {
         $clone = clone $this;
         $clone->baseImageDigest = $digest;
+
+        return $clone;
+    }
+
+    /**
+     * Let an SBOM upload failure be recorded rather than fail the release.
+     *
+     * The SBOM is a record of what shipped, not a gate on whether it may: by the time it runs the
+     * image is built, CVE-scanned and signed. The CVE gate is the step allowed to fail a release.
+     */
+    public function sbomContinueOnError(bool $enabled): self
+    {
+        $clone = clone $this;
+        $clone->sbomContinueOnError = $enabled;
+
+        return $clone;
+    }
+
+    /**
+     * Write the compose topology that shipped inside the image onto the deploy host.
+     *
+     * The topology file travels in the image, whose signature the deploy has already verified, so
+     * it carries the same supply-chain guarantee as the code and needs no second transfer channel.
+     * Without this the host copy is hand-maintained and drifts silently from the repository.
+     *
+     * `$apply` writes the file; false reports the drift and changes nothing. Writing it recreates
+     * NO containers either way — the blue/green cutover owns the app services, and the datastores
+     * are never converged implicitly, because a change as small as a logging option would mean
+     * recreating the database and that is a decision rather than a side effect.
+     */
+    public function syncComposeTopology(bool $enabled, bool $apply = false): self
+    {
+        $clone = clone $this;
+        $clone->syncComposeTopology = $enabled;
+        $clone->syncComposeTopologyApply = $apply;
 
         return $clone;
     }
@@ -545,6 +583,9 @@ final class PipelineDefinitionBuilder
             posture: $this->posture,
             baseImageDigest: $this->baseImageDigest,
             emitSbom: $this->emitSbom,
+            sbomContinueOnError: $this->sbomContinueOnError,
+            syncComposeTopology: $this->syncComposeTopology,
+            syncComposeTopologyApply: $this->syncComposeTopologyApply,
             dockerfilePath: $this->dockerfilePath,
             serveTarget: $this->serveTarget,
             opsTarget: $this->opsTarget,

@@ -189,6 +189,27 @@ final class RemoteDeployScript
             );
         }
 
+        // Write the compose topology that shipped inside this image onto the host. The image's
+        // signature was verified above, so the topology carries the same supply-chain guarantee as
+        // the code and needs no second transfer channel; without this the host copy is
+        // hand-maintained and drifts from the repository silently.
+        //
+        // Runs as root with the deploy dir mounted, like the env reveal above and for the same
+        // reason: the target lives in the deploy-owned directory the image's non-root uid cannot
+        // write. It recreates NO containers — the blue/green cutover owns the app services, and the
+        // datastores are never converged implicitly, because a change as small as a logging option
+        // would mean recreating the database and that is a decision, not a side effect.
+        if ($definition->syncComposeTopology) {
+            $lines[] = sprintf(
+                'docker run --rm --user 0:0 --env-file %s/.env.prod -v %s:%s %s php bin/console vortos:deploy:compose:sync%s --json',
+                $deployDir,
+                $deployDir,
+                $deployDir,
+                $toolingRef,
+                $definition->syncComposeTopologyApply ? ' --apply' : '',
+            );
+        }
+
         // R8-9 (B3): hard CI gate on destructive/undeclared DDL BEFORE any migration is applied.
         // Runs before provision (which applies expand migrations). analyze initializes its own
         // migration metadata storage, so it is safe on a fresh DB; a finding is non-zero and

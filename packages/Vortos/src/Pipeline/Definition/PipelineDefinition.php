@@ -54,6 +54,9 @@ final readonly class PipelineDefinition
         public ?DeployPosture $posture = null,
         public ?string $baseImageDigest = null,
         public bool $emitSbom = true,
+        public bool $sbomContinueOnError = false,
+        public bool $syncComposeTopology = false,
+        public bool $syncComposeTopologyApply = false,
         public string $dockerfilePath = 'Dockerfile',
         /**
          * Dockerfile stage that produces the SERVING image — the one the cutover runs as
@@ -355,6 +358,9 @@ final readonly class PipelineDefinition
             'remote_deploy_dir' => $this->remoteDeployDir,
             'emit_agnosticism' => $this->emitAgnosticism,
             'emit_sbom' => $this->emitSbom,
+            'sbom_continue_on_error' => $this->sbomContinueOnError,
+            'sync_compose_topology' => $this->syncComposeTopology,
+            'sync_compose_topology_apply' => $this->syncComposeTopologyApply,
             'emit_scan_gate' => $this->emitScanGate,
             'emit_sign' => $this->emitSign,
             'emit_static_analysis' => $this->emitStaticAnalysis,

@@ -17,6 +17,16 @@ final readonly class ActionStep
         public ?string $condition = null,
         public ?string $id = null,
         public array $env = [],
+        /**
+         * Emits `continue-on-error: true`, letting the job proceed when this step fails.
+         *
+         * Reserved for steps that RECORD something about a release rather than gate it. An SBOM
+         * upload is the archetype: by the time it runs the image is already built, scanned and
+         * signed, so a failure there says nothing about whether the artifact may ship — and it has
+         * blocked a release over the runner's artifact-storage quota, which is not a property of
+         * the code. A supply-chain record that can stop deploys is one somebody eventually deletes.
+         */
+        public bool $continueOnError = false,
     ) {
         if ($name === '') {
             throw new \InvalidArgumentException('Step name must be non-empty.');

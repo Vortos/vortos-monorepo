@@ -10,7 +10,7 @@ use RuntimeException;
  * Converges the host's compose topology onto the version that shipped inside the release image.
  *
  * WHY THIS EXISTS. The deploy pipeline builds and signs an image, verifies the signature, and runs
- * the cutover — but it never copied the compose file. So `/opt/vortos/docker-compose.prod.yaml` was
+ * the cutover — but it never copied the compose file. So /opt/vortos/docker-compose.prod.yaml was
  * whatever a human last edited by hand, and the repository copy was documentation that nothing read.
  * Measured on this installation before the first sync: the live file was three weeks stale and the
  * repository held thirteen non-comment lines that had been committed, reviewed and deployed green
@@ -22,16 +22,16 @@ use RuntimeException;
  * repository, so it is already inside the release image, and that image has its cosign signature
  * verified immediately before this runs. Taking the file from there means the topology inherits
  * exactly the same supply-chain guarantee as the code — no second transfer channel, no second thing
- * to trust, nothing that can be tampered with between signing and applying. An `scp` from the runner
+ * to trust, nothing that can be tampered with between signing and applying. An scp from the runner
  * would instead trust whatever happened to be on that runner's disk at that moment, which is a
  * strictly weaker claim about a file that describes how the database is run.
  *
  * WHAT IT DELIBERATELY DOES NOT DO: apply anything. Writing the desired state and CONVERGING to it
  * are separate acts, and conflating them here would be dangerous in two distinct ways. The app and
  * worker services are mid-cutover — the blue/green deploy runs moments later and owns them, so a
- * `compose up` from here would race it. And the datastores must never be recreated implicitly: a
+ * compose up from here would race it. And the datastores must never be recreated implicitly: a
  * change as innocuous-looking as a logging option requires recreating the container, and doing that
- * to `write_db` without anyone deciding to is an outage delivered by a config tidy-up.
+ * to write_db without anyone deciding to is an outage delivered by a config tidy-up.
  *
  * So this is the "sync" half of GitOps and not the "auto-sync" half: the desired state lands on the
  * box and the drift is reported. Convergence stays a decision someone makes.
@@ -247,7 +247,7 @@ final class ComposeTopologySync
     /**
      * Whether the two-space key is a service rather than a nested mapping elsewhere in the file.
      *
-     * Compose files carry other top-level maps — `volumes:`, `networks:`, and the `x-` extension
+     * Compose files carry other top-level maps — volumes:, networks:, and the x- extension
      * anchors this deployment uses for shared logging — whose children sit at the same indentation
      * as a service name. Counting them as services would report phantom drift.
      */

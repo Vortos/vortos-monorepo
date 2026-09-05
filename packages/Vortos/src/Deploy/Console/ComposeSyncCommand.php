@@ -10,7 +10,9 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
+use Vortos\Deploy\Driver\Compose\ComposeCliValidator;
 use Vortos\Deploy\Topology\ComposeTopologySync;
+use Vortos\Deploy\Topology\TopologyValidatorInterface;
 
 /**
  * Converge the host's compose topology onto the version that shipped inside the release image.
@@ -29,6 +31,17 @@ use Vortos\Deploy\Topology\ComposeTopologySync;
 final class ComposeSyncCommand extends Command
 {
     public const NAME = 'vortos:deploy:compose:sync';
+
+    public function __construct(
+        /**
+         * Optional second opinion from the tool that will run the topology. Absent, the structural
+         * checks in ComposeTopologySync still apply — they are what makes this step safe on any
+         * host rather than only where the tooling happens to exist.
+         */
+        private readonly TopologyValidatorInterface $validator = new ComposeCliValidator(),
+    ) {
+        parent::__construct();
+    }
 
     protected function configure(): void
     {
@@ -51,15 +64,12 @@ final class ComposeSyncCommand extends Command
             explode(',', (string) $input->getOption('stateful')),
         )));
 
-        // Validate with the REAL parser when it is available, before anything is written.
-        //
-        // ComposeTopologySync's own checks are structural and deliberately dependency-free so they
-        // work anywhere and stay unit-testable, but they cannot catch everything Compose itself
-        // rejects — a bad anchor, an unresolvable `extends`, a schema violation. The deploy-ops
-        // image carries the compose plugin, so where it exists the shipped topology is checked by
-        // the thing that will actually have to run it. Absent, the structural checks still apply.
+        // A second opinion from the tool that will run it, before anything is written. The
+        // structural checks in ComposeTopologySync are dependency-free so they work anywhere and
+        // stay unit-testable, but they cannot catch a bad anchor, an unresolvable extends or a
+        // schema violation — only the real parser knows those.
         $source = (string) $input->getOption('source');
-        $validationError = $this->validateWithCompose($source);
+        $validationError = $this->validator->validate($source);
 
         if ($validationError !== null) {
             if ($json) {
@@ -107,7 +117,7 @@ final class ComposeSyncCommand extends Command
         if ($result->needsManualConvergence() && !$json) {
             $output->writeln(sprintf(
                 '<comment>Manual convergence required for: %s. Recreating these is a '
-                . 'data-availability decision — run `docker compose up -d --no-deps <service>` when '
+                . 'data-availability decision — run docker compose up -d --no-deps <service> when '
                 . 'you choose to take the downtime.</comment>',
                 implode(', ', $result->statefulServices),
             ));
@@ -116,34 +126,4 @@ final class ComposeSyncCommand extends Command
         return self::SUCCESS;
     }
 
-    /**
-     * `docker compose config -q` on the shipped file, when the plugin is present.
-     *
-     * Interpolation warnings are expected and ignored: the topology references runtime variables
-     * that live in the host env file, which this step has no business reading. Only a non-zero exit
-     * — a file Compose cannot parse or resolve — blocks the sync.
-     *
-     * @return string|null the reason to refuse, or null to proceed
-     */
-    private function validateWithCompose(string $source): ?string
-    {
-        $probe = @shell_exec('command -v docker 2>/dev/null');
-        if ($probe === null || trim((string) $probe) === '') {
-            return null;
-        }
-
-        $command = sprintf('docker compose -f %s config -q 2>&1', escapeshellarg($source));
-        @exec($command, $lines, $exitCode);
-
-        if ($exitCode === 0) {
-            return null;
-        }
-
-        return sprintf(
-            'the topology in the release image is not valid Compose (exit %d): %s — refusing to '
-            . 'replace a working host file with it',
-            $exitCode,
-            trim(implode(' ', \array_slice($lines, -3))) ?: 'no output',
-        );
-    }
 }

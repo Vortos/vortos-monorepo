@@ -105,6 +105,83 @@ final class OpenTelemetryMetricsDeliveryTest extends TestCase
         $this->assertStringContainsString('flush_suppressed', $errors[array_key_first($errors)]['message']);
     }
 
+    public function test_a_zero_increment_still_produces_a_data_point(): void
+    {
+        $this->requireSdk();
+
+        if (!class_exists(ExportMetricsServiceRequest::class)) {
+            $this->markTestSkipped('OTLP protobuf classes are not installed.');
+        }
+
+        $transport = $this->fakeTransport();
+        [$metrics] = $this->buildAdapter($transport, Temporality::CUMULATIVE);
+
+        // A caller recording "the sweep ran and found nothing". The instrument is created by the
+        // counter() call itself, so swallowing the zero here left it in the export with an EMPTY
+        // dataPoints list -- and Grafana Cloud / Mimir answers that with
+        // `400 otlp parse error: empty data points`, discarding the whole request. On one
+        // deployment that cost ~9% of all metrics for months while every health signal stayed green.
+        $metrics->counter('app_http_requests_total', ['route' => '/sweep', 'status' => '200'])->increment(0.0);
+        $metrics->flush();
+
+        $this->assertNotEmpty($transport->payloads);
+        $this->assertSame(
+            1,
+            self::countDataPoints($transport->payloads[0]),
+            'a zero increment must record a real data point, never an empty instrument',
+        );
+    }
+
+    public function test_no_exported_instrument_is_ever_empty(): void
+    {
+        $this->requireSdk();
+
+        if (!class_exists(ExportMetricsServiceRequest::class)) {
+            $this->markTestSkipped('OTLP protobuf classes are not installed.');
+        }
+
+        $transport = $this->fakeTransport();
+        [$metrics] = $this->buildAdapter($transport, Temporality::CUMULATIVE);
+
+        // Mixed batch: a healthy metric alongside one whose ONLY activity is a zero. The zero
+        // metric is what turns into an empty instrument, and rejection is per REQUEST — so it
+        // discards the healthy neighbour with it. That is the whole cost of this bug: the damage
+        // is never limited to the metric that caused it.
+        $metrics->counter('app_http_requests_total', ['route' => '/a', 'status' => '200'])->increment(3.0);
+        $metrics->counter('app_sweep_findings_total', ['outcome' => 'detected'])->increment(0.0);
+        $metrics->flush();
+
+        $this->assertNotEmpty($transport->payloads);
+        $this->assertSame(
+            0,
+            self::countEmptyInstruments($transport->payloads[0]),
+            'an instrument with no data points invalidates the entire OTLP push',
+        );
+    }
+
+    public function test_a_negative_increment_is_still_refused(): void
+    {
+        $this->requireSdk();
+
+        if (!class_exists(ExportMetricsServiceRequest::class)) {
+            $this->markTestSkipped('OTLP protobuf classes are not installed.');
+        }
+
+        $transport = $this->fakeTransport();
+        [$metrics] = $this->buildAdapter($transport, Temporality::CUMULATIVE);
+
+        // Counters are monotonic; OTLP has no representation for a decrease. Allowing zero must
+        // not have widened the guard to allow negatives.
+        $metrics->counter('app_http_requests_total', ['route' => '/x', 'status' => '200'])->increment(-5.0);
+        $metrics->flush();
+
+        $this->assertSame(
+            0,
+            $transport->payloads === [] ? 0 : self::countDataPoints($transport->payloads[0]),
+            'a negative delta must record nothing',
+        );
+    }
+
     public function test_factory_maps_temporality_tokens_with_safe_default(): void
     {
         $this->requireSdk();
@@ -141,6 +218,9 @@ final class OpenTelemetryMetricsDeliveryTest extends TestCase
     {
         return new MetricDefinitionRegistry([
             MetricDefinition::counter('app_http_requests_total', 'HTTP requests.', ['route', 'status']),
+            // A SEPARATE metric name is required to reach the empty-instrument case at all: an
+            // instrument is only exported empty when no label set of that name recorded anything.
+            MetricDefinition::counter('app_sweep_findings_total', 'Sweep findings.', ['outcome']),
             MetricDefinition::histogram('app_http_request_duration_ms', 'HTTP duration.', ['route', 'status'], [10, 100]),
         ]);
     }
@@ -168,6 +248,48 @@ final class OpenTelemetryMetricsDeliveryTest extends TestCase
                 return true;
             }
         };
+    }
+
+    /** Total data points across every exported sum instrument. */
+    private static function countDataPoints(string $payload): int
+    {
+        $request = new ExportMetricsServiceRequest();
+        $request->mergeFromString($payload);
+
+        $count = 0;
+        foreach ($request->getResourceMetrics() as $resourceMetrics) {
+            foreach ($resourceMetrics->getScopeMetrics() as $scopeMetrics) {
+                foreach ($scopeMetrics->getMetrics() as $metric) {
+                    $sum = $metric->getSum();
+                    if ($sum !== null) {
+                        $count += \count(iterator_to_array($sum->getDataPoints()));
+                    }
+                }
+            }
+        }
+
+        return $count;
+    }
+
+    /** Instruments exported with no data points at all — the shape Mimir rejects. */
+    private static function countEmptyInstruments(string $payload): int
+    {
+        $request = new ExportMetricsServiceRequest();
+        $request->mergeFromString($payload);
+
+        $empty = 0;
+        foreach ($request->getResourceMetrics() as $resourceMetrics) {
+            foreach ($resourceMetrics->getScopeMetrics() as $scopeMetrics) {
+                foreach ($scopeMetrics->getMetrics() as $metric) {
+                    $sum = $metric->getSum();
+                    if ($sum !== null && iterator_to_array($sum->getDataPoints()) === []) {
+                        ++$empty;
+                    }
+                }
+            }
+        }
+
+        return $empty;
     }
 
     private static function wireTemporality(string $payload): ?string

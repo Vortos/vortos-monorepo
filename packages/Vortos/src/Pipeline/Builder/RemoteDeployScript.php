@@ -199,15 +199,33 @@ final class RemoteDeployScript
         // write. It recreates NO containers — the blue/green cutover owns the app services, and the
         // datastores are never converged implicitly, because a change as small as a logging option
         // would mean recreating the database and that is a decision, not a side effect.
+        //
+        // The output is CAPTURED so that stateful drift becomes an annotation on the run rather than
+        // a line in a log. The sync cannot converge the datastores itself, so its whole value is the
+        // message it hands back — and on its first production run that message ("kafka needs a
+        // deliberate recreate") went into one line among thousands, on a step nobody had a reason to
+        // open. A notice that must be gone looking for is not a notice. stderr is left alone and
+        // still streams the same sentence inline.
         if ($definition->syncComposeTopology) {
             $lines[] = sprintf(
-                'docker run --rm --user 0:0 --env-file %s/.env.prod -v %s:%s %s php bin/console vortos:deploy:compose:sync%s --json',
+                'VORTOS_SYNC_OUT="$(docker run --rm --user 0:0 --env-file %s/.env.prod -v %s:%s %s php bin/console vortos:deploy:compose:sync%s --json)"',
                 $deployDir,
                 $deployDir,
                 $deployDir,
                 $toolingRef,
                 $definition->syncComposeTopologyApply ? ' --apply' : '',
             );
+            $lines[] = 'echo "$VORTOS_SYNC_OUT"';
+            // sed rather than jq: the target host is whatever the operator provisioned, and making a
+            // deploy step depend on a tool that may not be installed there would trade a missed
+            // notice for a failed deploy.
+            $lines[] = 'VORTOS_CONVERGE="$(printf \'%s\' "$VORTOS_SYNC_OUT" | sed -n \'s/.*"convergence_command":"\\([^"]*\\)".*/\\1/p\')"';
+            // A warning, never a failure. The file on disk is now correct and the running containers
+            // are not; resolving that costs an outage, and blocking every future deploy until
+            // someone takes it would only teach people to skip the gate.
+            $lines[] = 'if [ -n "$VORTOS_CONVERGE" ]; then';
+            $lines[] = '  echo "::warning title=Datastore topology changed - manual convergence required::Run on the host when you choose to take the downtime: ${VORTOS_CONVERGE}"';
+            $lines[] = 'fi';
         }
 
         // R8-9 (B3): hard CI gate on destructive/undeclared DDL BEFORE any migration is applied.

@@ -445,6 +445,39 @@ final class RemoteDeployScriptTest extends TestCase
         $this->assertStringContainsString('-v /opt/vortos:/opt/vortos', $line);
     }
 
+    /**
+     * The sync can only report; it never converges the datastores. So the report reaching a human is
+     * the entire value of the step, and a line in a deploy log does not reach anyone — the first
+     * production run said kafka needed a recreate and nobody saw it. It is raised as a workflow
+     * annotation instead, and deliberately as a warning: failing the deploy would block every future
+     * release behind an outage somebody has to schedule, which just teaches people to skip the gate.
+     */
+    public function testStatefulDriftIsRaisedAsAnAnnotationRatherThanBuriedInTheLog(): void
+    {
+        $script = $this->script(new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            syncComposeTopology: true,
+            syncComposeTopologyApply: true,
+        ));
+
+        // Captured, not merely echoed — the annotation is built from the JSON payload.
+        $this->assertStringContainsString('VORTOS_SYNC_OUT="$(docker run', $script);
+        $this->assertStringContainsString('convergence_command', $script);
+        $this->assertStringContainsString('::warning title=', $script);
+
+        // The remedy itself is what gets surfaced, not just the fact that something drifted.
+        $this->assertStringContainsString('${VORTOS_CONVERGE}', $script);
+
+        // jq is not assumed: the target host is whatever the operator provisioned, and depending on
+        // a tool that may be absent would trade a missed notice for a failed deploy.
+        $this->assertStringNotContainsString('| jq', $script);
+    }
+
     private static function lineContaining(string $script, string $needle): string
     {
         foreach (explode("\n", $script) as $line) {

@@ -313,7 +313,17 @@ final class EdgeConfigGenerator
               - vortos-net
             restart: "no"
           edge:
-            image: caddy:2-alpine
+            # Overridable, and pinnable to a digest, via EDGE_IMAGE in the deploy env file.
+            #
+            # This container terminates TLS for the whole product and is the only one bound to
+            # 0.0.0.0:80/443, so it is the single most exposed image in the deployment -- and it
+            # was the only one whose tag could not be pinned. The default caddy:2-alpine is a
+            # MOVING tag: a compose pull can change the bytes terminating TLS with no diff
+            # anywhere, and conversely a stale local copy cannot be replaced without one. Neither
+            # is acceptable for the edge.
+            #
+            # Default is unchanged, so nothing moves for a deployment that does not set it.
+            image: \${EDGE_IMAGE:-caddy:2-alpine}
             container_name: vortos-edge
             restart: unless-stopped
             depends_on:

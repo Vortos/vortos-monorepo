@@ -207,6 +207,56 @@ final class ComposeTopologySyncTest extends TestCase
     }
 
     /**
+     * The remedy travels with the report, and it travels in the MACHINE-READABLE payload — which is
+     * the only one the deploy ever reads. Naming the service without naming the fix left an
+     * operator to reconstruct the flags, and getting them wrong is how a config tidy-up becomes an
+     * outage: without --no-deps compose may recreate the datastore's dependencies too.
+     */
+    public function testTheReportCarriesTheCommandThatConvergesTheDrift(): void
+    {
+        [$sync, , $targetPath] = $this->sync(
+            $this->compose(kafkaExtra: "\n    environment:\n      KAFKA_LOG_RETENTION_BYTES: 268435456"),
+            $this->compose(),
+        );
+
+        $result = $sync->sync(apply: true);
+
+        self::assertSame(
+            sprintf('docker compose -f %s up -d --no-deps kafka', $targetPath),
+            $result->convergenceCommand(),
+        );
+        self::assertSame($result->convergenceCommand(), $result->toArray()['convergence_command']);
+    }
+
+    /** Nothing to converge, nothing to tell anyone to run. */
+    public function testThereIsNoConvergenceCommandWhenNothingStatefulDrifted(): void
+    {
+        [$sync] = $this->sync($this->compose(appExtra: "\n    restart: always"), $this->compose());
+
+        $result = $sync->sync(apply: true);
+
+        self::assertNull($result->convergenceCommand());
+        self::assertNull($result->toArray()['convergence_command']);
+    }
+
+    /**
+     * A dry run has changed nothing, so the containers still match the file and there is nothing to
+     * converge — offering a recreate command here would invite an outage to fix a non-problem.
+     */
+    public function testADryRunOffersNoConvergenceCommand(): void
+    {
+        [$sync] = $this->sync(
+            $this->compose(kafkaExtra: "\n    environment:\n      KAFKA_LOG_RETENTION_BYTES: 268435456"),
+            $this->compose(),
+        );
+
+        $result = $sync->sync(apply: false);
+
+        self::assertSame(['kafka'], $result->statefulServices);
+        self::assertNull($result->convergenceCommand());
+    }
+
+    /**
      * A stateless service changing is not something anyone has to act on — the blue/green deploy
      * that runs moments later owns those containers.
      */

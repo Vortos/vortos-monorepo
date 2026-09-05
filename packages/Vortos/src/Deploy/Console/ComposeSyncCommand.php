@@ -8,6 +8,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
 use Vortos\Deploy\Driver\Compose\ComposeCliValidator;
@@ -102,13 +103,24 @@ final class ComposeSyncCommand extends Command
         // topology on disk is now correct and the running containers are not, which is a state
         // somebody has to resolve on purpose — blocking every future deploy until they do would
         // punish the wrong thing and encourage skipping the gate.
-        if ($result->needsManualConvergence() && !$json) {
-            $output->writeln(sprintf(
-                '<comment>Manual convergence required for: %s. Recreating these is a '
-                . 'data-availability decision — run docker compose up -d --no-deps <service> when '
-                . 'you choose to take the downtime.</comment>',
+        //
+        // SURFACED IN BOTH MODES, and that is a fix rather than a tidy-up. This notice used to be
+        // skipped whenever --json was passed, which is the only way the deploy ever invokes this
+        // command — so the one caller that always runs it was the one caller that never saw it. The
+        // first production sync reported kafka as needing convergence into a log line nobody was
+        // told to read, and the remedy was never printed anywhere at all.
+        //
+        // In JSON mode it goes to STDERR so the contract on stdout stays a single parseable object.
+        if ($result->needsManualConvergence()) {
+            $notice = sprintf(
+                'Manual convergence required for: %s. Recreating these is a data-availability '
+                . 'decision, so the deploy will not do it. When you choose to take the downtime: %s',
                 implode(', ', $result->statefulServices),
-            ));
+                (string) $result->convergenceCommand(),
+            );
+
+            $stream = $output instanceof ConsoleOutputInterface ? $output->getErrorOutput() : $output;
+            $stream->writeln($json ? $notice : sprintf('<comment>%s</comment>', $notice));
         }
 
         return self::SUCCESS;

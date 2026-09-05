@@ -59,6 +59,33 @@ final readonly class ComposeSyncResult
         return $this->applied && $this->statefulServices !== [];
     }
 
+    /**
+     * The exact command that converges the services this sync could not.
+     *
+     * Carried on the result rather than composed at the call site because the guidance is useless
+     * unless it reaches whoever reads the output, and the deploy reads the MACHINE-READABLE output.
+     * Naming the drifted service without naming the remedy was measurably not enough: the first
+     * production run reported that kafka needed convergence, and the sentence explaining what to do
+     * about it lived on a branch that only runs without --json — which the deploy never takes.
+     *
+     * --no-deps is not optional. Without it compose re-evaluates every dependency of the named
+     * service and may recreate them too, which is precisely the implicit datastore recreate this
+     * whole design exists to prevent. --remove-orphans is likewise never correct on this project:
+     * the edge proxy runs from a second compose file and registers here as an orphan.
+     */
+    public function convergenceCommand(): ?string
+    {
+        if (!$this->needsManualConvergence()) {
+            return null;
+        }
+
+        return sprintf(
+            'docker compose -f %s up -d --no-deps %s',
+            $this->path,
+            implode(' ', $this->statefulServices),
+        );
+    }
+
     /** @return array<string, mixed> */
     public function toArray(): array
     {
@@ -69,6 +96,7 @@ final readonly class ComposeSyncResult
             'backup_path' => $this->backupPath,
             'changed_services' => $this->changedServices,
             'stateful_services_needing_manual_convergence' => $this->statefulServices,
+            'convergence_command' => $this->convergenceCommand(),
         ];
     }
 

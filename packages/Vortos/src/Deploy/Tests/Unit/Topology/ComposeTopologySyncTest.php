@@ -6,6 +6,7 @@ namespace Vortos\Deploy\Tests\Unit\Topology;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Topology\ComposeTopologySync;
+use Vortos\Deploy\Topology\TopologyValidatorInterface;
 
 /**
  * The file this writes describes how the database is run, so every safety property is asserted
@@ -57,6 +58,99 @@ final class ComposeTopologySyncTest extends TestCase
         }
 
         return [new ComposeTopologySync($sourcePath, $targetPath, $stateful), $sourcePath, $targetPath];
+    }
+
+    /**
+     * The validator sees the STAGED file, beside the one it replaces — not the source.
+     *
+     * A compose file resolves env_file entries and relative mounts against its own directory, so
+     * validating the copy inside the release image asks whether the host's secrets exist in the
+     * image. They do not and must not. That mistake failed a production deploy with
+     * "env file /var/www/html/.env.prod not found" on a topology that was perfectly valid.
+     */
+    public function testTheValidatorIsGivenTheStagedFileNextToTheLiveOne(): void
+    {
+        $seen = null;
+        $validator = new class ($seen) implements TopologyValidatorInterface {
+            public function __construct(public ?string &$seen) {}
+
+            public function validate(string $path): ?string
+            {
+                $this->seen = $path;
+
+                return null;
+            }
+        };
+
+        $sourcePath = $this->dir . '/source.yaml';
+        $targetPath = $this->dir . '/target.yaml';
+        file_put_contents($sourcePath, $this->compose(appExtra: "\n    restart: always"));
+        file_put_contents($targetPath, $this->compose());
+
+        (new ComposeTopologySync($sourcePath, $targetPath, validator: $validator))->sync(apply: true);
+
+        self::assertSame($targetPath . '.incoming', $validator->seen);
+        self::assertSame(
+            dirname($targetPath),
+            dirname((string) $validator->seen),
+            'the staged file must sit in the directory the live file lives in, or relative paths resolve wrongly',
+        );
+    }
+
+    /**
+     * A rejection must leave the host exactly as it was — no live file changed, no staging file
+     * abandoned, and no stray backup implying something happened.
+     */
+    public function testAValidatorRejectionLeavesNothingBehind(): void
+    {
+        $validator = new class implements TopologyValidatorInterface {
+            public function validate(string $path): ?string
+            {
+                return 'the topology is not valid — refusing';
+            }
+        };
+
+        $sourcePath = $this->dir . '/source.yaml';
+        $targetPath = $this->dir . '/target.yaml';
+        file_put_contents($sourcePath, $this->compose(appExtra: "\n    restart: always"));
+        file_put_contents($targetPath, $this->compose());
+        $before = file_get_contents($targetPath);
+
+        try {
+            (new ComposeTopologySync($sourcePath, $targetPath, validator: $validator))->sync(apply: true);
+            self::fail('a rejected topology must not be written');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('refusing', $e->getMessage());
+        }
+
+        self::assertSame($before, file_get_contents($targetPath));
+        self::assertFileDoesNotExist($targetPath . '.incoming');
+        self::assertSame([], glob($targetPath . '.bak.*') ?: [], 'a refused sync must not leave a backup behind');
+    }
+
+    /** A dry run never stages, so there is nothing for a validator to be asked about. */
+    public function testADryRunDoesNotInvokeTheValidator(): void
+    {
+        $called = false;
+        $validator = new class ($called) implements TopologyValidatorInterface {
+            public function __construct(public bool &$called) {}
+
+            public function validate(string $path): ?string
+            {
+                $this->called = true;
+
+                return null;
+            }
+        };
+
+        $sourcePath = $this->dir . '/source.yaml';
+        $targetPath = $this->dir . '/target.yaml';
+        file_put_contents($sourcePath, $this->compose(appExtra: "\n    restart: always"));
+        file_put_contents($targetPath, $this->compose());
+
+        (new ComposeTopologySync($sourcePath, $targetPath, validator: $validator))->sync(apply: false);
+
+        self::assertFalse($validator->called);
     }
 
     public function testIdenticalTopologiesAreANoOp(): void

@@ -64,27 +64,15 @@ final class ComposeSyncCommand extends Command
             explode(',', (string) $input->getOption('stateful')),
         )));
 
-        // A second opinion from the tool that will run it, before anything is written. The
-        // structural checks in ComposeTopologySync are dependency-free so they work anywhere and
-        // stay unit-testable, but they cannot catch a bad anchor, an unresolvable extends or a
-        // schema violation — only the real parser knows those.
-        $source = (string) $input->getOption('source');
-        $validationError = $this->validator->validate($source);
-
-        if ($validationError !== null) {
-            if ($json) {
-                $output->writeln((string) json_encode(['ok' => false, 'error' => $validationError], JSON_THROW_ON_ERROR));
-            } else {
-                $output->writeln(sprintf('<error>Topology sync failed: %s</error>', $validationError));
-            }
-
-            return self::FAILURE;
-        }
-
         $sync = new ComposeTopologySync(
-            sourcePath: $source,
+            sourcePath: (string) $input->getOption('source'),
             targetPath: (string) $input->getOption('target'),
             statefulServices: $stateful,
+            // Applied to the STAGED file, beside the one it replaces, so env_file entries and
+            // relative mounts resolve as they will at runtime. Validating the copy inside the
+            // release image instead asks whether the host's secrets exist in the image — they do
+            // not and must not, and that mistake failed a production deploy.
+            validator: $this->validator,
         );
 
         try {

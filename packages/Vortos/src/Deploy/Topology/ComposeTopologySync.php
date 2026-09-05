@@ -53,6 +53,11 @@ final class ComposeTopologySync
         private readonly string $sourcePath,
         private readonly string $targetPath,
         private readonly array $statefulServices = self::DEFAULT_STATEFUL_SERVICES,
+        /**
+         * Optional second opinion from the tool that will run the topology, applied to the STAGED
+         * file — see writeAtomically() for why the location is the whole point.
+         */
+        private readonly ?TopologyValidatorInterface $validator = null,
     ) {}
 
     public function sync(bool $apply): ComposeSyncResult
@@ -135,6 +140,13 @@ final class ComposeTopologySync
      * observed half-written — not even for the microseconds a direct write would take. The previous
      * contents are kept beside it, timestamped, because the fastest safe rollback is a copy.
      *
+     * THE STAGED FILE IS WHAT GETS VALIDATED, and its location is the entire reason this works. A
+     * compose file resolves env_file entries and relative bind mounts against its own directory, so
+     * validating the copy inside the release image asks whether the HOST's secrets exist in the
+     * IMAGE — which they emphatically do not, and must not. That is not a broken topology, it is a
+     * correctly-shaped one being asked the wrong question, and it failed a production deploy. Staged
+     * beside the file it is replacing, every relative path resolves exactly as it will at runtime.
+     *
      * @return string|null the backup path, when one was taken
      */
     private function writeAtomically(string $contents, bool $backup): ?string
@@ -163,6 +175,16 @@ final class ComposeTopologySync
         $mode = @fileperms($this->targetPath);
         if ($mode !== false) {
             @chmod($temporary, $mode & 0o7777);
+        }
+
+        $objection = $this->validator?->validate($temporary);
+        if ($objection !== null) {
+            @unlink($temporary);
+            if ($backupPath !== null) {
+                @unlink($backupPath);
+            }
+
+            throw new RuntimeException($objection);
         }
 
         if (!@rename($temporary, $this->targetPath)) {

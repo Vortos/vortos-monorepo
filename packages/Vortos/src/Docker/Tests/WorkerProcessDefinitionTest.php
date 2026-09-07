@@ -58,6 +58,70 @@ final class WorkerProcessDefinitionTest extends TestCase
         );
     }
 
+    public function test_a_generated_block_logs_to_container_stdout_by_default(): void
+    {
+        $def = new WorkerProcessDefinition(
+            name: 'my-worker',
+            command: 'php vortos:consume main',
+            description: 'Test worker',
+        );
+
+        $block = $def->managedBlock();
+
+        // A log collector tails container stdout. Defaulting to a file made the whole worker
+        // container invisible to it while the app container beside it shipped normally.
+        $this->assertStringContainsString('stdout_logfile=/dev/stdout', $block);
+        $this->assertStringNotContainsString('/var/log/supervisor', $block);
+    }
+
+    public function test_a_device_target_always_disables_rotation(): void
+    {
+        $def = new WorkerProcessDefinition(
+            name: 'my-worker',
+            command: 'php vortos:consume main',
+            description: 'Test worker',
+        );
+
+        // MANDATORY, not tidiness: supervisord otherwise tries to rotate /dev/stdout and the
+        // program fails to start. Its absence is why a generated block could not point at stdout.
+        $this->assertStringContainsString('stdout_logfile_maxbytes=0', $block = $def->managedBlock());
+        $this->assertStringContainsString('redirect_stderr=true', $block);
+    }
+
+    public function test_an_explicit_file_target_keeps_supervisords_own_rotation(): void
+    {
+        $def = new WorkerProcessDefinition(
+            name: 'my-worker',
+            command: 'php vortos:consume main',
+            description: 'Test worker',
+            stdoutLogfile: '/var/log/supervisor/my-worker.out.log',
+            redirectStderr: false,
+            stderrLogfile: '/var/log/supervisor/my-worker.err.log',
+        );
+
+        $block = $def->managedBlock();
+
+        // maxbytes=0 on a real file would mean unbounded growth, so it must NOT be emitted here.
+        $this->assertStringContainsString('stdout_logfile=/var/log/supervisor/my-worker.out.log', $block);
+        $this->assertStringContainsString('stderr_logfile=/var/log/supervisor/my-worker.err.log', $block);
+        $this->assertStringNotContainsString('maxbytes', $block);
+        $this->assertStringNotContainsString('redirect_stderr', $block);
+    }
+
+    public function test_stderr_is_not_emitted_separately_when_redirected(): void
+    {
+        $def = new WorkerProcessDefinition(
+            name: 'my-worker',
+            command: 'php vortos:consume main',
+            description: 'Test worker',
+        );
+
+        $block = $def->managedBlock();
+
+        // Two writers on one pipe interleave above PIPE_BUF; merging them halves that exposure.
+        $this->assertStringNotContainsString('stderr_logfile', $block);
+    }
+
     public function test_managed_block_contains_drain_deadline_comment(): void
     {
         $def = new WorkerProcessDefinition(

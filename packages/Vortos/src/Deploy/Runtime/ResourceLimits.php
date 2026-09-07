@@ -54,10 +54,35 @@ final readonly class ResourceLimits
      */
     public const MIN_NOFILE = 4096;
 
+    /**
+     * Below this a memory limit is more likely to be a unit mistake (bytes for megabytes) than a
+     * decision, and a container that cannot allocate 64 MiB will not finish booting PHP.
+     */
+    public const MIN_MEMORY_BYTES = 67108864;
+
+    /**
+     * @param int|null $appMemoryBytes    hard memory ceiling for the app color, null = unlimited
+     * @param int|null $workerMemoryBytes hard memory ceiling for the worker color, null = unlimited
+     */
     public function __construct(
         public int $nofileSoft = self::DEFAULT_NOFILE,
         public int $nofileHard = self::DEFAULT_NOFILE,
+        public ?int $appMemoryBytes = null,
+        public ?int $workerMemoryBytes = null,
     ) {
+        foreach (['appMemoryBytes' => $appMemoryBytes, 'workerMemoryBytes' => $workerMemoryBytes] as $field => $bytes) {
+            if ($bytes !== null && $bytes < self::MIN_MEMORY_BYTES) {
+                throw new \InvalidArgumentException(sprintf(
+                    'ResourceLimits.%s must be at least %d bytes (64 MiB) — below that the container '
+                    . 'cannot finish booting, so the limit would present as a boot loop rather than as '
+                    . 'a memory ceiling. Got %d.',
+                    $field,
+                    self::MIN_MEMORY_BYTES,
+                    $bytes,
+                ));
+            }
+        }
+
         foreach (['nofileSoft' => $nofileSoft, 'nofileHard' => $nofileHard] as $field => $value) {
             if ($value < self::MIN_NOFILE) {
                 throw new \InvalidArgumentException(sprintf(
@@ -79,6 +104,24 @@ final readonly class ResourceLimits
                 $nofileHard,
             ));
         }
+    }
+
+    /**
+     * Memory ceilings for the two colors, in bytes. Null leaves a color unlimited.
+     *
+     * A container with no limit is not neutral: when it leaks, the kernel OOM-killer chooses the
+     * victim by its own heuristic, so one component's bug becomes an outage of whichever component
+     * the kernel picks — typically the largest RSS, which is rarely the one at fault. A limit turns
+     * that into the offending container hitting its own ceiling and being restarted by its own
+     * restart policy: survivable, and attributable to the right service.
+     *
+     * Size from measured peak with real headroom. The worker is usually the one that needs saying
+     * out loud, because a process-per-consumer fan-out grows with the topic count rather than with
+     * traffic.
+     */
+    public function withMemory(?int $appBytes, ?int $workerBytes): self
+    {
+        return new self($this->nofileSoft, $this->nofileHard, $appBytes, $workerBytes);
     }
 
     /** The framework default — see the class docblock for how the value was chosen. */

@@ -85,6 +85,57 @@ final class ComposeFileTest extends TestCase
         $this->assertSame($expected, $services['worker-blue']['ulimits']);
     }
 
+    public function test_memory_limits_are_absent_unless_declared(): void
+    {
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec());
+
+        $services = $compose->toArray()['services'];
+
+        // Unlimited stays the default: a deployment that has not sized its containers must not have
+        // a number invented for it, because a limit set too low presents as a boot loop.
+        $this->assertArrayNotHasKey('mem_limit', $services['app-blue']);
+        $this->assertArrayNotHasKey('mem_limit', $services['worker-blue']);
+    }
+
+    public function test_declared_memory_limits_reach_both_colors_independently(): void
+    {
+        // The two colors are sized separately on purpose: a process-per-consumer worker grows with
+        // the topic count, not with traffic, so it is routinely an order of magnitude larger than
+        // the app it serves.
+        $spec = new RuntimeServiceSpec(
+            resourceLimits: ResourceLimits::defaults()->withMemory(1073741824, 8589934592),
+        );
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), $spec);
+
+        $services = $compose->toArray()['services'];
+
+        $this->assertSame(1073741824, $services['app-blue']['mem_limit']);
+        $this->assertSame(8589934592, $services['worker-blue']['mem_limit']);
+    }
+
+    public function test_only_the_declared_color_gets_a_limit(): void
+    {
+        $spec = new RuntimeServiceSpec(
+            resourceLimits: ResourceLimits::defaults()->withMemory(null, 8589934592),
+        );
+        $compose = new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), $spec);
+
+        $services = $compose->toArray()['services'];
+
+        $this->assertArrayNotHasKey('mem_limit', $services['app-blue']);
+        $this->assertSame(8589934592, $services['worker-blue']['mem_limit']);
+    }
+
+    public function test_a_memory_limit_too_small_to_boot_is_refused(): void
+    {
+        // 32 MiB: far more likely a unit mistake than a decision, and PHP will not finish booting
+        // in it — so the limit would surface as a restart loop rather than as a ceiling.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/at least .* bytes/');
+
+        ResourceLimits::defaults()->withMemory(null, 33554432);
+    }
+
     public function test_worker_healthcheck_overrides_inherited_http_check(): void
     {
         // GAP-G: the worker service must always emit an explicit healthcheck so it never inherits the

@@ -40,6 +40,13 @@ final readonly class ComposeFile
         // headroom for client connections; the worker needs it for its consumer sockets and pools.
         $ulimits = $this->spec->resolvedResourceLimits()->toArray();
 
+        // Memory ceilings, when declared. Unlimited is not a neutral default: a leaking container
+        // with no limit hands the choice of victim to the kernel OOM-killer, which picks by RSS —
+        // so the process that dies is the biggest, not the one at fault, and on a single-box
+        // deployment that is as likely to be the database as the leak. A limit makes the failure
+        // land on the container that caused it, where its own restart policy can act on it.
+        $limits = $this->spec->resolvedResourceLimits();
+
         $appService = [
             'image' => $imageRef,
             'command' => $this->spec->command,
@@ -54,6 +61,10 @@ final readonly class ComposeFile
             'ulimits' => $ulimits,
         ];
 
+        if ($limits->appMemoryBytes !== null) {
+            $appService['mem_limit'] = $limits->appMemoryBytes;
+        }
+
         $workerService = [
             'image' => $imageRef,
             'command' => $this->spec->workerCommand,
@@ -65,6 +76,10 @@ final readonly class ComposeFile
             'healthcheck' => $this->spec->resolvedWorkerHealthcheck()->toArray(),
             'ulimits' => $ulimits,
         ];
+
+        if ($limits->workerMemoryBytes !== null) {
+            $workerService['mem_limit'] = $limits->workerMemoryBytes;
+        }
 
         // The worker (and its consumer fan-out) must not start until the app color is genuinely READY.
         // Co-booting them lets a cold-start consumer stampede — offset-reset replays + empty-group

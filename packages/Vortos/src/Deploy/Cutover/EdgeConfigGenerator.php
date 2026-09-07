@@ -324,6 +324,11 @@ final class EdgeConfigGenerator
             #
             # Default is unchanged, so nothing moves for a deployment that does not set it.
             image: \${EDGE_IMAGE:-caddy:2-alpine}
+            # Memory ceiling, overridable and off by default. The edge is small (tens of MB in
+            # practice) but it is the process every request passes through, so it is the one that
+            # must not be chosen by the kernel OOM-killer because something ELSE on the box leaked.
+            # A ceiling of its own means the killer's choice is made by cgroup rather than by RSS.
+            mem_limit: \${EDGE_MEMORY_LIMIT:-0}
             container_name: vortos-edge
             restart: unless-stopped
             depends_on:

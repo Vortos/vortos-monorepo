@@ -7,6 +7,7 @@ namespace Vortos\Analytics\DependencyInjection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Analytics\DependencyInjection\Compiler\CollectAnalyticsDriversPass;
+use Vortos\Analytics\DependencyInjection\Compiler\FlagAttributionCompilerPass;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\OpsKit\Driver\DependencyInjection\CollectDriversCompilerPass;
 
@@ -20,5 +21,7 @@ final class AnalyticsPackage implements PackageInterface
     public function build(ContainerBuilder $container): void
     {
         CollectDriversCompilerPass::register($container, new CollectAnalyticsDriversPass());
+
+        $container->addCompilerPass(new FlagAttributionCompilerPass());
     }
 }

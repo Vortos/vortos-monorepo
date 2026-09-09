@@ -13,6 +13,8 @@ use Vortos\Analytics\Capability\AnalyticsCapability;
 use Vortos\Analytics\Event\AnalyticsEvent;
 use Vortos\Analytics\Event\GroupAssociation;
 use Vortos\Analytics\Event\IdentitySet;
+use Vortos\FeatureFlags\Exposure\ExposureRecord;
+use Vortos\FeatureFlags\Exposure\ExposureSource;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
 
 final class AnalyticsExposureObserverTest extends TestCase
@@ -22,7 +24,7 @@ final class AnalyticsExposureObserverTest extends TestCase
         $analytics = $this->spyAnalytics();
         $observer = new AnalyticsExposureObserver($analytics, new FlagExposureSampler(1.0), enabled: false);
 
-        $observer->onExposure('checkout', 'b', 'ctx-1');
+        $observer->onExposure(new ExposureRecord('checkout', 'b', 'ctx-1'));
 
         $this->assertSame([], $analytics->captured);
     }
@@ -32,7 +34,7 @@ final class AnalyticsExposureObserverTest extends TestCase
         $analytics = $this->spyAnalytics();
         $observer = new AnalyticsExposureObserver($analytics, new FlagExposureSampler(1.0), enabled: true);
 
-        $observer->onExposure('checkout', 'b', 'ctx-1');
+        $observer->onExposure(new ExposureRecord('checkout', 'b', 'ctx-1'));
 
         $this->assertCount(1, $analytics->captured);
         $event = $analytics->captured[0];
@@ -47,7 +49,7 @@ final class AnalyticsExposureObserverTest extends TestCase
         $analytics = $this->spyAnalytics();
         $observer = new AnalyticsExposureObserver($analytics, new FlagExposureSampler(0.0), enabled: true);
 
-        $observer->onExposure('checkout', 'b', 'ctx-1');
+        $observer->onExposure(new ExposureRecord('checkout', 'b', 'ctx-1'));
 
         $this->assertSame([], $analytics->captured);
     }
@@ -57,7 +59,7 @@ final class AnalyticsExposureObserverTest extends TestCase
         $analytics = $this->spyAnalytics();
         $observer = new AnalyticsExposureObserver($analytics, new FlagExposureSampler(1.0), enabled: true);
 
-        $observer->onExposure('kill-switch', null, 'ctx-1');
+        $observer->onExposure(new ExposureRecord('kill-switch', null, 'ctx-1'));
 
         $this->assertSame('', $analytics->captured[0]->properties['variant']);
     }
@@ -77,7 +79,7 @@ final class AnalyticsExposureObserverTest extends TestCase
         };
 
         $observer = new AnalyticsExposureObserver($analytics, new FlagExposureSampler(1.0), enabled: true);
-        $observer->onExposure('flag', 'a', 'ctx-1');
+        $observer->onExposure(new ExposureRecord('flag', 'a', 'ctx-1'));
 
         $this->addToAssertionCount(1);
     }
@@ -88,9 +90,41 @@ final class AnalyticsExposureObserverTest extends TestCase
         $analytics = $this->spyAnalytics();
         $observer = new AnalyticsExposureObserver($analytics, new FlagExposureSampler(1.0), enabled: true);
 
-        $observer->onExposure('flag', 'a', '');
+        $observer->onExposure(new ExposureRecord('flag', 'a', ''));
 
         $this->assertSame([], $analytics->captured);
+    }
+
+    public function test_record_metadata_reaches_the_event(): void
+    {
+        // Timestamp, groups and source were all dropped before; each is something the
+        // analytics backend cannot reconstruct from the event alone.
+        $analytics = $this->spyAnalytics();
+        $observer = new AnalyticsExposureObserver($analytics, new FlagExposureSampler(1.0), enabled: true);
+
+        $observer->onExposure(new ExposureRecord(
+            flag:       'checkout',
+            variant:    'true',
+            contextKey: 'ctx-1',
+            source:     ExposureSource::Server,
+            timestamp:  1_700_000_000,
+            groups:     ['organization' => 'org-7'],
+        ));
+
+        $event = $analytics->captured[0];
+        $this->assertSame(1_700_000_000, $event->timestamp?->getTimestamp());
+        $this->assertSame(['organization' => 'org-7'], $event->groups);
+        $this->assertSame('server', $event->properties['exposure_source']);
+    }
+
+    public function test_absent_timestamp_leaves_the_event_unstamped(): void
+    {
+        $analytics = $this->spyAnalytics();
+        $observer = new AnalyticsExposureObserver($analytics, new FlagExposureSampler(1.0), enabled: true);
+
+        $observer->onExposure(new ExposureRecord('checkout', 'b', 'ctx-1'));
+
+        $this->assertNull($analytics->captured[0]->timestamp, 'the backend should stamp ingest time, not this observer');
     }
 
     private function spyAnalytics(): object

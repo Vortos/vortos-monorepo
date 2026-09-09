@@ -8,6 +8,8 @@ use PHPUnit\Framework\TestCase;
 use Vortos\FeatureFlags\Exposure\ExposureEvent;
 use Vortos\FeatureFlags\Exposure\ExposureIngestService;
 use Vortos\FeatureFlags\Exposure\ExposureObserverInterface;
+use Vortos\FeatureFlags\Exposure\ExposureRecord;
+use Vortos\FeatureFlags\Exposure\ExposureSource;
 use Vortos\FeatureFlags\FeatureFlag;
 use Vortos\FeatureFlags\Metrics\FlagEvaluationMetrics;
 use Vortos\FeatureFlags\Storage\FlagStorageInterface;
@@ -72,9 +74,9 @@ final class ExposureIngestServiceTest extends TestCase
         $observer = new class implements ExposureObserverInterface {
             public array $calls = [];
 
-            public function onExposure(string $flag, ?string $variant, string $contextKey): void
+            public function onExposure(ExposureRecord $record): void
             {
-                $this->calls[] = [$flag, $variant, $contextKey];
+                $this->calls[] = [$record->flag, $record->variant, $record->contextKey];
             }
         };
 
@@ -93,7 +95,7 @@ final class ExposureIngestServiceTest extends TestCase
     {
         $sink = new RecordingMetrics();
         $observer = new class implements ExposureObserverInterface {
-            public function onExposure(string $flag, ?string $variant, string $contextKey): void
+            public function onExposure(ExposureRecord $record): void
             {
                 throw new \RuntimeException('boom');
             }
@@ -132,5 +134,27 @@ final class ExposureIngestServiceTest extends TestCase
         $storage->method('findAll')->willReturn($flags);
 
         return new ExposureIngestService($storage, new FlagEvaluationMetrics($sink), $observers);
+    }
+
+    public function test_record_carries_the_sdk_timestamp_and_group_associations(): void
+    {
+        $observer = new class implements ExposureObserverInterface {
+            public ?ExposureRecord $last = null;
+
+            public function onExposure(ExposureRecord $record): void
+            {
+                $this->last = $record;
+            }
+        };
+
+        $service = $this->service(['known'], new RecordingMetrics(), [$observer]);
+
+        $service->ingest([new ExposureEvent('known', 'a', 1_700_000_000)], 'ctx-1', ['organization' => 'org-7']);
+
+        // Both were previously dropped, which stamped every exposure at ingest time and made
+        // per-tenant rollout breakdowns impossible.
+        $this->assertSame(1_700_000_000, $observer->last?->timestamp);
+        $this->assertSame(['organization' => 'org-7'], $observer->last?->groups);
+        $this->assertSame(ExposureSource::Sdk, $observer->last?->source);
     }
 }

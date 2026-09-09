@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Analytics\AnalyticsInterface;
 use Vortos\Analytics\Bridge\AnalyticsExposureObserver;
+use Vortos\Analytics\Bridge\FlagEnrichingAnalytics;
 use Vortos\Analytics\Bridge\FlagExposureSampler;
 use Vortos\Analytics\Command\AnalyticsDoctorCheck;
 use Vortos\Analytics\Command\AnalyticsFlushCommand;
@@ -166,8 +167,28 @@ final class AnalyticsExtension extends Extension
         $rate = (float) ($_ENV['ANALYTICS_FLAG_EXPOSURE_SAMPLE_RATE'] ?? 0.1);
         $enabled = (string) ($_ENV['ANALYTICS_FLAG_EXPOSURE_BRIDGE'] ?? '0') === '1';
 
+
         $container->register(FlagExposureSampler::class, FlagExposureSampler::class)
             ->setArgument('$rate', $rate)
+            ->setPublic(false);
+
+        // Flag attribution on every event, stamped centrally so no call site has to remember.
+        // Registered OUTSIDE the privacy + batching chain and re-pointing the public alias, so
+        // app-issued events are enriched before the privacy filter runs — which is exactly why
+        // the property it writes is reserved there rather than left to each app's allowlist.
+        //
+        // Defaults on when the bridge is on: an exposure event alone cannot answer whether a
+        // flag moved a metric, because the metric lives on a different event. Separately
+        // switchable for the case where an app wants exposures but not attribution.
+        $enrich = (string) ($_ENV['ANALYTICS_FLAG_ATTRIBUTION'] ?? ($enabled ? '1' : '0')) === '1';
+
+        // The alias is NOT re-pointed here. FlagAttributionCompilerPass does that, and only if
+        // the feature-flags services are genuinely in this container — see that pass for why
+        // `class_exists()` is the wrong question to ask at load time.
+        $container->register(FlagEnrichingAnalytics::class, FlagEnrichingAnalytics::class)
+            ->setArgument('$inner', new Reference(BatchingAnalytics::class))
+            ->setArgument('$collector', new Reference(\Vortos\FeatureFlags\Exposure\ActiveFlagCollector::class))
+            ->setArgument('$enabled', $enrich)
             ->setPublic(false);
 
         // No explicit tag needed: FeatureFlagsExtension registers

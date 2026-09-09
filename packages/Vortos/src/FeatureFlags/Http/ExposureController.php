@@ -6,6 +6,7 @@ namespace Vortos\FeatureFlags\Http;
 
 use Symfony\Component\Routing\Attribute\Route;
 use Vortos\FeatureFlags\Exposure\ExposureEvent;
+use Vortos\FeatureFlags\Exposure\ExposureGroupResolver;
 use Vortos\FeatureFlags\Exposure\ExposureIngestService;
 use Vortos\Http\Attribute\AsController;
 use Vortos\Http\JsonResponse;
@@ -36,6 +37,7 @@ final class ExposureController
     public function __construct(
         private readonly ExposureIngestService $ingest,
         private readonly FlagContextResolverInterface $contextResolver,
+        private readonly ExposureGroupResolver $groupResolver = new ExposureGroupResolver(),
     ) {}
 
     public function __invoke(Request $request): JsonResponse
@@ -72,8 +74,15 @@ final class ExposureController
             }
         }
 
-        $context  = $this->contextResolver->resolve($request);
-        $accepted = $this->ingest->ingest($events, $context->cacheKey());
+        $context = $this->contextResolver->resolve($request);
+
+        // Group associations come from the resolver's *trusted* zone only, so a client cannot
+        // attribute its exposures to another tenant by editing the context header.
+        $accepted = $this->ingest->ingest(
+            $events,
+            $context->cacheKey(),
+            $this->groupResolver->resolve($context),
+        );
 
         return new JsonResponse(['accepted' => $accepted], 202);
     }

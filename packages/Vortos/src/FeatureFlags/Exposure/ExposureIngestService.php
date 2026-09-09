@@ -39,10 +39,11 @@ final class ExposureIngestService
     ) {}
 
     /**
-     * @param list<ExposureEvent> $events
+     * @param list<ExposureEvent>  $events
+     * @param array<string,string> $groups group associations to stamp on every record
      * @return int number of exposures accepted (known flag, not a duplicate)
      */
-    public function ingest(array $events, string $contextKey): int
+    public function ingest(array $events, string $contextKey, array $groups = []): int
     {
         $known    = $this->knownFlagNames();
         $seen     = [];
@@ -53,25 +54,34 @@ final class ExposureIngestService
                 continue; // unknown flag → never create a metric series for it
             }
 
-            $dedupeKey = $contextKey . '|' . $event->name . '|' . ($event->variant ?? '');
+            $record = new ExposureRecord(
+                flag:       $event->name,
+                variant:    $event->variant,
+                contextKey: $contextKey,
+                source:     ExposureSource::Sdk,
+                timestamp:  $event->timestamp,
+                groups:     $groups,
+            );
+
+            $dedupeKey = $record->dedupeKey();
             if (isset($seen[$dedupeKey])) {
                 continue;
             }
             $seen[$dedupeKey] = true;
 
             $this->metrics->exposure($event->name, $event->variant);
-            $this->notifyObservers($event->name, $event->variant, $contextKey);
+            $this->notifyObservers($record);
             $accepted++;
         }
 
         return $accepted;
     }
 
-    private function notifyObservers(string $flag, ?string $variant, string $contextKey): void
+    private function notifyObservers(ExposureRecord $record): void
     {
         foreach ($this->observers as $observer) {
             try {
-                $observer->onExposure($flag, $variant, $contextKey);
+                $observer->onExposure($record);
             } catch (Throwable) {
                 // Intentionally swallowed: an observer can never break ingestion.
             }

@@ -13,6 +13,7 @@ use Vortos\Analytics\Command\AnalyticsFlushCommand;
 use Vortos\Analytics\DependencyInjection\AnalyticsExtension;
 use Vortos\Analytics\DependencyInjection\AnalyticsPackage;
 use Vortos\Analytics\Registry\AnalyticsDriverRegistry;
+use Vortos\Analytics\Bridge\FlagEnrichingAnalytics;
 use Vortos\Analytics\Runtime\BatchingAnalytics;
 use Vortos\OpsKit\Driver\Exception\UnknownDriverException;
 
@@ -56,6 +57,18 @@ final class ContainerWiringTest extends TestCase
         $container = $this->loadOnlyContainer();
 
         $alias = (string) $container->getAlias(AnalyticsInterface::class);
+
+        // With feature flags installed, flag attribution wraps the chain so app-issued events
+        // are enriched *before* the privacy filter runs. The invariant under test is unchanged
+        // and is asserted directly rather than by naming whichever class is currently outermost:
+        // whatever app code resolves must still reach the batching + privacy chain beneath it.
+        if ($alias === FlagEnrichingAnalytics::class) {
+            $inner = (string) $container->getDefinition(FlagEnrichingAnalytics::class)->getArgument('$inner');
+            $this->assertSame(BatchingAnalytics::class, $inner, 'privacy + batching must never be bypassable');
+
+            return;
+        }
+
         $this->assertSame(BatchingAnalytics::class, $alias, 'privacy + batching must never be bypassable');
     }
 

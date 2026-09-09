@@ -77,8 +77,11 @@ use Vortos\FeatureFlags\Command\FlagsSetOwnerCommand;
 use Vortos\FeatureFlags\Command\FlagsShowCommand;
 use Vortos\FeatureFlags\Command\FlagsStalenessReportCommand;
 use Vortos\FeatureFlags\Application\FlagWriteService;
+use Vortos\FeatureFlags\Exposure\ActiveFlagCollector;
+use Vortos\FeatureFlags\Exposure\ExposureGroupResolver;
 use Vortos\FeatureFlags\Exposure\ExposureIngestService;
 use Vortos\FeatureFlags\Exposure\ExposureObserverInterface;
+use Vortos\FeatureFlags\Exposure\ExposureReportingFlagRegistry;
 use Vortos\FeatureFlags\FlagEvaluator;
 use Vortos\FeatureFlags\FlagScopeContext;
 use Vortos\FeatureFlags\Http\DefaultFlagContextResolver;
@@ -430,6 +433,7 @@ final class FeatureFlagsExtension extends Extension
         $container->register(ExposureController::class, ExposureController::class)
             ->setArgument('$ingest', new Reference(ExposureIngestService::class))
             ->setArgument('$contextResolver', new Reference(FlagContextResolverInterface::class))
+            ->setArgument('$groupResolver', new Reference(ExposureGroupResolver::class))
             ->addTag('vortos.api.controller')
             ->setPublic(true);
 
@@ -885,6 +889,8 @@ final class FeatureFlagsExtension extends Extension
         $container->setAlias(FlagRegistryInterface::class, OverrideAwareFlagRegistry::class)
             ->setPublic(true);
 
+        $this->registerServerExposures($container);
+
         // Block 19 — override middleware (reads X-Vortos-Flag-Override header).
         // Implements Vortos\Http\Contract\MiddlewareInterface — auto-tagged
         // 'vortos.http_middleware' by HttpExtension's autoconfiguration. See the
@@ -906,5 +912,74 @@ final class FeatureFlagsExtension extends Extension
             ->setArgument('$scopeContext', new Reference(FlagScopeContext::class))
             ->addTag('vortos.api.controller')
             ->setPublic(true);
+    }
+
+    /**
+     * Server-side exposure reporting — the other half of the exposure pipeline.
+     *
+     * Until this existed, only a client SDK could produce an exposure. Every backend gate
+     * (`#[RequiresFlag]`, the route middleware, a direct `isEnabled()`) incremented a
+     * Prometheus counter and told the analytics backend nothing, so a flag that only gates
+     * server behaviour looked like it had no traffic at all and could not be measured or
+     * experimented on.
+     *
+     * The decorator goes on **outermost**, above the override layer, so an operator's
+     * per-request override is reported as the value the request actually saw — reporting the
+     * un-overridden value would be a lie about what happened.
+     */
+    private function registerServerExposures(ContainerBuilder $container): void
+    {
+        $container->register(ActiveFlagCollector::class, ActiveFlagCollector::class)
+            ->setArgument('$maxFlags', (int) ($_ENV['FEATURE_FLAGS_MAX_ACTIVE_PER_REQUEST'] ?? ActiveFlagCollector::DEFAULT_MAX_FLAGS))
+            ->setPublic(true);
+
+        $groupMap = $this->parseGroupMap((string) ($_ENV['FEATURE_FLAGS_EXPOSURE_GROUP_MAP'] ?? ''));
+
+        $container->register(ExposureGroupResolver::class, ExposureGroupResolver::class)
+            ->setArgument('$groupMap', $groupMap)
+            ->setPublic(false);
+
+        // Default on: the cost with no observers wired is one hash and an empty loop per
+        // evaluation, and the shipped observer is itself disabled by default — so this cannot
+        // start emitting anything on its own. The env var is an escape hatch, not a switch you
+        // are expected to find.
+        $enabled = (string) ($_ENV['FEATURE_FLAGS_SERVER_EXPOSURES'] ?? '1') === '1';
+
+        $container->register(ExposureReportingFlagRegistry::class, ExposureReportingFlagRegistry::class)
+            ->setArgument('$inner', new Reference(OverrideAwareFlagRegistry::class))
+            ->setArgument('$collector', new Reference(ActiveFlagCollector::class))
+            ->setArgument('$observers', new TaggedIteratorArgument(self::EXPOSURE_OBSERVER_TAG))
+            ->setArgument('$groupResolver', new Reference(ExposureGroupResolver::class))
+            ->setArgument('$enabled', $enabled)
+            ->setArgument('$maxPerRequest', (int) ($_ENV['FEATURE_FLAGS_MAX_EXPOSURES_PER_REQUEST'] ?? ExposureReportingFlagRegistry::DEFAULT_MAX_PER_REQUEST))
+            ->setShared(true)
+            ->setPublic(true);
+
+        $container->setAlias(FlagRegistryInterface::class, ExposureReportingFlagRegistry::class)
+            ->setPublic(true);
+    }
+
+    /**
+     * Parse `groupType:trustedContextKey` pairs, e.g. `organization:tenantId,team:accountId`.
+     * Falls back to the default single association when unset or unparseable — a malformed
+     * value must not silently disable tenant attribution.
+     *
+     * @return array<string,string>
+     */
+    private function parseGroupMap(string $raw): array
+    {
+        if (trim($raw) === '') {
+            return ExposureGroupResolver::DEFAULT_MAP;
+        }
+
+        $map = [];
+        foreach (explode(',', $raw) as $pair) {
+            $parts = explode(':', trim($pair), 2);
+            if (count($parts) === 2 && trim($parts[0]) !== '' && trim($parts[1]) !== '') {
+                $map[trim($parts[0])] = trim($parts[1]);
+            }
+        }
+
+        return $map !== [] ? $map : ExposureGroupResolver::DEFAULT_MAP;
     }
 }

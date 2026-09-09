@@ -127,6 +127,42 @@ final class AnalyticsExposureObserverTest extends TestCase
         $this->assertNull($analytics->captured[0]->timestamp, 'the backend should stamp ingest time, not this observer');
     }
 
+    public function test_the_event_is_reported_under_the_subject_id(): void
+    {
+        $analytics = $this->spyAnalytics();
+        $observer = new AnalyticsExposureObserver($analytics, new FlagExposureSampler(1.0), enabled: true);
+
+        $observer->onExposure(new ExposureRecord(
+            flag: 'checkout',
+            variant: 'b',
+            contextKey: 'user-123|9f3ac1',
+            subjectId: 'user-123',
+        ));
+
+        // Must match the id the rest of the application reports events under, or the exposure
+        // is a different PostHog person and joins to nothing.
+        $this->assertSame('user-123', $analytics->captured[0]->distinctId->value);
+    }
+
+    public function test_sampling_follows_the_subject_across_changing_contexts(): void
+    {
+        // The fingerprint changes when any targeting attribute does. Sampling on it would let
+        // the same person drift in and out of the sample between requests, biasing the
+        // experiment rather than merely shrinking it.
+        $sampler = new FlagExposureSampler(0.5);
+        $subject = 'user-123';
+
+        $decisions = [];
+        foreach (['ctx-a', 'ctx-b', 'ctx-c'] as $fingerprint) {
+            $analytics = $this->spyAnalytics();
+            $observer = new AnalyticsExposureObserver($analytics, $sampler, enabled: true);
+            $observer->onExposure(new ExposureRecord('checkout', 'b', $fingerprint, subjectId: $subject));
+            $decisions[] = $analytics->captured !== [];
+        }
+
+        $this->assertCount(1, array_unique($decisions), 'the same subject must be consistently in or out of the sample');
+    }
+
     private function spyAnalytics(): object
     {
         return new class implements AnalyticsInterface {

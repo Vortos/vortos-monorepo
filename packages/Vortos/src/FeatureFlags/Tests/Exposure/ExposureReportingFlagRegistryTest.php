@@ -208,6 +208,35 @@ final class ExposureReportingFlagRegistryTest extends TestCase
         $this->assertCount(2, $observer->records);
     }
 
+    public function test_the_reported_identity_is_the_subject_not_the_context_fingerprint(): void
+    {
+        // Two silent failures ride on this. A consent decision is looked up by the reported id,
+        // so a fingerprint matches no consent record and every exposure is dropped; and an
+        // exposure recorded against a fingerprint is a different person from the one who later
+        // converts, so nothing can ever be attributed to a variant.
+        $observer = $this->observer();
+        $registry = $this->registry($this->inner(['checkout' => true]), $observer);
+
+        $registry->isEnabled('checkout', new FlagContext('user-123', [], ['tenantId' => 'org-7']));
+
+        $record = $observer->records[0];
+        $this->assertSame('user-123', $record->subjectId);
+        $this->assertSame('user-123', $record->analyticsId());
+        $this->assertNotSame($record->contextKey, $record->analyticsId());
+    }
+
+    public function test_an_anonymous_subject_falls_back_to_the_fingerprint(): void
+    {
+        $observer = $this->observer();
+        $registry = $this->registry($this->inner(['checkout' => true]), $observer);
+
+        $registry->isEnabled('checkout', new FlagContext());
+
+        $record = $observer->records[0];
+        $this->assertNull($record->subjectId);
+        $this->assertSame($record->contextKey, $record->analyticsId(), 'anonymous exposures must still be distinct from one another');
+    }
+
     /** @param array<string,bool> $bools @param array<string,string> $variants */
     private function inner(array $bools, array $variants = []): FlagRegistryInterface
     {

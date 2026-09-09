@@ -49,12 +49,19 @@ final class AnalyticsExposureObserver implements ExposureObserverInterface
         }
 
         try {
-            if (!$this->sampler->isSampledIn($record->contextKey, $record->flag)) {
+            $analyticsId = $record->analyticsId();
+
+            // Sampled on the *subject*, not the context fingerprint. The fingerprint changes
+            // when any targeting attribute does, so sampling on it would let the same person
+            // drift in and out of the sample between requests — which biases an experiment
+            // rather than merely shrinking it, and is exactly what this sampler exists to
+            // prevent.
+            if (!$this->sampler->isSampledIn($analyticsId, $record->flag)) {
                 return;
             }
 
             $event = new AnalyticsEvent(
-                distinctId: new DistinctId($record->contextKey),
+                distinctId: new DistinctId($analyticsId),
                 name:       self::EVENT_NAME,
                 properties: [
                     'flag'            => $record->flag,

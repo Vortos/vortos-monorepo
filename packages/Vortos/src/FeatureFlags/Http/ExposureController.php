@@ -82,6 +82,9 @@ final class ExposureController
             $events,
             $context->cacheKey(),
             $this->groupResolver->resolve($context),
+            // The stable subject, not the context fingerprint: an analytics backend looks up
+            // consent by this id and joins the exposure to the same person's later events.
+            $context->userId,
         );
 
         return new JsonResponse(['accepted' => $accepted], 202);

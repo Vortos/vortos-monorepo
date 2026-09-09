@@ -119,6 +119,7 @@ final class ExposureReportingFlagRegistry implements FlagRegistryInterface, Rese
                 source:     ExposureSource::Server,
                 timestamp:  time(),
                 groups:     $this->groupResolver->resolve($context),
+                subjectId:  $context->userId,
             );
 
             // Recorded before the dedupe check: the collector describes the *current*

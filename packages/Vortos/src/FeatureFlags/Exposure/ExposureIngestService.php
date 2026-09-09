@@ -40,10 +40,11 @@ final class ExposureIngestService
 
     /**
      * @param list<ExposureEvent>  $events
-     * @param array<string,string> $groups group associations to stamp on every record
+     * @param array<string,string> $groups    group associations to stamp on every record
+     * @param string|null          $subjectId stable analytics identity of the reporting subject
      * @return int number of exposures accepted (known flag, not a duplicate)
      */
-    public function ingest(array $events, string $contextKey, array $groups = []): int
+    public function ingest(array $events, string $contextKey, array $groups = [], ?string $subjectId = null): int
     {
         $known    = $this->knownFlagNames();
         $seen     = [];
@@ -61,6 +62,7 @@ final class ExposureIngestService
                 source:     ExposureSource::Sdk,
                 timestamp:  $event->timestamp,
                 groups:     $groups,
+                subjectId:  $subjectId,
             );
 
             $dedupeKey = $record->dedupeKey();

@@ -45,7 +45,10 @@ final readonly class FlagDefinitionMapper
     public function toPayload(FeatureFlag $flag): array
     {
         $payload = [
-            'key' => $flag->name,
+            // Sanitised, because PostHog rejects the dots Vortos flag names use. Must stay
+            // in step with PosthogEventMapper, which sanitises the same name onto every
+            // exposure — the two are joined by string equality on this key.
+            'key' => PosthogFlagKey::forPosthog($flag->name),
             // PostHog's `name` is the human-readable description, not the key.
             'name' => $flag->description !== '' ? $flag->description : $flag->name,
             'active' => $flag->enabled && $flag->lifecycle === FlagLifecycleState::Active,

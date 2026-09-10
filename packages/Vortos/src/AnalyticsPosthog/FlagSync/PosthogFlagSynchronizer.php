@@ -97,7 +97,10 @@ final readonly class PosthogFlagSynchronizer
      */
     private function syncFlag(FeatureFlag $flag, array $remote, FlagSyncReport $report, bool $dryRun): void
     {
-        $existing = $remote[$flag->name] ?? null;
+        // Looked up by the SANITISED key, because that is what the flag was created under.
+        // Indexing by the raw Vortos name would find nothing for every dotted flag, so each
+        // run would try to create one that already exists and report a duplicate forever.
+        $existing = $remote[PosthogFlagKey::forPosthog($flag->name)] ?? null;
 
         if ($existing === null) {
             if (!$dryRun) {

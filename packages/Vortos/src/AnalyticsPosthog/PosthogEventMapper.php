@@ -9,6 +9,7 @@ use Vortos\Analytics\Event\AnalyticsEvent;
 use Vortos\Analytics\Event\GroupAssociation;
 use Vortos\Analytics\Event\IdentitySet;
 use Vortos\Analytics\Privacy\ReservedProperties;
+use Vortos\AnalyticsPosthog\FlagSync\PosthogFlagKey;
 
 /**
  * Maps the agnostic Analytics VOs to PostHog's `/batch` wire shapes. **All PostHog
@@ -128,14 +129,19 @@ final class PosthogEventMapper
         $flag = $this->stringProperty($event->properties, 'flag');
         $variant = $this->stringProperty($event->properties, 'variant');
 
+        // Sanitised here and in FlagDefinitionMapper from the same source name, so a flag's
+        // Usage tab actually joins to the flag it describes. Sanitising one and not the other
+        // makes every flag read as both never-called and undefined.
+        $posthogFlag = $flag === '' ? '' : PosthogFlagKey::forPosthog($flag);
+
         $properties = [
             'distinct_id' => $event->distinctId->value,
-            '$feature_flag' => $flag,
+            '$feature_flag' => $posthogFlag,
             '$feature_flag_response' => $this->flagResponse($variant),
         ];
 
-        if ($flag !== '') {
-            $properties[self::FEATURE_PREFIX . $flag] = $this->flagResponse($variant);
+        if ($posthogFlag !== '') {
+            $properties[self::FEATURE_PREFIX . $posthogFlag] = $this->flagResponse($variant);
         }
 
         $source = $this->stringProperty($event->properties, 'exposure_source');
@@ -205,7 +211,7 @@ final class PosthogEventMapper
             if ($flag === $skip) {
                 continue;
             }
-            $properties[self::FEATURE_PREFIX . $flag] = $this->flagResponse($variant);
+            $properties[self::FEATURE_PREFIX . PosthogFlagKey::forPosthog($flag)] = $this->flagResponse($variant);
         }
 
         return $properties;
@@ -224,7 +230,7 @@ final class PosthogEventMapper
 
         foreach ($activeFlags as $flag => $variant) {
             if ($variant !== self::BOOL_FALSE && $variant !== '') {
-                $keys[] = $flag;
+                $keys[] = PosthogFlagKey::forPosthog($flag);
             }
         }
 

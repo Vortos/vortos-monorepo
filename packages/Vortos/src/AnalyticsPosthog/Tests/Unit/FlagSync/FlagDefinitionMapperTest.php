@@ -21,7 +21,10 @@ final class FlagDefinitionMapperTest extends TestCase
             enabled: true,
         ));
 
-        $this->assertSame('payments.bank_transfer', $payload['key']);
+        // The dot is translated away: PostHog rejects any key outside [A-Za-z0-9_-] with a
+        // 400, so mirroring the Vortos name verbatim failed for every dotted flag — which
+        // is most of them. See PosthogFlagKey.
+        $this->assertSame('payments_bank_transfer', $payload['key']);
         $this->assertSame('Offline bank transfer rail', $payload['name'], "PostHog's `name` is the description, not the key");
         $this->assertTrue($payload['active']);
     }

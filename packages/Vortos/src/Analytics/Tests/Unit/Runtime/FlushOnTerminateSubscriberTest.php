@@ -37,7 +37,7 @@ final class FlushOnTerminateSubscriberTest extends TestCase
         };
 
         $subscriber = new FlushOnTerminateSubscriber($analytics);
-        $subscriber->onTerminate($this->terminateEvent());
+        $subscriber->onTerminate();
 
         $this->assertSame(1, $analytics->flushCount);
     }
@@ -57,16 +57,27 @@ final class FlushOnTerminateSubscriberTest extends TestCase
         };
 
         $subscriber = new FlushOnTerminateSubscriber($analytics);
-        $subscriber->onTerminate($this->terminateEvent());
+        $subscriber->onTerminate();
 
         $this->addToAssertionCount(1);
     }
 
-    public function test_subscribes_to_kernel_terminate(): void
+    /**
+     * This used to assert a subscription to KernelEvents::TERMINATE — an event
+     * Vortos\Http\Kernel::terminate() never dispatches, so it asserted the bug. The HTTP
+     * flush now lives in HttpTerminateFlush as a terminable middleware, which is what the
+     * kernel actually calls; this class covers console processes only.
+     */
+    public function test_subscribes_to_the_console_events_that_actually_fire(): void
     {
-        $this->assertArrayHasKey(
+        $events = FlushOnTerminateSubscriber::getSubscribedEvents();
+
+        $this->assertArrayHasKey(\Symfony\Component\Console\ConsoleEvents::TERMINATE, $events);
+        $this->assertArrayHasKey(\Symfony\Component\Console\ConsoleEvents::ERROR, $events);
+        $this->assertArrayNotHasKey(
             \Symfony\Component\HttpKernel\KernelEvents::TERMINATE,
-            FlushOnTerminateSubscriber::getSubscribedEvents(),
+            $events,
+            'nothing dispatches this event; subscribing to it is how analytics silently stopped shipping',
         );
     }
 

@@ -1,6 +1,6 @@
 {
     "name": "vortos/vortos-analytics",
-    "description": "Vortos product-analytics port — capture/identify/group, null default in-core, privacy-by-default (deny-all consent + allowlist + PII redaction), bounded batching + idempotent identify/group, and an opt-in sampled flag-exposure bridge. Provider drivers (PostHog, ...) ship as separate split packages.",
+    "description": "Vortos product-analytics port \u2014 capture/identify/group, null default in-core, privacy-by-default (deny-all consent + allowlist + PII redaction), bounded batching + idempotent identify/group, and an opt-in sampled flag-exposure bridge. Provider drivers (PostHog, ...) ship as separate split packages.",
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -21,9 +21,10 @@
         "vortos/vortos-deploy": "^1.0"
     },
     "suggest": {
-        "vortos/vortos-feature-flags": "Optional: closes FEATURE_FLAGS_PLATFORM.md §9 by bridging accepted flag exposures into an agnostic feature_flag_exposure analytics event (opt-in, sampled). Guarded by interface_exists().",
+        "vortos/vortos-feature-flags": "Optional: closes FEATURE_FLAGS_PLATFORM.md \u00a79 by bridging accepted flag exposures into an agnostic feature_flag_exposure analytics event (opt-in, sampled). Guarded by interface_exists().",
         "vortos/vortos-deploy": "Optional: registers an analytics:doctor-style preflight check. Guarded by interface_exists().",
-        "vortos/vortos-analytics-posthog": "The PostHog server-side driver — a separate split package, never required by core."
+        "vortos/vortos-analytics-posthog": "The PostHog server-side driver \u2014 a separate split package, never required by core.",
+        "vortos/vortos-http": "Enables the per-request analytics flush (HttpTerminateFlush); without it events ship only when the batch buffer fills."
     },
     "extra": {
         "vortos": {

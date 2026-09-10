@@ -25,6 +25,7 @@ use Vortos\Analytics\Registry\AnalyticsDriverRegistry;
 use Vortos\Analytics\Runtime\AnalyticsSpool;
 use Vortos\Analytics\Runtime\BatchingAnalytics;
 use Vortos\Analytics\Runtime\FlushOnTerminateSubscriber;
+use Vortos\Analytics\Runtime\HttpTerminateFlush;
 use Vortos\Analytics\Runtime\IdentityDedupeCache;
 use Vortos\Analytics\Runtime\PrivacyFilteringAnalytics;
 use Vortos\Observability\Buffer\BoundedSpool;
@@ -152,10 +153,26 @@ final class AnalyticsExtension extends Extension
         // never be bypassed.
         $container->setAlias(AnalyticsInterface::class, BatchingAnalytics::class)->setPublic(true);
 
+        // Console-side flush: commands, consumers, scheduled jobs.
         $container->register(FlushOnTerminateSubscriber::class, FlushOnTerminateSubscriber::class)
             ->setArgument('$analytics', new Reference(AnalyticsInterface::class))
             ->addTag('kernel.event_subscriber')
             ->setPublic(false);
+
+        // HTTP-side flush. Registered only when vortos-http is installed, because analytics
+        // must stay usable in an application with no HTTP layer — the same reason the
+        // FeatureFlags bridge below is guarded.
+        //
+        // This is what actually ships a request's events. Vortos\Http\Kernel::terminate()
+        // only iterates terminable middleware and dispatches no events, so the
+        // KernelEvents::TERMINATE subscriber this replaced had never run: delivery fell back
+        // to BatchingAnalytics' own flush at 100 buffered events, which meant events arrived
+        // in round hundreds or, in a quiet period, never.
+        if (interface_exists(\Vortos\Http\Contract\TerminableMiddlewareInterface::class)) {
+            $container->register(HttpTerminateFlush::class, HttpTerminateFlush::class)
+                ->setArgument('$analytics', new Reference(AnalyticsInterface::class))
+                ->setPublic(false);
+        }
     }
 
     private function registerBridge(ContainerBuilder $container): void

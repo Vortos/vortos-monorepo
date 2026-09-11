@@ -58,6 +58,8 @@ final readonly class ExposureLedgerFlusher implements TerminableMiddlewareInterf
      */
     public function flush(): void
     {
+        $written = 0;
+
         try {
             $drained = $this->observer->drain();
 
@@ -74,16 +76,42 @@ final readonly class ExposureLedgerFlusher implements TerminableMiddlewareInterf
                 return;
             }
 
-            $this->metrics->ledgerRows($this->ledger->append($fresh));
+            $written = $this->ledger->append($fresh);
         } catch (Throwable) {
             // Intentionally swallowed: the response has already been sent, so there is nobody
             // left to tell, and losing an exposure must never become a second failure.
             //
-            // Counted rather than merely ignored. A silently failing ledger is the one
-            // failure mode this design cannot tolerate: it does not degrade the readout, it
-            // biases it — and a biased readout is indistinguishable from a real result. The
-            // counter is what lets an alert notice before anyone trusts a number.
-            $this->metrics->ledgerWriteFailed();
+            // Counted rather than merely ignored. A silently failing ledger is the one failure
+            // mode this design cannot tolerate: it does not degrade the readout, it biases it —
+            // and a biased readout is indistinguishable from a real result. The counter is what
+            // lets an alert notice before anyone trusts a number.
+            $this->count(fn () => $this->metrics->ledgerWriteFailed());
+
+            return;
+        }
+
+        $this->count(fn () => $this->metrics->ledgerRows($written));
+    }
+
+    /**
+     * Record a metric, and never let recording one become the failure.
+     *
+     * Telemetry here is not merely best-effort, it is actively dangerous if it can throw. The
+     * metrics adapter raises `MetricNotDefinedException` for a name absent from the
+     * application's metrics config — so a deployment that took this package without declaring
+     * its two counters would not lose a metric, it would throw from inside the `catch` block
+     * that exists to make failures harmless, and the exception would escape `terminate()`.
+     *
+     * That is the worst shape a bug can take here: it fires only on the error path, after the
+     * response is already sent, so it is invisible in request logs and only appears once
+     * something else has already gone wrong.
+     */
+    private function count(callable $record): void
+    {
+        try {
+            $record();
+        } catch (Throwable) {
+            // Deliberately empty. There is no third place to report to.
         }
     }
 }

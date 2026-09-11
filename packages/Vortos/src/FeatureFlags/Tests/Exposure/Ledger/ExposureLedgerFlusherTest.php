@@ -19,6 +19,10 @@ use Vortos\FeatureFlags\Exposure\Ledger\LedgerExposure;
 use Vortos\FeatureFlags\Exposure\Ledger\LedgerExposureObserver;
 use Vortos\FeatureFlags\Exposure\Ledger\SubjectPseudonymiser;
 use Vortos\FeatureFlags\Metrics\FlagEvaluationMetrics;
+use Vortos\Metrics\Contract\CounterInterface;
+use Vortos\Metrics\Contract\GaugeInterface;
+use Vortos\Metrics\Contract\HistogramInterface;
+use Vortos\Metrics\Contract\MetricsInterface;
 
 /**
  * The post-response write. Everything here runs after the client already has its response,
@@ -90,6 +94,72 @@ final class ExposureLedgerFlusherTest extends TestCase
         // The response has already been sent. There is nobody left to tell, and telemetry
         // must never become a second failure.
         $this->expectNotToPerformAssertions();
+    }
+
+    public function test_a_throwing_metrics_backend_cannot_escape_a_successful_write(): void
+    {
+        // The metrics adapter raises MetricNotDefinedException for a name the application has
+        // not declared in its metrics config. Recording the success counter must therefore be
+        // allowed to fail without taking the request's terminate phase with it.
+        $observer = $this->observer();
+        $observer->onExposure($this->record());
+
+        $flusher = new ExposureLedgerFlusher(
+            $observer,
+            $this->deduper(),
+            $this->ledger(),
+            $this->throwingMetrics(),
+        );
+
+        $flusher->flush();
+
+        $this->expectNotToPerformAssertions();
+    }
+
+    public function test_a_throwing_metrics_backend_cannot_escape_a_failed_write(): void
+    {
+        // The dangerous one. This fires only on the error path, after the response is already
+        // sent — so it is invisible in request logs and surfaces only once something else has
+        // already gone wrong. A metrics call inside the catch block that exists to make
+        // failures harmless must itself be unable to fail.
+        $observer = $this->observer();
+        $observer->onExposure($this->record());
+
+        $flusher = new ExposureLedgerFlusher(
+            $observer,
+            $this->deduper(),
+            $this->failingLedger(),
+            $this->throwingMetrics(),
+        );
+
+        $flusher->flush();
+
+        $this->expectNotToPerformAssertions();
+    }
+
+    /**
+     * Metrics whose backend throws on any counter, which is exactly how the real adapter
+     * behaves for a name the application has not declared in its metrics config —
+     * `MetricNotDefinedException` is raised by `counter()` itself, not by `increment()`.
+     */
+    private function throwingMetrics(): FlagEvaluationMetrics
+    {
+        return new FlagEvaluationMetrics(new class implements MetricsInterface {
+            public function counter(string $name, array $labels = []): CounterInterface
+            {
+                throw new RuntimeException(sprintf('Metric "%s" is not defined.', $name));
+            }
+
+            public function gauge(string $name, array $labels = []): GaugeInterface
+            {
+                throw new RuntimeException(sprintf('Metric "%s" is not defined.', $name));
+            }
+
+            public function histogram(string $name, array $labels = []): HistogramInterface
+            {
+                throw new RuntimeException(sprintf('Metric "%s" is not defined.', $name));
+            }
+        });
     }
 
     public function test_terminate_flushes(): void

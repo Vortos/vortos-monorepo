@@ -38,10 +38,16 @@ use Vortos\FeatureFlags\Exposure\Ledger\SubjectPseudonymiser;
  */
 final readonly class ExperimentReadout
 {
+    /**
+     * @param OutcomeSourceInterface|null $outcomes the application's outcome source. Optional
+     *        because the framework cannot know whether an application has bound one, and a
+     *        missing binding must produce the actionable message in {@see self::readout()}
+     *        rather than a TypeError naming a constructor nobody wrote.
+     */
     public function __construct(
         private Connection $connection,
         private SubjectPseudonymiser $pseudonymiser,
-        private OutcomeSourceInterface $outcomes,
+        private ?OutcomeSourceInterface $outcomes,
         private string $ledgerTable,
         private int $ledgerRetentionDays,
     ) {}
@@ -58,6 +64,17 @@ final readonly class ExperimentReadout
         DateTimeImmutable $to,
         string $control = ExposureRecord::BOOL_FALSE,
     ): ReadoutResult {
+        if ($this->outcomes === null) {
+            throw new \LogicException(sprintf(
+                'No %s is bound, so there is no outcome to measure "%s" against. The exposure '
+                . 'ledger records who saw which variant; only the application knows what '
+                . 'converting means. Implement the interface and bind it in your service '
+                . 'configuration.',
+                OutcomeSourceInterface::class,
+                $metric,
+            ));
+        }
+
         $utc  = new DateTimeZone('UTC');
         $from = $from->setTimezone($utc);
         $to   = $to->setTimezone($utc);
@@ -77,7 +94,7 @@ final readonly class ExperimentReadout
             );
         }
 
-        $converted = $this->convertedHashes($metric, $from, $to);
+        $converted = $this->convertedHashes($this->outcomes, $metric, $from, $to);
 
         $variants = [];
         foreach ($exposedByVariant as $variant => $subjects) {
@@ -168,10 +185,14 @@ final readonly class ExperimentReadout
      *
      * @return array<string,true>
      */
-    private function convertedHashes(string $metric, DateTimeImmutable $from, DateTimeImmutable $to): array
-    {
+    private function convertedHashes(
+        OutcomeSourceInterface $outcomes,
+        string $metric,
+        DateTimeImmutable $from,
+        DateTimeImmutable $to,
+    ): array {
         $hashes = [];
-        foreach ($this->outcomes->convertedSubjects($metric, $from, $to) as $subjectId) {
+        foreach ($outcomes->convertedSubjects($metric, $from, $to) as $subjectId) {
             $hashes[$this->pseudonymiser->pseudonymise($subjectId)] = true;
         }
 

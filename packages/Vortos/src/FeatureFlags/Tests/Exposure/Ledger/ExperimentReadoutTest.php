@@ -146,6 +146,24 @@ final class ExperimentReadoutTest extends TestCase
         );
     }
 
+    public function test_a_missing_outcome_source_names_the_interface_to_implement(): void
+    {
+        // The framework cannot know whether an application has bound one, so this must be an
+        // actionable message rather than a TypeError naming a constructor nobody wrote.
+        $readout = new ExperimentReadout(
+            $this->createMock(\Doctrine\DBAL\Connection::class),
+            new SubjectPseudonymiser(self::PEPPER),
+            null,
+            'vortos_feature_flag_exposures',
+            30,
+        );
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessageMatches('/OutcomeSourceInterface is bound/');
+
+        $readout->readout('checkout', 'signup', $this->from(), $this->to());
+    }
+
     public function test_an_inverted_window_is_refused(): void
     {
         $this->expectException(InvalidArgumentException::class);

@@ -1121,18 +1121,21 @@ final class FeatureFlagsExtension extends Extension
     }
 
     /**
-     * The readout, which needs an application-supplied outcome source.
+     * The readout, and the command that prints it.
      *
-     * Registered only when the application has bound {@see OutcomeSourceInterface}. Without
-     * one there is no metric to join exposures to, and registering a readout that can only
-     * fail would turn a missing integration into a runtime error instead of an absent command.
+     * {@see OutcomeSourceInterface} is nulled rather than required when absent. The framework
+     * cannot know whether an application has bound one — the binding lives in application
+     * config — so requiring it would make the container fail to compile for every deployment
+     * that enabled the ledger before writing its outcome source, which is the normal order.
+     * `ExperimentReadout` raises an actionable error instead, naming the interface to
+     * implement.
      */
     private function registerReadout(ContainerBuilder $container, string $ledgerTable, int $ledgerRetention): void
     {
         $container->register(ExperimentReadout::class, ExperimentReadout::class)
             ->setArgument('$connection', new Reference(Connection::class))
             ->setArgument('$pseudonymiser', new Reference(SubjectPseudonymiser::class))
-            ->setArgument('$outcomes', new Reference(OutcomeSourceInterface::class, ContainerInterface::IGNORE_ON_INVALID_REFERENCE))
+            ->setArgument('$outcomes', new Reference(OutcomeSourceInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setArgument('$ledgerTable', $ledgerTable)
             ->setArgument('$ledgerRetentionDays', $ledgerRetention)
             ->setPublic(false);

@@ -23,6 +23,8 @@ use Vortos\Metrics\Contract\MetricsInterface;
  *   - vortos_flags_variant_assignments_total   counter  labels: flag, variant
  *   - vortos_flags_evaluation_duration_ms      histogram labels: operation
  *   - vortos_flags_exposures_total             counter  labels: flag, variant
+ *   - vortos_flags_ledger_rows_total           counter  labels: (none)
+ *   - vortos_flags_ledger_write_failures_total counter  labels: (none)
  */
 final class FlagEvaluationMetrics
 {
@@ -30,6 +32,26 @@ final class FlagEvaluationMetrics
     public const VARIANT_ASSIGNMENTS = 'vortos_flags_variant_assignments_total';
     public const EVAL_DURATION_MS    = 'vortos_flags_evaluation_duration_ms';
     public const EXPOSURES           = 'vortos_flags_exposures_total';
+
+    /**
+     * Rows actually appended to the first-party exposure ledger.
+     *
+     * Unlabelled on purpose. The obvious label here is `flag`, and it is exactly the wrong
+     * one: this counter exists to be compared against {@see self::LEDGER_WRITE_FAILURES} and
+     * to show that the ledger is alive at all, neither of which needs a breakdown — and the
+     * ledger table itself answers per-flag questions far better than a metric ever could.
+     */
+    public const LEDGER_ROWS = 'vortos_flags_ledger_rows_total';
+
+    /**
+     * Ledger flushes that threw. The single most important number in this subsystem.
+     *
+     * A failing ledger does not make an experiment readout unavailable, it makes it *wrong*
+     * — the missing subjects are the ones whose writes failed, which is not a random subset.
+     * Anything above zero here means every readout covering that window is untrustworthy,
+     * so this is the counter to alert on, not to chart.
+     */
+    public const LEDGER_WRITE_FAILURES = 'vortos_flags_ledger_write_failures_total';
 
     public const RESULT_ON      = 'on';
     public const RESULT_OFF     = 'off';
@@ -54,5 +76,27 @@ final class FlagEvaluationMetrics
     public function exposure(string $flag, ?string $variant): void
     {
         $this->metrics?->counter(self::EXPOSURES, ['flag' => $flag, 'variant' => $variant ?? 'none'])->increment();
+    }
+
+    /**
+     * Record rows appended to the ledger.
+     *
+     * Guarded against a zero increment: an OTLP counter rejects `increment(0)` with a 400 and
+     * the collector drops the *entire* batch it travelled in, taking unrelated metrics with
+     * it. A flush that wrote nothing is the common case here — every duplicate exposure that
+     * day produces one — so this guard is on the hot path, not an edge case.
+     */
+    public function ledgerRows(int $rows): void
+    {
+        if ($rows <= 0) {
+            return;
+        }
+
+        $this->metrics?->counter(self::LEDGER_ROWS)->increment((float) $rows);
+    }
+
+    public function ledgerWriteFailed(): void
+    {
+        $this->metrics?->counter(self::LEDGER_WRITE_FAILURES)->increment();
     }
 }

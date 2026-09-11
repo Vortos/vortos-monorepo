@@ -82,6 +82,17 @@ use Vortos\FeatureFlags\Exposure\ExposureGroupResolver;
 use Vortos\FeatureFlags\Exposure\ExposureIngestService;
 use Vortos\FeatureFlags\Exposure\ExposureObserverInterface;
 use Vortos\FeatureFlags\Exposure\ExposureReportingFlagRegistry;
+use Vortos\FeatureFlags\Exposure\Ledger\DailyExposureDeduper;
+use Vortos\FeatureFlags\Exposure\Ledger\DatabaseExposureLedger;
+use Vortos\FeatureFlags\Exposure\Ledger\ExposureLedgerFlusher;
+use Vortos\FeatureFlags\Exposure\Ledger\ExposureLedgerInterface;
+use Vortos\FeatureFlags\Exposure\Ledger\ExposureRollup;
+use Vortos\FeatureFlags\Exposure\Ledger\LedgerExposureObserver;
+use Vortos\FeatureFlags\Exposure\Ledger\SubjectPseudonymiser;
+use Vortos\FeatureFlags\Exposure\Readout\ExperimentReadout;
+use Vortos\FeatureFlags\Exposure\Readout\OutcomeSourceInterface;
+use Vortos\FeatureFlags\Command\FlagsExperimentReadoutCommand;
+use Vortos\FeatureFlags\Command\FlagsExposureRollupCommand;
 use Vortos\FeatureFlags\FlagEvaluator;
 use Vortos\FeatureFlags\FlagScopeContext;
 use Vortos\FeatureFlags\Http\DefaultFlagContextResolver;
@@ -890,6 +901,7 @@ final class FeatureFlagsExtension extends Extension
             ->setPublic(true);
 
         $this->registerServerExposures($container);
+        $this->registerExposureLedger($container, $prefix);
 
         // Block 19 — override middleware (reads X-Vortos-Flag-Override header).
         // Implements Vortos\Http\Contract\MiddlewareInterface — auto-tagged
@@ -981,5 +993,153 @@ final class FeatureFlagsExtension extends Extension
         }
 
         return $map !== [] ? $map : ExposureGroupResolver::DEFAULT_MAP;
+    }
+
+    /**
+     * Block 26 — the first-party exposure ledger.
+     *
+     * A second, independent consumer of the same exposure stream the analytics bridge reads.
+     * The two exist because they answer to different masters: the bridge forwards to a third
+     * party and is therefore consent-gated and sampled, while this writes to storage that
+     * never leaves the deployment and is therefore complete. Only a complete exposure log can
+     * support an experiment readout — a consent-filtered one measures the consenting, who are
+     * not a random sample of anyone.
+     *
+     * Off by default. Turning it on writes personal data (pseudonymised, but still personal),
+     * which is an operator's decision to take deliberately and a lawful basis to establish,
+     * not a default to inherit from a framework upgrade.
+     */
+    private function registerExposureLedger(ContainerBuilder $container, string $prefix): void
+    {
+        if ((string) ($_ENV['FEATURE_FLAGS_LEDGER'] ?? '0') !== '1') {
+            return;
+        }
+
+        $pepper = (string) ($_ENV['FEATURE_FLAGS_LEDGER_PEPPER'] ?? '');
+
+        // Validated here, at container-compile time, rather than at first write. A ledger that
+        // boots and then stores weakly-hashed identities is worse than one that refuses to
+        // boot: the failure is invisible, and by the time anyone notices the data is already
+        // written. SubjectPseudonymiser enforces the same rule at runtime; this is the copy
+        // that an operator actually sees, with the command to fix it.
+        if (strlen($pepper) < SubjectPseudonymiser::MIN_PEPPER_BYTES) {
+            throw new \InvalidArgumentException(sprintf(
+                'FEATURE_FLAGS_LEDGER=1 requires FEATURE_FLAGS_LEDGER_PEPPER of at least %d bytes '
+                . '(got %d). Generate one with `openssl rand -hex 32` and put it in the sealed '
+                . 'secret store, not in .env.prod — that file is rewritten on every deploy. '
+                . 'Rotating it later severs subject identity and invalidates any experiment '
+                . 'running across the rotation.',
+                SubjectPseudonymiser::MIN_PEPPER_BYTES,
+                strlen($pepper),
+            ));
+        }
+
+        $ledgerTable = $prefix . 'feature_flag_exposures';
+        $rollupTable = $prefix . 'feature_flag_exposure_daily';
+
+        $ledgerRetention = max(1, (int) ($_ENV['FEATURE_FLAGS_LEDGER_RETENTION_DAYS'] ?? 30));
+        $rollupRetention = max($ledgerRetention, (int) ($_ENV['FEATURE_FLAGS_LEDGER_ROLLUP_RETENTION_DAYS'] ?? 730));
+
+        $container->register(SubjectPseudonymiser::class, SubjectPseudonymiser::class)
+            ->setArgument('$pepper', $pepper)
+            ->setPublic(false);
+
+        $container->register(DailyExposureDeduper::class, DailyExposureDeduper::class)
+            // Optional: without an atomic cache the ledger writes more rows than it needs to,
+            // but the table's primary key still enforces the grain. See the class docblock.
+            ->setArgument('$cache', new Reference(AtomicCacheInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setPublic(false);
+
+        $container->register(DatabaseExposureLedger::class, DatabaseExposureLedger::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$table', $ledgerTable)
+            ->setPublic(false);
+
+        $container->setAlias(ExposureLedgerInterface::class, DatabaseExposureLedger::class);
+
+        // Auto-tagged as an exposure observer, so it joins the same TaggedIteratorArgument the
+        // analytics bridge is collected into — the registry notifies both and knows about
+        // neither.
+        $container->register(LedgerExposureObserver::class, LedgerExposureObserver::class)
+            ->setArgument('$pseudonymiser', new Reference(SubjectPseudonymiser::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$enabled', true)
+            ->setArgument('$groupType', (string) ($_ENV['FEATURE_FLAGS_LEDGER_GROUP_TYPE'] ?? 'organization'))
+            ->setArgument('$maxPerRequest', (int) ($_ENV['FEATURE_FLAGS_MAX_EXPOSURES_PER_REQUEST'] ?? LedgerExposureObserver::DEFAULT_MAX_PER_REQUEST))
+            ->addTag(self::EXPOSURE_OBSERVER_TAG)
+            ->setShared(true)
+            ->setPublic(true);
+
+        $container->register(ExposureRollup::class, ExposureRollup::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$ledgerTable', $ledgerTable)
+            ->setArgument('$rollupTable', $rollupTable)
+            ->setPublic(false);
+
+        $container->register(FlagsExposureRollupCommand::class, FlagsExposureRollupCommand::class)
+            ->setArgument('$rollup', new Reference(ExposureRollup::class))
+            ->setArgument('$ledgerRetentionDays', $ledgerRetention)
+            ->setArgument('$rollupRetentionDays', $rollupRetention)
+            ->addTag('console.command')
+            ->setPublic(false);
+
+        $this->registerLedgerFlusher($container);
+        $this->registerReadout($container, $ledgerTable, $ledgerRetention);
+    }
+
+    /**
+     * The post-response write path.
+     *
+     * Only registered when vortos-http is installed: the ledger must remain usable in a
+     * console-only application, where {@see ExposureLedgerFlusher::flush()} is called directly
+     * instead.
+     */
+    private function registerLedgerFlusher(ContainerBuilder $container): void
+    {
+        if (!interface_exists(\Vortos\Http\Contract\TerminableMiddlewareInterface::class)) {
+            return;
+        }
+
+        $container->register(ExposureLedgerFlusher::class, ExposureLedgerFlusher::class)
+            ->setArgument('$observer', new Reference(LedgerExposureObserver::class))
+            ->setArgument('$deduper', new Reference(DailyExposureDeduper::class))
+            ->setArgument('$ledger', new Reference(ExposureLedgerInterface::class))
+            ->setArgument('$metrics', new Reference(FlagEvaluationMetrics::class))
+            // The tag is load-bearing, and not for the reason it looks like.
+            //
+            // RegisterTerminablePass discovers terminable middleware by SCANNING definitions
+            // for the interface, not by reading this tag. But nothing injects this service —
+            // the kernel is meant to find it — so RemoveUnusedDefinitionsPass deletes it as
+            // unreferenced BEFORE that scan runs, and the scan then finds nothing. The tag
+            // exists purely to keep the definition alive long enough to be discovered.
+            // Analytics' HttpTerminateFlush carries it for the same reason.
+            ->addTag('vortos.http.terminable')
+            ->setShared(true)
+            ->setPublic(true);
+    }
+
+    /**
+     * The readout, which needs an application-supplied outcome source.
+     *
+     * Registered only when the application has bound {@see OutcomeSourceInterface}. Without
+     * one there is no metric to join exposures to, and registering a readout that can only
+     * fail would turn a missing integration into a runtime error instead of an absent command.
+     */
+    private function registerReadout(ContainerBuilder $container, string $ledgerTable, int $ledgerRetention): void
+    {
+        $container->register(ExperimentReadout::class, ExperimentReadout::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$pseudonymiser', new Reference(SubjectPseudonymiser::class))
+            ->setArgument('$outcomes', new Reference(OutcomeSourceInterface::class, ContainerInterface::IGNORE_ON_INVALID_REFERENCE))
+            ->setArgument('$ledgerTable', $ledgerTable)
+            ->setArgument('$ledgerRetentionDays', $ledgerRetention)
+            ->setPublic(false);
+
+        $container->register(FlagsExperimentReadoutCommand::class, FlagsExperimentReadoutCommand::class)
+            ->setArgument('$readout', new Reference(ExperimentReadout::class))
+            ->addTag('console.command')
+            ->setPublic(false);
     }
 }

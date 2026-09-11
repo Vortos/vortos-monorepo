@@ -208,14 +208,22 @@ final class AnalyticsExtension extends Extension
             ->setArgument('$enabled', $enrich)
             ->setPublic(false);
 
-        // No explicit tag needed: FeatureFlagsExtension registers
-        // registerForAutoconfiguration(ExposureObserverInterface::class), which tags
-        // any implementing service in the container regardless of which package
-        // registered it (the same pattern as a driver's #[AsDriver] autoconfig tag).
+        // FeatureFlagsExtension registers registerForAutoconfiguration(
+        // ExposureObserverInterface::class), which tags any implementing service regardless of
+        // which package registered it — but ONLY for definitions whose autoconfigured flag is
+        // set, and ContainerBuilder::register() leaves it false.
+        //
+        // This previously relied on that tagging without calling setAutoconfigured(true), so
+        // the observer was registered, wired to a working analytics backend, gated by an env
+        // var operators had set to 1 — and never invoked, for any exposure, ever. The registry
+        // and the SDK ingest path both reach observers exclusively through the tagged
+        // iterator, so an untagged observer is not a degraded bridge but an absent one, and
+        // nothing anywhere reports it. Pinned by AnalyticsExposureObserverIsWiredTest.
         $container->register(AnalyticsExposureObserver::class, AnalyticsExposureObserver::class)
             ->setArgument('$analytics', new Reference(AnalyticsInterface::class))
             ->setArgument('$sampler', new Reference(FlagExposureSampler::class))
             ->setArgument('$enabled', $enabled)
+            ->setAutoconfigured(true)
             ->setPublic(false);
     }
 

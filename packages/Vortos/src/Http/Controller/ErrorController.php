@@ -28,7 +28,7 @@ class ErrorController implements ExceptionHandlerInterface
         return $this->__invoke($e, $request);
     }
 
-    /** @var array<class-string, int> */
+    /** @var array<class-string, int|null> Null means "the class declares no #[HttpStatus]". */
     private static array $httpStatusCache = [];
 
     public function __invoke(\Throwable $exception, Request $request): Response
@@ -90,11 +90,49 @@ class ErrorController implements ExceptionHandlerInterface
 
     private function resolveDomainErrorStatus(DomainError $error): int
     {
-        $class = $error::class;
+        // A DomainError with no attribute means "a rule was broken" and nothing more
+        // specific, which is what 422 says.
+        return $this->declaredStatus($error) ?? 422;
+    }
 
-        if (!isset(self::$httpStatusCache[$class])) {
-            $attrs = (new \ReflectionClass($class))->getAttributes(HttpStatus::class);
-            self::$httpStatusCache[$class] = empty($attrs) ? 422 : $attrs[0]->newInstance()->status;
+    /**
+     * The status an exception class declares via #[HttpStatus], or null if it declares none.
+     *
+     * ## Why this is not limited to DomainError
+     *
+     * An application's own exception hierarchy is usually older than its first DomainError,
+     * and the common shape is a named class extending \DomainException — which carries no
+     * status at all. Such an exception reaching here took the generic branch: status 500,
+     * and at 500 {@see getMessage()} replaces the message with "Something went wrong,
+     * please try again later." So a class whose whole purpose was to explain a refusal had
+     * its explanation discarded at the last step, and was logged as CRITICAL alongside real
+     * outages.
+     *
+     * That is invisible from the outside. The endpoint answers, the client shows a toast,
+     * nothing errors, and the only symptom is a user who cannot discover what is wrong.
+     * It stays invisible while the exception is caught by the controller that knows about
+     * it, and appears the day a second route throws the same exception without catching it.
+     *
+     * Reading the attribute off ANY throwable makes the declaration the single place the
+     * status lives, and makes adding one a one-line change to the exception rather than a
+     * reparenting of a hierarchy that catch blocks and tests already depend on.
+     *
+     * Cached per class because this runs on an error path in a long-lived worker, and
+     * reflection on a hot 404 route is not free.
+     */
+    private function declaredStatus(\Throwable $exception): ?int
+    {
+        $class = $exception::class;
+
+        if (!array_key_exists($class, self::$httpStatusCache)) {
+            $attrs = (new \ReflectionClass($class))->getAttributes(
+                HttpStatus::class,
+                \ReflectionAttribute::IS_INSTANCEOF,
+            );
+
+            self::$httpStatusCache[$class] = $attrs === []
+                ? null
+                : $attrs[0]->newInstance()->status;
         }
 
         return self::$httpStatusCache[$class];
@@ -129,28 +167,34 @@ class ErrorController implements ExceptionHandlerInterface
             return $this->resolveDomainErrorStatus($exception) >= 500 ? Level::Critical : Level::Error;
         }
 
-        if ($exception instanceof HttpExceptionInterface) {
-            if ($exception->getStatusCode() >= 500) {
-                return Level::Critical;
-            }
+        $status = $exception instanceof HttpExceptionInterface
+            ? $exception->getStatusCode()
+            : $this->declaredStatus($exception);
 
-            if ($exception->getStatusCode() >= 400) {
-                return Level::Error;
-            }
+        // Unknown status means an unplanned failure, and Critical is the right default for
+        // one. A DECLARED 4xx is a rule the application meant to enforce, and logging that
+        // at Critical is how an ordinary refusal — a closed form, an expired invite — ends
+        // up indistinguishable from an outage on a dashboard.
+        if ($status === null) {
+            return Level::Critical;
         }
 
-        return Level::Critical;
+        if ($status >= 500) {
+            return Level::Critical;
+        }
+
+        return $status >= 400 ? Level::Error : Level::Critical;
     }
 
     private function getStatusCode(\Throwable $exception): int
     {
         if ($exception instanceof HttpExceptionInterface) {
-            $statusCode = $exception->getStatusCode();
-        } else {
-            $statusCode = 500;
+            return $exception->getStatusCode();
         }
 
-        return $statusCode;
+        // An HttpExceptionInterface already states its status, so it wins. Anything else
+        // may still declare one via #[HttpStatus] — see declaredStatus().
+        return $this->declaredStatus($exception) ?? 500;
     }
 
     private function getMessage(\Throwable $exception, int $statusCode): string

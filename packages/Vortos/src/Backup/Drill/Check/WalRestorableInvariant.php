@@ -9,6 +9,7 @@ use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Drill\InvariantCheck;
 use Vortos\Backup\Drill\InvariantResult;
 use Vortos\Backup\Pitr\PostgresWalFetcher;
+use Vortos\Backup\Pitr\XlogLongPageHeader;
 
 /**
  * Asserts that archived WAL can actually be fetched back and is a valid segment.
@@ -62,13 +63,25 @@ final class WalRestorableInvariant implements InvariantCheck
      */
     private const XLOG_MAGIC_HIGH_BYTES = ["\xD1", "\xD0"];
 
+    /**
+     * Used only to walk segment NAMES when the newest segment has no long page header to say how large a
+     * segment is — which a real segment always has. Never used as the expected file length.
+     */
+    private const FALLBACK_NAMING_SEGMENT_BYTES = 16 * 1024 * 1024;
+
     public function __construct(
         private readonly PostgresWalFetcher $fetcher,
         private readonly WalVolumeReadModelInterface $catalog,
         private readonly string $environment,
         /** Enough to be meaningful, few enough to keep the weekly drill quick. */
         private readonly int $sampleSize = 5,
-        private readonly int $segmentBytes = 16 * 1024 * 1024,
+        /**
+         * Expected segment length. Null — the production setting — takes it from each segment's own
+         * long page header, because `wal_segment_size` belongs to the cluster and is fixed at initdb.
+         * This used to default to 16 MiB; when production was rebuilt at 2 MiB every valid segment was
+         * reported as the wrong size and the drill failed on a correct archive (FB-65).
+         */
+        private readonly ?int $segmentBytes = null,
     ) {}
 
     public function name(): string
@@ -78,14 +91,17 @@ final class WalRestorableInvariant implements InvariantCheck
 
     public function check(array $connectionParams): InvariantResult
     {
-        $segments = $this->recentSegmentNames();
+        // One row, then names derived by walking backwards. Deliberately not a list query over the
+        // WAL slice — that set is unbounded and hydrating it is what once exhausted the worker's
+        // memory limit and left retention dead for days.
+        $newest = $this->catalog->newestWalSegmentName(DatabaseEngine::Postgres, $this->environment);
 
         // No WAL is not a failure — continuous archiving is optional, and a host that has not
         // enabled it must not be told its backups are broken. Saying so explicitly matters though:
         // "no WAL configured" and "WAL verified" are different states and the report should not
         // blur them, which is exactly how the row_count invariant once passed while asserting
         // nothing at all.
-        if ($segments === []) {
+        if ($newest === null) {
             return InvariantResult::pass($this->name(), 'no archived WAL for this environment');
         }
 
@@ -95,21 +111,46 @@ final class WalRestorableInvariant implements InvariantCheck
         }
 
         try {
-            $failures = [];
+            // The newest segment is fetched first because its header decides everything else: how
+            // long a whole segment is on this cluster, and where segment numbers wrap when walking
+            // back to its predecessors.
+            $newestPath = $dir . '/' . $newest;
+
+            try {
+                $this->fetcher->fetch($newest, $newestPath, $this->environment);
+            } catch (\Throwable $e) {
+                return InvariantResult::fail($this->name(), sprintf('%s: fetch failed (%s)', $newest, $e->getMessage()));
+            }
+
+            $declared = XlogLongPageHeader::fromFile($newestPath);
+            $expected = $this->segmentBytes ?? $declared?->segmentBytes;
+
+            if ($expected === null) {
+                return InvariantResult::fail(
+                    $this->name(),
+                    sprintf('%s: no valid WAL long page header, so the segment size cannot be established', $newest),
+                );
+            }
+
+            $namingBytes = $declared->segmentBytes ?? self::FALLBACK_NAMING_SEGMENT_BYTES;
+            $segments    = $this->recentSegmentNames($newest, $namingBytes);
+            $failures    = [];
 
             foreach ($segments as $name) {
                 $path = $dir . '/' . $name;
 
-                try {
-                    $this->fetcher->fetch($name, $path, $this->environment);
-                } catch (\Throwable $e) {
-                    $failures[] = sprintf('%s: fetch failed (%s)', $name, $e->getMessage());
-                    continue;
+                if ($name !== $newest) {
+                    try {
+                        $this->fetcher->fetch($name, $path, $this->environment);
+                    } catch (\Throwable $e) {
+                        $failures[] = sprintf('%s: fetch failed (%s)', $name, $e->getMessage());
+                        continue;
+                    }
                 }
 
                 $size = is_file($path) ? (int) filesize($path) : 0;
-                if ($size !== $this->segmentBytes) {
-                    $failures[] = sprintf('%s: restored %d bytes, expected %d', $name, $size, $this->segmentBytes);
+                if ($size !== $expected) {
+                    $failures[] = sprintf('%s: restored %d bytes, expected %d', $name, $size, $expected);
                     continue;
                 }
 
@@ -124,10 +165,22 @@ final class WalRestorableInvariant implements InvariantCheck
                 $high = strlen($magic) === 2 ? $magic[1] : '';
                 if (!in_array($high, self::XLOG_MAGIC_HIGH_BYTES, true)) {
                     $failures[] = sprintf('%s: not a WAL page (leading bytes 0x%s)', $name, bin2hex($magic));
+                    continue;
+                }
+
+                // One archive prefix holds one cluster's WAL, and one cluster has one segment size. A
+                // segment declaring another size came from somewhere else and would corrupt a replay.
+                if ($this->segmentBytes === null) {
+                    $header = XlogLongPageHeader::fromFile($path);
+                    if ($header === null) {
+                        $failures[] = sprintf('%s: no valid WAL long page header', $name);
+                    } elseif ($header->segmentBytes !== $expected) {
+                        $failures[] = sprintf('%s: declares %d-byte segments, expected %d', $name, $header->segmentBytes, $expected);
+                    }
                 }
             }
 
-            if (($gap = $this->firstGap($segments)) !== null) {
+            if (($gap = $this->firstGap($segments, $namingBytes)) !== null) {
                 $failures[] = sprintf('sequence gap between %s and %s', $gap[0], $gap[1]);
             }
 
@@ -137,7 +190,7 @@ final class WalRestorableInvariant implements InvariantCheck
 
             return InvariantResult::pass(
                 $this->name(),
-                sprintf('%d segments fetched, %d bytes each, sequence contiguous', count($segments), $this->segmentBytes),
+                sprintf('%d segments fetched, %d bytes each, sequence contiguous', count($segments), $expected),
             );
         } catch (\Throwable $e) {
             return InvariantResult::fail($this->name(), $e->getMessage());
@@ -147,7 +200,7 @@ final class WalRestorableInvariant implements InvariantCheck
     }
 
     /**
-     * The newest segments, oldest-first.
+     * The newest segments, oldest-first, ending at $newest.
      *
      * Newest rather than a random sample: a codec or routing regression affects what is being
      * written NOW, and old segments would keep passing on the previous format long after new ones
@@ -155,19 +208,11 @@ final class WalRestorableInvariant implements InvariantCheck
      *
      * @return list<string>
      */
-    private function recentSegmentNames(): array
+    private function recentSegmentNames(string $newest, int $segmentBytes): array
     {
-        // One row, then names derived by walking backwards. Deliberately not a list query over the
-        // WAL slice — that set is unbounded and hydrating it is what once exhausted the worker's
-        // memory limit and left retention dead for days.
-        $newest = $this->catalog->newestWalSegmentName(DatabaseEngine::Postgres, $this->environment);
-        if ($newest === null) {
-            return [];
-        }
-
         $names = [];
         for ($i = $this->sampleSize - 1; $i >= 0; $i--) {
-            $name = $this->offsetSegment($newest, -$i);
+            $name = $this->offsetSegment($newest, -$i, $segmentBytes);
             if ($name !== null) {
                 $names[] = $name;
             }
@@ -179,13 +224,13 @@ final class WalRestorableInvariant implements InvariantCheck
     /**
      * Walk a segment name backwards by $delta positions.
      *
-     * A WAL name is 24 hex chars: 8 timeline, 8 logical id, 8 segment number. The segment number
-     * does NOT simply decrement across a logical-id boundary — with the default 16 MiB size it wraps
-     * at 0x000000FF, not 0x100000000 — so this borrows explicitly rather than treating the last 16
-     * chars as one integer. Getting that wrong would synthesise names that never existed and report
-     * a fetch failure as a WAL fault.
+     * A WAL name is 24 hex chars: 8 timeline, 8 logical id, 8 segment number. The segment number does
+     * NOT simply decrement across a logical-id boundary: one logical id holds 4 GiB / wal_segment_size
+     * segments, so it wraps at 0xFF for 16 MiB but at 0x7FF for 2 MiB. This borrows explicitly, at the
+     * wrap the cluster actually uses, rather than treating the last 16 chars as one integer. Getting
+     * that wrong synthesises names that never existed and reports a fetch failure as a WAL fault.
      */
-    private function offsetSegment(string $name, int $delta): ?string
+    private function offsetSegment(string $name, int $delta, int $segmentBytes): ?string
     {
         if (strlen($name) !== 24 || $delta > 0) {
             return $delta === 0 ? $name : null;
@@ -194,6 +239,7 @@ final class WalRestorableInvariant implements InvariantCheck
         $timeline = substr($name, 0, 8);
         $logical  = hexdec(substr($name, 8, 8));
         $segment  = hexdec(substr($name, 16, 8));
+        $lastSeg  = XlogLongPageHeader::segmentsPerLogicalIdFor($segmentBytes) - 1;
 
         for ($i = 0; $i < -$delta; $i++) {
             if ($segment === 0) {
@@ -201,10 +247,10 @@ final class WalRestorableInvariant implements InvariantCheck
                     return null;
                 }
                 --$logical;
-                // 0xFF, not 0xFE. Pre-9.3 Postgres skipped the FF segment; every supported version
-                // uses the full range, so stopping at FE would synthesise a name one short of the
-                // real predecessor and report a phantom sequence gap once per 4 GB of WAL.
-                $segment = 0xFF;
+                // The full range, not one short. Pre-9.3 Postgres skipped the last segment of each
+                // logical id; every supported version uses it, so stopping short would synthesise a
+                // name one short of the real predecessor and report a phantom gap every 4 GiB of WAL.
+                $segment = $lastSeg;
             } else {
                 --$segment;
             }
@@ -218,10 +264,10 @@ final class WalRestorableInvariant implements InvariantCheck
      *
      * @return array{string, string}|null
      */
-    private function firstGap(array $segments): ?array
+    private function firstGap(array $segments, int $segmentBytes): ?array
     {
         for ($i = 1, $n = count($segments); $i < $n; $i++) {
-            if ($this->offsetSegment($segments[$i], -1) !== $segments[$i - 1]) {
+            if ($this->offsetSegment($segments[$i], -1, $segmentBytes) !== $segments[$i - 1]) {
                 return [$segments[$i - 1], $segments[$i]];
             }
         }

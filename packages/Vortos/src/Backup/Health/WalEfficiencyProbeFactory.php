@@ -32,6 +32,7 @@ final class WalEfficiencyProbeFactory
         ClockInterface $clock,
         float $minCompressionRatio,
         int $maxDailyBytes,
+        ?WalFileSizeResolverInterface $segmentSize = null,
     ): WalEfficiencyProbe {
         return new WalEfficiencyProbe(
             $catalog,
@@ -39,6 +40,7 @@ final class WalEfficiencyProbeFactory
             $this->loader->environment(),
             $minCompressionRatio,
             $maxDailyBytes,
+            segmentSize: $segmentSize,
         );
     }
 }

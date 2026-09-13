@@ -58,6 +58,9 @@ final class WalArchiveFeeder
 
     private const WANT_PREFIX = 'VORTOS-WAL-WANT ';
 
+    /** The segment size this recovery has been replaying, pinned by the first segment served. */
+    private ?int $chainSegmentBytes = null;
+
     public function __construct(
         private readonly ContainerRuntimeInterface $runtime,
         private readonly PostgresWalFetcher $fetcher,
@@ -69,7 +72,13 @@ final class WalArchiveFeeder
          */
         private readonly int $maxSegments = 12000,
         private readonly int $timeoutSeconds = 5400,
-        private readonly int $segmentBytes = 16 * 1024 * 1024,
+        /**
+         * Expected segment length. Null — the production setting — takes it from each segment's own long
+         * page header, because `wal_segment_size` belongs to the cluster and is fixed at initdb. This used
+         * to default to 16 MiB, which refused every segment of a cluster built at 2 MiB as truncated and
+         * broke both the drill and a real point-in-time restore (FB-65).
+         */
+        private readonly ?int $segmentBytes = null,
         /**
          * Attempts per segment before a fetch failure fails the drill.
          *
@@ -368,14 +377,11 @@ final class WalArchiveFeeder
 
         try {
             $bytes = (int) filesize($path);
-            if ($bytes !== $this->segmentBytes) {
-                throw new RuntimeException(sprintf(
-                    "Archived WAL segment '%s' restored to %d bytes, expected %d — refusing to replay "
-                    . 'a truncated segment, which recovers to an earlier instant while reporting success.',
-                    $segment,
-                    $bytes,
-                    $this->segmentBytes,
-                ));
+
+            // Only a WAL segment has a fixed length and a long page header. A timeline history file is a
+            // few lines of text, and holding it to a segment's length would refuse a valid one.
+            if ($isSegment) {
+                $this->assertWholeSegment($segment, $path, $bytes);
             }
 
             // Data first, marker second, in two uploads. The script waits for the marker, so it can
@@ -398,6 +404,54 @@ final class WalArchiveFeeder
         return true;
     }
 
+    /**
+     * Refuse a segment that is not a whole segment of this recovery's cluster.
+     *
+     * A short segment is the most dangerous thing a feeder can hand PostgreSQL: a well-formed prefix of
+     * real WAL, which it replays, stops early on, and reports as a successful recovery to an earlier
+     * instant than was asked for. The expected length comes from the segment's own header unless one
+     * was configured, and every segment in one recovery must declare the same size — a different one
+     * came from a different cluster under the same prefix.
+     */
+    private function assertWholeSegment(string $segment, string $path, int $bytes): void
+    {
+        if ($this->segmentBytes !== null) {
+            $expected = $this->segmentBytes;
+        } else {
+            $header = XlogLongPageHeader::fromFile($path);
+
+            if ($header === null) {
+                throw new RuntimeException(sprintf(
+                    "Archived WAL segment '%s' does not start with a valid WAL long page header — refusing to replay it.",
+                    $segment,
+                ));
+            }
+
+            if ($this->chainSegmentBytes !== null && $header->segmentBytes !== $this->chainSegmentBytes) {
+                throw new RuntimeException(sprintf(
+                    "Archived WAL segment '%s' declares %d-byte segments but this recovery has been replaying "
+                    . '%d-byte segments — refusing to mix WAL from different clusters.',
+                    $segment,
+                    $header->segmentBytes,
+                    $this->chainSegmentBytes,
+                ));
+            }
+
+            $this->chainSegmentBytes = $header->segmentBytes;
+            $expected = $header->segmentBytes;
+        }
+
+        if ($bytes !== $expected) {
+            throw new RuntimeException(sprintf(
+                "Archived WAL segment '%s' restored to %d bytes, expected %d — refusing to replay "
+                . 'a truncated segment, which recovers to an earlier instant while reporting success.',
+                $segment,
+                $bytes,
+                $expected,
+            ));
+        }
+    }
+
     private function markAbsent(ContainerHandle $handle, string $segment): void
     {
         $this->runtime->putArchive(
@@ -408,9 +462,9 @@ final class WalArchiveFeeder
     }
 
     /**
-     * A tar carrying one 16 MiB segment, streamed from disk rather than built in memory.
+     * A tar carrying one segment, streamed from disk rather than built in memory.
      *
-     * Building the whole archive as a PHP string would be simpler and would add 16 MiB to the
+     * Building the whole archive as a PHP string would be simpler and would add a whole segment to the
      * worker's peak memory for no benefit; the retention OOM that left production without pruning
      * for days is a standing reminder of what that habit costs.
      *

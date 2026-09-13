@@ -729,6 +729,13 @@ final class BackupExtension extends Extension
             // arrive at a sane size" — the question that went unasked while 443 GB of 98.8%-padding
             // segments accumulated with every other signal green. Thresholds are overridable
             // because the budget is a property of the workload, not of the framework.
+            // FB-65: the ratio is only honest against the cluster's real wal_segment_size, which is fixed
+            // per cluster at initdb. Dividing by an assumed 16 MiB made an uncompressed 2 MiB archive read
+            // as 8x compressed, and the regression alarm could not fire.
+            $container->register(\Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class, \Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class)
+                ->setArgument('$connection', new Reference(Connection::class))
+                ->setPublic(false);
+
             $container->register(\Vortos\Backup\Health\WalEfficiencyProbeFactory::class, \Vortos\Backup\Health\WalEfficiencyProbeFactory::class)
                 ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
                 ->setPublic(false);
@@ -742,6 +749,7 @@ final class BackupExtension extends Extension
                 ->setArgument('$clock', new Reference(SystemClock::class))
                 ->setArgument('$minCompressionRatio', (float) ($_ENV['VORTOS_BACKUP_WAL_MIN_RATIO'] ?? 4.0))
                 ->setArgument('$maxDailyBytes', (int) ($_ENV['VORTOS_BACKUP_WAL_DAILY_BUDGET_BYTES'] ?? 5 * 1024 * 1024 * 1024))
+                ->setArgument('$segmentSize', new Reference(\Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class))
                 ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
                 ->setPublic(false);
         }

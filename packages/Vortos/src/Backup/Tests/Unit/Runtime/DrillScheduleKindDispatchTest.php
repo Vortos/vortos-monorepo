@@ -12,6 +12,7 @@ use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\BackupRequest;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\RetentionPolicy;
+use Vortos\Backup\DR\RecoveryObjectives;
 use Vortos\Backup\Drill\DrillRunner;
 use Vortos\Backup\Driver\ObjectStore\ObjectStoreBackupStore;
 use Vortos\Backup\Port\BackupStoreRegistry;
@@ -104,6 +105,7 @@ final class DrillScheduleKindDispatchTest extends TestCase
             new FixedClock(new DateTimeImmutable('2026-09-03 05:00:00')),
             [],
             'object-store',
+            new RecoveryObjectives(300, 1800),
             null,
             // No point-in-time provisioner: this installation cannot drill a base backup, which is
             // what makes the logical assertion below meaningful rather than incidental.
@@ -163,7 +165,7 @@ final class DrillScheduleKindDispatchTest extends TestCase
 
         $report = $this->reports->latestOfKind('postgres', 'production', BackupKind::LogicalFull);
         self::assertNotNull($report, 'the drill must be recorded under the kind it proved');
-        self::assertTrue($report->passed());
+        self::assertTrue($report->restored());
     }
 
     /**

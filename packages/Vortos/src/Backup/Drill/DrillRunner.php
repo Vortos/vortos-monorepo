@@ -11,6 +11,7 @@ use Vortos\Backup\Crypto\EnvelopeStreamCipher;
 use Vortos\Backup\Domain\BackupArtifact;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Backup\DR\RecoveryObjectives;
 use Vortos\Backup\Event\BackupEvent;
 use Vortos\Backup\Drill\Check\WalReplayedInvariant;
 use Vortos\Backup\Event\BackupEventSinkInterface;
@@ -25,7 +26,8 @@ use Vortos\Secrets\Key\KeyProviderInterface;
 
 /**
  * Orchestrates a restore drill: provision → restore → invariant checks → teardown.
- * Measures RTO. Emits DrillSucceeded (Info) or DrillFailed (Critical).
+ * Measures RTO and judges it against the declared {@see RecoveryObjectives}. Emits DrillSucceeded
+ * (Info), DrillOverObjective (Critical) or DrillFailed (Critical).
  */
 final class DrillRunner
 {
@@ -42,6 +44,12 @@ final class DrillRunner
         private readonly ClockInterface $clock,
         private readonly array $invariantChecks,
         private readonly string $storeKey,
+        /**
+         * Required, with no default. A drill measures RTO for exactly one reason — to know whether a
+         * real recovery would meet the objective — and a runner that could be built without one would
+         * go back to recording a restore that took an hour as a plain success.
+         */
+        private readonly RecoveryObjectives $objectives,
         private readonly ?KeyProviderInterface $keyProvider = null,
         /**
          * Provisions a cluster for a PHYSICAL restore: created but not started, so a base backup and
@@ -129,7 +137,10 @@ final class DrillRunner
                     $artifact->id->value(),
                     $start,
                     $rtoMs,
-                    'passed',
+                    // Not judged against the RTO: a shallow drill decrypts and discards, so its
+                    // elapsed time is not a recovery time and comparing it to one would be
+                    // meaningless in both directions.
+                    DrillOutcome::Passed,
                     [InvariantResult::pass('shallow_decrypt', 'envelope header + AEAD decrypt verified')],
                     null,
                     $artifact->kind,
@@ -169,7 +180,7 @@ final class DrillRunner
                     $artifact->id->value(),
                     $start,
                     $rtoMs,
-                    $allPassed ? 'passed' : 'failed',
+                    $allPassed ? $this->judge($rtoMs) : DrillOutcome::Failed,
                     $results,
                     $allPassed ? null : 'One or more invariant checks failed.',
                     $artifact->kind,
@@ -184,7 +195,7 @@ final class DrillRunner
                 $artifact->id->value(),
                 $start,
                 $rtoMs,
-                'failed',
+                DrillOutcome::Failed,
                 [],
                 $e->getMessage(),
                 $artifact->kind,
@@ -201,13 +212,24 @@ final class DrillRunner
 
         $this->reportStore->save($report);
 
-        if ($report->passed()) {
-            $this->events->emit(BackupEvent::drillSucceeded($engine, $environment, $report->rtoMs, $this->clock->now()));
-        } else {
-            $this->events->emit(BackupEvent::drillFailed($engine, $environment, $report->error ?? 'invariant failure', $this->clock->now()));
-        }
+        $this->events->emit(match ($report->outcome) {
+            DrillOutcome::Passed => BackupEvent::drillSucceeded($engine, $environment, $report->rtoMs, $this->clock->now()),
+            DrillOutcome::OverObjective => BackupEvent::drillOverObjective(
+                $engine,
+                $environment,
+                $report->rtoMs,
+                $this->objectives->rtoSeconds,
+                $this->clock->now(),
+            ),
+            DrillOutcome::Failed => BackupEvent::drillFailed($engine, $environment, $report->error ?? 'invariant failure', $this->clock->now()),
+        });
 
         return $report;
+    }
+
+    private function judge(int $rtoMs): DrillOutcome
+    {
+        return $this->objectives->rtoExceeded($rtoMs) ? DrillOutcome::OverObjective : DrillOutcome::Passed;
     }
 
     /**

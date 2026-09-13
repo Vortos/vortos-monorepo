@@ -586,6 +586,13 @@ final class AlertsExtension extends Extension
                 ->setArgument('$validator', new Reference(AlertRuleValidator::class))
                 ->setArgument('$sloRegistry', new Reference(SloRegistry::class))
                 ->setPublic(false);
+
+            if (class_exists(\Vortos\Backup\Config\BackupConfigLoader::class)) {
+                $container->register(\Vortos\Alerts\Preflight\RecoveryObjectiveAlertsCheck::class, \Vortos\Alerts\Preflight\RecoveryObjectiveAlertsCheck::class)
+                    ->setArgument('$rules', new Reference(AlertRuleSet::class))
+                    ->setArgument('$backupConfig', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                    ->setPublic(false);
+            }
         }
     }
 

@@ -6,6 +6,8 @@ namespace Vortos\Backup\Config;
 
 use Closure;
 use InvalidArgumentException;
+use Vortos\Backup\DR\RecoveryObjectives;
+use Vortos\Backup\DR\RecoveryObjectivesNotDeclaredException;
 use Vortos\Backup\Domain\CompressionCodec;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\RetentionPolicy;
@@ -38,6 +40,7 @@ final class BackupConfig
     private int $walCompressionLevel = WalCompression::DEFAULT_LEVEL;
     private string $keyPrefix = 'backups';
     private string $environment = DefaultEnvironment::NAME;
+    private ?RecoveryObjectives $objectives = null;
     private ScheduleSetBuilder $schedules;
     private RetentionBuilder $retention;
     private AlertsBuilder $alerts;
@@ -165,6 +168,34 @@ final class BackupConfig
         return $this;
     }
 
+    /**
+     * The recovery objectives this lifecycle is held to — REQUIRED whenever any schedule is declared.
+     *
+     * RPO: the most recent data a recovery may lose, in seconds. Measured continuously as the age of
+     * the oldest WAL the cluster has written but not yet archived.
+     *
+     * RTO: how long a recovery may take, in seconds. Every restore drill is judged against it, and the
+     * point-in-time recovery time is projected continuously from the last drill's measured replay cost
+     * and the WAL archived since the newest base backup — up to the moment the next base is due. That
+     * projection is what catches a base cadence too slow for the write rate days before a drill
+     * would, because replay time grows with every segment until the next base resets it.
+     *
+     * Declared here rather than read from the environment: the objective is a property of the
+     * system's promise, not of a host, and the previous env vars fell back to built-in numbers when
+     * unset.
+     */
+    public function objectives(int $rpoSeconds, int $rtoSeconds): self
+    {
+        $this->objectives = new RecoveryObjectives($rpoSeconds, $rtoSeconds);
+
+        return $this;
+    }
+
+    public function objectivesValue(): ?RecoveryObjectives
+    {
+        return $this->objectives;
+    }
+
     /** @param Closure(ScheduleSetBuilder): mixed $configure */
     public function schedule(Closure $configure): self
     {
@@ -238,6 +269,13 @@ final class BackupConfig
     {
         $engine = $this->resolvedEngine();
         $schedules = [];
+
+        // A lifecycle with no objective has nothing to be measured against: its drills cannot miss and
+        // its recovery-time projection has no line to cross. Refused at load, so the gap fails the boot
+        // (and every deploy gate that compiles the container) instead of reappearing as a silent default.
+        if ($this->schedules->entries() !== [] && $this->objectives === null) {
+            throw RecoveryObjectivesNotDeclaredException::create();
+        }
 
         foreach ($this->schedules->entries() as $entry) {
             $schedules[] = new BackupSchedule(

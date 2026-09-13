@@ -93,16 +93,21 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
             onlyKind: $schedule->kind,
         );
 
-        if (!$report->passed()) {
+        if (!$report->restored()) {
             throw new \RuntimeException(sprintf(
                 'restore drill did not pass (outcome=%s%s)',
-                $report->outcome,
+                $report->outcome->value,
                 $report->error !== null ? ': ' . $report->error : '',
             ));
         }
 
+        // Over its objective is COMPLETED, not thrown. The restore worked, so retrying it would only
+        // re-measure the same chain several times over (a long drill, five times) before giving up.
+        // The miss is reported where it belongs: DrillRunner has already emitted the Critical
+        // drill_over_objective event, and the recovery-time-objective probe pages on the projection.
         return LifecycleOutcome::completed(sprintf(
-            'drill passed (%s, rto=%dms)',
+            'drill %s (%s, rto=%dms)',
+            $report->outcome->value,
             $report->kind->value ?? 'unknown kind',
             $report->rtoMs,
         ));

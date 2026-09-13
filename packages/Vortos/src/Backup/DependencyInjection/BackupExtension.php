@@ -196,8 +196,6 @@ final class BackupExtension extends Extension
         $secondaryStoreName = (string) ($_ENV['VORTOS_BACKUP_SECONDARY_STORE'] ?? '');
         $objectLockDays = (int) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_DAYS'] ?? 0);
         $objectLockMode = (string) ($_ENV['VORTOS_BACKUP_OBJECT_LOCK_MODE'] ?? 'compliance');
-        $rpoSeconds = (int) ($_ENV['VORTOS_BACKUP_RPO_SECONDS'] ?? 300);
-        $rtoSeconds = (int) ($_ENV['VORTOS_BACKUP_RTO_SECONDS'] ?? 1800);
         $defaultEngine = (string) ($_ENV['VORTOS_BACKUP_ENGINE'] ?? '');
 
         // ── Driver locators + registries ──
@@ -576,6 +574,7 @@ final class BackupExtension extends Extension
                 ->setArgument('$clock', new Reference(SystemClock::class))
                 ->setArgument('$invariantChecks', [])
                 ->setArgument('$storeKey', $storeKey)
+                ->setArgument('$objectives', new Reference(RecoveryObjectives::class))
                 ->setArgument('$keyProvider', $backupKeyProviderRef)
                 // Null unless container-mode drills are configured, which is what makes
                 // "can this installation do point-in-time recovery?" a question with an honest
@@ -601,9 +600,29 @@ final class BackupExtension extends Extension
         $container->register(ObjectLockProbe::class, ObjectLockProbe::class)->setPublic(false);
 
         // ── DR ──
+        // Declared in config/backup.php, never read from the environment with a fallback: the former
+        // VORTOS_BACKUP_RPO_SECONDS / _RTO_SECONDS defaulted to 300 / 1800 when unset, so an installation
+        // could hold an objective nobody chose. Resolving this service without a declaration throws.
         $container->register(RecoveryObjectives::class, RecoveryObjectives::class)
-            ->setArgument('$rpoSeconds', $rpoSeconds)
-            ->setArgument('$rtoSeconds', $rtoSeconds)
+            ->setFactory([new Reference(\Vortos\Backup\Config\BackupConfigLoader::class), 'recoveryObjectives'])
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\DR\ArchiverStatusReaderInterface::class, \Vortos\Backup\DR\PgStatArchiverStatusReader::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\DR\RecoveryObjectivesInspectorFactory::class, \Vortos\Backup\DR\RecoveryObjectivesInspectorFactory::class)
+            ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\DR\RecoveryObjectivesInspector::class, \Vortos\Backup\DR\RecoveryObjectivesInspector::class)
+            ->setFactory([new Reference(\Vortos\Backup\DR\RecoveryObjectivesInspectorFactory::class), 'create'])
+            ->setArgument('$archiver', new Reference(\Vortos\Backup\DR\ArchiverStatusReaderInterface::class))
+            ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$wal', new Reference(BackupCatalogReadModelInterface::class))
+            ->setArgument('$drills', new Reference(DrillReportStoreInterface::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$evaluator', new Reference(\Vortos\Backup\Runtime\CronDueEvaluator::class))
             ->setPublic(false);
 
         $container->register('vortos.backup.declared_schedules', 'array')
@@ -752,6 +771,20 @@ final class BackupExtension extends Extension
                 ->setArgument('$segmentSize', new Reference(\Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class))
                 ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
                 ->setPublic(false);
+
+            // The declared objectives, held continuously. Freshness says a backup arrived and the drill
+            // says it restored; neither says whether a recovery would lose less than the RPO or finish
+            // inside the RTO, which is the promise. Both page through health_probe_failing rules, and
+            // `alerts.recovery_objectives_covered` refuses a deploy that declares objectives without them.
+            $container->register(\Vortos\Backup\Health\RecoveryPointObjectiveProbe::class, \Vortos\Backup\Health\RecoveryPointObjectiveProbe::class)
+                ->setArgument('$inspector', new Reference(\Vortos\Backup\DR\RecoveryObjectivesInspector::class))
+                ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
+                ->setPublic(false);
+
+            $container->register(\Vortos\Backup\Health\RecoveryTimeObjectiveProbe::class, \Vortos\Backup\Health\RecoveryTimeObjectiveProbe::class)
+                ->setArgument('$inspector', new Reference(\Vortos\Backup\DR\RecoveryObjectivesInspector::class))
+                ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
+                ->setPublic(false);
         }
 
         $container->register(\Vortos\Backup\Runtime\CronDueEvaluator::class, \Vortos\Backup\Runtime\CronDueEvaluator::class)
@@ -861,6 +894,9 @@ final class BackupExtension extends Extension
         $container->register(BackupDrRunbookCommand::class, BackupDrRunbookCommand::class)
             ->setArgument('$generator', new Reference(DrRunbookGenerator::class))
             ->addTag('console.command')->setPublic(false);
+        $container->register(\Vortos\Backup\Console\BackupObjectivesCommand::class, \Vortos\Backup\Console\BackupObjectivesCommand::class)
+            ->setArgument('$inspector', new Reference(\Vortos\Backup\DR\RecoveryObjectivesInspector::class))
+            ->addTag('console.command')->setPublic(false);
 
         // Containerized PITR (WAL-shipping) recipe generator (P3-1).
         $container->register(\Vortos\Backup\Pitr\ContainerizedPitrRecipe::class, \Vortos\Backup\Pitr\ContainerizedPitrRecipe::class)
@@ -924,6 +960,12 @@ final class BackupExtension extends Extension
             ->setArgument('$reports', new Reference(DrillReportStoreInterface::class))
             ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
             ->setArgument('$clock', new Reference(ClockInterface::class))
+            ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->addTag('vortos.metrics_collector')
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\Observability\RecoveryObjectivesCollector::class, \Vortos\Backup\Observability\RecoveryObjectivesCollector::class)
+            ->setArgument('$inspector', new Reference(\Vortos\Backup\DR\RecoveryObjectivesInspector::class))
             ->setArgument('$telemetry', new Reference(FrameworkTelemetry::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->addTag('vortos.metrics_collector')
             ->setPublic(false);

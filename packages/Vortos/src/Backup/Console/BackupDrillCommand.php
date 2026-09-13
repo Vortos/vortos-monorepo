@@ -116,9 +116,11 @@ final class BackupDrillCommand extends Command
 
         $report = $this->runner->run($engine, $env, $shallow, $onlyKind);
 
-        if ($report->passed()) {
+        if ($report->restored()) {
             $output->writeln(sprintf(
-                '<info>Drill passed:</info> %s/%s (%s) — RTO %dms, artifact %s',
+                $report->outcome->metObjective()
+                    ? '<info>Drill passed:</info> %s/%s (%s) — RTO %dms, artifact %s'
+                    : '<error>Drill OVER RECOVERY TIME OBJECTIVE:</error> %s/%s (%s) — RTO %dms, artifact %s',
                 $engine->value,
                 $env,
                 $report->kind->value ?? 'auto',
@@ -138,7 +140,9 @@ final class BackupDrillCommand extends Command
                 ));
             }
 
-            return self::SUCCESS;
+            // Non-zero when the objective was missed: whatever runs this by exit code — a CI job, an
+            // off-host cron — must not read "restored, but too slowly to keep the promise" as green.
+            return $report->outcome->metObjective() ? self::SUCCESS : self::FAILURE;
         }
 
         $output->writeln(sprintf(

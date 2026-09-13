@@ -20,7 +20,7 @@ final readonly class DrillReport
         public string $artifactId,
         public DateTimeImmutable $startedAt,
         public int $rtoMs,
-        public string $outcome,
+        public DrillOutcome $outcome,
         public array $invariants,
         public ?string $error = null,
         /**
@@ -36,9 +36,13 @@ final readonly class DrillReport
         public ?BackupKind $kind = null,
     ) {}
 
-    public function passed(): bool
+    /**
+     * No `passed()`: it used to mean "restored", and that silently counted a drill over its recovery
+     * objective as a success. Callers now say which question they are asking.
+     */
+    public function restored(): bool
     {
-        return $this->outcome === 'passed';
+        return $this->outcome->restored();
     }
 
     /** @return array<string, mixed> */
@@ -52,7 +56,7 @@ final readonly class DrillReport
             'started_at' => $this->startedAt->format(DATE_ATOM),
             'rto_ms' => $this->rtoMs,
             'kind' => $this->kind?->value,
-            'outcome' => $this->outcome,
+            'outcome' => $this->outcome->value,
             'invariants' => array_map(
                 static fn (InvariantResult $r): array => $r->toArray(),
                 $this->invariants,

@@ -24,6 +24,13 @@ final readonly class BackupEvent
     public const TYPE_RETENTION_APPLIED = 'backup.retention_applied';
     public const TYPE_DRILL_SUCCEEDED = 'backup.drill_succeeded';
     public const TYPE_DRILL_FAILED = 'backup.drill_failed';
+
+    /**
+     * The restore worked but took longer than the declared recovery time objective. Critical, not a
+     * warning: the objective is a promise about an outage, and a drill is the only evidence of
+     * whether it would be kept.
+     */
+    public const TYPE_DRILL_OVER_OBJECTIVE = 'backup.drill_over_objective';
     public const TYPE_REPLICATION_FAILED = 'backup.replication_failed';
     public const TYPE_IMMUTABILITY_VIOLATION = 'backup.immutability_violation';
 
@@ -129,6 +136,29 @@ final readonly class BackupEvent
             $engine,
             $environment,
             sprintf('Restore drill succeeded for %s/%s (RTO: %dms).', $engine->value, $environment, $rtoMs),
+            $at,
+        );
+    }
+
+    public static function drillOverObjective(
+        DatabaseEngine $engine,
+        string $environment,
+        int $rtoMs,
+        int $rtoObjectiveSeconds,
+        DateTimeImmutable $at,
+    ): self {
+        return new self(
+            self::TYPE_DRILL_OVER_OBJECTIVE,
+            BackupEventSeverity::Critical,
+            $engine,
+            $environment,
+            sprintf(
+                'Restore drill for %s/%s restored the data but missed the recovery time objective (RTO: %dms, objective: %ds).',
+                $engine->value,
+                $environment,
+                $rtoMs,
+                $rtoObjectiveSeconds,
+            ),
             $at,
         );
     }

@@ -7,6 +7,7 @@ namespace Vortos\Backup\Tests\Unit\Drill;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Backup\Drill\DrillOutcome;
 use Vortos\Backup\Drill\DrillReport;
 use Vortos\Backup\Drill\InvariantResult;
 
@@ -16,23 +17,23 @@ final class DrillReportTest extends TestCase
     {
         $report = new DrillReport(
             'drill-1', DatabaseEngine::Postgres, 'prod', 'artifact-1',
-            new DateTimeImmutable(), 5000, 'passed',
+            new DateTimeImmutable(), 5000, DrillOutcome::Passed,
             [InvariantResult::pass('row_count', '10 tables ok')],
         );
 
-        $this->assertTrue($report->passed());
+        $this->assertTrue($report->restored());
     }
 
     public function test_failed_report(): void
     {
         $report = new DrillReport(
             'drill-1', DatabaseEngine::Postgres, 'prod', 'artifact-1',
-            new DateTimeImmutable(), 5000, 'failed',
+            new DateTimeImmutable(), 5000, DrillOutcome::Failed,
             [InvariantResult::fail('row_count', 'users table empty')],
             'invariant failure',
         );
 
-        $this->assertFalse($report->passed());
+        $this->assertFalse($report->restored());
         $this->assertSame('invariant failure', $report->error);
     }
 
@@ -40,7 +41,7 @@ final class DrillReportTest extends TestCase
     {
         $report = new DrillReport(
             'drill-1', DatabaseEngine::Postgres, 'prod', 'artifact-1',
-            new DateTimeImmutable('2026-06-24'), 15000, 'passed',
+            new DateTimeImmutable('2026-06-24'), 15000, DrillOutcome::Passed,
             [
                 InvariantResult::pass('row_count', 'ok'),
                 InvariantResult::fail('fk', 'orphans'),

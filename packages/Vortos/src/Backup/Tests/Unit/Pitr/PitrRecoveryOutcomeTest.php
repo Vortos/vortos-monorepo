@@ -58,4 +58,22 @@ final class PitrRecoveryOutcomeTest extends TestCase
         self::assertSame(147, PitrRecoveryOutcome::segmentsFromSummary($outcome->summary()));
         self::assertNull(PitrRecoveryOutcome::segmentsFromSummary('no archived WAL for this environment'));
     }
+
+    /** The recovery-time projection reads the replay duration back out of the same summary. */
+    public function testRecoveryDurationRoundTripsThroughTheSummary(): void
+    {
+        $outcome = new PitrRecoveryOutcome(828, '0/55C00028', '0/BD400000', '0000000100000000000005E9', true, 333660, '1');
+
+        self::assertSame(333660, PitrRecoveryOutcome::recoveryMsFromSummary($outcome->summary()));
+        self::assertNull(PitrRecoveryOutcome::recoveryMsFromSummary('no archived WAL for this environment'));
+    }
+
+    /** The exact detail string production stored on 2026-09-13, so a wording change cannot silently blind the projection. */
+    public function testParsesTheSummaryFormatProductionStores(): void
+    {
+        $stored = '828 WAL segments replayed, 0/55C00028 → 0/BD400000 (last 0000000100000000000005E9), reached end of archive in 333660ms';
+
+        self::assertSame(828, PitrRecoveryOutcome::segmentsFromSummary($stored));
+        self::assertSame(333660, PitrRecoveryOutcome::recoveryMsFromSummary($stored));
+    }
 }

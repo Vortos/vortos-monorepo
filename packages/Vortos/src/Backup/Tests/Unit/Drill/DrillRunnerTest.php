@@ -6,6 +6,8 @@ namespace Vortos\Backup\Tests\Unit\Drill;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
+use Psr\Clock\ClockInterface;
+use Vortos\Backup\Drill\DrillOutcome;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Vortos\Backup\Crypto\EnvelopeStreamCipher;
 use Vortos\Backup\Domain\BackupKind;
@@ -16,6 +18,7 @@ use Vortos\Backup\Domain\BackupId;
 use Vortos\Backup\Domain\BackupArtifact;
 use Vortos\Backup\Domain\CompressionCodec;
 use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Backup\DR\RecoveryObjectives;
 use Vortos\Backup\Drill\DrillRunner;
 use Vortos\Backup\Drill\InvariantCheck;
 use Vortos\Backup\Drill\InvariantResult;
@@ -48,6 +51,8 @@ final class DrillRunnerTest extends TestCase
     private FakeDrillProvisioner $provisioner;
     private InMemoryDrillReportStore $reportStore;
     private FakeRestoreTarget $restoreTarget;
+    private int $rtoObjectiveSeconds = 1800;
+    private ?ClockInterface $drillClock = null;
 
     protected function setUp(): void
     {
@@ -96,8 +101,9 @@ final class DrillRunnerTest extends TestCase
 
         return new DrillRunner(
             $this->catalog, $stores, $coordinator, $this->provisioner, $this->reportStore,
-            $this->events, new FixedClock(new DateTimeImmutable('2026-06-24 03:00:00')),
+            $this->events, $this->drillClock ?? new FixedClock(new DateTimeImmutable('2026-06-24 03:00:00')),
             $checks, 'object-store',
+            new RecoveryObjectives(300, $this->rtoObjectiveSeconds),
             $withKeyProvider ? $this->keyProvider : null,
         );
     }
@@ -114,7 +120,7 @@ final class DrillRunnerTest extends TestCase
 
         $report = $this->drillRunner([$passingCheck])->run(DatabaseEngine::Postgres, 'prod');
 
-        $this->assertTrue($report->passed());
+        $this->assertTrue($report->restored());
         $this->assertGreaterThanOrEqual(0, $report->rtoMs);
         $this->assertNotNull($this->restoreTarget->restoredData);
         $this->assertSame("PGDMP\x00fake-dump-body", $this->restoreTarget->restoredData);
@@ -133,7 +139,7 @@ final class DrillRunnerTest extends TestCase
 
         $report = $this->drillRunner([$failingCheck])->run(DatabaseEngine::Postgres, 'prod');
 
-        $this->assertFalse($report->passed());
+        $this->assertFalse($report->restored());
         $this->assertTrue($this->provisioner->tornDown, 'Teardown must run even when invariant fails.');
         $this->assertContains(BackupEvent::TYPE_DRILL_FAILED, $this->events->types());
     }
@@ -145,7 +151,7 @@ final class DrillRunnerTest extends TestCase
 
         $report = $this->drillRunner()->run(DatabaseEngine::Postgres, 'prod');
 
-        $this->assertFalse($report->passed());
+        $this->assertFalse($report->restored());
         $this->assertTrue($this->provisioner->tornDown, 'Teardown must run even on restore exception.');
         $this->assertContains(BackupEvent::TYPE_DRILL_FAILED, $this->events->types());
     }
@@ -230,7 +236,7 @@ final class DrillRunnerTest extends TestCase
 
         $report = $this->drillRunner()->run(DatabaseEngine::Postgres, 'prod', shallow: true);
 
-        $this->assertTrue($report->passed());
+        $this->assertTrue($report->restored());
         $this->assertContains(BackupEvent::TYPE_DRILL_SUCCEEDED, $this->events->types());
         $this->assertNull($this->restoreTarget->restoredData, 'Shallow drill must never provision or restore.');
     }
@@ -241,7 +247,7 @@ final class DrillRunnerTest extends TestCase
 
         $report = $this->drillRunner(withKeyProvider: false)->run(DatabaseEngine::Postgres, 'prod', shallow: true);
 
-        $this->assertFalse($report->passed());
+        $this->assertFalse($report->restored());
         $this->assertStringContainsString('no key provider configured', (string) $report->error);
         $this->assertContains(BackupEvent::TYPE_DRILL_FAILED, $this->events->types());
     }
@@ -261,7 +267,7 @@ final class DrillRunnerTest extends TestCase
 
         $report = $this->drillRunner()->run(DatabaseEngine::Postgres, 'prod', shallow: true);
 
-        $this->assertFalse($report->passed());
+        $this->assertFalse($report->restored());
         $this->assertContains(BackupEvent::TYPE_DRILL_FAILED, $this->events->types());
     }
 
@@ -280,6 +286,76 @@ final class DrillRunnerTest extends TestCase
      *
      * Asserted through the no-artifact error, which names exactly the kinds considered eligible.
      */
+    /**
+     * FB-66. A restore that works but takes longer than the RTO used to be recorded as `passed`, emit
+     * the same Info event as a fast one, and page nobody.
+     */
+    public function test_a_drill_slower_than_the_rto_is_over_objective_and_emits_a_critical_event(): void
+    {
+        $this->seedBackup();
+        $this->rtoObjectiveSeconds = 60;
+        $this->drillClock = $this->steppingClock(seconds: 61);
+
+        $report = $this->drillRunner()->run(DatabaseEngine::Postgres, 'prod');
+
+        $this->assertSame(DrillOutcome::OverObjective, $report->outcome);
+        $this->assertTrue($report->restored(), 'the data came back; only the time was missed');
+        $this->assertFalse($report->outcome->metObjective());
+        $this->assertContains(BackupEvent::TYPE_DRILL_OVER_OBJECTIVE, $this->events->types());
+        $this->assertNotContains(BackupEvent::TYPE_DRILL_SUCCEEDED, $this->events->types());
+    }
+
+    public function test_a_drill_exactly_at_the_rto_meets_it(): void
+    {
+        $this->seedBackup();
+        $this->rtoObjectiveSeconds = 60;
+        $this->drillClock = $this->steppingClock(seconds: 60);
+
+        $report = $this->drillRunner()->run(DatabaseEngine::Postgres, 'prod');
+
+        $this->assertSame(DrillOutcome::Passed, $report->outcome);
+        $this->assertContains(BackupEvent::TYPE_DRILL_SUCCEEDED, $this->events->types());
+    }
+
+    public function test_a_slow_drill_that_failed_is_failed_not_over_objective(): void
+    {
+        $this->seedBackup();
+        $this->rtoObjectiveSeconds = 60;
+        $this->drillClock = $this->steppingClock(seconds: 600);
+        $failingCheck = new class implements InvariantCheck {
+            public function name(): string { return 'bad_check'; }
+            public function check(array $connectionParams): InvariantResult {
+                return InvariantResult::fail('bad_check', 'data missing');
+            }
+        };
+
+        $report = $this->drillRunner([$failingCheck])->run(DatabaseEngine::Postgres, 'prod');
+
+        $this->assertSame(DrillOutcome::Failed, $report->outcome);
+        $this->assertNotContains(BackupEvent::TYPE_DRILL_OVER_OBJECTIVE, $this->events->types());
+    }
+
+    /** Each reading is $seconds after the previous one, so the drill's measured RTO is exactly $seconds. */
+    private function steppingClock(int $seconds): ClockInterface
+    {
+        return new class ($seconds) implements ClockInterface {
+            private DateTimeImmutable $at;
+
+            public function __construct(private readonly int $step)
+            {
+                $this->at = new DateTimeImmutable('2026-06-24 03:00:00');
+            }
+
+            public function now(): DateTimeImmutable
+            {
+                $now = $this->at;
+                $this->at = $this->at->modify("+{$this->step} seconds");
+
+                return $now;
+            }
+        };
+    }
+
     public function test_physical_base_is_not_eligible_when_target_cannot_do_point_in_time(): void
     {
         $this->expectException(\RuntimeException::class);

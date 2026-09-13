@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Vortos\Backup\Config;
 
 use InvalidArgumentException;
+use Vortos\Backup\DR\RecoveryObjectives;
+use Vortos\Backup\DR\RecoveryObjectivesNotDeclaredException;
 use Vortos\Backup\Domain\CompressionCodec;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\RetentionPolicy;
@@ -81,6 +83,21 @@ final class BackupConfigLoader
     public function retentionPolicy(): RetentionPolicy
     {
         return $this->config()?->buildRetentionPolicy() ?? new RetentionPolicy();
+    }
+
+    /**
+     * The declared objectives, or null when this installation has no backup configuration at all — the
+     * one legitimate absence, since {@see BackupConfig::buildSchedules()} refuses a lifecycle without them.
+     */
+    public function recoveryObjectivesOrNull(): ?RecoveryObjectives
+    {
+        return $this->config()?->objectivesValue();
+    }
+
+    /** For consumers that cannot mean anything without an objective: drills and the DR runbook. */
+    public function recoveryObjectives(): RecoveryObjectives
+    {
+        return $this->recoveryObjectivesOrNull() ?? throw RecoveryObjectivesNotDeclaredException::create();
     }
 
     public function storeKey(?string $envFallback): string

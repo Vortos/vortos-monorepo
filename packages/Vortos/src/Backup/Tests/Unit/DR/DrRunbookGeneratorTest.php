@@ -7,6 +7,7 @@ namespace Vortos\Backup\Tests\Unit\DR;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Backup\Drill\DrillOutcome;
 use Vortos\Backup\Domain\ObjectLockPolicy;
 use Vortos\Backup\DR\DrRunbookGenerator;
 use Vortos\Backup\DR\RecoveryObjectives;
@@ -117,7 +118,7 @@ final class DrRunbookGeneratorTest extends TestCase
         $reportStore = new InMemoryDrillReportStore();
         $reportStore->save(new DrillReport(
             'drill-1', DatabaseEngine::Postgres, 'prod', 'artifact-1',
-            new DateTimeImmutable('2026-06-24'), 15000, 'passed', [],
+            new DateTimeImmutable('2026-06-24'), 15000, DrillOutcome::Passed, [],
         ));
 
         $generator = new DrRunbookGenerator(
@@ -167,7 +168,7 @@ final class DrRunbookGeneratorTest extends TestCase
         $reportStore = new InMemoryDrillReportStore();
         $reportStore->save(new DrillReport(
             'drill-1', DatabaseEngine::Postgres, 'prod', 'a-1',
-            new DateTimeImmutable('2026-06-24'), 2000000, 'passed', [],
+            new DateTimeImmutable('2026-06-24'), 2000000, DrillOutcome::Passed, [],
         ));
 
         $generator = new DrRunbookGenerator(

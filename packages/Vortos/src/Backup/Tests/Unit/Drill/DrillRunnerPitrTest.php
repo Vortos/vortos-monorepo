@@ -14,6 +14,7 @@ use Vortos\Backup\Domain\CompressionCodec;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Drill\DrillEnvironment;
 use Vortos\Backup\Drill\DrillEnvironmentProvisionerInterface;
+use Vortos\Backup\DR\RecoveryObjectives;
 use Vortos\Backup\Drill\DrillRunner;
 use Vortos\Backup\Driver\ObjectStore\ObjectStoreBackupStore;
 use Vortos\Backup\Pitr\PitrRecoveryOutcome;
@@ -186,6 +187,7 @@ final class DrillRunnerPitrTest extends TestCase
             new FixedClock(new DateTimeImmutable('2026-09-03 05:00:00')),
             [],
             'object-store',
+            new RecoveryObjectives(300, 1800),
             null,
             $pitrProvisioner,
         );
@@ -208,7 +210,7 @@ final class DrillRunnerPitrTest extends TestCase
         $report = $this->runner($target, $this->pitrProvisioner())
             ->run(DatabaseEngine::Postgres, 'prod', false, BackupKind::PhysicalBase);
 
-        self::assertTrue($report->passed(), $report->error ?? '');
+        self::assertTrue($report->restored(), $report->error ?? '');
         self::assertSame(BackupKind::PhysicalBase, $report->kind);
 
         $replayed = array_values(array_filter(
@@ -233,7 +235,7 @@ final class DrillRunnerPitrTest extends TestCase
         $report = $this->runner($target, $this->pitrProvisioner())
             ->run(DatabaseEngine::Postgres, 'prod', false, BackupKind::PhysicalBase);
 
-        self::assertFalse($report->passed());
+        self::assertFalse($report->restored());
     }
 
     /**
@@ -290,7 +292,7 @@ final class DrillRunnerPitrTest extends TestCase
         $report = $this->runner($this->pitrTarget(null), $this->pitrProvisioner())
             ->run(DatabaseEngine::Postgres, 'prod', false, BackupKind::LogicalFull);
 
-        self::assertTrue($report->passed(), $report->error ?? '');
+        self::assertTrue($report->restored(), $report->error ?? '');
         self::assertSame([], array_values(array_filter(
             $report->invariants,
             static fn ($r): bool => $r->name === 'wal_replayed',

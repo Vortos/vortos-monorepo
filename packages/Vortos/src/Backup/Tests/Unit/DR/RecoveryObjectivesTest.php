@@ -38,4 +38,17 @@ final class RecoveryObjectivesTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         new RecoveryObjectives(300, -1);
     }
+
+    /** A zero objective cannot be met by any archive or restore — it would page forever and be muted. */
+    public function test_rejects_zero_rpo(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new RecoveryObjectives(0, 1800);
+    }
+
+    public function test_rejects_zero_rto(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new RecoveryObjectives(300, 0);
+    }
 }

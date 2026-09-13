@@ -101,7 +101,10 @@ final class DrillOutcomeCollector implements MetricsCollectorInterface
             ObservabilityModule::Backup,
             FrameworkMetric::BackupDrillLastOutcome,
             $labels,
-            $report->passed() ? 1.0 : 0.0,
+            // "Did the restore path work", deliberately unchanged in meaning: an over-objective drill
+            // restored the data. Whether it did so in time is its own series, the RTO gauge against
+            // backup_rto_objective_seconds, so a slow chain never reads as a broken one.
+            $report->restored() ? 1.0 : 0.0,
         );
 
         $this->telemetry?->setGauge(

@@ -93,6 +93,17 @@ final readonly class PitrRecoveryOutcome
         return preg_match('/^(\d+) WAL segments replayed/', $summary, $m) === 1 ? (int) $m[1] : null;
     }
 
+    /**
+     * Read the replay duration back out of a {@see summary()} string — the other half of the evidence
+     * the recovery-time projection needs. With the segment count it gives the measured cost of one
+     * segment, and the drill's total RTO minus it gives the fixed cost of everything that is not
+     * replay. Parsed here for the same reason as {@see segmentsFromSummary()}: one owner of the format.
+     */
+    public static function recoveryMsFromSummary(string $summary): ?int
+    {
+        return preg_match('/ in (\d+)ms$/', $summary, $m) === 1 ? (int) $m[1] : null;
+    }
+
     public function summary(): string
     {
         return sprintf(

@@ -26,7 +26,7 @@ final class DbalDrillReportStore implements DrillReportStoreInterface
             'started_at' => $report->startedAt->format(DATE_ATOM),
             'rto_ms' => $report->rtoMs,
             'kind' => $report->kind?->value,
-            'outcome' => $report->outcome,
+            'outcome' => $report->outcome->value,
             'invariants' => json_encode(
                 array_map(static fn (InvariantResult $r): array => $r->toArray(), $report->invariants),
                 JSON_THROW_ON_ERROR,
@@ -67,7 +67,9 @@ final class DbalDrillReportStore implements DrillReportStoreInterface
             (string) $row['artifact_id'],
             new DateTimeImmutable((string) $row['started_at']),
             (int) $row['rto_ms'],
-            (string) $row['outcome'],
+            // from(), not tryFrom(): an outcome this code cannot name is a corrupt or foreign row, and
+            // reading it as some default would publish a drill verdict nobody recorded.
+            DrillOutcome::from((string) $row['outcome']),
             array_map(
                 static fn (array $r): InvariantResult => $r['passed']
                     ? InvariantResult::pass($r['name'], $r['detail'] ?? '')

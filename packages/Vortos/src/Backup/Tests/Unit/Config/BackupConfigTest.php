@@ -6,6 +6,7 @@ namespace Vortos\Backup\Tests\Unit\Config;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Backup\Config\BackupConfig;
+use Vortos\Backup\DR\RecoveryObjectivesNotDeclaredException;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Schedule\BackupScheduleType;
@@ -18,6 +19,7 @@ final class BackupConfigTest extends TestCase
             ->engine('postgres')
             ->environment('production')
             ->store('object-store')->keyPrefix('backups')
+            ->objectives(rpoSeconds: 300, rtoSeconds: 1800)
             ->schedule(fn ($s) => $s
                 ->backup('0 */6 * * *', kind: 'logical_full')
                 ->retention('0 3 * * *')
@@ -71,6 +73,34 @@ final class BackupConfigTest extends TestCase
             ->schedule(fn ($s) => $s->backup('0 */6 * * *'));
 
         $this->assertSame(8, $config->buildRetentionPolicy()->hourly);
+    }
+
+    /**
+     * FB-66: a lifecycle without objectives is refused at load. The objectives used to come from env
+     * vars that fell back to 300 s / 1800 s, so an installation could hold an RTO nobody chose.
+     */
+    public function test_a_declared_lifecycle_without_recovery_objectives_is_refused(): void
+    {
+        $this->expectException(RecoveryObjectivesNotDeclaredException::class);
+
+        BackupConfig::create()
+            ->engine('postgres')
+            ->schedule(fn ($s) => $s->backup('0 3 * * *'))
+            ->buildSchedules();
+    }
+
+    public function test_declared_objectives_are_carried(): void
+    {
+        $objectives = BackupConfig::create()->objectives(rpoSeconds: 120, rtoSeconds: 900)->objectivesValue();
+
+        $this->assertNotNull($objectives);
+        $this->assertSame(120, $objectives->rpoSeconds);
+        $this->assertSame(900, $objectives->rtoSeconds);
+    }
+
+    public function test_no_lifecycle_needs_no_objectives(): void
+    {
+        $this->assertSame([], BackupConfig::create()->engine('postgres')->buildSchedules());
     }
 
     public function test_hourly_not_derived_for_daily_cadence(): void

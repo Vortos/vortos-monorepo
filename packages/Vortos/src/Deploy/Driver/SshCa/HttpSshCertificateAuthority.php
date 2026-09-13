@@ -9,7 +9,7 @@ use Psr\Http\Message\RequestFactoryInterface;
 use Vortos\Deploy\Credential\OidcToken;
 use Vortos\Deploy\Credential\SignedSshCertificate;
 use Vortos\Deploy\Credential\SshCertificateAuthorityInterface;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class HttpSshCertificateAuthority implements SshCertificateAuthorityInterface
 {

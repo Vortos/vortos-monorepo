@@ -6,7 +6,7 @@ namespace Vortos\Security\SupplyChain\Driver\InMemory;
 
 use Vortos\OpsKit\Attribute\AsDriver;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 use Vortos\Security\SupplyChain\Capability\SupplyChainCapabilityKey;
 use Vortos\Security\SupplyChain\Model\ArtifactDigest;
 use Vortos\Security\SupplyChain\Model\Signature\Signature;

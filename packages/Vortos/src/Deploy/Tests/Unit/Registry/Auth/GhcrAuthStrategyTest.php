@@ -9,7 +9,7 @@ use Vortos\Deploy\Driver\Registry\Auth\GhcrAuthStrategy;
 use Vortos\Deploy\Registry\BasicAuthCredential;
 use Vortos\Deploy\Registry\PatTokenCredential;
 use Vortos\Deploy\Tests\Fixtures\FakeCommandRunner;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class GhcrAuthStrategyTest extends TestCase
 {
@@ -56,7 +56,7 @@ final class GhcrAuthStrategyTest extends TestCase
         $credential = new PatTokenCredential('actor', SecretValue::fromString('ghp_secret'));
         $this->strategy->login($this->runner, $credential);
 
-        $this->assertSame('ghp_secret', $this->runner->calls[0]['stdin']);
+        $this->assertSame('ghp_secret', $this->runner->calls[0]['stdin']->reveal());
     }
 
     public function test_token_never_in_argv(): void

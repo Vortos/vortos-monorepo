@@ -11,7 +11,7 @@ use Vortos\Deploy\Exception\ManifestSignatureInvalidException;
 use Vortos\Deploy\Exception\UnsignedManifestException;
 use Vortos\Deploy\PullAgent\DesiredStateManifest;
 use Vortos\Deploy\PullAgent\SignedDesiredStateManifest;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class ManifestSignVerifyTest extends TestCase
 {

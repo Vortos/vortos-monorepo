@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Vortos\Secrets\Tests\Unit\Value;
+namespace Vortos\Foundation\Tests\Unit\Secret;
 
 use PHPUnit\Framework\TestCase;
-use Vortos\Secrets\Exception\SecretAlreadyWipedException;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretAlreadyWipedException;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class SecretValueTest extends TestCase
 {

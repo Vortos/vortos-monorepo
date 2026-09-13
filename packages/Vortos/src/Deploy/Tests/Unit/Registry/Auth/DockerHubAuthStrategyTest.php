@@ -9,7 +9,7 @@ use Vortos\Deploy\Driver\Registry\Auth\DockerHubAuthStrategy;
 use Vortos\Deploy\Registry\BasicAuthCredential;
 use Vortos\Deploy\Registry\PatTokenCredential;
 use Vortos\Deploy\Tests\Fixtures\FakeCommandRunner;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class DockerHubAuthStrategyTest extends TestCase
 {
@@ -45,7 +45,7 @@ final class DockerHubAuthStrategyTest extends TestCase
         $credential = new BasicAuthCredential('user', SecretValue::fromString('dckr_pat_secret'));
         $this->strategy->login($this->runner, $credential);
 
-        $this->assertSame('dckr_pat_secret', $this->runner->calls[0]['stdin']);
+        $this->assertSame('dckr_pat_secret', $this->runner->calls[0]['stdin']->reveal());
     }
 
     public function test_password_never_in_argv(): void

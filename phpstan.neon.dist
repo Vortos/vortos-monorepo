@@ -13,6 +13,13 @@ parameters:
             - '*/Tests'
 
 services:
+    # RC-2: only Vortos\Foundation\Process\ProcessLauncher may start a process. Credentials reached
+    # argv (mongodump --uri with the password, readable via /proc/<pid>/cmdline) because ~20 call
+    # sites spawned processes their own way; this makes bypassing the launcher a build failure.
+    -
+        class: Vortos\OpsKit\PHPStan\ProcessPrimitiveRule
+        tags:
+            - phpstan.rules.rule
     # The agnosticism guarantee (roadmap §13 #1) as a first-class PHPStan rule,
     # SHARING ProviderNameMatcher with the PHPUnit AgnosticismLintTestCase so the two
     # never drift. Scoped by includePathFragments to the *agnostic concern cores*:

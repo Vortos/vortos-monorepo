@@ -6,6 +6,11 @@ namespace Vortos\Backup\Doctor;
 
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Backup\Service\Process\PgPassFile;
+use Vortos\Foundation\Process\EnvironmentPolicy;
+use Vortos\Foundation\Process\ProcessLauncher;
+use Vortos\Foundation\Process\ProcessLaunchException;
+use Vortos\Foundation\Process\ProcessSpec;
 
 /**
  * Verifies the database will accept the REPLICATION connection that physical base backups need.
@@ -168,9 +173,10 @@ final class ReplicationAccessInspector
     private function defaultProbe(): \Closure
     {
         return static function (string $dsn): array {
+            $launcher = new ProcessLauncher();
+
             // Probe for the client before probing with it, so its absence is reported as itself.
-            $located = @shell_exec('command -v psql 2>/dev/null');
-            if ($located === null || trim((string) $located) === '') {
+            if ($launcher->which('psql') === null) {
                 return [
                     'ok' => false,
                     'error' => 'psql is not installed on this node',
@@ -180,40 +186,31 @@ final class ReplicationAccessInspector
 
             ['dsn' => $url, 'password' => $password] = self::withoutPassword($dsn);
 
-            $env = getenv();
-            if ($password !== null) {
-                $env['PGPASSWORD'] = $password;
+            // Minimal environment (the application's secrets are not psql's business) and the password
+            // as a 0600 PGPASSFILE; the launcher scrubs it from anything psql prints.
+            $env = ['PGCONNECT_TIMEOUT' => '10'];
+            if ($password !== null && $password !== '') {
+                $env['PGPASSFILE'] = PgPassFile::for($password);
             }
 
-            $process = proc_open(
-                ['psql', $url, '-Atc', 'IDENTIFY_SYSTEM'],
-                [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-                $pipes,
-                null,
-                $env,
-            );
-
-            if (!\is_resource($process)) {
-                return ['ok' => false, 'error' => 'psql could not be started'];
+            try {
+                $result = $launcher->run(new ProcessSpec(
+                    ['psql', '--no-password', $url, '-Atc', 'IDENTIFY_SYSTEM'],
+                    EnvironmentPolicy::Minimal,
+                    30.0,
+                    env: $env,
+                ));
+            } catch (ProcessLaunchException $e) {
+                return ['ok' => false, 'error' => $e->getMessage()];
             }
 
-            // IDENTIFY_SYSTEM prints one row and an error is one line, so neither pipe can fill
-            // while the other is read.
-            $output = stream_get_contents($pipes[1]) . ' ' . stream_get_contents($pipes[2]);
-            fclose($pipes[1]);
-            fclose($pipes[2]);
-            $exitCode = proc_close($process);
-
-            if ($exitCode === 0) {
+            if ($result->isSuccessful()) {
                 return ['ok' => true, 'error' => null];
             }
 
-            $error = trim(preg_replace('/\s+/', ' ', $output) ?? '');
-            if ($password !== null && $password !== '') {
-                $error = str_replace([$password, rawurlencode($password)], '***', $error);
-            }
+            $error = trim(preg_replace('/\s+/', ' ', $result->stdout . ' ' . $result->stderr) ?? '');
 
-            return ['ok' => false, 'error' => $error !== '' ? $error : 'psql exited ' . $exitCode];
+            return ['ok' => false, 'error' => $error !== '' ? $error : ($result->timedOut ? 'psql timed out' : 'psql exited ' . $result->exitCode)];
         };
     }
 }

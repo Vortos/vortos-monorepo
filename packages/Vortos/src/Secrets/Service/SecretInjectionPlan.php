@@ -23,7 +23,7 @@ final readonly class SecretInjectionPlan
 
     /**
      * The only plaintext exit from a {@see SecretInjectionPlan}. Every call site is
-     * a deliberate, auditable boundary crossing — mirrors {@see \Vortos\Secrets\Value\SecretValue::reveal()}.
+     * a deliberate, auditable boundary crossing — mirrors {@see \Vortos\Foundation\Secret\SecretValue::reveal()}.
      *
      * @return array<string, string>
      */

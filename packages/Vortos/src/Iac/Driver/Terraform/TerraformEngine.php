@@ -210,7 +210,7 @@ final class TerraformEngine implements IacEngineInterface
         );
     }
 
-    /** @return array<string, string> */
+    /** @return array<string, string|\Vortos\Foundation\Secret\SecretValue> */
     private function buildEnv(IacExecutionContext $ctx): array
     {
         $env = ['PATH' => '/usr/local/bin:/usr/bin:/bin'];
@@ -224,8 +224,10 @@ final class TerraformEngine implements IacEngineInterface
             }
         }
 
+        // Passed wrapped: the launcher writes them into the child's environment only and redacts them
+        // from output, so the plaintext is never copied into an array that can be logged or dumped.
         foreach ($ctx->providerCredentials as $key => $secret) {
-            $env[$key] = $secret->reveal();
+            $env[$key] = $secret;
         }
 
         return $env;

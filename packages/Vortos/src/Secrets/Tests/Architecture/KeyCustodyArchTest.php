@@ -14,7 +14,7 @@ use SplFileInfo;
  * read from a tracked file and never persisted to one — it is sourced exclusively
  * from an environment variable, at use-time, inside {@see \Vortos\Secrets\Driver\Age\AgeKeyProvider}.
  * {@see \Vortos\Secrets\Crypto\Identity::revealKeyPairForUnsealing()} mirrors
- * {@see \Vortos\Secrets\Value\SecretValue::reveal()} as a single, auditable
+ * {@see \Vortos\Foundation\Secret\SecretValue::reveal()} as a single, auditable
  * boundary crossing and must stay confined to that one driver.
  */
 final class KeyCustodyArchTest extends TestCase

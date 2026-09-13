@@ -13,8 +13,7 @@
         "vortos/vortos-foundation": "^1.0",
         "vortos/vortos-ops-kit": "^1.0",
         "symfony/console": "^7.3",
-        "symfony/dependency-injection": "^7.3",
-        "symfony/process": "^7.3"
+        "symfony/dependency-injection": "^7.3"
     },
     "suggest": {
         "vortos/vortos-messaging": "Required for the Kafka topics exporter",

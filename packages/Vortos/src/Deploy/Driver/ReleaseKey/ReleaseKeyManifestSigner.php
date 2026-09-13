@@ -7,7 +7,7 @@ namespace Vortos\Deploy\Driver\ReleaseKey;
 use Vortos\Deploy\PullAgent\DesiredStateManifest;
 use Vortos\Deploy\PullAgent\ManifestSignerInterface;
 use Vortos\Deploy\PullAgent\SignedDesiredStateManifest;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class ReleaseKeyManifestSigner implements ManifestSignerInterface
 {

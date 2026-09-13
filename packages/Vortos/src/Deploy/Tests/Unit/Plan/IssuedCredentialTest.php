@@ -6,7 +6,7 @@ namespace Vortos\Deploy\Tests\Unit\Plan;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Credential\IssuedCredential;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class IssuedCredentialTest extends TestCase
 {

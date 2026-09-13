@@ -38,12 +38,13 @@ interface RegistryAuthStrategyInterface extends DriverInterface
     public function login(CommandRunnerInterface $runner, RegistryCredential $credential): void;
 
     /**
-     * Returns the plaintext strings that must be redacted from all log output.
-     * Called before and after login() to seed the runner's redaction list.
+     * Returns the secrets that must be redacted from all log output — wrapped, so no plaintext copy of
+     * a credential is ever held in an array. The runner declares them to the process launcher, which
+     * refuses them on argv and scrubs them from output.
      *
      * Returns empty when $credential is not supported by this strategy.
      *
-     * @return list<string>
+     * @return list<\Vortos\Foundation\Secret\SecretValue>
      */
     public function redactTokens(RegistryCredential $credential): array;
 }

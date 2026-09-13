@@ -136,27 +136,23 @@ final class ComposerPackageInspector
     /** @param string[] $argv */
     private function execComposer(array $argv): bool
     {
-        // On Windows, proc_open with an argv array cannot invoke .bat files — CreateProcess
-        // requires a shell. Strip any cmd /c wrapper added by buildComposerArgv(), then build
-        // a flat escaped string and pass it as a single command string so Windows handles it.
-        if (PHP_OS_FAMILY === 'Windows') {
-            if (($argv[0] ?? null) === 'cmd' && ($argv[1] ?? null) === '/c') {
-                $argv = array_slice($argv, 2);
-            }
-            $bin    = array_shift($argv);
-            $argv   = array_map('escapeshellarg', $argv);
-            $command = implode(' ', [$bin, ...$argv]);
-        } else {
-            $command = $argv;
-        }
-
-        $process = proc_open($command, [STDIN, STDOUT, STDERR], $pipes);
-
-        if (!is_resource($process)) {
+        // Always an argv array. On Windows a .bat/.cmd or bare PATH name is reached through the explicit
+        // `cmd /c` element buildComposerArgv() adds; PHP quotes each array element for CreateProcess, so
+        // no hand-built command string (and no escaping bug) is needed on any platform.
+        if ($argv === [] || $argv[0] === '') {
             return false;
         }
 
-        return proc_close($process) === 0;
+        try {
+            return (new \Vortos\Foundation\Process\ProcessLauncher())->start(
+                new \Vortos\Foundation\Process\ProcessSpec(array_values($argv), \Vortos\Foundation\Process\EnvironmentPolicy::Inherit, null),
+                \Vortos\Foundation\Process\StreamMode::Inherit,
+                \Vortos\Foundation\Process\StreamMode::Inherit,
+                \Vortos\Foundation\Process\StreamMode::Inherit,
+            )->wait()->isSuccessful();
+        } catch (\Vortos\Foundation\Process\ProcessLaunchException) {
+            return false;
+        }
     }
 
     /** @return string[] */

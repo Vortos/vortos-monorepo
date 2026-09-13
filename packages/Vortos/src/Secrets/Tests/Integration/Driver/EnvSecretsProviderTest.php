@@ -12,7 +12,7 @@ use Vortos\Secrets\Driver\Env\EnvSecretsProvider;
 use Vortos\Secrets\Driver\File\FileSecretStore;
 use Vortos\Secrets\Rotation\RotationPolicy;
 use Vortos\Secrets\Value\SecretKey;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 use Vortos\Secrets\Value\SecretVersionState;
 
 /**

@@ -39,7 +39,7 @@ final class DockerHubAuthStrategy implements RegistryAuthStrategyInterface
 
         $result = $runner->run(
             ['docker', 'login', 'docker.io', '--username', $credential->username, '--password-stdin'],
-            stdin: $credential->password->reveal(),
+            stdin: $credential->password,
             redactTokens: $this->redactTokens($credential),
         );
         $result->throwOnFailure('docker login docker.io');
@@ -51,6 +51,6 @@ final class DockerHubAuthStrategy implements RegistryAuthStrategyInterface
             return [];
         }
 
-        return [$credential->password->reveal()];
+        return [$credential->password];
     }
 }

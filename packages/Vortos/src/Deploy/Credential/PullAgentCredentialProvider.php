@@ -11,7 +11,7 @@ use Vortos\Deploy\PullAgent\ManifestPublisherInterface;
 use Vortos\Deploy\PullAgent\ManifestSignerInterface;
 use Vortos\OpsKit\Attribute\AsDriver;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 #[AsDriver('pull-agent')]
 final class PullAgentCredentialProvider extends AbstractCredentialProvider

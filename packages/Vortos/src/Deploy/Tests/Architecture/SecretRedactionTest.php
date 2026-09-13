@@ -20,7 +20,7 @@ final class SecretRedactionTest extends TestCase
             "Logged in with {$secret}",
             "auth: {$secret}",
             0.1,
-            [$secret],
+            [\Vortos\Foundation\Secret\SecretValue::fromString($secret)],
         );
 
         $this->assertStringNotContainsString($secret, $result->redactedStdout());
@@ -53,7 +53,7 @@ final class SecretRedactionTest extends TestCase
             "auth {$secret1} and key {$secret2}",
             '',
             0.1,
-            [$secret1, $secret2],
+            [\Vortos\Foundation\Secret\SecretValue::fromString($secret1), \Vortos\Foundation\Secret\SecretValue::fromString($secret2)],
         );
 
         $this->assertStringNotContainsString($secret1, $result->redactedStdout());

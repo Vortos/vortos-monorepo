@@ -16,7 +16,7 @@ use Vortos\Iac\Lifecycle\IacWorkspace;
 use Vortos\Iac\Lifecycle\Policy\NullPlanPolicy;
 use Vortos\Iac\Exception\DestructiveChangeRefusedException;
 use Vortos\Iac\Exception\PlanStaleException;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class LifecycleRoundTripTest extends TestCase
 {

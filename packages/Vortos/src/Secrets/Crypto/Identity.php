@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Secrets\Crypto;
 
 use InvalidArgumentException;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 /**
  * An X25519 keypair identity used to seal/unseal a {@see SecretEnvelope}'s data

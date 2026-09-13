@@ -11,7 +11,7 @@ use Vortos\Secrets\Preflight\SecretReference;
 use Vortos\Secrets\Service\SecretInjectionPlanner;
 use Vortos\Secrets\Tests\Fixtures\InMemorySecretsProvider;
 use Vortos\Secrets\Value\SecretKey;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class SecretInjectionPlannerTest extends TestCase
 {

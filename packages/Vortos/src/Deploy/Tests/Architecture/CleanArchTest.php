@@ -30,7 +30,7 @@ final class CleanArchTest extends TestCase
     {
         $this->assertDirectoryFreeOf(
             'Plan',
-            ['Vortos\\Secrets\\Value\\SecretValue'],
+            ['Vortos\\Foundation\\Secret\\SecretValue'],
             'Plan/ must never import SecretValue — only SecretReference',
         );
     }
@@ -39,7 +39,7 @@ final class CleanArchTest extends TestCase
     {
         $this->assertDirectoryFreeOf(
             'Strategy',
-            ['Vortos\\Secrets\\Value\\SecretValue'],
+            ['Vortos\\Foundation\\Secret\\SecretValue'],
             'Strategy/ must never import SecretValue — only SecretReference',
         );
     }
@@ -48,7 +48,7 @@ final class CleanArchTest extends TestCase
     {
         $this->assertDirectoryFreeOf(
             'Definition',
-            ['Vortos\\Secrets\\Value\\SecretValue'],
+            ['Vortos\\Foundation\\Secret\\SecretValue'],
             'Definition/ must never import SecretValue',
         );
     }

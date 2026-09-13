@@ -31,7 +31,7 @@ final class DataKeyTest extends TestCase
 
         $dataKey->wipe();
 
-        $this->expectException(\Vortos\Secrets\Exception\SecretAlreadyWipedException::class);
+        $this->expectException(\Vortos\Foundation\Secret\SecretAlreadyWipedException::class);
         $dataKey->revealForEncryption();
     }
 

@@ -14,7 +14,7 @@ use Vortos\Deploy\Preflight\Check\CredentialCheck;
 use Vortos\Deploy\Preflight\PreflightStatus;
 use Vortos\Deploy\Tests\Fixtures\PreflightTestFactory;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class CredentialCheckTest extends TestCase
 {

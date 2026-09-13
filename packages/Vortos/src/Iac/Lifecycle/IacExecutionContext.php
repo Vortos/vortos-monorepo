@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Iac\Lifecycle;
 
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final readonly class IacExecutionContext
 {

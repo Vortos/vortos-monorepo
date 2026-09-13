@@ -20,7 +20,7 @@ use Vortos\Deploy\PullAgent\SignedDesiredStateManifest;
 use Vortos\Deploy\Tests\Fixtures\FakeDeployStateStore;
 use Vortos\Deploy\Tests\Fixtures\InMemoryRateLimitStateStore;
 use Vortos\Deploy\Tests\Fixtures\FakeManifestSource;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class PullAgentReconcilerTest extends TestCase
 {

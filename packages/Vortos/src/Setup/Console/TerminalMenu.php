@@ -110,11 +110,20 @@ final class TerminalMenu
 
     private function stty(string $args, bool $literal = false): ?string
     {
-        $command = 'stty ' . ($literal ? escapeshellarg($args) : $args) . ' < /dev/tty 2>/dev/null';
-        $output = [];
-        $status = 0;
-        exec($command, $output, $status);
+        // stty acts on its stdin, which must be the terminal; no shell is needed to redirect it.
+        $arguments = $literal ? [$args] : array_values(array_filter(explode(' ', $args), static fn (string $a): bool => $a !== ''));
 
-        return $status === 0 ? trim(implode("\n", $output)) : null;
+        try {
+            $exit = (new \Vortos\Foundation\Process\ProcessLauncher())->start(
+                new \Vortos\Foundation\Process\ProcessSpec(['stty', ...$arguments], \Vortos\Foundation\Process\EnvironmentPolicy::Minimal, null),
+                \Vortos\Foundation\Process\StreamMode::Tty,
+                \Vortos\Foundation\Process\StreamMode::Capture,
+                \Vortos\Foundation\Process\StreamMode::Null,
+            )->wait();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $exit->isSuccessful() ? trim($exit->stdout) : null;
     }
 }

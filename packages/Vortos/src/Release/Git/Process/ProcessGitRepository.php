@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Vortos\Release\Git\Process;
 
-use Symfony\Component\Process\Process;
+use Vortos\Foundation\Process\EnvironmentPolicy;
+use Vortos\Foundation\Process\ProcessLauncher;
+use Vortos\Foundation\Process\ProcessLauncherInterface;
+use Vortos\Foundation\Process\ProcessSpec;
 use Vortos\Release\Git\GitCommandException;
 use Vortos\Release\Git\GitRepositoryInterface;
 use Vortos\Release\Git\RawCommit;
@@ -15,7 +18,10 @@ final class ProcessGitRepository implements GitRepositoryInterface
     private const COMMIT_SEPARATOR = '---VORTOS-COMMIT-END---';
     private const FIELD_SEPARATOR = '---VORTOS-FIELD---';
 
-    public function __construct(private readonly string $workingDir) {}
+    public function __construct(
+        private readonly string $workingDir,
+        private readonly ProcessLauncherInterface $launcher = new ProcessLauncher(),
+    ) {}
 
     public function currentSha(): string
     {
@@ -144,21 +150,26 @@ final class ProcessGitRepository implements GitRepositoryInterface
         }
     }
 
-    /** @param list<string> $command */
+    /** @param non-empty-list<string> $command */
     private function run(array $command): string
     {
-        $process = new Process($command, $this->workingDir);
-        $process->setTimeout(self::TIMEOUT);
-        $process->run();
+        // Inherit: git resolves credentials, SSH agents and config from the ambient environment.
+        $result = $this->launcher->run(new ProcessSpec(
+            $command,
+            EnvironmentPolicy::Inherit,
+            (float) self::TIMEOUT,
+            cwd: $this->workingDir,
+            maxOutputBytes: 64 * 1_048_576,
+        ));
 
-        if (!$process->isSuccessful()) {
+        if (!$result->isSuccessful()) {
             throw GitCommandException::fromCommand(
                 implode(' ', $command),
-                $process->getExitCode() ?? 1,
-                $process->getErrorOutput(),
+                $result->timedOut ? 124 : $result->exitCode,
+                $result->timedOut ? 'git timed out after ' . self::TIMEOUT . 's' : $result->stderr,
             );
         }
 
-        return $process->getOutput();
+        return $result->stdout;
     }
 }

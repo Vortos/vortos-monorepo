@@ -39,7 +39,7 @@ final class GhcrAuthStrategy implements RegistryAuthStrategyInterface
 
         $result = $runner->run(
             ['docker', 'login', 'ghcr.io', '--username', $credential->username, '--password-stdin'],
-            stdin: $credential->token->reveal(),
+            stdin: $credential->token,
             redactTokens: $this->redactTokens($credential),
         );
         $result->throwOnFailure('docker login ghcr.io');
@@ -51,6 +51,6 @@ final class GhcrAuthStrategy implements RegistryAuthStrategyInterface
             return [];
         }
 
-        return [$credential->token->reveal()];
+        return [$credential->token];
     }
 }

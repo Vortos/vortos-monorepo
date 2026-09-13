@@ -6,7 +6,7 @@ namespace Vortos\Deploy\Tests\Unit\Credential;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Credential\OidcToken;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class OidcTokenTest extends TestCase
 {

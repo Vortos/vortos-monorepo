@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Secrets\Service;
 
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 /** One `ENV_VAR ⇒ SecretValue` pair within a {@see SecretInjectionPlan}. */
 final readonly class SecretInjectionEntry

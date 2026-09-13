@@ -10,7 +10,7 @@ use RecursiveIteratorIterator;
 use SplFileInfo;
 
 /**
- * {@see \Vortos\Secrets\Value\SecretValue::reveal()} is the sole plaintext exit
+ * {@see \Vortos\Foundation\Secret\SecretValue::reveal()} is the sole plaintext exit
  * point of the redact-by-construction value object. This test enumerates the
  * complete, audited allow-list of production call sites and fails the build the
  * moment any new call site appears outside it — turning "reveal() is only called

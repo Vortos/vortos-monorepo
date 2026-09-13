@@ -256,7 +256,7 @@ final class ProgrammableRunner implements CommandRunnerInterface
         $this->matchers[] = [$matcher, $result];
     }
 
-    public function run(array $argv, ?string $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
+    public function run(array $argv, string|\Vortos\Foundation\Secret\SecretValue|null $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
     {
         $this->calls[] = $argv;
 

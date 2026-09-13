@@ -12,7 +12,7 @@ use Vortos\Deploy\Credential\IssuedCredential;
 use Vortos\Deploy\Definition\EnvironmentName;
 use Vortos\OpsKit\Attribute\AsDriver;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 #[AsDriver('fake-credential')]
 final class FakeCredentialProvider implements CredentialProviderInterface

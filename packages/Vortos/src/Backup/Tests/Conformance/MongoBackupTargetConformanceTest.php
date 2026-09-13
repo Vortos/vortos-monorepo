@@ -15,7 +15,7 @@ final class MongoBackupTargetConformanceTest extends BackupTargetConformanceTest
 {
     protected function createDriver(): DriverInterface
     {
-        return new MongoBackupTarget(new MongoProcessFactory('mongodb://localhost:27017'));
+        return new MongoBackupTarget(new MongoProcessFactory(\Vortos\Foundation\Secret\SecretValue::fromString('mongodb://localhost:27017')));
     }
 
     protected function expectedKey(): string

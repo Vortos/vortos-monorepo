@@ -9,6 +9,7 @@ use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Restore\Capability\RestoreTargetCapability;
 use Vortos\Backup\Restore\RestoreRequest;
 use Vortos\Backup\Restore\RestoreTargetInterface;
+use Vortos\Foundation\Secret\SecretValue;
 use Vortos\OpsKit\Attribute\AsDriver;
 use Vortos\OpsKit\Driver\Capability\CapabilityDescriptor;
 
@@ -37,11 +38,12 @@ final class MongoRestoreTarget implements RestoreTargetInterface
     {
         $parsed = parse_url($request->destinationDsn);
         if ($parsed === false) {
-            throw new RuntimeException(sprintf('Invalid Mongo DSN: %s', $request->destinationDsn));
+            // Never the DSN itself: it carries the password.
+            throw new RuntimeException('Invalid Mongo destination DSN.');
         }
         $database = ltrim($parsed['path'] ?? '/test', '/');
 
-        [$stdin, $guard] = $this->processes->mongorestore($request->destinationDsn, $database);
+        [$stdin, $guard] = $this->processes->mongorestore(SecretValue::fromString($request->destinationDsn), $database);
 
         try {
             foreach ($chunks as $chunk) {

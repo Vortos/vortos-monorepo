@@ -11,7 +11,7 @@ use Vortos\Secrets\Rotation\RotationPolicy;
 use Vortos\Secrets\Rotation\RotationResult;
 use Vortos\Secrets\Value\SecretKey;
 use Vortos\Secrets\Value\SecretMetadata;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 use Vortos\Secrets\Value\SecretVersion;
 use Vortos\Secrets\Value\SecretVersionState;
 

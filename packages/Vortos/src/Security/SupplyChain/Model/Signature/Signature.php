@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Security\SupplyChain\Model\Signature;
 
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final readonly class Signature
 {

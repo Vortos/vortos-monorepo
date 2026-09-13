@@ -60,9 +60,10 @@ abstract class RegistryAuthStrategyConformanceTestCase extends ConformanceTestCa
         $this->assertNotNull($call['stdin'], 'Credentials must be passed via stdin, not args.');
 
         foreach ($tokens as $token) {
+            $this->assertInstanceOf(\Vortos\Foundation\Secret\SecretValue::class, $token, 'redactTokens() returns wrapped secrets.');
             foreach ($call['argv'] as $arg) {
                 $this->assertStringNotContainsString(
-                    $token,
+                    $token->reveal(),
                     $arg,
                     'Secret token must never appear in command arguments.',
                 );

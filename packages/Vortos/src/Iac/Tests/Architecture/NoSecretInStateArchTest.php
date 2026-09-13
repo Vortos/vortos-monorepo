@@ -53,7 +53,10 @@ final class NoSecretInStateArchTest extends TestCase
         $engineFile = dirname(__DIR__, 2) . '/Driver/Terraform/TerraformEngine.php';
         $content = file_get_contents($engineFile);
         $revealCount = substr_count($content, '->reveal()');
-        $this->assertSame(2, $revealCount, 'TerraformEngine should call reveal() exactly twice: buildEnv() and redact().');
+        // Once, in redact(). buildEnv() passes provider credentials WRAPPED to the process launcher,
+        // which writes them into the child's environment only (RC-2) — no plaintext env array exists.
+        $this->assertSame(1, $revealCount, 'TerraformEngine should call reveal() exactly once, in redact(); buildEnv() must pass SecretValues through.');
+        $this->assertStringContainsString('$env[$key] = $secret;', $content, 'buildEnv() must hand the launcher the SecretValue itself.');
     }
 
     /** @return list<string> */

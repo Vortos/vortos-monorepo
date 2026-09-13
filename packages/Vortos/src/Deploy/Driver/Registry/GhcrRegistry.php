@@ -49,7 +49,7 @@ final class GhcrRegistry implements ContainerRegistryInterface
 
         $result = $this->runner->run(
             ['docker', 'login', 'ghcr.io', '--username', $this->credential->username, '--password-stdin'],
-            stdin: $this->credential->token->reveal(),
+            stdin: $this->credential->token,
             redactTokens: $this->redactTokens(),
         );
         $result->throwOnFailure('docker login ghcr.io');
@@ -61,6 +61,6 @@ final class GhcrRegistry implements ContainerRegistryInterface
             return [];
         }
 
-        return [$this->credential->token->reveal()];
+        return [$this->credential->token];
     }
 }

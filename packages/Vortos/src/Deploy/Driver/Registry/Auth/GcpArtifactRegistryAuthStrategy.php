@@ -46,7 +46,7 @@ final class GcpArtifactRegistryAuthStrategy implements RegistryAuthStrategyInter
 
         $result = $runner->run(
             ['docker', 'login', $credential->registryHost, '--username', '_json_key', '--password-stdin'],
-            stdin: $credential->serviceAccountJson->reveal(),
+            stdin: $credential->serviceAccountJson,
             redactTokens: $this->redactTokens($credential),
         );
         $result->throwOnFailure(sprintf('docker login %s', $credential->registryHost));
@@ -58,6 +58,6 @@ final class GcpArtifactRegistryAuthStrategy implements RegistryAuthStrategyInter
             return [];
         }
 
-        return [$credential->serviceAccountJson->reveal()];
+        return [$credential->serviceAccountJson];
     }
 }

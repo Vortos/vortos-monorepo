@@ -150,7 +150,6 @@ final class BackupExtension extends Extension
 
         $keyPrefix = (string) ($_ENV['VORTOS_BACKUP_KEY_PREFIX'] ?? 'backups');
         $lockDir = (string) ($_ENV['VORTOS_BACKUP_LOCK_DIR'] ?? ($projectDir . '/var/backup-locks'));
-        $mongoUri = (string) ($_ENV['VORTOS_BACKUP_MONGO_URI'] ?? '');
         // The DR runbook reports this, and it must match reality: encryption is switched on by
         // VORTOS_BACKUP_AGE_PUBLIC_KEY, so reading a separate VORTOS_BACKUP_KEY_PROVIDER (which
         // nothing sets) made every encrypted install report its key provider as "none" — in the one
@@ -237,8 +236,14 @@ final class BackupExtension extends Extension
             ->addTag(CollectBackupTargetsPass::TAG)
             ->setPublic(false);
 
+        // The URI carries credentials: resolved from the environment when the service is built (an
+        // env placeholder, so a dumped container never holds it) and wrapped as a SecretValue, which
+        // the launcher delivers through a 0600 --config file rather than argv.
+        $container->setParameter('vortos.backup.mongo_uri_unset', '');
         $container->register(MongoProcessFactory::class, MongoProcessFactory::class)
-            ->setArgument('$uri', $mongoUri)
+            ->setArgument('$uri', (new \Symfony\Component\DependencyInjection\Definition(\Vortos\Foundation\Secret\SecretValue::class))
+                ->setFactory([\Vortos\Foundation\Secret\SecretValue::class, 'fromString'])
+                ->setArguments(['%env(default:vortos.backup.mongo_uri_unset:VORTOS_BACKUP_MONGO_URI)%']))
             ->setPublic(false);
         $container->register(MongoBackupTarget::class, MongoBackupTarget::class)
             ->setArgument('$processes', new Reference(MongoProcessFactory::class))

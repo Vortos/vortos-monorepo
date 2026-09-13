@@ -2,10 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Vortos\Secrets\Value;
+namespace Vortos\Foundation\Secret;
 
 use JsonSerializable;
-use Vortos\Secrets\Exception\SecretAlreadyWipedException;
 use WeakMap;
 
 /**

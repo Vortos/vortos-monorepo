@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Vortos\Secrets\Tests\Unit\Value;
+namespace Vortos\Foundation\Tests\Unit\Secret;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;

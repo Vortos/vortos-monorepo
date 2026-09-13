@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Secrets\Key;
 
 use InvalidArgumentException;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 /**
  * A raw data-encryption key (DEK) — the symmetric key that encrypts a secret's

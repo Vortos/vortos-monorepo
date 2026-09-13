@@ -6,21 +6,27 @@ namespace Vortos\Backup\Driver\Postgres;
 
 use Doctrine\DBAL\Connection;
 use Vortos\Backup\Domain\Exception\DumpFailedException;
+use Vortos\Backup\Service\Process\PgPassFile;
 use Vortos\Backup\Service\Process\ProcessGuard;
+use Vortos\Foundation\Process\EnvironmentPolicy;
+use Vortos\Foundation\Process\ProcessLauncher;
+use Vortos\Foundation\Process\ProcessLauncherInterface;
+use Vortos\Foundation\Process\ProcessSpec;
+use Vortos\Foundation\Process\StreamMode;
 
 /**
- * Builds and spawns the Postgres dump subprocess, streaming stdout.
+ * Spawns the Postgres dump subprocess, streaming stdout.
  *
- * Connection parameters are read from the DBAL connection (primary or replica), never
- * hand-configured twice. The password is passed via the `PGPASSWORD` environment
- * variable of the child process only — never on the argv (which is world-readable in
- * `/proc`), never logged.
+ * Connection parameters come from the DBAL connection (primary or replica), never configured twice.
+ * The password reaches the child as a 0600 `PGPASSFILE` — never argv, never the environment, never a
+ * log — and the child gets a minimal environment rather than the application's.
  */
 final class PostgresProcessFactory
 {
     public function __construct(
         private readonly Connection $primary,
         private readonly ?Connection $replica = null,
+        private readonly ProcessLauncherInterface $launcher = new ProcessLauncher(),
     ) {}
 
     /**
@@ -28,15 +34,14 @@ final class PostgresProcessFactory
      */
     public function pgDump(bool $fromReplica): array
     {
-        $this->assertBinary('pg_dump');
         $params = $this->params($fromReplica);
 
-        return $this->spawn([
-            'pg_dump',
+        return $this->spawn('pg_dump', [
             '--no-owner',
             '--no-privileges',
             '--format=custom',
             '--compress=6',
+            '--no-password',
             '--host=' . $params['host'],
             '--port=' . (string) $params['port'],
             '--username=' . $params['user'],
@@ -49,11 +54,9 @@ final class PostgresProcessFactory
      */
     public function pgBaseBackup(bool $fromReplica): array
     {
-        $this->assertBinary('pg_basebackup');
         $params = $this->params($fromReplica);
 
-        return $this->spawn([
-            'pg_basebackup',
+        return $this->spawn('pg_basebackup', [
             '--pgdata=-',
             '--format=tar',
             '--wal-method=none',
@@ -65,25 +68,23 @@ final class PostgresProcessFactory
     }
 
     /**
-     * @param list<string> $command
+     * @param list<string> $arguments
      * @return array{0: resource, 1: ProcessGuard}
      */
-    private function spawn(array $command, string $password): array
+    private function spawn(string $binary, array $arguments, string $password): array
     {
-        $descriptors = [
-            0 => ['file', '/dev/null', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-
-        $env = ['PGPASSWORD' => $password, 'PATH' => getenv('PATH') ?: '/usr/bin:/bin:/usr/local/bin'];
-
-        $process = proc_open($command, $descriptors, $pipes, null, $env);
-        if (!is_resource($process)) {
-            throw DumpFailedException::reason('Failed to spawn Postgres dump process.');
+        if ($this->launcher->which($binary) === null) {
+            throw DumpFailedException::missingBinary('postgres', $binary);
         }
 
-        return [$pipes[1], new ProcessGuard($process, $pipes[2], 'postgres')];
+        $process = $this->launcher->start(
+            new ProcessSpec([$binary, ...$arguments], EnvironmentPolicy::Minimal, null, env: ['PGPASSFILE' => PgPassFile::for($password)]),
+            StreamMode::Null,
+            StreamMode::Pipe,
+            StreamMode::Capture,
+        );
+
+        return [$process->stdout(), new ProcessGuard($process, 'postgres')];
     }
 
     /**
@@ -101,13 +102,5 @@ final class PostgresProcessFactory
             'password' => (string) ($p['password'] ?? ''),
             'dbname' => (string) ($p['dbname'] ?? ($p['path'] ?? 'postgres')),
         ];
-    }
-
-    private function assertBinary(string $binary): void
-    {
-        $found = @shell_exec('command -v ' . escapeshellarg($binary) . ' 2>/dev/null');
-        if ($found === null || trim((string) $found) === '') {
-            throw DumpFailedException::missingBinary('postgres', $binary);
-        }
     }
 }

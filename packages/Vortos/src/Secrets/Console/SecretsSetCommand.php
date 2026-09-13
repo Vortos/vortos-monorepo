@@ -16,7 +16,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use Vortos\Secrets\Provider\SecretsProviderRegistry;
 use Vortos\Secrets\Value\SecretKey;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 /**
  * Sets a secret value. The value is read from stdin or a hidden interactive

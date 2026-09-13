@@ -46,7 +46,7 @@ final class PreflightNoSecretLeakTest extends TestCase
 
         foreach ($this->phpFiles($relDir) as $file) {
             $code = (string) file_get_contents($file);
-            if (str_contains($code, 'Vortos\\Secrets\\Value\\SecretValue')) {
+            if (str_contains($code, 'Vortos\\Foundation\\Secret\\SecretValue')) {
                 $violations[] = basename($file) . ' imports SecretValue';
             }
         }

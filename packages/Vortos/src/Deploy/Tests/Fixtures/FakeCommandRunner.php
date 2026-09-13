@@ -9,7 +9,7 @@ use Vortos\Deploy\Execution\CommandRunnerInterface;
 
 final class FakeCommandRunner implements CommandRunnerInterface
 {
-    /** @var list<array{argv: list<string>, stdin: ?string}> */
+    /** @var list<array{argv: list<string>, stdin: string|\Vortos\Foundation\Secret\SecretValue|null}> */
     public array $calls = [];
 
     /** @var list<CommandResult> */
@@ -22,7 +22,7 @@ final class FakeCommandRunner implements CommandRunnerInterface
         $this->results[] = $result;
     }
 
-    public function run(array $argv, ?string $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
+    public function run(array $argv, string|\Vortos\Foundation\Secret\SecretValue|null $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
     {
         $this->calls[] = ['argv' => $argv, 'stdin' => $stdin];
 

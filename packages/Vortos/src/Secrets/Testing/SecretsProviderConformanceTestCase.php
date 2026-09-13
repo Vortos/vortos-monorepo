@@ -9,7 +9,7 @@ use Vortos\Secrets\Exception\SecretNotFoundException;
 use Vortos\Secrets\Provider\SecretsProviderInterface;
 use Vortos\Secrets\Rotation\RotationPolicy;
 use Vortos\Secrets\Value\SecretKey;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 /**
  * The universal {@see SecretsProviderInterface} contract — every driver, whatever

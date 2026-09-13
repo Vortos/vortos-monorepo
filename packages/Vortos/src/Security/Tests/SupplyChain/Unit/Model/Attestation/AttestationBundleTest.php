@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Security\Tests\SupplyChain\Unit\Model\Attestation;
 
 use PHPUnit\Framework\TestCase;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 use Vortos\Security\SupplyChain\Model\ArtifactDigest;
 use Vortos\Security\SupplyChain\Model\Attestation\AttestationBundle;
 use Vortos\Security\SupplyChain\Model\Provenance\ProvenanceBuilder;

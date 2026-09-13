@@ -46,7 +46,7 @@ final class CommandResultTest extends TestCase
             "Login with {$secret} succeeded",
             "Warning: {$secret} exposed",
             0.1,
-            [$secret],
+            [\Vortos\Foundation\Secret\SecretValue::fromString($secret)],
         );
 
         $this->assertStringNotContainsString($secret, $result->redactedStdout());
@@ -58,7 +58,7 @@ final class CommandResultTest extends TestCase
     public function test_to_array_uses_redacted_output(): void
     {
         $secret = 'token123';
-        $result = new CommandResult(0, "auth {$secret}", '', 0.1, [$secret]);
+        $result = new CommandResult(0, "auth {$secret}", '', 0.1, [\Vortos\Foundation\Secret\SecretValue::fromString($secret)]);
         $array = $result->toArray();
 
         $this->assertStringNotContainsString($secret, $array['stdout']);

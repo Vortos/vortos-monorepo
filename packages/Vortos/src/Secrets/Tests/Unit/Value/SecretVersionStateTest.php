@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Vortos\Secrets\Tests\Unit\Value;
+namespace Vortos\Foundation\Tests\Unit\Secret;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Secrets\Value\SecretVersionState;

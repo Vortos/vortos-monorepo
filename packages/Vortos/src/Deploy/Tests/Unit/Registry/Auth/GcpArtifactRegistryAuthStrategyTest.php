@@ -9,7 +9,7 @@ use Vortos\Deploy\Driver\Registry\Auth\GcpArtifactRegistryAuthStrategy;
 use Vortos\Deploy\Registry\BasicAuthCredential;
 use Vortos\Deploy\Registry\GcpServiceAccountCredential;
 use Vortos\Deploy\Tests\Fixtures\FakeCommandRunner;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class GcpArtifactRegistryAuthStrategyTest extends TestCase
 {
@@ -55,7 +55,7 @@ final class GcpArtifactRegistryAuthStrategyTest extends TestCase
         );
         $this->strategy->login($this->runner, $credential);
 
-        $this->assertSame($json, $this->runner->calls[0]['stdin']);
+        $this->assertSame($json, $this->runner->calls[0]['stdin']->reveal());
     }
 
     public function test_sa_json_never_in_argv(): void

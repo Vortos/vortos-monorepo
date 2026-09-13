@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Vortos\Deploy\Credential\CredentialLease;
 use Vortos\Deploy\Credential\CredentialUse;
 use Vortos\Deploy\Credential\IssuedCredential;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class CredentialLeaseTest extends TestCase
 {

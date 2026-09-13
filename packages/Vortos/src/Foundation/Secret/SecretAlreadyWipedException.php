@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Vortos\Secrets\Exception;
+namespace Vortos\Foundation\Secret;
 
 use RuntimeException;
 
 /**
- * Raised by {@see \Vortos\Secrets\Value\SecretValue} when {@see reveal()} or
+ * Raised by {@see \Vortos\Foundation\Secret\SecretValue} when {@see reveal()} or
  * {@see equals()} is called after {@see wipe()} — fail-closed, never a silent
  * empty string.
  */
-final class SecretAlreadyWipedException extends RuntimeException implements SecretsException
+final class SecretAlreadyWipedException extends RuntimeException
 {
     public static function create(): self
     {

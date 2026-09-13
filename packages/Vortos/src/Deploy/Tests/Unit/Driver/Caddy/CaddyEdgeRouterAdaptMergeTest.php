@@ -66,7 +66,7 @@ final class CaddyEdgeRouterAdaptMergeTest extends TestCase
         return new class($stdout) implements CommandRunnerInterface {
             public function __construct(private readonly string $stdout) {}
 
-            public function run(array $argv, ?string $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
+            public function run(array $argv, string|\Vortos\Foundation\Secret\SecretValue|null $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
             {
                 return new CommandResult(0, $this->stdout, '', 0.01);
             }

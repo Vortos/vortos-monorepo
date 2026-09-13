@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Vortos\Backup\Doctor;
 
 use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Foundation\Process\EnvironmentPolicy;
+use Vortos\Foundation\Process\ProcessLauncher;
+use Vortos\Foundation\Process\ProcessSpec;
 
 /**
  * Probes whether the client binaries a backup engine needs are present on PATH and new enough.
@@ -125,20 +128,13 @@ final class BackupToolchainInspector
 
     private function which(string $binary): ?string
     {
-        // $binary is always a fixed constant from requirements(), never user input; escaped anyway.
-        $found = @shell_exec('command -v ' . escapeshellarg($binary) . ' 2>/dev/null');
-        if ($found === null) {
-            return null;
-        }
-        $found = trim($found);
-
-        return $found === '' ? null : $found;
+        return (new ProcessLauncher())->which($binary);
     }
 
     private function detectMajor(string $binary): ?int
     {
-        $output = @shell_exec(escapeshellarg($binary) . ' --version 2>/dev/null');
-        if (!is_string($output) || $output === '') {
+        $output = (new ProcessLauncher())->run(new ProcessSpec([$binary, '--version'], EnvironmentPolicy::Minimal, 10.0))->stdout;
+        if ($output === '') {
             return null;
         }
 

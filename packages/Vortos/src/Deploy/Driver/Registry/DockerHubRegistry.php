@@ -49,7 +49,7 @@ final class DockerHubRegistry implements ContainerRegistryInterface
 
         $result = $this->runner->run(
             ['docker', 'login', 'docker.io', '--username', $this->credential->username, '--password-stdin'],
-            stdin: $this->credential->password->reveal(),
+            stdin: $this->credential->password,
             redactTokens: $this->redactTokens(),
         );
         $result->throwOnFailure('docker login docker.io');
@@ -61,6 +61,6 @@ final class DockerHubRegistry implements ContainerRegistryInterface
             return [];
         }
 
-        return [$this->credential->password->reveal()];
+        return [$this->credential->password];
     }
 }

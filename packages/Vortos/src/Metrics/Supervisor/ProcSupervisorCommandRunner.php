@@ -4,8 +4,15 @@ declare(strict_types=1);
 
 namespace Vortos\Metrics\Supervisor;
 
+use Throwable;
+use Vortos\Foundation\Process\EnvironmentPolicy;
+use Vortos\Foundation\Process\ProcessLauncher;
+use Vortos\Foundation\Process\ProcessLauncherInterface;
+use Vortos\Foundation\Process\ProcessSpec;
+
 /**
- * Runs supervisorctl via proc_open.
+ * Runs supervisorctl through the framework launcher, with a minimal environment — supervisorctl reads
+ * its socket from its own config file and needs none of the application's secrets.
  *
  * The exit code is deliberately ignored: `supervisorctl status` exits non-zero whenever ANY program
  * is not RUNNING, which is exactly the condition worth reporting. Treating that as failure would
@@ -13,29 +20,20 @@ namespace Vortos\Metrics\Supervisor;
  */
 final class ProcSupervisorCommandRunner implements SupervisorCommandRunnerInterface
 {
+    public function __construct(
+        private readonly ProcessLauncherInterface $launcher = new ProcessLauncher(),
+    ) {}
+
     public function run(array $argv, float $timeoutSeconds): string
     {
-        $descriptors = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-
-        $process = @proc_open($argv, $descriptors, $pipes);
-
-        if (!is_resource($process)) {
+        if ($argv === []) {
             return '';
         }
 
-        fclose($pipes[0]);
-        stream_set_timeout($pipes[1], (int) max(1, $timeoutSeconds));
-
-        $stdout = stream_get_contents($pipes[1]) ?: '';
-
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        proc_close($process);
-
-        return $stdout;
+        try {
+            return $this->launcher->run(new ProcessSpec($argv, EnvironmentPolicy::Minimal, max(0.001, $timeoutSeconds)))->stdout;
+        } catch (Throwable) {
+            return '';
+        }
     }
 }

@@ -980,16 +980,16 @@ final class SetupCommand extends Command
         }
 
         $io->section('MCP client');
-        $cmd = implode(' ', [
-            escapeshellarg(PHP_BINARY),
-            escapeshellarg($consolePath),
-            'vortos:mcp:install',
-        ]);
-
         $io->writeln('  Running: <info>php bin/console vortos:mcp:install</info>');
         $io->writeln('');
 
-        passthru($cmd, $exitCode);
+        // Interactive: the installer prompts, so every stream is this terminal's.
+        $exitCode = (new \Vortos\Foundation\Process\ProcessLauncher())->start(
+            new \Vortos\Foundation\Process\ProcessSpec([PHP_BINARY, $consolePath, 'vortos:mcp:install'], \Vortos\Foundation\Process\EnvironmentPolicy::Inherit, null),
+            \Vortos\Foundation\Process\StreamMode::Inherit,
+            \Vortos\Foundation\Process\StreamMode::Inherit,
+            \Vortos\Foundation\Process\StreamMode::Inherit,
+        )->wait()->exitCode;
 
         if ($exitCode !== 0) {
             $io->warning('MCP client setup failed. You can retry with: php bin/console vortos:mcp:install');

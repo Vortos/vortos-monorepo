@@ -9,7 +9,7 @@ use Vortos\Release\Manifest\Arch;
 use Vortos\Release\Manifest\BuildManifest;
 use Vortos\Release\Manifest\Provenance;
 use Vortos\Release\Schema\SchemaFingerprint;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 use Vortos\Security\SupplyChain\Model\ArtifactDigest;
 use Vortos\Security\SupplyChain\Model\Attestation\AttestationBundle;
 use Vortos\Security\SupplyChain\Model\Provenance\ProvenanceBuilder;

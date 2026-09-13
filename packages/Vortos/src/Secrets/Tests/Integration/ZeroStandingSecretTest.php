@@ -15,7 +15,7 @@ use Vortos\Secrets\Rotation\RotationPolicy;
 use Vortos\Secrets\Service\RotationManager;
 use Vortos\Secrets\Service\SecretInjectionPlanner;
 use Vortos\Secrets\Value\SecretKey;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 /**
  * **§15.2 mandatory**: after a full put → get → rotate → inject lifecycle, the

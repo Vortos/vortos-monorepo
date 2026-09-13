@@ -8,7 +8,7 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Vortos\Deploy\Credential\OidcToken;
 use Vortos\Deploy\Credential\RegistryTokenExchangeInterface;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class OidcRegistryTokenExchange implements RegistryTokenExchangeInterface
 {

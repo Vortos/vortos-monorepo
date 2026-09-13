@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Registry;
 
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 /**
  * GCP service account JSON credential for Artifact Registry.

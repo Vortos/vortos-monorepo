@@ -10,7 +10,7 @@ use Vortos\Deploy\Registry\BasicAuthCredential;
 use Vortos\Deploy\Registry\PatTokenCredential;
 use Vortos\Deploy\Registry\RegistryCredential;
 use Vortos\Deploy\Testing\RegistryAuthStrategyConformanceTestCase;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class DockerHubAuthStrategyConformanceTest extends RegistryAuthStrategyConformanceTestCase
 {

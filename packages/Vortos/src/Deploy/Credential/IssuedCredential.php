@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Credential;
 
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final readonly class IssuedCredential
 {

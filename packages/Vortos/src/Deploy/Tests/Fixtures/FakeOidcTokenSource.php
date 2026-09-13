@@ -6,7 +6,7 @@ namespace Vortos\Deploy\Tests\Fixtures;
 
 use Vortos\Deploy\Credential\OidcToken;
 use Vortos\Deploy\Credential\OidcTokenSourceInterface;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class FakeOidcTokenSource implements OidcTokenSourceInterface
 {

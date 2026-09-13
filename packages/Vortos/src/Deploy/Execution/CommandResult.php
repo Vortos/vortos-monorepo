@@ -8,7 +8,7 @@ use Vortos\Deploy\Exception\CommandFailedException;
 
 final readonly class CommandResult
 {
-    /** @param list<string> $redactTokens */
+    /** @param list<\Vortos\Foundation\Secret\SecretValue> $redactTokens */
     public function __construct(
         public int $exitCode,
         public string $stdout,
@@ -58,6 +58,15 @@ final readonly class CommandResult
             return $value;
         }
 
-        return str_replace($this->redactTokens, '***', $value);
+        $needles = [];
+        foreach ($this->redactTokens as $token) {
+            $plaintext = $token->reveal();
+            if ($plaintext !== '') {
+                $needles[] = $plaintext;
+            }
+        }
+        usort($needles, static fn (string $a, string $b): int => \strlen($b) <=> \strlen($a));
+
+        return $needles === [] ? $value : str_replace($needles, '***', $value);
     }
 }

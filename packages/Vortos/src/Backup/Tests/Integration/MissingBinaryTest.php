@@ -48,7 +48,7 @@ final class MissingBinaryTest extends TestCase
             $this->markTestSkipped('mongodump is installed; missing-binary path not exercised here.');
         }
 
-        $target = new MongoBackupTarget(new MongoProcessFactory('mongodb://localhost:27017'));
+        $target = new MongoBackupTarget(new MongoProcessFactory(\Vortos\Foundation\Secret\SecretValue::fromString('mongodb://localhost:27017')));
 
         $this->expectException(DumpFailedException::class);
         $this->expectExceptionMessageMatches('/mongodump/');

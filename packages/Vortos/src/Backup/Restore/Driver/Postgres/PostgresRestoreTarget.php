@@ -66,7 +66,8 @@ final class PostgresRestoreTarget implements RestoreTargetInterface
     {
         $parsed = parse_url($dsn);
         if ($parsed === false || !isset($parsed['scheme'])) {
-            throw new RuntimeException(sprintf('Invalid Postgres DSN: %s', $dsn));
+            // Never the DSN itself: it carries the password.
+            throw new RuntimeException('Invalid Postgres destination DSN.');
         }
 
         return [

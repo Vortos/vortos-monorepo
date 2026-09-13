@@ -49,7 +49,7 @@ final class GcpArtifactRegistry implements ContainerRegistryInterface
 
         $result = $this->runner->run(
             ['docker', 'login', $this->credential->registryHost, '--username', '_json_key', '--password-stdin'],
-            stdin: $this->credential->serviceAccountJson->reveal(),
+            stdin: $this->credential->serviceAccountJson,
             redactTokens: $this->redactTokens(),
         );
         $result->throwOnFailure(sprintf('docker login %s', $this->credential->registryHost));
@@ -61,6 +61,6 @@ final class GcpArtifactRegistry implements ContainerRegistryInterface
             return [];
         }
 
-        return [$this->credential->serviceAccountJson->reveal()];
+        return [$this->credential->serviceAccountJson];
     }
 }

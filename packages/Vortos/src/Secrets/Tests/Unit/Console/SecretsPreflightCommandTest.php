@@ -15,7 +15,7 @@ use Vortos\Secrets\Provider\SecretsProviderRegistry;
 use Vortos\Secrets\Service\SecretsPreflight;
 use Vortos\Secrets\Tests\Fixtures\InMemorySecretsProvider;
 use Vortos\Secrets\Value\SecretKey;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class SecretsPreflightCommandTest extends TestCase
 {

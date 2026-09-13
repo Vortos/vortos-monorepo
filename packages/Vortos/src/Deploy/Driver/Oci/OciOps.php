@@ -14,13 +14,13 @@ use Vortos\Deploy\Registry\ImageReference;
  *   private ImageSignerInterface   $signer
  * and implement:
  *   private function authenticate(): void
- *   private function redactTokens(): list<string>
+ *   private function redactTokens(): list<SecretValue>
  */
 trait OciOps
 {
     abstract private function authenticate(): void;
 
-    /** @return list<string> */
+    /** @return list<\Vortos\Foundation\Secret\SecretValue> */
     abstract private function redactTokens(): array;
 
     public function push(ImageReference $image): ImageReference

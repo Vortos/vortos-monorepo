@@ -19,7 +19,7 @@ final class LocalTransportTest extends TestCase
             public array $argv = [];
             public ?string $stdin = null;
 
-            public function run(array $argv, ?string $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
+            public function run(array $argv, string|\Vortos\Foundation\Secret\SecretValue|null $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
             {
                 $this->argv = $argv;
                 $this->stdin = $stdin;
@@ -68,7 +68,7 @@ final class LocalTransportTest extends TestCase
     private function nullRunner(): CommandRunnerInterface
     {
         return new class implements CommandRunnerInterface {
-            public function run(array $argv, ?string $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
+            public function run(array $argv, string|\Vortos\Foundation\Secret\SecretValue|null $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
             {
                 return new CommandResult(0, '', '', 0.0);
             }

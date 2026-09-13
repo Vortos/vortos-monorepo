@@ -11,7 +11,7 @@ use Vortos\Deploy\Oci\NullImageSigner;
 use Vortos\Deploy\Registry\PatTokenCredential;
 use Vortos\Deploy\Registry\ImageReference;
 use Vortos\Deploy\Tests\Fixtures\FakeCommandRunner;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 
 final class GhcrRegistryAuthTest extends TestCase
 {
@@ -76,7 +76,7 @@ final class GhcrRegistryAuthTest extends TestCase
 
         $loginCall = $runner->calls[0] ?? null;
         $this->assertNotNull($loginCall);
-        $this->assertSame($token, $loginCall['stdin']);
+        $this->assertSame($token, $loginCall['stdin']->reveal());
 
         foreach ($loginCall['argv'] as $arg) {
             $this->assertStringNotContainsString($token, $arg);

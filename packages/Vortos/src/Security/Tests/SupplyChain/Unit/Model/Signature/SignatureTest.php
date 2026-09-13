@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Security\Tests\SupplyChain\Unit\Model\Signature;
 
 use PHPUnit\Framework\TestCase;
-use Vortos\Secrets\Value\SecretValue;
+use Vortos\Foundation\Secret\SecretValue;
 use Vortos\Security\SupplyChain\Model\Signature\Signature;
 use Vortos\Security\SupplyChain\Model\Signature\SignatureScheme;
 

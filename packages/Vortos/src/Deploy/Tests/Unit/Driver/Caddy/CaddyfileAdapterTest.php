@@ -27,7 +27,7 @@ final class CaddyfileAdapterTest extends TestCase
                 private readonly string $stderr,
             ) {}
 
-            public function run(array $argv, ?string $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
+            public function run(array $argv, string|\Vortos\Foundation\Secret\SecretValue|null $stdin = null, ?float $timeout = null, array $redactTokens = []): CommandResult
             {
                 $this->lastArgv = $argv;
                 $this->lastStdin = $stdin;

@@ -144,10 +144,13 @@ final class DeployCommand extends Command
             foreach ($outcome->report->failures() as $failure) {
                 $stderr->writeln(sprintf('REFUSED: %s — %s', $failure->id, $failure->summary));
             }
+            foreach ($outcome->report->advisories() as $advisory) {
+                $stderr->writeln(sprintf('WARNING (not blocking): %s — %s', $advisory->id, $advisory->summary));
+            }
             $stderr->writeln(sprintf(
-                'Deploy refused for %s: %d failing check(s). Nothing was deployed.',
+                'Deploy refused for %s: %d blocking check(s). Nothing was deployed.',
                 $outcome->env,
-                $outcome->report->countByStatus(PreflightStatus::Fail),
+                count($outcome->report->failures()),
             ));
 
             return;
@@ -195,7 +198,7 @@ final class DeployCommand extends Command
         }
 
         $output->writeln(match ($outcome->status) {
-            DeployOutcomeStatus::Refused => sprintf('<error>REFUSED — doctor not clear for %s (%d failing checks). Nothing was deployed.</error>', $outcome->env, $outcome->report?->countByStatus(PreflightStatus::Fail) ?? 0),
+            DeployOutcomeStatus::Refused => sprintf('<error>REFUSED — doctor not clear for %s (%d blocking checks). Nothing was deployed.</error>', $outcome->env, count($outcome->report?->failures() ?? [])),
             DeployOutcomeStatus::DryRun => sprintf('<info>DRY RUN — plan rehearsed for %s. Nothing was mutated.</info>', $outcome->env),
             DeployOutcomeStatus::Deployed => sprintf('<info>DEPLOYED — %s is live.</info>', $outcome->env),
             DeployOutcomeStatus::RolledBack => sprintf('<error>ROLLED BACK — %s: %s</error>', $outcome->env, $outcome->rollbackReason ?? ''),
@@ -205,6 +208,11 @@ final class DeployCommand extends Command
             foreach ($outcome->report->failures() as $failure) {
                 $output->writeln(sprintf('  <error>[FAIL]</error> %s — %s', $failure->id, $failure->summary));
             }
+        }
+
+        // Advisory failures never refused anything, but a deploy that ships over them must say so.
+        foreach ($outcome->report?->advisories() ?? [] as $advisory) {
+            $output->writeln(sprintf('  <comment>[WARN]</comment> %s — %s', $advisory->id, $advisory->summary));
         }
     }
 }

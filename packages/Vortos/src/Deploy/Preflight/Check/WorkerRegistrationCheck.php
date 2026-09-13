@@ -9,6 +9,7 @@ use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Docker\Worker\WorkerProcessRegistry;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Fail-closed gate on workers that are registered in code but absent from the image's supervisor
@@ -76,6 +77,11 @@ final class WorkerRegistrationCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Capability;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

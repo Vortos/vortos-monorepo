@@ -10,6 +10,7 @@ use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Foundation\Health\Contract\HealthCheckInterface;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Refuses a deploy whose object store is unreachable — the interlock that moving
@@ -70,6 +71,11 @@ final class ObjectStoreReachableDoctorCheck implements PreflightCheckInterface
         // credential defects, and grouping it there puts it next to the findings an operator would
         // already be reading when the answer is "the deploy cannot talk to its own storage".
         return PreflightCategory::Credential;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

@@ -11,6 +11,7 @@ use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Health\Probe\HealthProbeRegistry;
 use Vortos\Health\Uptime\Capability\UptimeCapability;
 use Vortos\Health\Uptime\UptimeMonitorRegistry;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * §12.4 / §6.1 — refuses a prod deploy that does not have three independent failure
@@ -48,6 +49,11 @@ final class DetectorIndependenceDoctorCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Plan;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

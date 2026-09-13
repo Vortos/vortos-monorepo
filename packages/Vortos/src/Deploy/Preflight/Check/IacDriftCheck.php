@@ -9,6 +9,7 @@ use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Iac\Lifecycle\IacDriftAuditorInterface;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 final class IacDriftCheck implements PreflightCheckInterface
 {
@@ -24,6 +25,13 @@ final class IacDriftCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Plan;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        // Advisory: out-of-band infrastructure drift is state an application release does not own and
+        // does not change. It is reported on every deploy; resolving it is vortos:iac:apply's job.
+        return GateDisposition::Advisory;
     }
 
     public function check(PreflightContext $context): PreflightFinding

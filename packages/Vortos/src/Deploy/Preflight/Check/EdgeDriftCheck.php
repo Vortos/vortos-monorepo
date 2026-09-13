@@ -9,6 +9,7 @@ use Vortos\Deploy\Preflight\PreflightCategory;
 use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Doctor gate: is the live edge still serving what the framework recorded?
@@ -35,6 +36,11 @@ final class EdgeDriftCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Plan;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

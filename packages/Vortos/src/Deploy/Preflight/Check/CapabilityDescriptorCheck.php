@@ -12,6 +12,7 @@ use Vortos\Deploy\Strategy\DeployStrategyRegistry;
 use Vortos\Deploy\Target\DeployTargetRegistry;
 use Vortos\OpsKit\Driver\Capability\CapabilityMismatchException;
 use Vortos\OpsKit\Driver\Capability\CapabilityValidator;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Fail-closed: the selected strategy's required capabilities must be a subset of what
@@ -35,6 +36,11 @@ final class CapabilityDescriptorCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Capability;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

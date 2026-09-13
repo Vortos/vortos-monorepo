@@ -12,6 +12,7 @@ use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Observability\Slo\SloRegistry;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Implements the Deploy doctor seam (§3.2 DoD): a typo'd alert rule — a bad
@@ -35,6 +36,11 @@ final class AlertRulesDoctorCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Plan;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

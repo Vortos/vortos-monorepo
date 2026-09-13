@@ -10,6 +10,7 @@ use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Migration\Schema\MigrationPhase;
 use Vortos\Migration\Schema\MigrationPhaseReaderInterface;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * R7-3: deploy:doctor phase analysis of pending migrations.
@@ -36,6 +37,11 @@ final class PendingMigrationPhaseCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Schema;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

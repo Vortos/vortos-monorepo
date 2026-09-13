@@ -37,7 +37,7 @@ final class DoctorCommand extends Command
     {
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment', 'production');
         $this->addOption('json', null, InputOption::VALUE_NONE, 'Emit the machine-readable PreflightReport JSON (CI mode)');
-        $this->addOption('strict', null, InputOption::VALUE_NONE, 'Treat warnings as failures (forward-compat; v1 has none)');
+        $this->addOption('strict', null, InputOption::VALUE_NONE, 'Treat advisory (runtime-state) failures as blocking — for a deliberate, risk-averse release');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -105,7 +105,7 @@ final class DoctorCommand extends Command
         foreach ($report->findings as $finding) {
             $output->writeln(sprintf(
                 '  %s  %-30s  %s',
-                $this->badge($finding),
+                $this->badge($finding, $report->strict),
                 $finding->id,
                 $finding->summary,
             ));
@@ -125,19 +125,22 @@ final class DoctorCommand extends Command
             '  <info>%d passed</>  <fg=gray>%d skipped</>  %s',
             $report->countByStatus(PreflightStatus::Pass),
             $report->countByStatus(PreflightStatus::Skip),
-            $report->isClear()
-                ? '<info>0 failed — CLEAR</>'
-                : sprintf('<error>%d failed — REFUSED</>', $report->countByStatus(PreflightStatus::Fail)),
+            ($report->advisories() === [] ? '' : sprintf('<comment>%d warning(s)</>  ', count($report->advisories())))
+            . ($report->isClear()
+                ? '<info>0 blocking — CLEAR</>'
+                : sprintf('<error>%d blocking — REFUSED</>', count($report->failures()))),
         ));
         $output->writeln('');
     }
 
-    private function badge(PreflightFinding $finding): string
+    private function badge(PreflightFinding $finding, bool $strict): string
     {
         return match ($finding->status) {
             PreflightStatus::Pass => '<info>[OK]  </>',
-            PreflightStatus::Fail => '<error>[FAIL]</>',
-            PreflightStatus::Skip => '<comment>[SKIP]</>',
+            // A failure that does not refuse this release: the running system is unhealthy, and the
+            // release may well be the cure. Visible on every run, never a veto (unless --strict).
+            PreflightStatus::Fail => $finding->blocksRelease($strict) ? '<error>[FAIL]</>' : '<comment>[WARN]</>',
+            PreflightStatus::Skip => '<fg=gray>[SKIP]</>',
         };
     }
 }

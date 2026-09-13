@@ -114,6 +114,11 @@ final class FakePreflightCheck implements PreflightCheckInterface
         return PreflightCategory::Plan;
     }
 
+    public function disposition(): \Vortos\OpsKit\Gate\GateDisposition
+    {
+        return \Vortos\OpsKit\Gate\GateDisposition::Blocking;
+    }
+
     public function check(PreflightContext $context): PreflightFinding
     {
         return PreflightFinding::pass($this->id(), $this->category(), 'fine');

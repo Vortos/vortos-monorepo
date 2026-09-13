@@ -11,6 +11,7 @@ use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Release\ReadModel\ManifestReadModelInterface;
 use Vortos\Release\Schema\FingerprintRelation;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Fail-closed schema gate (§12.1): the deploy must be schema-safe before any color
@@ -39,6 +40,11 @@ final class SchemaCompatibilityCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Schema;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

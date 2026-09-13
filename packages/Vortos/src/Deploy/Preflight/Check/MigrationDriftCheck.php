@@ -9,6 +9,7 @@ use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Migration\Safety\SchemaDriftAuditorInterface;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 final class MigrationDriftCheck implements PreflightCheckInterface
 {
@@ -24,6 +25,11 @@ final class MigrationDriftCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Plan;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

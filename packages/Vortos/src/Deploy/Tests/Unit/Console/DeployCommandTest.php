@@ -142,6 +142,11 @@ final class DeployCommandTest extends TestCase
                 return PreflightCategory::DriverSet;
             }
 
+            public function disposition(): \Vortos\OpsKit\Gate\GateDisposition
+            {
+                return \Vortos\OpsKit\Gate\GateDisposition::Blocking;
+            }
+
             public function check(PreflightContext $context): PreflightFinding
             {
                 return $this->clear

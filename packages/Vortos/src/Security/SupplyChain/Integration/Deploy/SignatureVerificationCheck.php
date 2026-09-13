@@ -11,6 +11,7 @@ use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Security\SupplyChain\Model\ArtifactDigest;
 use Vortos\Security\SupplyChain\Model\Signature\VerificationPolicyProvider;
 use Vortos\Security\SupplyChain\Port\ArtifactSignerRegistry;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 final class SignatureVerificationCheck implements PreflightCheckInterface
 {
@@ -28,6 +29,11 @@ final class SignatureVerificationCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Security;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

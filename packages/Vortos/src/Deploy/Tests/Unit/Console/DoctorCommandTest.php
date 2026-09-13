@@ -50,7 +50,7 @@ final class DoctorCommandTest extends TestCase
         $tester->execute(['--env' => 'production', '--json' => true]);
 
         $decoded = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
-        $this->assertSame('1.0', $decoded['schema_version']);
+        $this->assertSame('1.1', $decoded['schema_version']);
         $this->assertTrue($decoded['clear']);
         $this->assertArrayHasKey('findings', $decoded);
     }

@@ -198,6 +198,11 @@ final class DeployRunnerTest extends TestCase
                 return $this->finding->category;
             }
 
+            public function disposition(): \Vortos\OpsKit\Gate\GateDisposition
+            {
+                return \Vortos\OpsKit\Gate\GateDisposition::Blocking;
+            }
+
             public function check(PreflightContext $context): PreflightFinding
             {
                 return $this->finding;

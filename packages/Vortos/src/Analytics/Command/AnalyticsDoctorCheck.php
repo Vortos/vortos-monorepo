@@ -9,6 +9,7 @@ use Vortos\Deploy\Preflight\PreflightCategory;
 use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Guarded `deploy:doctor` integration (only registered when `vortos-deploy` is
@@ -31,6 +32,11 @@ final class AnalyticsDoctorCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Capability;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

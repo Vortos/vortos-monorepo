@@ -9,6 +9,7 @@ use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Deploy\Target\DeployTargetRegistry;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Fail-closed arch gate (§12.5): the definition, the build it deploys, and the
@@ -34,6 +35,11 @@ final class TargetArchCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Arch;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

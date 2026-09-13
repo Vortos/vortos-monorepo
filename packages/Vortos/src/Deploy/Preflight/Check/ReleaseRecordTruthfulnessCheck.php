@@ -10,6 +10,7 @@ use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Deploy\State\CurrentReleaseStoreInterface;
 use Vortos\Deploy\Target\DeployTargetRegistry;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Refuses a deploy when the recorded current release disagrees with what is actually running.
@@ -57,6 +58,11 @@ final class ReleaseRecordTruthfulnessCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Plan;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

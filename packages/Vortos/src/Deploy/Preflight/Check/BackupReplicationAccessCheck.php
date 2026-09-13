@@ -11,6 +11,7 @@ use Vortos\Deploy\Preflight\PreflightCategory;
 use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Gates a deploy on the database accepting the REPLICATION connection physical base backups need.
@@ -27,10 +28,12 @@ use Vortos\Deploy\Preflight\PreflightFinding;
  * with nothing to replay onto: point-in-time recovery that reported healthy and could restore
  * nothing.
  *
- * It gates a DEPLOY rather than merely warning because the prerequisite lives in cluster
- * configuration, not application code — pg_hba.conf cannot be set from SQL, so a rebuilt volume or
- * a migrated database can silently lose it, and the next sign would be a failed recovery. Blocking
- * is the honest response to "your backups are not restorable".
+ * It is ADVISORY, not blocking ({@see disposition()}). It used to block, on the reasoning that
+ * "your backups are not restorable" deserves a veto. But pg_hba and the REPLICATION attribute are
+ * cluster configuration this release neither sets nor worsens, a refused deploy restores no backup,
+ * and a veto here holds every unrelated fix hostage to a database setting — the same deadlock
+ * class as C14/C15. The failure is caught continuously where it belongs: a base backup that cannot
+ * connect fails and pages through backup-failed. This gate reports it on every deploy.
  *
  * Only applies when physical base backups are declared; a logical-dump-only setup never needs
  * replication access and must not be gated on it.
@@ -63,6 +66,15 @@ final class BackupReplicationAccessCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Capability;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        // Advisory: pg_hba and the REPLICATION role attribute are cluster state this release neither
+        // sets nor worsens, and refusing a deploy restores no backup. The same failure is already
+        // caught continuously — a physical base backup that cannot connect fails and raises
+        // backup-failed — so the gate reports it on every deploy instead of vetoing unrelated fixes.
+        return GateDisposition::Advisory;
     }
 
     public function check(PreflightContext $context): PreflightFinding

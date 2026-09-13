@@ -53,8 +53,8 @@ final class PreflightReportContractTest extends TestCase
 
     public function test_schema_version_is_pinned(): void
     {
-        $this->assertSame('1.0', PreflightReport::SCHEMA_VERSION);
-        $this->assertSame('1.0', $this->schema['properties']['schema_version']['const']);
+        $this->assertSame('1.1', PreflightReport::SCHEMA_VERSION);
+        $this->assertSame('1.1', $this->schema['properties']['schema_version']['const']);
     }
 
     /**

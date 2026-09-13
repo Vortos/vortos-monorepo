@@ -9,6 +9,7 @@ use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Migration\Service\UnpublishedStubDetector;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * R8-1: fail-closed gate for un-published vendor migration stubs.
@@ -37,6 +38,11 @@ final class UnpublishedStubCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Schema;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

@@ -8,6 +8,7 @@ use Vortos\Deploy\Preflight\PreflightCategory;
 use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Fail-closed gate on the realtime hub: the baked Caddyfile and the delivered environment must agree.
@@ -85,6 +86,11 @@ final class RealtimeHubConfigCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Capability;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

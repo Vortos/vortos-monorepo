@@ -12,6 +12,7 @@ use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Deploy\Registry\ContainerRegistryRegistry;
 use Vortos\Deploy\Strategy\DeployStrategyRegistry;
 use Vortos\Deploy\Target\DeployTargetRegistry;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Fail-closed: every driver the definition selects (host / registry / credential /
@@ -36,6 +37,11 @@ final class DriverSetCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::DriverSet;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

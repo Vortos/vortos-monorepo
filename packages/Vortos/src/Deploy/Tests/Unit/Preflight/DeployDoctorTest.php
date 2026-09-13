@@ -138,6 +138,11 @@ final class DeployDoctorTest extends TestCase
                 return $this->category;
             }
 
+            public function disposition(): \Vortos\OpsKit\Gate\GateDisposition
+            {
+                return \Vortos\OpsKit\Gate\GateDisposition::Blocking;
+            }
+
             public function check(PreflightContext $context): PreflightFinding
             {
                 return ($this->run)();

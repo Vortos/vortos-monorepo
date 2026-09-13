@@ -14,6 +14,7 @@ use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Deploy\Strategy\DeployStrategy;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Fail-closed canary readiness gate (Block 22, §2.5).
@@ -40,6 +41,11 @@ final class CanaryAnalyzerReadyCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Capability;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

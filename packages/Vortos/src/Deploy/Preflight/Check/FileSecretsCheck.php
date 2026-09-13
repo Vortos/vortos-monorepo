@@ -10,6 +10,7 @@ use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
 use Vortos\Deploy\Runtime\FileSecret;
 use Vortos\Secrets\Provider\SecretsProviderRegistry;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Fail-closed gate that every declared file-shaped secret (G8) is present in the secret store before
@@ -32,6 +33,11 @@ final class FileSecretsCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Security;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

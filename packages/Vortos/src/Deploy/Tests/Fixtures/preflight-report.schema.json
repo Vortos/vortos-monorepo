@@ -1,41 +1,112 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "DeployDoctor PreflightReport",
-  "description": "The machine-readable, versioned contract emitted by `deploy:doctor --json`. Block 14's pipeline gates the deploy stage on this shape + exit code.",
+  "description": "The machine-readable, versioned contract emitted by `deploy:doctor --json`. The pipeline gates the deploy stage on `clear` + exit code. 1.1: every finding carries `disposition` (blocking|advisory); `summary.fail` counts only failures that refuse the release and `summary.advisory` counts the rest.",
   "type": "object",
-  "required": ["schema_version", "env", "clear", "strict", "summary", "findings"],
+  "required": [
+    "schema_version",
+    "env",
+    "clear",
+    "strict",
+    "summary",
+    "findings"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0" },
-    "env": { "type": "string" },
-    "clear": { "type": "boolean" },
-    "strict": { "type": "boolean" },
+    "schema_version": {
+      "type": "string",
+      "const": "1.1"
+    },
+    "env": {
+      "type": "string"
+    },
+    "clear": {
+      "type": "boolean"
+    },
+    "strict": {
+      "type": "boolean"
+    },
     "summary": {
       "type": "object",
-      "required": ["pass", "fail", "skip"],
+      "required": [
+        "pass",
+        "fail",
+        "advisory",
+        "skip"
+      ],
       "additionalProperties": false,
       "properties": {
-        "pass": { "type": "integer", "minimum": 0 },
-        "fail": { "type": "integer", "minimum": 0 },
-        "skip": { "type": "integer", "minimum": 0 }
+        "pass": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fail": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "advisory": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skip": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "findings": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "category", "status", "summary", "detail", "remediation"],
+        "required": [
+          "id",
+          "category",
+          "status",
+          "disposition",
+          "summary",
+          "detail",
+          "remediation"
+        ],
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
           "category": {
             "type": "string",
-            "enum": ["driver_set", "capability", "credential", "arch", "schema", "plan"]
+            "enum": [
+              "driver_set",
+              "capability",
+              "credential",
+              "arch",
+              "schema",
+              "plan"
+            ]
           },
-          "status": { "type": "string", "enum": ["pass", "fail", "skip"] },
-          "summary": { "type": "string" },
-          "detail": { "type": "string" },
-          "remediation": { "type": "string" }
+          "status": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "skip"
+            ]
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "blocking",
+              "advisory"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "remediation": {
+            "type": "string"
+          }
         }
       }
     }

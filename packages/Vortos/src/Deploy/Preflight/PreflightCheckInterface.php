@@ -27,5 +27,12 @@ interface PreflightCheckInterface
 
     public function category(): PreflightCategory;
 
+    /**
+     * Whether a failure of this check may stop the release. Required, with no default: a check
+     * that reads live runtime state and inherits "blocking" by omission refuses the very release
+     * that would cure what it reports. See {@see \Vortos\OpsKit\Gate\GateDisposition} for the rule.
+     */
+    public function disposition(): \Vortos\OpsKit\Gate\GateDisposition;
+
     public function check(PreflightContext $context): PreflightFinding;
 }

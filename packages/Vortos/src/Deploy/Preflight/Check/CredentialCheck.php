@@ -10,6 +10,7 @@ use Vortos\Deploy\Preflight\PreflightCategory;
 use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
 use Vortos\Deploy\Preflight\PreflightFinding;
+use Vortos\OpsKit\Gate\GateDisposition;
 
 /**
  * Fail-closed: the selected credential provider must be able to mint in the target
@@ -33,6 +34,11 @@ final class CredentialCheck implements PreflightCheckInterface
     public function category(): PreflightCategory
     {
         return PreflightCategory::Credential;
+    }
+
+    public function disposition(): GateDisposition
+    {
+        return GateDisposition::Blocking;
     }
 
     public function check(PreflightContext $context): PreflightFinding

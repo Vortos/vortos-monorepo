@@ -25,6 +25,7 @@ use Vortos\Migration\Driver\PgNative\PgTargetStatsReader;
 use Vortos\Migration\Driver\PgNative\Rule\BlockingAlterRule;
 use Vortos\Migration\Driver\PgNative\Rule\ConcurrentInTransactionRule;
 use Vortos\Migration\Driver\PgNative\Rule\FullTableRewriteRule;
+use Vortos\Migration\Driver\PgNative\Rule\JsonColumnTypeRule;
 use Vortos\Migration\Driver\PgNative\Rule\LockTimeoutMissingRule;
 use Vortos\Migration\Driver\PgNative\Rule\NonConcurrentIndexRule;
 use Vortos\Migration\Driver\PgNative\Rule\NonIdempotentConcurrentRule;
@@ -390,6 +391,7 @@ final class MigrationExtension extends Extension
             BlockingAlterRule::class => ['$rowThreshold' => $hotTableRowThreshold, '$bytesThreshold' => $hotTableBytesThreshold],
             LockTimeoutMissingRule::class => ['$enforcerLockTimeoutMs' => $lockTimeoutMs],
             FullTableRewriteRule::class => [],
+            JsonColumnTypeRule::class => [],
             PhaseMismatchRule::class => [],
             PhaseUndeclaredRule::class => [],
         ];

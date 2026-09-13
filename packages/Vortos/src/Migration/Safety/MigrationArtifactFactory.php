@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Migration\Safety;
 
 use Vortos\Migration\Attribute\AllowFullTableRewrite;
+use Vortos\Migration\Attribute\AllowJsonColumn;
 use Vortos\Migration\Attribute\AllowNonIdempotentConcurrent;
 use Vortos\Migration\Attribute\DeployPhase;
 use Vortos\Migration\Schema\MigrationPhase;
@@ -32,6 +33,7 @@ final class MigrationArtifactFactory implements MigrationArtifactFactoryInterfac
             downSql: $downSql,
             hasAllowFullTableRewrite: $hasOptOut,
             hasAllowNonIdempotentConcurrent: $hasConcurrentOptOut,
+            hasAllowJsonColumn: $this->hasClassAttribute($className, AllowJsonColumn::class),
         );
     }
 
@@ -46,6 +48,7 @@ final class MigrationArtifactFactory implements MigrationArtifactFactoryInterfac
         ?MigrationPhase $phase = null,
         bool $hasAllowFullTableRewrite = false,
         bool $hasAllowNonIdempotentConcurrent = false,
+        bool $hasAllowJsonColumn = false,
     ): MigrationArtifact {
         return new MigrationArtifact(
             version: $version,
@@ -55,6 +58,7 @@ final class MigrationArtifactFactory implements MigrationArtifactFactoryInterfac
             downSql: $downSql,
             hasAllowFullTableRewrite: $hasAllowFullTableRewrite,
             hasAllowNonIdempotentConcurrent: $hasAllowNonIdempotentConcurrent,
+            hasAllowJsonColumn: $hasAllowJsonColumn,
         );
     }
 

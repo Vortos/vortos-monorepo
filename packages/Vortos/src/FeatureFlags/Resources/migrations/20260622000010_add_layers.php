@@ -33,7 +33,7 @@ return new class extends AbstractModuleSchemaProvider {
         $table->addColumn('salt', 'string', ['length' => 255, 'notnull' => true]);
         $table->addColumn('holdout_weight', 'integer', ['notnull' => true, 'default' => 0]);
         $table->addColumn('project_id', 'string', ['length' => 128, 'notnull' => true, 'default' => 'default']);
-        $table->addColumn('members', 'json', ['notnull' => true]);
+        $table->addColumn('members', 'jsonb', ['notnull' => true]);
         $table->setPrimaryKey(['id']);
         $table->addUniqueIndex(['name'], 'uniq_ff_layer_name');
         $table->addIndex(['project_id'], 'idx_ff_layer_project');

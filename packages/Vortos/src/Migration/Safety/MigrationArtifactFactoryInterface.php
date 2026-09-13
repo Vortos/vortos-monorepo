@@ -21,5 +21,6 @@ interface MigrationArtifactFactoryInterface
         ?MigrationPhase $phase = null,
         bool $hasAllowFullTableRewrite = false,
         bool $hasAllowNonIdempotentConcurrent = false,
+        bool $hasAllowJsonColumn = false,
     ): MigrationArtifact;
 }

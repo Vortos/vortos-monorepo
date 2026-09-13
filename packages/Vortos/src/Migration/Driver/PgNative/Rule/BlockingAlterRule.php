@@ -37,8 +37,12 @@ final class BlockingAlterRule implements SafetyRuleInterface
         ParsedStatement $statement,
     ): iterable {
         $table = null;
-        if (preg_match('/\bALTER\s+TABLE\s+["`]?(\w+)["`]?/i', $statement->raw, $m)) {
-            $table = strtolower($m[1]);
+        // Schema-qualified names are kept whole. Capturing only the first word turned
+        // `ALTER TABLE vortos.outbox` into a table called "vortos", which has no statistic, so
+        // every measured check below failed closed on every framework-schema table however small.
+        if (preg_match('/\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?["`]?(\w+)["`]?(?:\.["`]?(\w+)["`]?)?/i', $statement->raw, $m)) {
+            // Group 2 is the last group, so it is absent rather than empty when there is no schema.
+            $table = strtolower(isset($m[2]) ? $m[1] . '.' . $m[2] : $m[1]);
         }
 
         if ($table === null) {
@@ -46,7 +50,7 @@ final class BlockingAlterRule implements SafetyRuleInterface
         }
 
         yield from $this->checkSetNotNull($statement, $table);
-        yield from $this->checkAlterType($statement, $table);
+        yield from $this->checkAlterType($statement, $table, $target);
         yield from $this->checkAddConstraint($statement, $table);
         yield from $this->checkDropColumn($statement, $table, $artifact, $target);
     }
@@ -71,9 +75,20 @@ final class BlockingAlterRule implements SafetyRuleInterface
     }
 
     /** @return iterable<SafetyDiagnostic> */
-    private function checkAlterType(ParsedStatement $statement, string $table): iterable
+    private function checkAlterType(ParsedStatement $statement, string $table, ?TargetSchemaSnapshot $target): iterable
     {
         if (!$statement->matches('\bALTER\s+COLUMN\s+["`]?\w+["`]?\s+(?:SET\s+DATA\s+)?TYPE\b')) {
+            return;
+        }
+
+        // Measured, exactly as DROP COLUMN is. The rewrite and the ACCESS EXCLUSIVE lock it holds
+        // last as long as the table is big: on a table measured below the hot thresholds it is over
+        // in milliseconds, and the migration lock_timeout (LockTimeoutMissingRule) bounds the wait
+        // to acquire the lock. Refusing every type change regardless of size forced a multi-release
+        // expand/contract — new column, dual write, backfill, drop — onto tables of a few hundred
+        // rows, and the thresholds this rule is constructed with were never consulted for it.
+        // No target or no statistic is still unknown, and unknown still fails closed.
+        if ($target !== null && !$target->isHot($table, $this->rowThreshold, $this->bytesThreshold)) {
             return;
         }
 

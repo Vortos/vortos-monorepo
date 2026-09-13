@@ -49,6 +49,65 @@ final class BlockingAlterRuleTest extends TestCase
         $this->assertStringContainsString('TYPE', $diags[0]->message);
     }
 
+    public function test_clean_alter_column_type_on_cold_table(): void
+    {
+        $sql = "ALTER TABLE users ALTER COLUMN prefs TYPE JSONB USING prefs::jsonb";
+        $target = new TargetSchemaSnapshot([
+            'users' => new TableStat(estimatedRows: 300, totalBytes: 512_000, hasData: true),
+        ]);
+
+        $diags = iterator_to_array($this->rule->evaluate($this->artifact([$sql]), $target, new ParsedStatement($sql, 0)));
+
+        $this->assertCount(0, $diags);
+    }
+
+    public function test_flags_alter_column_type_on_hot_table(): void
+    {
+        $sql = "ALTER TABLE users ALTER COLUMN prefs TYPE JSONB USING prefs::jsonb";
+        $target = new TargetSchemaSnapshot([
+            'users' => new TableStat(estimatedRows: 250_000, totalBytes: 512_000, hasData: true),
+        ]);
+
+        $diags = iterator_to_array($this->rule->evaluate($this->artifact([$sql]), $target, new ParsedStatement($sql, 0)));
+
+        $this->assertCount(1, $diags);
+    }
+
+    public function test_flags_alter_column_type_on_unmeasured_table(): void
+    {
+        // A table with no statistic is unknown — typically created earlier in the same batch.
+        $sql = "ALTER TABLE users ALTER COLUMN prefs TYPE JSONB USING prefs::jsonb";
+        $target = new TargetSchemaSnapshot([
+            'orders' => new TableStat(estimatedRows: 10, totalBytes: 1024, hasData: true),
+        ]);
+
+        $diags = iterator_to_array($this->rule->evaluate($this->artifact([$sql]), $target, new ParsedStatement($sql, 0)));
+
+        $this->assertCount(1, $diags);
+    }
+
+    public function test_measures_a_schema_qualified_table_by_its_full_name(): void
+    {
+        $sql = "ALTER TABLE vortos.outbox ALTER COLUMN payload TYPE JSONB USING payload::jsonb";
+        $target = new TargetSchemaSnapshot([
+            'vortos.outbox' => new TableStat(estimatedRows: 40, totalBytes: 64_000, hasData: true),
+        ]);
+
+        $diags = iterator_to_array($this->rule->evaluate($this->artifact([$sql]), $target, new ParsedStatement($sql, 0)));
+
+        $this->assertCount(0, $diags);
+    }
+
+    public function test_reports_a_schema_qualified_table_by_its_full_name(): void
+    {
+        $sql = 'ALTER TABLE IF EXISTS "vortos"."outbox" ALTER COLUMN payload SET NOT NULL';
+
+        $diags = iterator_to_array($this->rule->evaluate($this->artifact([$sql]), null, new ParsedStatement($sql, 0)));
+
+        $this->assertCount(1, $diags);
+        $this->assertSame('vortos.outbox', $diags[0]->table);
+    }
+
     public function test_flags_add_foreign_key_without_not_valid(): void
     {
         $sql = "ALTER TABLE orders ADD CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id)";

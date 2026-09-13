@@ -40,7 +40,7 @@ return new class extends AbstractModuleSchemaProvider {
         $table->addColumn('cooldown_seconds', 'integer', ['notnull' => true, 'default' => 600]);
         $table->addColumn('enabled', 'boolean', ['notnull' => true, 'default' => true]);
         $table->addColumn('consecutive_breach_count', 'integer', ['notnull' => true, 'default' => 0]);
-        $table->addColumn('conditions', 'json', ['notnull' => true]);
+        $table->addColumn('conditions', 'jsonb', ['notnull' => true]);
         $table->addColumn('last_evaluated_at', 'datetime', ['notnull' => false]);
         $table->addColumn('triggered_at', 'datetime', ['notnull' => false]);
         $table->addColumn('resolved_at', 'datetime', ['notnull' => false]);

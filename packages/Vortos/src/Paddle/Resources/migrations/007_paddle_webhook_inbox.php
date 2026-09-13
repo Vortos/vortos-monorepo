@@ -28,10 +28,10 @@ return new class extends AbstractModuleSchemaProvider {
         $table->addColumn('id',                 'bigint',   ['autoincrement' => true, 'notnull' => true]);
         $table->addColumn('event_id',           'string',   ['length' => 191, 'notnull' => true]);
         $table->addColumn('event_type',         'string',   ['length' => 255, 'notnull' => true]);
-        $table->addColumn('payload',            'json',     ['notnull' => true]);
+        $table->addColumn('payload',            'jsonb',    ['notnull' => true]);
         $table->addColumn('status',             'string',   ['length' => 20,  'notnull' => true, 'default' => 'pending']);
         $table->addColumn('attempts',           'smallint', ['notnull' => true, 'default' => 0]);
-        $table->addColumn('completed_handlers', 'json',     ['notnull' => false]);
+        $table->addColumn('completed_handlers', 'jsonb',    ['notnull' => false]);
         $table->addColumn('last_error',         'text',     ['notnull' => false, 'default' => null]);
         $table->addColumn('occurred_at',        'datetime_immutable', ['notnull' => false]);
         $table->addColumn('received_at',        'datetime_immutable', ['notnull' => true]);

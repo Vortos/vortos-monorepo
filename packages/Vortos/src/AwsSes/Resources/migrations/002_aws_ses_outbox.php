@@ -29,7 +29,7 @@ return new class extends AbstractModuleSchemaProvider {
         $table->addColumn('domain_event_id', 'guid',               ['notnull' => false]);
         $table->addColumn('status',          'string',             ['length' => 20, 'notnull' => true, 'default' => 'pending']);
         $table->addColumn('attempt_count',   'integer',            ['notnull' => true, 'default' => 0]);
-        $table->addColumn('payload',         'json',               ['notnull' => true]);
+        $table->addColumn('payload',         'jsonb',              ['notnull' => true]);
         $table->addColumn('message_id',      'string',             ['length' => 255, 'notnull' => false]);
         $table->addColumn('last_error',      'text',               ['notnull' => false]);
         $table->addColumn('next_attempt_at', 'datetime_immutable', ['notnull' => false]);

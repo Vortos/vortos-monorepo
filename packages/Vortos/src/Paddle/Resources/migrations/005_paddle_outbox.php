@@ -27,7 +27,7 @@ return new class extends AbstractModuleSchemaProvider {
 
         $table->addColumn('id',               'bigint',   ['autoincrement' => true, 'notnull' => true]);
         $table->addColumn('operation',        'string',   ['length' => 255, 'notnull' => true]);
-        $table->addColumn('payload',          'json',     ['notnull' => true]);
+        $table->addColumn('payload',          'jsonb',    ['notnull' => true]);
         $table->addColumn('idempotency_key',  'string',   ['length' => 36,  'notnull' => true]);
         $table->addColumn('status',           'string',   ['length' => 20,  'notnull' => true, 'default' => 'pending']);
         $table->addColumn('attempts',         'smallint', ['notnull' => true, 'default' => 0]);

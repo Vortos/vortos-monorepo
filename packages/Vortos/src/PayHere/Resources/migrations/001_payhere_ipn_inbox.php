@@ -33,7 +33,7 @@ return new class extends AbstractModuleSchemaProvider {
          */
         $table->addColumn('event_id',        'string',   ['length' => 191, 'notnull' => true]);
         $table->addColumn('event_type',      'string',   ['length' => 100, 'notnull' => true]);
-        $table->addColumn('payload',         'json',     ['notnull' => true]);
+        $table->addColumn('payload',         'jsonb',    ['notnull' => true]);
         $table->addColumn('status',          'string',   ['length' => 20,  'notnull' => true, 'default' => 'pending']);
         $table->addColumn('attempts',        'smallint', ['notnull' => true, 'default' => 0]);
         $table->addColumn('last_error',      'text',     ['notnull' => false, 'default' => null]);

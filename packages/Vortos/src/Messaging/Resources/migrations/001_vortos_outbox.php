@@ -37,7 +37,7 @@ return new class extends AbstractModuleSchemaProvider {
         $outbox->addColumn('correlation_id',    'string',             ['length' => 255, 'notnull' => false]);
         $outbox->addColumn('causation_id',      'string',             ['length' => 255, 'notnull' => false]);
         $outbox->addColumn('trace_id',          'string',             ['length' => 255, 'notnull' => false]);
-        $outbox->addColumn('metadata',          'json',               ['notnull' => false]);
+        $outbox->addColumn('metadata',          'jsonb',              ['notnull' => false]);
         $outbox->addColumn('payload',           'text',               ['notnull' => true]);
         $outbox->addColumn('status',            'string',             ['length' => 20,  'notnull' => true, 'default' => 'pending']);
         $outbox->addColumn('attempt_count',     'integer',            ['notnull' => true, 'default' => 0]);

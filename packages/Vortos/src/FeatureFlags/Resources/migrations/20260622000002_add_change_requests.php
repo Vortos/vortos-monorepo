@@ -33,14 +33,14 @@ return new class extends AbstractModuleSchemaProvider {
         $table->addColumn('project_id', 'string', ['length' => 128, 'notnull' => true]);
         $table->addColumn('environment', 'string', ['length' => 64, 'notnull' => true]);
         $table->addColumn('change_type', 'string', ['length' => 32, 'notnull' => true]);
-        $table->addColumn('payload', 'json', ['notnull' => true]);
+        $table->addColumn('payload', 'jsonb', ['notnull' => true]);
         $table->addColumn('reason', 'text', ['notnull' => true]);
         $table->addColumn('requested_by', 'string', ['length' => 255, 'notnull' => true]);
         $table->addColumn('requested_at', 'datetime', ['notnull' => true]);
         $table->addColumn('status', 'string', ['length' => 16, 'notnull' => true, 'default' => 'pending']);
         $table->addColumn('required_approvals', 'integer', ['notnull' => true, 'default' => 1]);
-        $table->addColumn('approvals', 'json', ['notnull' => true]);
-        $table->addColumn('rejections', 'json', ['notnull' => true]);
+        $table->addColumn('approvals', 'jsonb', ['notnull' => true]);
+        $table->addColumn('rejections', 'jsonb', ['notnull' => true]);
         $table->addColumn('apply_at', 'datetime', ['notnull' => false]);
         $table->addColumn('expires_at', 'datetime', ['notnull' => true]);
         $table->addColumn('applied_at', 'datetime', ['notnull' => false]);

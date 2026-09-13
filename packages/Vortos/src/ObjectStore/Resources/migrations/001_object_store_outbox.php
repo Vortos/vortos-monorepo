@@ -30,7 +30,7 @@ return new class extends AbstractModuleSchemaProvider {
         $table->addColumn('operation',        'string',             ['length' => 64,  'notnull' => true]);
         $table->addColumn('status',           'string',             ['length' => 32,  'notnull' => true]);
         $table->addColumn('attempt_count',    'integer',            ['notnull' => true, 'default' => 0]);
-        $table->addColumn('payload',          'json',               ['notnull' => true]);
+        $table->addColumn('payload',          'jsonb',              ['notnull' => true]);
         $table->addColumn('last_error',       'text',               ['notnull' => false, 'default' => null]);
         $table->addColumn('next_attempt_at',  'datetime_immutable', ['notnull' => false, 'default' => null]);
         $table->addColumn('created_at',       'datetime_immutable', ['notnull' => true]);

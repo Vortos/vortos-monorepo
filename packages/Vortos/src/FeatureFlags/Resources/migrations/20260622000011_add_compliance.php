@@ -35,7 +35,7 @@ return new class extends AbstractModuleSchemaProvider {
             $table->addColumn('generator_identity', 'string', ['length' => 255, 'notnull' => true]);
             $table->addColumn('content_hash', 'string', ['length' => 64, 'notnull' => true]);
             $table->addColumn('signature', 'string', ['length' => 64, 'notnull' => true]);
-            $table->addColumn('filter_json', 'json', ['notnull' => false]);
+            $table->addColumn('filter_json', 'jsonb', ['notnull' => false]);
             $table->addColumn('created_by', 'string', ['length' => 255, 'notnull' => true]);
             $table->setPrimaryKey(['id']);
             $table->addIndex(['generated_at'], 'idx_ff_export_generated_at');
@@ -58,9 +58,9 @@ return new class extends AbstractModuleSchemaProvider {
             $table->addColumn('given_name', 'string', ['length' => 128, 'notnull' => false]);
             $table->addColumn('family_name', 'string', ['length' => 128, 'notnull' => false]);
             $table->addColumn('active', 'boolean', ['notnull' => true, 'default' => true]);
-            $table->addColumn('emails', 'json', ['notnull' => true]);
-            $table->addColumn('groups', 'json', ['notnull' => true]);
-            $table->addColumn('roles', 'json', ['notnull' => true]);
+            $table->addColumn('emails', 'jsonb', ['notnull' => true]);
+            $table->addColumn('groups', 'jsonb', ['notnull' => true]);
+            $table->addColumn('roles', 'jsonb', ['notnull' => true]);
             $table->addColumn('platform_role', 'string', ['length' => 64, 'notnull' => false]);
             $table->addColumn('created_at', 'datetime', ['notnull' => true]);
             $table->addColumn('updated_at', 'datetime', ['notnull' => true]);
@@ -75,7 +75,7 @@ return new class extends AbstractModuleSchemaProvider {
             $table->addColumn('external_id', 'string', ['length' => 255, 'notnull' => false]);
             $table->addColumn('display_name', 'string', ['length' => 255, 'notnull' => true]);
             $table->addColumn('platform_role', 'string', ['length' => 64, 'notnull' => false]);
-            $table->addColumn('member_ids', 'json', ['notnull' => true]);
+            $table->addColumn('member_ids', 'jsonb', ['notnull' => true]);
             $table->addColumn('created_at', 'datetime', ['notnull' => true]);
             $table->addColumn('updated_at', 'datetime', ['notnull' => true]);
             $table->setPrimaryKey(['id']);

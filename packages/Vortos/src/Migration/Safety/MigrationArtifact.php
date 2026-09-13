@@ -20,5 +20,6 @@ final readonly class MigrationArtifact
         public array $downSql,
         public bool $hasAllowFullTableRewrite,
         public bool $hasAllowNonIdempotentConcurrent = false,
+        public bool $hasAllowJsonColumn = false,
     ) {}
 }

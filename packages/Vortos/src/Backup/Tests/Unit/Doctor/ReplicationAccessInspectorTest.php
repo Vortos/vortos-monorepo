@@ -68,6 +68,65 @@ final class ReplicationAccessInspectorTest extends TestCase
         self::assertStringContainsString('replication=database', $seen);
     }
 
+    /**
+     * FB-63. The application DSN is Doctrine's `pgsql://`, which libpq rejects as an invalid
+     * connection option — the check failed on a healthy production cluster and pointed the operator
+     * at pg_hba.conf in the middle of a rebuild.
+     */
+    public function test_it_hands_libpq_a_scheme_it_accepts_when_given_a_doctrine_dsn(): void
+    {
+        $seen = null;
+        $inspector = new ReplicationAccessInspector(
+            static function (string $dsn) use (&$seen): array {
+                $seen = $dsn;
+
+                return ['ok' => true, 'error' => null];
+            },
+        );
+
+        $inspector->inspect(
+            DatabaseEngine::Postgres,
+            'pgsql://app:secret@db:5432/app?serverVersion=18&charset=utf8',
+            [BackupKind::PhysicalBase],
+        );
+
+        self::assertSame(
+            'postgresql://app:secret@db:5432/app?serverVersion=18&charset=utf8&replication=database',
+            $seen,
+        );
+    }
+
+    public function test_a_libpq_scheme_passes_through_unchanged(): void
+    {
+        $seen = null;
+        $inspector = new ReplicationAccessInspector(
+            static function (string $dsn) use (&$seen): array {
+                $seen = $dsn;
+
+                return ['ok' => true, 'error' => null];
+            },
+        );
+
+        $inspector->inspect(DatabaseEngine::Postgres, 'postgres://app@db/app', [BackupKind::PhysicalBase]);
+
+        self::assertSame('postgres://app@db/app?replication=database', $seen);
+    }
+
+    public function test_the_password_is_split_out_so_it_never_reaches_argv(): void
+    {
+        self::assertSame(
+            ['dsn' => 'postgresql://app@db:5432/app?replication=database', 'password' => 'p@ss:w/rd'],
+            ReplicationAccessInspector::withoutPassword('postgresql://app:p%40ss%3Aw%2Frd@db:5432/app?replication=database'),
+        );
+    }
+
+    public function test_a_dsn_without_a_password_is_left_alone(): void
+    {
+        foreach (['postgresql://app@db/app', 'postgresql://db/app', 'host=db user=app'] as $dsn) {
+            self::assertSame(['dsn' => $dsn, 'password' => null], ReplicationAccessInspector::withoutPassword($dsn));
+        }
+    }
+
     public function test_it_does_not_gate_a_setup_that_takes_no_physical_base_backups(): void
     {
         // Logical dumps need no replication access. Failing them on it would be a false alarm that

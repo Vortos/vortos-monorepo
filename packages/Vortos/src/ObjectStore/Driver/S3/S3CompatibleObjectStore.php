@@ -746,7 +746,10 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
             throw BucketNotFoundException::forBucket($this->bucket);
         }
 
-        if (in_array($code, ['AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch'], true)) {
+        // HeadObject answers with no body, so the SDK has no <Code> to parse and reports the bare
+        // status instead — the same reason '404' is accepted above. Without '403' here, a wrong or
+        // under-scoped credential on an existence check reads as a generic store failure.
+        if (in_array($code, ['AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch', 'Forbidden', '403'], true)) {
             throw new ObjectStoreAccessDeniedException($message, previous: $e);
         }
 

@@ -117,14 +117,45 @@ final class ReplicationAccessInspector
         FIX);
     }
 
-    /** Adds the replication parameter that turns an ordinary DSN into a replication DSN. */
+    /**
+     * Turns the application's DSN into a replication DSN libpq will accept.
+     *
+     * The application DSN is written for Doctrine, whose PostgreSQL scheme is `pgsql://`. libpq
+     * knows only `postgresql://` and `postgres://`, and it reads anything else as a single
+     * unknown option name — so an untranslated DSN fails with "invalid connection option" on a
+     * cluster that would have accepted the connection, and this check sends the operator to
+     * pg_hba.conf to fix what was never broken.
+     */
     private function asReplicationDsn(string $dsn): string
     {
+        $dsn = (string) preg_replace('#^(?:pgsql|pdo-pgsql|pdo_pgsql)://#i', 'postgresql://', $dsn);
+
         if (str_contains($dsn, 'replication=')) {
             return $dsn;
         }
 
         return $dsn . (str_contains($dsn, '?') ? '&' : '?') . 'replication=database';
+    }
+
+    /**
+     * Splits the password out of a libpq URL so it can travel in PGPASSWORD instead of argv.
+     *
+     * A password on the command line is readable by every process on the node through
+     * /proc/<pid>/cmdline for as long as psql runs, and psql repeats an unparseable URL verbatim in
+     * its error — which this check then prints as its finding. Neither is acceptable for a
+     * credential, so the URL handed to psql never carries one.
+     *
+     * @internal public for testing only
+     *
+     * @return array{dsn: string, password: string|null}
+     */
+    public static function withoutPassword(string $dsn): array
+    {
+        if (preg_match('#^([a-z][a-z0-9+.-]*://)([^:@/?\#]*):([^@/?\#]*)@(.*)$#is', $dsn, $m) !== 1) {
+            return ['dsn' => $dsn, 'password' => null];
+        }
+
+        return ['dsn' => $m[1] . $m[2] . '@' . $m[4], 'password' => rawurldecode($m[3])];
     }
 
     /**
@@ -147,17 +178,42 @@ final class ReplicationAccessInspector
                 ];
             }
 
-            $command = sprintf(
-                'psql %s -Atc %s 2>&1',
-                escapeshellarg($dsn),
-                escapeshellarg('IDENTIFY_SYSTEM'),
+            ['dsn' => $url, 'password' => $password] = self::withoutPassword($dsn);
+
+            $env = getenv();
+            if ($password !== null) {
+                $env['PGPASSWORD'] = $password;
+            }
+
+            $process = proc_open(
+                ['psql', $url, '-Atc', 'IDENTIFY_SYSTEM'],
+                [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+                null,
+                $env,
             );
 
-            exec($command, $output, $exitCode);
+            if (!\is_resource($process)) {
+                return ['ok' => false, 'error' => 'psql could not be started'];
+            }
 
-            return $exitCode === 0
-                ? ['ok' => true, 'error' => null]
-                : ['ok' => false, 'error' => trim(implode(' ', $output)) ?: 'psql exited ' . $exitCode];
+            // IDENTIFY_SYSTEM prints one row and an error is one line, so neither pipe can fill
+            // while the other is read.
+            $output = stream_get_contents($pipes[1]) . ' ' . stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $exitCode = proc_close($process);
+
+            if ($exitCode === 0) {
+                return ['ok' => true, 'error' => null];
+            }
+
+            $error = trim(preg_replace('/\s+/', ' ', $output) ?? '');
+            if ($password !== null && $password !== '') {
+                $error = str_replace([$password, rawurlencode($password)], '***', $error);
+            }
+
+            return ['ok' => false, 'error' => $error !== '' ? $error : 'psql exited ' . $exitCode];
         };
     }
 }

@@ -269,6 +269,34 @@ final class S3CompatibleObjectStoreTest extends TestCase
         $this->makeStore($handler)->put('a.txt', 'a');
     }
 
+    /**
+     * FB-62. HeadObject has no response body, so the SDK reports the bare HTTP status as the code.
+     * A credential without access to the bucket on an existence check read as a generic store error
+     * and took 19,942 failed runs to diagnose.
+     */
+    public function test_bodiless_403_on_an_existence_check_maps_to_access_denied(): void
+    {
+        foreach (['403', 'Forbidden'] as $code) {
+            $handler = new MockHandler();
+            $handler->append(new AwsException('403 Forbidden', new \Aws\Command('HeadObject'), ['code' => $code]));
+
+            try {
+                $this->makeStore($handler)->exists('a.txt');
+                self::fail("code {$code} must not be treated as a present or absent object");
+            } catch (ObjectStoreAccessDeniedException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function test_bodiless_404_on_an_existence_check_is_still_absent(): void
+    {
+        $handler = new MockHandler();
+        $handler->append(new AwsException('404 Not Found', new \Aws\Command('HeadObject'), ['code' => '404']));
+
+        $this->assertFalse($this->makeStore($handler)->exists('missing.txt'));
+    }
+
     public function test_slow_down_maps_to_rate_limit_exception(): void
     {
         $handler = new MockHandler();

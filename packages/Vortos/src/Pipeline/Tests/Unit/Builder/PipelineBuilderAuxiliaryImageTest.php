@@ -59,6 +59,20 @@ final class PipelineBuilderAuxiliaryImageTest extends TestCase
         self::assertStringContainsString('cosign verify', (string) $this->commandStep($build, 'Verify backup image signature')?->run);
     }
 
+    /** Sharing the serving image's cache scope would evict its layers on every run. */
+    public function test_it_caches_in_its_own_scope(): void
+    {
+        $build = $this->stage(StageKind::Build, cache: true);
+
+        $aux = $this->actionStep($build, 'Build and push backup image');
+        $serving = $this->actionStep($build, 'Build and push');
+        self::assertNotNull($aux);
+        self::assertNotNull($serving);
+        self::assertSame('type=gha,scope=aux-backup', $aux->with['cache-from'] ?? null);
+        self::assertSame('type=gha,scope=aux-backup,mode=max', $aux->with['cache-to'] ?? null);
+        self::assertSame('type=gha', $serving->with['cache-from'] ?? null, 'the serving build keeps its own scope');
+    }
+
     public function test_no_ignore_file_is_emitted_unless_declared(): void
     {
         $scan = $this->actionStep($this->stage(StageKind::Build), 'Scan backup image for vulnerabilities (CVE gate)');
@@ -99,9 +113,10 @@ final class PipelineBuilderAuxiliaryImageTest extends TestCase
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    private function stage(StageKind $kind, ?string $ignore = null): Stage
+    private function stage(StageKind $kind, ?string $ignore = null, bool $cache = false): Stage
     {
         $definition = new PipelineDefinition(
+            buildCache: $cache,
             imageRepository: self::REPO,
             nativeRunnerLabel: 'ubuntu-24.04-arm',
             oidc: false,

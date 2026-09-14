@@ -500,6 +500,13 @@ final class PipelineBuilder
             $auxWith['file'] = $auxiliary->dockerfile->value;
             $auxWith['tags'] = sprintf('%s:sha-${{ github.sha }}-%s', $repo, $name);
             $auxWith['build-args'] = sprintf('%s=%s', $auxiliary->releaseImageArg, $digestRef);
+            if ($definition->buildCache) {
+                // Its own cache scope. A different Dockerfile writing mode=max into the serving image's default
+                // scope replaces that scope's index on every run, so the serving build would miss its cache
+                // (the custom runtime binary and PECL extensions) and recompile for minutes each deploy.
+                $auxWith['cache-from'] = sprintf('type=gha,scope=aux-%s', $name);
+                $auxWith['cache-to'] = sprintf('type=gha,scope=aux-%s,mode=max', $name);
+            }
 
             $steps[] = new ActionStep(sprintf('Build and push %s image', $name), KnownActionFactory::buildPush(), $auxWith, id: 'build' . $output);
 

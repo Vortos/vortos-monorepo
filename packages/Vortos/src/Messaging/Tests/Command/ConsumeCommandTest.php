@@ -62,4 +62,47 @@ final class ConsumeCommandTest extends TestCase
     {
         $this->assertTrue((new ConsumeCommand($this->runner, new NullLogger()))->getDefinition()->hasOption('tail'));
     }
+
+    public function test_several_consumers_share_one_process_through_run_many(): void
+    {
+        $this->runner->expects($this->never())->method('run');
+        $this->runner->expects($this->once())->method('runMany')
+            ->with(['orders.placed', 'orders.cancelled'], 0, 0);
+
+        $tester = $this->tester();
+        $tester->execute(['consumer' => ['orders.placed', 'orders.cancelled']]);
+
+        $this->assertSame(0, $tester->getStatusCode());
+    }
+
+    public function test_a_repeated_consumer_name_is_run_once(): void
+    {
+        $this->runner->expects($this->once())->method('runMany')
+            ->with(['orders.placed', 'orders.cancelled'], 0, 0);
+
+        $this->tester()->execute(['consumer' => ['orders.placed', 'orders.cancelled', 'orders.placed']]);
+    }
+
+    public function test_a_memory_cap_routes_even_one_consumer_through_run_many_in_bytes(): void
+    {
+        $this->runner->expects($this->never())->method('run');
+        $this->runner->expects($this->once())->method('runMany')
+            ->with(['orders.placed'], 0, 256 * 1024 * 1024);
+
+        $tester = $this->tester();
+        $tester->execute(['consumer' => ['orders.placed'], '--max-memory-mb' => '256']);
+
+        $this->assertSame(0, $tester->getStatusCode());
+    }
+
+    public function test_a_failed_shared_process_reports_every_consumer_it_ran(): void
+    {
+        $this->runner->method('runMany')->willThrowException(new \RuntimeException('Consumer "orders.cancelled" was stopped by the broker'));
+
+        $tester = $this->tester();
+        $tester->execute(['consumer' => ['orders.placed', 'orders.cancelled']]);
+
+        $this->assertStringContainsString("Consumer 'orders.placed, orders.cancelled' failed", $tester->getDisplay());
+        $this->assertSame(1, $tester->getStatusCode());
+    }
 }

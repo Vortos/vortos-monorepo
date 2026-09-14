@@ -22,6 +22,7 @@ use Vortos\Messaging\Bus\Stamp\EventIdStamp;
 use Vortos\Messaging\Bus\Stamp\TimestampStamp;
 use Vortos\Messaging\Contract\ConsumerInterface;
 use Vortos\Messaging\Contract\ConsumerLocatorInterface;
+use Vortos\Messaging\Contract\PollableConsumerInterface;
 use Vortos\Messaging\Contract\EventBusInterface;
 use Vortos\Messaging\Contract\ProducerInterface;
 use Vortos\Messaging\DeadLetter\DeadLetterWriter;
@@ -69,7 +70,17 @@ use Vortos\Tracing\Contract\TracingInterface;
  */
 final class ConsumerRunner implements ConsumerRunnerInterface
 {
+    /** One full round of polls across a shared process takes about this long when every consumer is idle. */
+    private const SHARED_POLL_CYCLE_MS = 500;
+
+    /** The shortest wait handed to one consumer, so a process with many consumers still sleeps in the client. */
+    private const MIN_SHARED_POLL_TIMEOUT_MS = 20;
+
     private ?ConsumerInterface $activeConsumer = null;
+
+    /** @var array<string, PollableConsumerInterface> consumers sharing this process during runMany() */
+    private array $activeConsumers = [];
+
     private string $replaySecret = '';
     private bool $draining = false;
 
@@ -149,6 +160,132 @@ final class ConsumerRunner implements ConsumerRunnerInterface
     }
 
     /**
+     * Several consumers, one process.
+     *
+     * Round-robin, one poll each per cycle, and a poll hands over at most one message — so a consumer
+     * with a backlog cannot starve a quiet one sharing its process, and the worst added latency for
+     * any consumer is one cycle. The per-consumer wait is the single-consumer loop's 500 ms divided
+     * between them, so an idle process still sleeps in the broker client rather than spinning.
+     *
+     * A consumer the broker stops is fatal for the whole process: alone it would exit and be
+     * restarted, but here its neighbours would keep the process alive while it consumed nothing, with
+     * every health signal green. Every consumer is closed, then the failure is thrown.
+     */
+    public function runMany(array $consumerNames, int $maxMessages = 0, int $maxMemoryBytes = 0): void
+    {
+        $consumerNames = array_values(array_unique($consumerNames));
+        if ($consumerNames === []) {
+            throw new \InvalidArgumentException('At least one consumer name is required.');
+        }
+
+        $consumers = [];
+        foreach ($consumerNames as $name) {
+            $consumer = $this->consumerLocator->get($name);
+            if (!$consumer instanceof PollableConsumerInterface) {
+                throw new \LogicException(sprintf(
+                    'Consumer "%s" cannot share a process: its driver (%s) does not implement %s.',
+                    $name,
+                    $consumer::class,
+                    PollableConsumerInterface::class,
+                ));
+            }
+            $consumers[$name] = $consumer;
+        }
+
+        $this->activeConsumers = $consumers;
+        $this->draining = false;
+        $this->lastTelemetryFlushNs = hrtime(true);
+
+        $processed = 0;
+        $timeoutMs = max(self::MIN_SHARED_POLL_TIMEOUT_MS, intdiv(self::SHARED_POLL_CYCLE_MS, count($consumers)));
+        $failed    = null;
+
+        foreach ($consumers as $name => $consumer) {
+            $consumer->open($name);
+        }
+
+        try {
+            // Read through isDraining() rather than the property: stop() flips it from the message
+            // callback and from signal handlers, which static analysis cannot see from this loop.
+            while (!$this->isDraining()) {
+                $anyRunning = false;
+
+                foreach ($consumers as $name => $consumer) {
+                    if ($consumer->hasFailed()) {
+                        $failed = $name;
+                        break 2;
+                    }
+
+                    if (!$consumer->isRunning()) {
+                        continue;
+                    }
+
+                    $anyRunning = true;
+
+                    $consumer->poll(
+                        $name,
+                        function (ReceivedMessage $message) use ($name, $consumer, &$processed, $maxMessages, $maxMemoryBytes): void {
+                            $this->handleMessage($name, $message, $consumer);
+                            $processed++;
+                            $this->flushTelemetry();
+
+                            if ($maxMessages > 0 && $processed >= $maxMessages) {
+                                $this->stop();
+                            } elseif ($maxMemoryBytes > 0 && memory_get_usage(true) >= $maxMemoryBytes) {
+                                $this->logger->warning('Consumer process reached its memory cap; stopping so it is restarted.', [
+                                    'consumers'    => array_keys($this->activeConsumers),
+                                    'memory_bytes' => memory_get_usage(true),
+                                    'cap_bytes'    => $maxMemoryBytes,
+                                ]);
+                                $this->stop();
+                            }
+                        },
+                        $timeoutMs,
+                    );
+
+                    // Reachable: the poll above can call stop() through the message callback (max
+                    // messages, memory cap), and a signal handler can call it at any point; neither
+                    // is visible to static analysis, which remembers the loop condition's answer.
+                    // @phpstan-ignore if.alwaysFalse
+                    if ($this->isDraining()) {
+                        break;
+                    }
+                }
+
+                if (!$anyRunning) {
+                    break;
+                }
+            }
+        } finally {
+            foreach ($consumers as $name => $consumer) {
+                // A failed consumer must not commit; the others drain as they would alone.
+                if ($failed !== null && $name !== $failed) {
+                    $consumer->stop();
+                }
+
+                try {
+                    $consumer->close($name);
+                } catch (\Throwable $e) {
+                    $this->logger->warning('Consumer could not be closed cleanly.', [
+                        'consumer'  => $name,
+                        'exception' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            $this->activeConsumers = [];
+            $this->flushTelemetry(force: true);
+        }
+
+        if ($failed !== null) {
+            throw new \RuntimeException(sprintf(
+                'Consumer "%s" was stopped by the broker; stopping the process it shares so it is restarted.',
+                $failed,
+            ));
+        }
+    }
+
+    /**
      * Drains push-based telemetry, at most once per configured interval.
      *
      * Called after every processed message; the throttle keeps a high-throughput consumer from
@@ -181,13 +318,18 @@ final class ConsumerRunner implements ConsumerRunnerInterface
         }
     }
 
-    /** Stops the consumer loop. Called by signal handlers on SIGTERM/SIGINT. */
+    /** Stops the consumer loop — every consumer in a shared process. Called by signal handlers on SIGTERM/SIGINT. */
     public function stop(): void
     {
         $this->draining = true;
         $this->activeConsumer?->stop();
+
+        foreach ($this->activeConsumers as $consumer) {
+            $consumer->stop();
+        }
     }
 
+    /** Whether stop() has been called — from a signal handler, a message callback, or directly. */
     public function isDraining(): bool
     {
         return $this->draining;

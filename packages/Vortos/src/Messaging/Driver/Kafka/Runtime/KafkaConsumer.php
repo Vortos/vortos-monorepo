@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Messaging\Driver\Kafka\Runtime;
 
-use Vortos\Messaging\Contract\ConsumerInterface;
+use Vortos\Messaging\Contract\PollableConsumerInterface;
 use Vortos\Messaging\ValueObject\ReceivedMessage;
 use Vortos\Metrics\Contract\FlushableMetricsInterface;
 use Vortos\Messaging\Runtime\ConsumerLagReporter;
@@ -15,13 +15,16 @@ use Throwable;
 
 /**
  * Kafka implementation of ConsumerInterface using the RdKafka extension.
- * 
+ *
  * Runs a blocking poll loop with a 500ms timeout per iteration. The loop
  * exits cleanly when stop() is called (e.g. via SIGTERM signal handler).
- * 
+ *
+ * The loop can also be driven from outside one iteration at a time (open/poll/close), which is how
+ * one process serves several consumers; each keeps its own subscription and group.
+ *
  * Partition EOF and timeout errors are treated as normal conditions and
  * do not interrupt the loop. Only real errors are logged.
- * 
+ *
  * acknowledge() uses async commit for throughput. If you need guaranteed
  * offset commits before the process exits, call commitAsync() in your
  * shutdown handler.
@@ -32,8 +35,14 @@ use Throwable;
  * looks identical to a healthy idle one. Sampled from the poll loop, the metrics stop arriving the
  * moment the consumer does, which makes absence itself the alert.
  */
-final class KafkaConsumer implements ConsumerInterface
+final class KafkaConsumer implements PollableConsumerInterface
 {
+    /** Poll wait when this consumer owns its loop. A shared runner passes its own, shorter wait. */
+    private const OWN_LOOP_POLL_TIMEOUT_MS = 500;
+
+    /** Set when a fatal client error stopped the consumer, as opposed to being asked to stop. */
+    private bool $failed = false;
+
     /**
      * How often to ask the broker for watermark offsets. queryWatermarkOffsets() is a blocking
      * broker round-trip, so it must never run at poll cadence — at 500ms polls that would be ~120
@@ -88,47 +97,93 @@ final class KafkaConsumer implements ConsumerInterface
 
     public function consume(string $consumerName, callable $handler): void
     {
+        $this->open($consumerName);
+
+        while ($this->running) {
+            $this->poll($consumerName, $handler, self::OWN_LOOP_POLL_TIMEOUT_MS);
+        }
+
+        $this->close($consumerName);
+    }
+
+    public function open(string $consumerName): void
+    {
         $this->running = true;
         $this->draining = false;
+        $this->failed = false;
         $this->lastLagSampleNs = hrtime(true);
         $this->pollCyclesSinceFlush = 0;
 
         $this->rdConsumer->subscribe($this->topics);
+    }
 
-        while ($this->running) {
-            $rdMessage = $this->rdConsumer->consume(500);
-            $this->pollCyclesSinceFlush++;
-            $this->maybeRecordLagSample($consumerName);
-
-            if ($rdMessage->err === RD_KAFKA_RESP_ERR_NO_ERROR) {
-                $this->tracer?->extractContext($rdMessage->headers ?? []);
-
-                $handler(
-                    KafkaMessage::fromRdKafkaMessage($rdMessage)
-                        ->toReceivedMessage($consumerName)
-                );
-            } elseif (
-                $rdMessage->err === RD_KAFKA_RESP_ERR__PARTITION_EOF ||
-                $rdMessage->err === RD_KAFKA_RESP_ERR__TIMED_OUT
-            ) {
-                // Normal conditions — no messages available, continue polling
-            } elseif ($rdMessage->err === RD_KAFKA_RESP_ERR__FATAL) {
-                $this->logger->critical('Fatal Kafka error — consumer stopping', [
-                    'error' => $rdMessage->errstr(),
-                    'code'  => $rdMessage->err,
-                ]);
-                $this->stop();
-            } else {
-                $this->logger->error('Kafka consume error', [
-                    'error' => $rdMessage->errstr(),
-                    'code'  => $rdMessage->err,
-                ]);
-            }
+    public function poll(string $consumerName, callable $handler, int $timeoutMs): bool
+    {
+        if (!$this->running) {
+            return false;
         }
 
+        $rdMessage = $this->rdConsumer->consume(max(0, $timeoutMs));
+        $this->pollCyclesSinceFlush++;
+        $this->maybeRecordLagSample($consumerName);
+
+        if ($rdMessage->err === RD_KAFKA_RESP_ERR_NO_ERROR) {
+            $this->tracer?->extractContext($rdMessage->headers ?? []);
+
+            $handler(
+                KafkaMessage::fromRdKafkaMessage($rdMessage)
+                    ->toReceivedMessage($consumerName)
+            );
+
+            return true;
+        }
+
+        if (
+            $rdMessage->err === RD_KAFKA_RESP_ERR__PARTITION_EOF ||
+            $rdMessage->err === RD_KAFKA_RESP_ERR__TIMED_OUT
+        ) {
+            // Normal conditions — no messages available, continue polling
+            return false;
+        }
+
+        if ($rdMessage->err === RD_KAFKA_RESP_ERR__FATAL) {
+            $this->logger->critical('Fatal Kafka error — consumer stopping', [
+                'consumer' => $consumerName,
+                'error'    => $rdMessage->errstr(),
+                'code'     => $rdMessage->err,
+            ]);
+            // Stopped, but not drained: a fatal client error means the offsets cannot be trusted to
+            // commit, and a shared process must see this as a failure rather than a clean stop.
+            $this->failed = true;
+            $this->running = false;
+
+            return false;
+        }
+
+        $this->logger->error('Kafka consume error', [
+            'consumer' => $consumerName,
+            'error'    => $rdMessage->errstr(),
+            'code'     => $rdMessage->err,
+        ]);
+
+        return false;
+    }
+
+    public function close(string $consumerName): void
+    {
         if ($this->draining) {
             $this->flushSyncCommit();
         }
+    }
+
+    public function isRunning(): bool
+    {
+        return $this->running;
+    }
+
+    public function hasFailed(): bool
+    {
+        return $this->failed;
     }
 
     /**

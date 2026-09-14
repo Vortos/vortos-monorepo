@@ -32,6 +32,7 @@ final class TopologyPolicy
         return new self($definition->remoteDeployDir, [
             EnvFileScopeRule::forDefinition($definition),
             BindMountScopeRule::forDefinition($definition),
+            ImageProvenanceRule::forDefinition($definition),
         ]);
     }
 

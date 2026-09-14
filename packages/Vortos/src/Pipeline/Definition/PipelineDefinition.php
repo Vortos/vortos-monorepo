@@ -7,6 +7,7 @@ namespace Vortos\Pipeline\Definition;
 use Vortos\Pipeline\Model\ReleaseTrigger;
 
 use Vortos\Foundation\Deploy\DeployPosture;
+use Vortos\Pipeline\Model\AuxiliaryImage;
 use Vortos\Pipeline\Model\BuildMode;
 use Vortos\Pipeline\Model\HostSystemBind;
 use Vortos\Pipeline\Model\RootOfTrustEnvFile;
@@ -25,6 +26,7 @@ final readonly class PipelineDefinition
      * @param list<RootOfTrustEnvFile> $rootOfTrustEnvFiles
      * @param list<SyncedHostPath>     $syncedHostPaths
      * @param list<HostSystemBind>     $hostSystemBinds
+     * @param list<AuxiliaryImage>     $auxiliaryImages
      * @param list<string>           $phpExtensions
      * @param list<string>           $environments
      * @param list<SplitPackage>     $splitPackageOverrides
@@ -215,6 +217,13 @@ final readonly class PipelineDefinition
         // logs, host root), declared with audience, access and reason so the topology policy can refuse
         // any bind mount nobody accounted for.
         public array $hostSystemBinds = [],
+        // ── Auxiliary images (RC-9) ──
+        // Long-running images built FROM the serving digest each release (e.g. the backup/scheduler
+        // sidecar), pushed as sibling `:sha-<sha>-<name>` tags, SBOM-attested, CVE-gated, keyless-signed and
+        // re-verified before release, then run from their digest by exactly the declared services and
+        // proven live by the deploy. The sidecar holding the backup key used to be the one image nobody
+        // scanned, signed or pinned.
+        public array $auxiliaryImages = [],
     ) {
         if ($emitter === '') {
             throw new \InvalidArgumentException('Pipeline emitter must be non-empty.');
@@ -456,6 +465,42 @@ final readonly class PipelineDefinition
             }
             $systemPaths[] = $bind->path;
         }
+
+        // RC-9.
+        $auxiliaryNames = [];
+        $auxiliaryServices = [];
+        foreach ($auxiliaryImages as $auxiliary) {
+            // @phpstan-ignore instanceof.alwaysTrue
+            if (!$auxiliary instanceof AuxiliaryImage) {
+                throw new \InvalidArgumentException(sprintf('auxiliaryImages entries must be AuxiliaryImage instances, got %s.', get_debug_type($auxiliary)));
+            }
+            if (\in_array($auxiliary->name->value, $auxiliaryNames, true)) {
+                throw new \InvalidArgumentException(sprintf('Auxiliary image "%s" is declared twice.', $auxiliary->name->value));
+            }
+            $auxiliaryNames[] = $auxiliary->name->value;
+            foreach ($auxiliary->services->names as $service) {
+                if (\in_array($service, $auxiliaryServices, true)) {
+                    throw new \InvalidArgumentException(sprintf('Compose service "%s" is declared for more than one auxiliary image.', $service));
+                }
+                $auxiliaryServices[] = $service;
+            }
+        }
+
+        if ($auxiliaryImages !== []) {
+            if ($imageRepository === null) {
+                throw new \InvalidArgumentException('Auxiliary images are sibling tags of the release image; set imageRepository.');
+            }
+            if (!$emitScanGate || !$emitSign) {
+                throw new \InvalidArgumentException(
+                    'Auxiliary images run long-lived with the release\'s privileges and must be CVE-gated and signed like the serving image; enable emitScanGate and emitSign.',
+                );
+            }
+            if (!$syncComposeTopology) {
+                throw new \InvalidArgumentException(
+                    'Auxiliary images are run through the synced compose topology; enable syncComposeTopology.',
+                );
+            }
+        }
     }
 
     /**
@@ -565,6 +610,16 @@ final readonly class PipelineDefinition
                 'owner' => $p->owner->toString(),
                 'services' => $p->services->names,
             ], $this->syncedHostPaths);
+        }
+
+        if ($this->auxiliaryImages !== []) {
+            $data['auxiliary_images'] = array_map(static fn (AuxiliaryImage $a): array => [
+                'name' => $a->name->value,
+                'dockerfile' => $a->dockerfile->value,
+                'release_image_arg' => $a->releaseImageArg,
+                'services' => $a->services->names,
+                'scan_ignore_file' => $a->scanIgnoreFile,
+            ], $this->auxiliaryImages);
         }
 
         if ($this->hostSystemBinds !== []) {

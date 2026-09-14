@@ -49,15 +49,18 @@ final class PipelineTopologyCheckCommandTest extends TestCase
 
     public function test_clear_topology_succeeds(): void
     {
-        $tester = $this->checkTopology("services:\n  backup-scheduler:\n    env_file: [./.env.prod, ./age.env]\n");
+        $tester = $this->checkTopology("services:\n  backup-scheduler:\n    image: " . self::IMAGE . "\n    env_file: [./.env.prod, ./age.env]\n");
 
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
         self::assertSame('clear', json_decode($tester->getDisplay(), true, flags: \JSON_THROW_ON_ERROR)['status']);
     }
 
+    /** Digest-pinned, so these tests stay about env file audiences rather than image provenance. */
+    private const IMAGE = 'redis@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005';
+
     public function test_a_violation_fails_and_is_reported(): void
     {
-        $tester = $this->checkTopology("services:\n  app-blue:\n    env_file: [./.env.prod, ./age.env]\n");
+        $tester = $this->checkTopology("services:\n  app-blue:\n    image: " . self::IMAGE . "\n    env_file: [./.env.prod, ./age.env]\n");
 
         self::assertSame(Command::FAILURE, $tester->getStatusCode());
         $report = json_decode($tester->getDisplay(), true, flags: \JSON_THROW_ON_ERROR);

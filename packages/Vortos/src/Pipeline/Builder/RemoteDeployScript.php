@@ -233,6 +233,27 @@ final class RemoteDeployScript
         // deliberate recreate") went into one line among thousands, on a step nobody had a reason to
         // open. A notice that must be gone looking for is not a notice. stderr is left alone and
         // still streams the same sentence inline.
+        // RC-9: each auxiliary image this release built, pulled by digest on the host (which holds the
+        // registry login) and recorded in the compose interpolation file the topology references as
+        // ${VORTOS_IMAGE_<NAME>:?…}. Written BEFORE the topology sync, whose validator resolves those
+        // references. Digest references only — nothing secret — written atomically; the deploy owns the file.
+        if ($definition->auxiliaryImages !== []) {
+            $assignments = [];
+            foreach ($definition->auxiliaryImages as $auxiliary) {
+                $ref = $this->auxiliaryImageRef($repo, $auxiliary);
+                $lines[] = sprintf('docker pull %s', $ref);
+                $assignments[] = sprintf("'%s=%s'", $auxiliary->name->composeVariable(), $ref);
+            }
+            $lines[] = sprintf(
+                "printf '%%s\\n' %s > %s/.env.incoming && chmod 0644 %s/.env.incoming && mv -f %s/.env.incoming %s/.env",
+                implode(' ', $assignments),
+                $deployDir,
+                $deployDir,
+                $deployDir,
+                $deployDir,
+            );
+        }
+
         if ($definition->syncComposeTopology) {
             // RC-3: every path the topology bind-mounts is copied from this same image first, so the
             // topology written below never references a host copy nobody updated. Values are validated
@@ -321,7 +342,64 @@ final class RemoteDeployScript
             $digestExpr,
         );
 
+        // RC-9: move each auxiliary image's services onto the image built from THIS release, after the
+        // cutover so they never run code newer than the app. Compose runs in a root one-shot (their env
+        // files include root-only secrets) through the socket proxy, --no-deps so no datastore that shares
+        // the project is touched. Then prove it: each service's container must run exactly the digest this
+        // release built and become healthy (or merely running when it declares no healthcheck); anything
+        // else fails the deploy instead of leaving a scheduler or backup node silently on stale code.
+        if ($definition->auxiliaryImages !== []) {
+            $composeFile = $deployDir . '/' . basename($definition->composeTopologyPath);
+            $services = [];
+            foreach ($definition->auxiliaryImages as $auxiliary) {
+                array_push($services, ...$auxiliary->services->names);
+            }
+
+            $lines[] = sprintf(
+                'docker run --rm --user 0:0 --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 -v %s:%s -w %s --entrypoint docker %s compose -f %s up -d --no-deps %s',
+                $network,
+                $deployDir,
+                $deployDir,
+                $deployDir,
+                $toolingRef,
+                $composeFile,
+                implode(' ', $services),
+            );
+
+            foreach ($definition->auxiliaryImages as $auxiliary) {
+                $ref = $this->auxiliaryImageRef($repo, $auxiliary);
+                foreach ($auxiliary->services->names as $service) {
+                    $lines[] = sprintf('VORTOS_AUX_WANT="$(docker image inspect -f \'{{.Id}}\' %s)"; VORTOS_AUX_STATE=""', $ref);
+                    $lines[] = 'for i in $(seq 1 36); do';
+                    $lines[] = sprintf(
+                        '  VORTOS_AUX_CID="$(docker ps -q --filter label=com.docker.compose.project.working_dir=%s --filter label=com.docker.compose.service=%s | head -n1)"',
+                        $deployDir,
+                        $service,
+                    );
+                    $lines[] = '  if [ -n "$VORTOS_AUX_CID" ] && [ "$(docker inspect -f \'{{.Image}}\' "$VORTOS_AUX_CID")" = "$VORTOS_AUX_WANT" ]; then';
+                    $lines[] = '    VORTOS_AUX_STATE="$(docker inspect -f \'{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck-{{.State.Status}}{{end}}\' "$VORTOS_AUX_CID")"';
+                    $lines[] = '    case "$VORTOS_AUX_STATE" in healthy|no-healthcheck-running) break ;; esac';
+                    $lines[] = '  fi';
+                    $lines[] = '  sleep 5';
+                    $lines[] = 'done';
+                    $lines[] = sprintf(
+                        'case "$VORTOS_AUX_STATE" in healthy|no-healthcheck-running) echo "%s runs the %s image of this release (${VORTOS_AUX_STATE})" ;; *) echo "::error title=Auxiliary image not live::%s is not running the %s image built by this release (state: ${VORTOS_AUX_STATE:-wrong image or absent})"; exit 1 ;; esac',
+                        $service,
+                        $auxiliary->name->value,
+                        $service,
+                        $auxiliary->name->value,
+                    );
+                }
+            }
+        }
+
         return implode("\n", $lines) . "\n";
+    }
+
+    /** The digest reference of an auxiliary image this release built, as the build stage publishes it. */
+    private function auxiliaryImageRef(string $repo, \Vortos\Pipeline\Model\AuxiliaryImage $auxiliary): string
+    {
+        return sprintf('%s@${{ needs.build.outputs.%s }}', $repo, $auxiliary->name->outputName());
     }
 
     /**

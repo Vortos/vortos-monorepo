@@ -7,6 +7,7 @@ namespace Vortos\Pipeline\Definition;
 use Vortos\Pipeline\Model\ReleaseTrigger;
 
 use Vortos\Foundation\Deploy\DeployPosture;
+use Vortos\Pipeline\Model\AuxiliaryImage;
 use Vortos\Pipeline\Model\BuildMode;
 use Vortos\Pipeline\Model\HostSystemBind;
 use Vortos\Pipeline\Model\RootOfTrustEnvFile;
@@ -86,6 +87,8 @@ final class PipelineDefinitionBuilder
     private array $syncedHostPaths = [];
     /** @var list<HostSystemBind> */
     private array $hostSystemBinds = [];
+    /** @var list<AuxiliaryImage> */
+    private array $auxiliaryImages = [];
 
     public static function create(): self
     {
@@ -624,6 +627,18 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    /**
+     * Long-running images built from each release, scanned, signed, verified and run by digest (RC-9).
+     * See {@see AuxiliaryImage}.
+     */
+    public function auxiliaryImages(AuxiliaryImage ...$images): self
+    {
+        $clone = clone $this;
+        $clone->auxiliaryImages = array_values($images);
+
+        return $clone;
+    }
+
     public function agnosticismMode(QualityMode $mode): self
     {
         $clone = clone $this;
@@ -690,6 +705,7 @@ final class PipelineDefinitionBuilder
             composeTopologyPath: $this->composeTopologyPath,
             syncedHostPaths: $this->syncedHostPaths,
             hostSystemBinds: $this->hostSystemBinds,
+            auxiliaryImages: $this->auxiliaryImages,
         );
     }
 }

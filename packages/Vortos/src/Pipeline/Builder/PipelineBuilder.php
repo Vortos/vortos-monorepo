@@ -485,6 +485,68 @@ final class PipelineBuilder
             }
         }
 
+        // ── Auxiliary images (RC-9) ─────────────────────────────────────────────────────────────
+        // Long-running siblings built FROM the exact serving digest (e.g. the backup/scheduler sidecar),
+        // published as `:sha-<sha>-<name>` in the same repository — no second registry account or
+        // credential. They carry the release's code AND their own privileges (the sidecar holds the backup
+        // key), so they get every gate the serving image gets: SBOM, CVE gate (own ignore file only when
+        // declared), keyless signature verified in place. The deploy verifies each again before release.
+        $auxiliaryOutputs = [];
+        foreach ($definition->auxiliaryImages as $auxiliary) {
+            $name = $auxiliary->name->value;
+            $output = $auxiliary->name->outputName();
+            $auxWith = $buildWith;
+            unset($auxWith['target']);
+            $auxWith['file'] = $auxiliary->dockerfile->value;
+            $auxWith['tags'] = sprintf('%s:sha-${{ github.sha }}-%s', $repo, $name);
+            $auxWith['build-args'] = sprintf('%s=%s', $auxiliary->releaseImageArg, $digestRef);
+
+            $steps[] = new ActionStep(sprintf('Build and push %s image', $name), KnownActionFactory::buildPush(), $auxWith, id: 'build' . $output);
+
+            $auxDigestRef = sprintf('%s@${{ steps.build%s.outputs.digest }}', $repo, $output);
+            $steps[] = new CommandStep(
+                sprintf('Expose %s image digest', $name),
+                sprintf('echo "digest=${{ steps.build%s.outputs.digest }}" >> "$GITHUB_OUTPUT"', $output),
+                id: $output,
+            );
+            $auxiliaryOutputs[$output] = sprintf('${{ steps.%s.outputs.digest }}', $output);
+
+            if ($definition->emitSbom) {
+                $steps[] = new ActionStep(
+                    sprintf('Generate %s image SBOM', $name),
+                    KnownActionFactory::sbomAttest(),
+                    ['image' => $auxDigestRef, 'format' => 'spdx-json'],
+                    continueOnError: $definition->sbomContinueOnError,
+                );
+            }
+
+            // The definition refuses an auxiliary image without the scan gate and signing, so both are
+            // unconditional here.
+            $auxScan = [
+                'image-ref' => $auxDigestRef,
+                'format' => 'table',
+                'exit-code' => '1',
+                'severity' => 'HIGH,CRITICAL',
+                'ignore-unfixed' => 'true',
+            ];
+            if ($auxiliary->scanIgnoreFile !== null) {
+                $auxScan['trivyignores'] = $auxiliary->scanIgnoreFile;
+            }
+            $steps[] = new ActionStep(sprintf('Scan %s image for vulnerabilities (CVE gate)', $name), KnownActionFactory::trivyImageScan(), $auxScan);
+
+            $steps[] = new CommandStep(sprintf('Sign %s image (keyless, Sigstore)', $name), sprintf('cosign sign --yes %s', $auxDigestRef), id: 'sign' . $output);
+            $steps[] = new CommandStep(
+                sprintf('Verify %s image signature', $name),
+                sprintf(
+                    'cosign verify --certificate-identity-regexp "%s" --certificate-oidc-issuer "%s" %s',
+                    '^${{ github.server_url }}/${{ github.repository }}/',
+                    'https://token.actions.githubusercontent.com',
+                    $auxDigestRef,
+                ),
+                id: 'verify' . $output,
+            );
+        }
+
         $semverTagStep = new CommandStep(
             'Tag with release version',
             "docker buildx imagetools create --tag {$repo}:\${{ github.ref_name }} {$digestRef}",
@@ -525,12 +587,11 @@ final class PipelineBuilder
             runner: $runner,
             permissions: $permissions,
             timeoutMinutes: $definition->defaultTimeoutMinutes,
-            outputs: $definition->opsTarget !== null
-                ? [
-                    'image' => '${{ steps.image.outputs.digest }}',
-                    'opsimage' => '${{ steps.opsimage.outputs.opsdigest }}',
-                ]
-                : ['image' => '${{ steps.image.outputs.digest }}'],
+            outputs: [
+                'image' => '${{ steps.image.outputs.digest }}',
+                ...($definition->opsTarget !== null ? ['opsimage' => '${{ steps.opsimage.outputs.opsdigest }}'] : []),
+                ...$auxiliaryOutputs,
+            ],
             condition: $this->pushToDeploymentBranchCondition($definition) . " || github.ref_type == 'tag'",
         );
     }
@@ -608,6 +669,21 @@ final class PipelineBuilder
             // The ops image runs console commands against production data — migrations, seeds,
             // the cutover itself. Verifying only the serving image would leave the artifact with
             // the most dangerous reach as the one nobody checked.
+            // RC-9: an auxiliary image runs long-lived with its own privileges (the backup sidecar holds the
+            // backup key), so it is verified at release time exactly like the images above.
+            foreach ($definition->auxiliaryImages as $auxiliary) {
+                $steps[] = new CommandStep(
+                    sprintf('Verify the %s image signature before releasing it', $auxiliary->name->value),
+                    sprintf(
+                        'cosign verify --certificate-identity-regexp "%s" --certificate-oidc-issuer "%s" %s@${{ needs.build.outputs.%s }}',
+                        '^${{ github.server_url }}/${{ github.repository }}/',
+                        'https://token.actions.githubusercontent.com',
+                        $repo,
+                        $auxiliary->name->outputName(),
+                    ),
+                );
+            }
+
             if ($opsImageRef !== null) {
                 $steps[] = new CommandStep(
                     'Verify the deploy-ops image signature before releasing it',

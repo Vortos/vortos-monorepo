@@ -97,12 +97,44 @@ cp -a "$SRC/." .
 
 git add -A
 
+# Push with a bounded retry, then prove the remote ref is what was pushed.
+#
+# GitHub occasionally rejects a push with a server-side error that has nothing to do with the push
+# itself. It happened on v1.0.0-alpha-404: 47 of 48 packages published and vortos-paddle's tag push
+# came back "remote: fatal error in commit_refs ... [remote rejected] (failure)". A re-run of that one
+# job succeeded untouched. A single-attempt push turned a transient server blip into a partial release
+# — the app's lockstep test refused the bump, correctly, but only after the tag was already public on
+# every other package. Retrying a few times with backoff absorbs the blip; a failure that survives
+# every attempt is real and still fails the job.
+#
+# The ls-remote check afterwards is what makes "the push reported success" mean "the ref is there":
+# an exit status alone is not evidence the server stored the ref.
+push_ref() {
+    local refspec="$1" ref="$2" expected="$3" force="${4:-}"
+    local attempt delay=2
+    for attempt in 1 2 3 4 5; do
+        if git push -q $force origin "$refspec"; then
+            local remote
+            remote="$(git ls-remote origin "$ref" | awk '{print $1}' | head -1)"
+            if [ "$remote" = "$expected" ]; then
+                return 0
+            fi
+            echo "push of $ref reported success but remote holds '${remote:-nothing}', expected $expected (attempt $attempt)" >&2
+        else
+            echo "push of $ref to $TARGET_REPO failed (attempt $attempt)" >&2
+        fi
+        [ "$attempt" -lt 5 ] && sleep "$delay" && delay=$((delay * 2))
+    done
+    echo "giving up on $ref for $TARGET_REPO after 5 attempts" >&2
+    return 1
+}
+
 if git diff --cached --quiet; then
     echo "no content change for $TARGET_REPO"
 else
     git -c "user.name=$AUTHOR_NAME" -c "user.email=$AUTHOR_EMAIL" \
         commit -q -m "$SUBJECT" -m "Split from $SOURCE_SHA"
-    git push -q origin "$TARGET_BRANCH"
+    push_ref "$TARGET_BRANCH" "refs/heads/$TARGET_BRANCH" "$(git rev-parse HEAD)"
     echo "pushed $TARGET_REPO@$TARGET_BRANCH"
 fi
 
@@ -110,6 +142,6 @@ if [ -n "$TARGET_TAG" ]; then
     # -f so re-running a release is idempotent rather than failing on an existing tag; the branch
     # itself is still never force-pushed.
     git tag -f "$TARGET_TAG"
-    git push -q -f origin "refs/tags/$TARGET_TAG"
+    push_ref "refs/tags/$TARGET_TAG" "refs/tags/$TARGET_TAG" "$(git rev-parse "refs/tags/$TARGET_TAG")" -f
     echo "pushed tag $TARGET_TAG to $TARGET_REPO"
 fi

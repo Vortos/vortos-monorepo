@@ -8,6 +8,8 @@ use Vortos\Pipeline\Model\ReleaseTrigger;
 
 use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Model\BuildMode;
+use Vortos\Pipeline\Model\RootOfTrustEnvFile;
+use Vortos\Pipeline\Model\SealedServiceEnv;
 use Vortos\Pipeline\Model\ServiceContainer;
 use Vortos\Pipeline\Model\SplitPackage;
 use Vortos\Release\Manifest\Arch;
@@ -73,6 +75,11 @@ final class PipelineDefinitionBuilder
     private QualityMode $agnosticismMode = QualityMode::Enforce;
     /** @var list<string> */
     private array $preCutoverCommands = [];
+    /** @var list<SealedServiceEnv> */
+    private array $sealedServiceEnvs = [];
+    /** @var list<RootOfTrustEnvFile> */
+    private array $rootOfTrustEnvFiles = [];
+    private string $composeTopologyPath = 'docker-compose.prod.yaml';
 
     public static function create(): self
     {
@@ -554,6 +561,39 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    /**
+     * Secret env files scoped to named compose services (RC-4), materialised by the deploy one-shot
+     * before the topology sync. See {@see SealedServiceEnv}.
+     */
+    public function sealedServiceEnvs(SealedServiceEnv ...$envs): self
+    {
+        $clone = clone $this;
+        $clone->sealedServiceEnvs = array_values($envs);
+
+        return $clone;
+    }
+
+    /**
+     * Host env files holding the identity sealed files are opened with, declared so the topology policy
+     * can account for them. See {@see RootOfTrustEnvFile}.
+     */
+    public function rootOfTrustEnvFiles(RootOfTrustEnvFile ...$files): self
+    {
+        $clone = clone $this;
+        $clone->rootOfTrustEnvFiles = array_values($files);
+
+        return $clone;
+    }
+
+    /** Project-relative compose topology checked by `pipeline:topology:check`. */
+    public function composeTopologyPath(string $path): self
+    {
+        $clone = clone $this;
+        $clone->composeTopologyPath = $path;
+
+        return $clone;
+    }
+
     public function agnosticismMode(QualityMode $mode): self
     {
         $clone = clone $this;
@@ -615,6 +655,9 @@ final class PipelineDefinitionBuilder
             staticAnalysisMode: $this->staticAnalysisMode,
             agnosticismMode: $this->agnosticismMode,
             preCutoverCommands: $this->preCutoverCommands,
+            sealedServiceEnvs: $this->sealedServiceEnvs,
+            rootOfTrustEnvFiles: $this->rootOfTrustEnvFiles,
+            composeTopologyPath: $this->composeTopologyPath,
         );
     }
 }

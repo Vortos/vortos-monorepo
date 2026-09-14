@@ -73,6 +73,12 @@ final class DependencyInjectionTest extends TestCase
             $commandServiceIds,
             'pipeline:verify command must be tagged console.command',
         );
+
+        $this->assertContains(
+            \Vortos\Pipeline\Console\PipelineTopologyCheckCommand::class,
+            $commandServiceIds,
+            'pipeline:topology:check command must be tagged console.command — the generated tests job runs it',
+        );
     }
 
     private function buildContainer(bool $compile = true): ContainerBuilder

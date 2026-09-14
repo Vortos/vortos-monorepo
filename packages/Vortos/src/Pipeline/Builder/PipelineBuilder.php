@@ -127,6 +127,13 @@ final class PipelineBuilder
             ...$this->bootstrapSteps($definition),
         ];
 
+        // RC-4: a topology that reaches the host must hand each env file only to the services
+        // config/pipeline.php names. In this job because every deploy-bearing job needs it, so a
+        // violation stops the release before an image is built, let alone synced.
+        if ($definition->syncComposeTopology) {
+            $steps[] = new CommandStep('Check env file audiences in the compose topology', 'php bin/console pipeline:topology:check');
+        }
+
         // App-declared steps (migrations, contract checks, seed, …) run after deps install and
         // before the test command — this is what lets the generated workflow replace a real ci.yml.
         foreach ($definition->testSteps as $step) {

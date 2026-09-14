@@ -13,9 +13,7 @@
         "vortos/vortos-foundation": "^1.0",
         "vortos/vortos-ops-kit": "^1.0",
         "symfony/console": "^7.0 || ^8.0",
-        "symfony/dependency-injection": "^7.0 || ^8.0"
-    },
-    "require-dev": {
+        "symfony/dependency-injection": "^7.0 || ^8.0",
         "symfony/yaml": "^7.0 || ^8.0"
     },
     "extra": {

@@ -189,6 +189,27 @@ final class RemoteDeployScript
             );
         }
 
+        // RC-4: per-service sealed secrets. Each is opened with the same identity and written beside
+        // the topology with exactly the declared mode and owner, BEFORE the topology sync — whose
+        // validator resolves env_file entries — so a fresh host never syncs a topology referencing a
+        // secret it does not have. The reveal script writes atomically and fails closed, and
+        // `set -euo pipefail` then aborts the deploy. No posture check here: the definition refuses
+        // these under OIDC, because skipping one would boot its service without the credential.
+        foreach ($definition->sealedServiceEnvs as $sealed) {
+            $lines[] = sprintf(
+                'docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/%s %s %s',
+                $deployDir,
+                $deployDir,
+                $toolingRef,
+                $definition->sealedEnvRevealScript,
+                $sealed->sealedPath,
+                $deployDir,
+                $sealed->target->value,
+                $sealed->mode->octal(),
+                $sealed->owner->toString(),
+            );
+        }
+
         // Write the compose topology that shipped inside this image onto the host. The image's
         // signature was verified above, so the topology carries the same supply-chain guarantee as
         // the code and needs no second transfer channel; without this the host copy is

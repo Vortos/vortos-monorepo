@@ -14,6 +14,7 @@ use Vortos\Pipeline\Build\BaseImageDigestResolverInterface;
 use Vortos\Pipeline\Build\RegistryBaseImageDigestResolver;
 use Vortos\Pipeline\Console\PipelineActionsVerifyCommand;
 use Vortos\Pipeline\Console\PipelineGenerateCommand;
+use Vortos\Pipeline\Console\PipelineTopologyCheckCommand;
 use Vortos\Pipeline\Console\PipelineVerifyCommand;
 use Vortos\Pipeline\Definition\PipelineDefinition;
 use Vortos\Pipeline\Definition\PipelineDefinitionFactory;
@@ -157,6 +158,12 @@ final class PipelineExtension extends Extension
             ->setArgument('$splitPackages', [])
             ->setArgument('$projectDir', (string) $projectDir)
             ->setArgument('$definition', new Reference(PipelineDefinition::class))
+            ->setPublic(true)
+            ->addTag('console.command');
+
+        $container->register(PipelineTopologyCheckCommand::class, PipelineTopologyCheckCommand::class)
+            ->setArgument('$definition', new Reference(PipelineDefinition::class))
+            ->setArgument('$projectDir', (string) $projectDir)
             ->setPublic(true)
             ->addTag('console.command');
 

@@ -43,7 +43,8 @@
         "aws/aws-sdk-php": "^3.382",
         "paddlehq/paddle-php-sdk": "^1.0",
         "twig/twig": "^3.0",
-        "dragonmantank/cron-expression": "^3.3"
+        "dragonmantank/cron-expression": "^3.3",
+        "symfony/yaml": "^8.0"
     },
     "require-dev": {
         "vortos/vortos-make": "@dev",

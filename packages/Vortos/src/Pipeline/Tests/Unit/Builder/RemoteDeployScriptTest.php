@@ -74,6 +74,53 @@ final class RemoteDeployScriptTest extends TestCase
         self::assertStringNotContainsString('open-env.php', $script);
     }
 
+    public function test_materializes_each_sealed_service_env_with_its_declared_mode_and_owner_before_the_topology_sync(): void
+    {
+        $sealed = static fn (string $target, \Vortos\Pipeline\Model\SecretFileMode $mode, \Vortos\Pipeline\Model\FileOwner $owner): \Vortos\Pipeline\Model\SealedServiceEnv => new \Vortos\Pipeline\Model\SealedServiceEnv(
+            'deploy/secrets/' . $target . '.sealed',
+            new \Vortos\Pipeline\Model\HostEnvFileName($target),
+            $mode,
+            $owner,
+            new \Vortos\Pipeline\Model\ComposeServiceSet(['backup-scheduler']),
+        );
+
+        $script = $this->script(new PipelineDefinition(
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            syncComposeTopology: true,
+            syncComposeTopologyApply: true,
+            sealedEnvFile: 'deploy/secrets/env.prod.sealed',
+            sealedServiceEnvs: [
+                $sealed('backup-identity.env', \Vortos\Pipeline\Model\SecretFileMode::OwnerRead, \Vortos\Pipeline\Model\FileOwner::root()),
+                $sealed('backup-r2.env', \Vortos\Pipeline\Model\SecretFileMode::OwnerReadWrite, new \Vortos\Pipeline\Model\FileOwner(1001, 1000)),
+            ],
+        ));
+
+        $prefix = '--user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v /opt/vortos:/opt/vortos ghcr.io/acme/app@${{ needs.build.outputs.image }} deploy/secrets/open-env.php ';
+        self::assertStringContainsString($prefix . 'deploy/secrets/backup-identity.env.sealed /opt/vortos/backup-identity.env 0400 0:0', $script);
+        self::assertStringContainsString($prefix . 'deploy/secrets/backup-r2.env.sealed /opt/vortos/backup-r2.env 0600 1001:1000', $script);
+
+        // After the app-wide env (declaration order kept), and before the sync whose validator resolves
+        // env_file entries — a fresh host must never sync a topology referencing a secret it lacks.
+        $envProd = strpos($script, 'env.prod.sealed /opt/vortos/.env.prod');
+        $identity = strpos($script, 'backup-identity.env.sealed');
+        $r2 = strpos($script, 'backup-r2.env.sealed');
+        $sync = strpos($script, 'vortos:deploy:compose:sync');
+        self::assertIsInt($envProd);
+        self::assertIsInt($identity);
+        self::assertIsInt($r2);
+        self::assertIsInt($sync);
+        self::assertTrue($envProd < $identity && $identity < $r2 && $r2 < $sync);
+    }
+
+    public function test_no_sealed_service_env_materialization_when_none_declared(): void
+    {
+        $script = $this->script($this->definition(false, sealedEnvFile: 'deploy/secrets/env.prod.sealed'));
+
+        self::assertSame(1, substr_count($script, 'open-env.php'));
+    }
+
     public function test_commands_run_on_the_app_network_reaching_prod_state(): void
     {
         $script = $this->script($this->definition(true));

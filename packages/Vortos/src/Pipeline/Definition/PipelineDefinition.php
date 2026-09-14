@@ -8,6 +8,8 @@ use Vortos\Pipeline\Model\ReleaseTrigger;
 
 use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Model\BuildMode;
+use Vortos\Pipeline\Model\RootOfTrustEnvFile;
+use Vortos\Pipeline\Model\SealedServiceEnv;
 use Vortos\Pipeline\Model\ServiceContainer;
 use Vortos\Pipeline\Model\SplitPackage;
 use Vortos\Release\Manifest\Arch;
@@ -17,6 +19,8 @@ final readonly class PipelineDefinition
     public bool $oidc;
 
     /**
+     * @param list<SealedServiceEnv>   $sealedServiceEnvs
+     * @param list<RootOfTrustEnvFile> $rootOfTrustEnvFiles
      * @param list<string>           $phpExtensions
      * @param list<string>           $environments
      * @param list<SplitPackage>     $splitPackageOverrides
@@ -185,6 +189,18 @@ final readonly class PipelineDefinition
         //
         // @var list<string>
         public array $preCutoverCommands = [],
+        // ── Per-service sealed secrets (RC-4) ──
+        // Secret env files scoped to named compose services, each materialised by the deploy one-shot
+        // (mode + owner exactly as declared) before the topology is synced, failing the deploy if it
+        // cannot. Requires the age-KEK posture: under OIDC nothing could open them, and silently
+        // skipping a credential is how a service boots without it.
+        public array $sealedServiceEnvs = [],
+        // Host env files that hold the identity the sealed files are opened with, and so cannot be
+        // delivered sealed themselves. Declared only so the topology policy can account for them.
+        public array $rootOfTrustEnvFiles = [],
+        // Project-relative compose topology whose env_file audiences are held to the declarations
+        // above. Checked in the gating tests job whenever the topology is synced to the host.
+        public string $composeTopologyPath = 'docker-compose.prod.yaml',
     ) {
         if ($emitter === '') {
             throw new \InvalidArgumentException('Pipeline emitter must be non-empty.');
@@ -327,6 +343,55 @@ final readonly class PipelineDefinition
         // and pull-agent must never emit an id-token deploy job. An explicit oidc() always wins; when
         // the posture is unknown (custom credential) the default stays conservative (false).
         $this->oidc = $oidc ?? ($posture?->emitsOidc() ?? false);
+
+        // RC-4. After oidc resolves, because the posture decides whether sealed files can be opened.
+        $hostEnvTargets = [];
+        foreach ($sealedServiceEnvs as $sealed) {
+            // config/pipeline.php is untyped PHP; a wrong shape must fail here, not in the deploy script.
+            // @phpstan-ignore instanceof.alwaysTrue
+            if (!$sealed instanceof SealedServiceEnv) {
+                throw new \InvalidArgumentException(sprintf('sealedServiceEnvs entries must be SealedServiceEnv instances, got %s.', get_debug_type($sealed)));
+            }
+            $hostEnvTargets[] = $sealed->target->value;
+        }
+        foreach ($rootOfTrustEnvFiles as $root) {
+            // @phpstan-ignore instanceof.alwaysTrue
+            if (!$root instanceof RootOfTrustEnvFile) {
+                throw new \InvalidArgumentException(sprintf('rootOfTrustEnvFiles entries must be RootOfTrustEnvFile instances, got %s.', get_debug_type($root)));
+            }
+            $hostEnvTargets[] = $root->target->value;
+        }
+
+        if (\count(array_unique($hostEnvTargets)) !== \count($hostEnvTargets)) {
+            throw new \InvalidArgumentException(sprintf(
+                'Each host env file may be declared once across sealedServiceEnvs and rootOfTrustEnvFiles, got [%s].',
+                implode(', ', $hostEnvTargets),
+            ));
+        }
+
+        foreach ($hostEnvTargets as $target) {
+            if (\in_array(rtrim($remoteDeployDir, '/') . '/' . $target, $runtimeEnvFiles, true)) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Host env file "%s" is also a runtime env file; a runtime env file reaches every colour, so it cannot be scoped.',
+                    $target,
+                ));
+            }
+        }
+
+        if ($sealedServiceEnvs !== [] && $this->oidc) {
+            throw new \InvalidArgumentException(
+                'Sealed service env files need the age-KEK deploy posture to be opened; under OIDC they would '
+                . 'be skipped and their services would boot without the credential.',
+            );
+        }
+
+        if ($composeTopologyPath === '' || str_starts_with($composeTopologyPath, '/')
+            || str_contains($composeTopologyPath, '..') || self::hasShellMetachar($composeTopologyPath)) {
+            throw new \InvalidArgumentException(sprintf(
+                'Compose topology path must be project-relative without traversal or shell metacharacters, got "%s".',
+                $composeTopologyPath,
+            ));
+        }
     }
 
     /**
@@ -405,6 +470,28 @@ final readonly class PipelineDefinition
 
         if ($this->posture !== null) {
             $data['deploy_posture'] = $this->posture->value;
+        }
+
+        // Names, paths and audiences only — a declaration never carries secret material.
+        if ($this->sealedServiceEnvs !== []) {
+            $data['sealed_service_envs'] = array_map(static fn (SealedServiceEnv $s): array => [
+                'sealed_path' => $s->sealedPath,
+                'target' => $s->target->value,
+                'mode' => $s->mode->octal(),
+                'owner' => $s->owner->toString(),
+                'services' => $s->services->names,
+            ], $this->sealedServiceEnvs);
+        }
+
+        if ($this->rootOfTrustEnvFiles !== []) {
+            $data['root_of_trust_env_files'] = array_map(static fn (RootOfTrustEnvFile $r): array => [
+                'target' => $r->target->value,
+                'services' => $r->services->names,
+            ], $this->rootOfTrustEnvFiles);
+        }
+
+        if ($this->syncComposeTopology) {
+            $data['compose_topology_path'] = $this->composeTopologyPath;
         }
 
         ksort($data);

@@ -19,10 +19,13 @@ final readonly class ComposeTopology
      * @param string                       $hostDir  absolute host directory the topology is run from;
      *                                               compose resolves relative paths against it
      * @param array<string, array<mixed>>  $services service name => its definition
+     * @param array<string, array<mixed>>  $volumes  top-level named volume => its definition (a local
+     *                                               volume can bind a host device, so rules need it)
      */
     private function __construct(
         public string $hostDir,
         public array $services,
+        public array $volumes,
     ) {}
 
     /** @throws UnreadableTopologyException */
@@ -47,7 +50,12 @@ final readonly class ComposeTopology
             $services[(string) $name] = \is_array($definition) ? $definition : [];
         }
 
-        return new self($hostDir, $services);
+        $volumes = [];
+        foreach (\is_array($document['volumes'] ?? null) ? $document['volumes'] : [] as $name => $definition) {
+            $volumes[(string) $name] = \is_array($definition) ? $definition : [];
+        }
+
+        return new self($hostDir, $services, $volumes);
     }
 
     /** The absolute host path compose would use for a path written in this topology, or null if unprovable. */

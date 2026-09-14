@@ -64,9 +64,15 @@ final class RemoteDeployScript
         // one-shot container runs as the image's uid. Read the store's group on the box and grant it
         // to the container with --group-add so it can group-read the store — least privilege, no
         // world-read. The store is age ciphertext, so this exposes no plaintext.
+        //
+        // The stat lines are COLLECTED here and emitted only after the env reveal and the topology
+        // sync (RC-3): those steps are what put the env file and a synced store onto a fresh host, so
+        // reading their group any earlier aborts the very deploy that would have created them. Nothing
+        // that consumes the group (the $dockerRun one-shots) runs before that point.
         $groupAdd = '';
+        $gidLines = [];
         if ($useAgeKek) {
-            $lines[] = sprintf('VORTOS_SECRETS_GID="$(stat -c \'%%g\' %s/vortos-secrets.age)"', $deployDir);
+            $gidLines[] = sprintf('VORTOS_SECRETS_GID="$(stat -c \'%%g\' %s/vortos-secrets.age)"', $deployDir);
             $groupAdd = '--group-add "$VORTOS_SECRETS_GID" ';
         }
 
@@ -96,7 +102,7 @@ final class RemoteDeployScript
             // *group* read only, never world-read, and the store's gid is added separately above. A
             // redundant numeric gid across files is harmless (supplementary groups are a set).
             $gidVar = sprintf('VORTOS_ENVFILE_GID_%d', $envFileIndex);
-            $lines[] = sprintf('%s="$(stat -c \'%%g\' %s)"', $gidVar, $envFile);
+            $gidLines[] = sprintf('%s="$(stat -c \'%%g\' %s)"', $gidVar, $envFile);
             $groupAdd .= sprintf('--group-add "$%s" ', $gidVar);
             $envFileIndex++;
         }
@@ -228,13 +234,28 @@ final class RemoteDeployScript
         // open. A notice that must be gone looking for is not a notice. stderr is left alone and
         // still streams the same sentence inline.
         if ($definition->syncComposeTopology) {
+            // RC-3: every path the topology bind-mounts is copied from this same image first, so the
+            // topology written below never references a host copy nobody updated. Values are validated
+            // at the definition (no traversal, no metacharacters, closed mode set, numeric owner).
+            $syncedPaths = '';
+            foreach ($definition->syncedHostPaths as $synced) {
+                $syncedPaths .= sprintf(
+                    ' --synced-path=%s@%s@%s@%s',
+                    $synced->path->value,
+                    $synced->mode->octal(),
+                    $synced->owner->toString(),
+                    implode(',', $synced->services->names),
+                );
+            }
+
             $lines[] = sprintf(
-                'VORTOS_SYNC_OUT="$(docker run --rm --user 0:0 --env-file %s/.env.prod -v %s:%s %s php bin/console vortos:deploy:compose:sync%s --json)"',
+                'VORTOS_SYNC_OUT="$(docker run --rm --user 0:0 --env-file %s/.env.prod -v %s:%s %s php bin/console vortos:deploy:compose:sync%s%s --json)"',
                 $deployDir,
                 $deployDir,
                 $deployDir,
                 $toolingRef,
                 $definition->syncComposeTopologyApply ? ' --apply' : '',
+                $syncedPaths,
             );
             $lines[] = 'echo "$VORTOS_SYNC_OUT"';
             // sed rather than jq: the target host is whatever the operator provisioned, and making a
@@ -247,6 +268,18 @@ final class RemoteDeployScript
             $lines[] = 'if [ -n "$VORTOS_CONVERGE" ]; then';
             $lines[] = '  echo "::warning title=Datastore topology changed - manual convergence required::Run on the host when you choose to take the downtime: ${VORTOS_CONVERGE}"';
             $lines[] = 'fi';
+            // RC-3: a replaced single-file bind stays invisible to the running container (it keeps the
+            // old inode), so the new copy is on disk and not in effect until the service is recreated.
+            $lines[] = 'VORTOS_RECREATE="$(printf \'%s\' "$VORTOS_SYNC_OUT" | sed -n \'s/.*"recreate_command":"\\([^"]*\\)".*/\\1/p\')"';
+            $lines[] = 'if [ -n "$VORTOS_RECREATE" ]; then';
+            $lines[] = '  echo "::warning title=Bind-mounted file changed - recreate required::The new copy is on disk but not in effect until you run on the host: ${VORTOS_RECREATE}"';
+            $lines[] = 'fi';
+        }
+
+        // The group reads deferred above: the env reveal and the topology sync have now put every file
+        // they stat onto the host, including on a host that had none.
+        foreach ($gidLines as $gidLine) {
+            $lines[] = $gidLine;
         }
 
         // R8-9 (B3): hard CI gate on destructive/undeclared DDL BEFORE any migration is applied.

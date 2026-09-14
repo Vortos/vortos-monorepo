@@ -8,10 +8,12 @@ use Vortos\Pipeline\Model\ReleaseTrigger;
 
 use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Model\BuildMode;
+use Vortos\Pipeline\Model\HostSystemBind;
 use Vortos\Pipeline\Model\RootOfTrustEnvFile;
 use Vortos\Pipeline\Model\SealedServiceEnv;
 use Vortos\Pipeline\Model\ServiceContainer;
 use Vortos\Pipeline\Model\SplitPackage;
+use Vortos\Pipeline\Model\SyncedHostPath;
 use Vortos\Release\Manifest\Arch;
 
 final readonly class PipelineDefinition
@@ -21,6 +23,8 @@ final readonly class PipelineDefinition
     /**
      * @param list<SealedServiceEnv>   $sealedServiceEnvs
      * @param list<RootOfTrustEnvFile> $rootOfTrustEnvFiles
+     * @param list<SyncedHostPath>     $syncedHostPaths
+     * @param list<HostSystemBind>     $hostSystemBinds
      * @param list<string>           $phpExtensions
      * @param list<string>           $environments
      * @param list<SplitPackage>     $splitPackageOverrides
@@ -201,6 +205,16 @@ final readonly class PipelineDefinition
         // Project-relative compose topology whose env_file audiences are held to the declarations
         // above. Checked in the gating tests job whenever the topology is synced to the host.
         public string $composeTopologyPath = 'docker-compose.prod.yaml',
+        // ── Host bind mounts (RC-3) ──
+        // Project files/directories the topology bind-mounts, copied from the signed image onto the host
+        // by the topology sync (sha256-compared, declared mode + owner) BEFORE the topology that
+        // references them is written. Without this, every relative bind resolved against a host copy
+        // nothing updated — the Postgres init dir that grants replication access was two months stale.
+        public array $syncedHostPaths = [],
+        // Absolute host paths the pipeline deliberately does not deliver (docker socket, container
+        // logs, host root), declared with audience, access and reason so the topology policy can refuse
+        // any bind mount nobody accounted for.
+        public array $hostSystemBinds = [],
     ) {
         if ($emitter === '') {
             throw new \InvalidArgumentException('Pipeline emitter must be non-empty.');
@@ -392,6 +406,56 @@ final readonly class PipelineDefinition
                 $composeTopologyPath,
             ));
         }
+
+        // RC-3.
+        $synced = [];
+        foreach ($syncedHostPaths as $path) {
+            // @phpstan-ignore instanceof.alwaysTrue
+            if (!$path instanceof SyncedHostPath) {
+                throw new \InvalidArgumentException(sprintf('syncedHostPaths entries must be SyncedHostPath instances, got %s.', get_debug_type($path)));
+            }
+            foreach ($synced as $other) {
+                if ($other->path->contains($path->path) || $path->path->contains($other->path)) {
+                    throw new \InvalidArgumentException(sprintf(
+                        'Synced host paths must not overlap — one copy per file, one owner and mode — got "%s" and "%s".',
+                        $other->path->value,
+                        $path->path->value,
+                    ));
+                }
+            }
+            if ($path->path->value === $composeTopologyPath) {
+                throw new \InvalidArgumentException(sprintf('"%s" is the topology itself, which the topology sync already writes.', $composeTopologyPath));
+            }
+            if (\in_array($path->path->value, $hostEnvTargets, true)) {
+                throw new \InvalidArgumentException(sprintf('"%s" is a declared env file; secrets are delivered sealed, never copied in plaintext from the image.', $path->path->value));
+            }
+            $synced[] = $path;
+        }
+
+        if ($synced !== [] && !$syncComposeTopology) {
+            throw new \InvalidArgumentException(
+                'Synced host paths are delivered by the topology sync; with syncComposeTopology off nothing would copy them, and every mount would read whatever is on the host.',
+            );
+        }
+
+        $systemPaths = [];
+        $deployDir = rtrim($remoteDeployDir, '/');
+        foreach ($hostSystemBinds as $bind) {
+            // @phpstan-ignore instanceof.alwaysTrue
+            if (!$bind instanceof HostSystemBind) {
+                throw new \InvalidArgumentException(sprintf('hostSystemBinds entries must be HostSystemBind instances, got %s.', get_debug_type($bind)));
+            }
+            if (\in_array($bind->path, $systemPaths, true)) {
+                throw new \InvalidArgumentException(sprintf('Host system bind "%s" is declared twice.', $bind->path));
+            }
+            if ($bind->path === $deployDir || str_starts_with($bind->path, $deployDir . '/')) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Host system bind "%s" is inside the deploy dir; files there come from the release and must be synced paths, or they drift.',
+                    $bind->path,
+                ));
+            }
+            $systemPaths[] = $bind->path;
+        }
     }
 
     /**
@@ -492,6 +556,23 @@ final readonly class PipelineDefinition
 
         if ($this->syncComposeTopology) {
             $data['compose_topology_path'] = $this->composeTopologyPath;
+        }
+
+        if ($this->syncedHostPaths !== []) {
+            $data['synced_host_paths'] = array_map(static fn (SyncedHostPath $p): array => [
+                'path' => $p->path->value,
+                'mode' => $p->mode->octal(),
+                'owner' => $p->owner->toString(),
+                'services' => $p->services->names,
+            ], $this->syncedHostPaths);
+        }
+
+        if ($this->hostSystemBinds !== []) {
+            $data['host_system_binds'] = array_map(static fn (HostSystemBind $b): array => [
+                'path' => $b->path,
+                'access' => $b->access->value,
+                'services' => $b->services->names,
+            ], $this->hostSystemBinds);
         }
 
         ksort($data);

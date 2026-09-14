@@ -121,6 +121,69 @@ final class RemoteDeployScriptTest extends TestCase
         self::assertSame(1, substr_count($script, 'open-env.php'));
     }
 
+    /**
+     * RC-3: every bind-mounted path reaches the topology sync from the definition, and the group reads
+     * wait until the reveal and the sync have put the files they stat onto the host — on a fresh host
+     * reading them first aborted the very deploy that would have created them.
+     */
+    public function test_synced_host_paths_reach_the_topology_sync_and_group_reads_wait_for_it(): void
+    {
+        $script = $this->script(new PipelineDefinition(
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            syncComposeTopology: true,
+            syncComposeTopologyApply: true,
+            sealedEnvFile: 'deploy/secrets/env.prod.sealed',
+            syncedHostPaths: [
+                new \Vortos\Pipeline\Model\SyncedHostPath(
+                    new \Vortos\Pipeline\Model\ProjectPath('docker/postgres/init'),
+                    \Vortos\Pipeline\Model\SyncedFileMode::WorldReadable,
+                    \Vortos\Pipeline\Model\FileOwner::root(),
+                    new \Vortos\Pipeline\Model\ComposeServiceSet(['write_db']),
+                ),
+                new \Vortos\Pipeline\Model\SyncedHostPath(
+                    new \Vortos\Pipeline\Model\ProjectPath('vortos-secrets.age'),
+                    \Vortos\Pipeline\Model\SyncedFileMode::GroupReadable,
+                    new \Vortos\Pipeline\Model\FileOwner(1001, 1000),
+                    new \Vortos\Pipeline\Model\ComposeServiceSet(['backup-scheduler']),
+                ),
+            ],
+        ));
+
+        self::assertStringContainsString(
+            'vortos:deploy:compose:sync --apply --synced-path=docker/postgres/init@0644@0:0@write_db --synced-path=vortos-secrets.age@0640@1001:1000@backup-scheduler --json',
+            $script,
+        );
+
+        $reveal = strpos($script, 'env.prod.sealed /opt/vortos/.env.prod');
+        $sync = strpos($script, 'vortos:deploy:compose:sync');
+        $storeGid = strpos($script, 'VORTOS_SECRETS_GID="$(stat');
+        $envGid = strpos($script, 'VORTOS_ENVFILE_GID_0="$(stat');
+        $analyze = strpos($script, 'vortos:migrate:analyze');
+        foreach ([$reveal, $sync, $storeGid, $envGid, $analyze] as $position) {
+            self::assertIsInt($position);
+        }
+        self::assertTrue($reveal < $envGid, 'the env file is read after the reveal writes it');
+        self::assertTrue($sync < $storeGid && $sync < $envGid, 'group reads wait for the sync that delivers the store');
+        self::assertTrue($storeGid < $analyze && $envGid < $analyze, 'and still precede every one-shot that uses them');
+
+        self::assertStringContainsString('"recreate_command"', $script);
+        self::assertStringContainsString('::warning title=Bind-mounted file changed - recreate required::', $script);
+    }
+
+    public function test_without_a_topology_sync_group_reads_still_precede_every_one_shot_that_uses_them(): void
+    {
+        $script = $this->script($this->definition(false));
+
+        $storeGid = strpos($script, 'VORTOS_SECRETS_GID="$(stat');
+        $firstUse = strpos($script, '--group-add "$VORTOS_SECRETS_GID"');
+        self::assertIsInt($storeGid);
+        self::assertIsInt($firstUse);
+        self::assertLessThan($firstUse, $storeGid);
+        self::assertStringNotContainsString('--synced-path', $script);
+    }
+
     public function test_commands_run_on_the_app_network_reaching_prod_state(): void
     {
         $script = $this->script($this->definition(true));

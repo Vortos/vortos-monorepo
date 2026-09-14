@@ -8,10 +8,12 @@ use Vortos\Pipeline\Model\ReleaseTrigger;
 
 use Vortos\Foundation\Deploy\DeployPosture;
 use Vortos\Pipeline\Model\BuildMode;
+use Vortos\Pipeline\Model\HostSystemBind;
 use Vortos\Pipeline\Model\RootOfTrustEnvFile;
 use Vortos\Pipeline\Model\SealedServiceEnv;
 use Vortos\Pipeline\Model\ServiceContainer;
 use Vortos\Pipeline\Model\SplitPackage;
+use Vortos\Pipeline\Model\SyncedHostPath;
 use Vortos\Release\Manifest\Arch;
 
 final class PipelineDefinitionBuilder
@@ -80,6 +82,10 @@ final class PipelineDefinitionBuilder
     /** @var list<RootOfTrustEnvFile> */
     private array $rootOfTrustEnvFiles = [];
     private string $composeTopologyPath = 'docker-compose.prod.yaml';
+    /** @var list<SyncedHostPath> */
+    private array $syncedHostPaths = [];
+    /** @var list<HostSystemBind> */
+    private array $hostSystemBinds = [];
 
     public static function create(): self
     {
@@ -594,6 +600,30 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    /**
+     * Project files/directories the topology bind-mounts, copied from the signed image by the topology
+     * sync (RC-3). See {@see SyncedHostPath}.
+     */
+    public function syncedHostPaths(SyncedHostPath ...$paths): self
+    {
+        $clone = clone $this;
+        $clone->syncedHostPaths = array_values($paths);
+
+        return $clone;
+    }
+
+    /**
+     * Absolute host paths a service bind-mounts that the pipeline does not deliver, declared with
+     * audience, access and reason (RC-3). See {@see HostSystemBind}.
+     */
+    public function hostSystemBinds(HostSystemBind ...$binds): self
+    {
+        $clone = clone $this;
+        $clone->hostSystemBinds = array_values($binds);
+
+        return $clone;
+    }
+
     public function agnosticismMode(QualityMode $mode): self
     {
         $clone = clone $this;
@@ -658,6 +688,8 @@ final class PipelineDefinitionBuilder
             sealedServiceEnvs: $this->sealedServiceEnvs,
             rootOfTrustEnvFiles: $this->rootOfTrustEnvFiles,
             composeTopologyPath: $this->composeTopologyPath,
+            syncedHostPaths: $this->syncedHostPaths,
+            hostSystemBinds: $this->hostSystemBinds,
         );
     }
 }

@@ -199,6 +199,8 @@ final class ConsumerRunner implements ConsumerRunnerInterface
         $processed = 0;
         $timeoutMs = max(self::MIN_SHARED_POLL_TIMEOUT_MS, intdiv(self::SHARED_POLL_CYCLE_MS, count($consumers)));
         $failed    = null;
+        /** @var array<string, int> $growth memory each consumer's messages left behind in this process */
+        $growth    = array_fill_keys($consumerNames, 0);
 
         foreach ($consumers as $name => $consumer) {
             $consumer->open($name);
@@ -224,18 +226,30 @@ final class ConsumerRunner implements ConsumerRunnerInterface
 
                     $consumer->poll(
                         $name,
-                        function (ReceivedMessage $message) use ($name, $consumer, &$processed, $maxMessages, $maxMemoryBytes): void {
+                        function (ReceivedMessage $message) use ($name, $consumer, &$processed, &$growth, $maxMessages, $maxMemoryBytes): void {
+                            $before = memory_get_usage();
                             $this->handleMessage($name, $message, $consumer);
+                            $retained = max(0, memory_get_usage() - $before);
+                            $growth[$name] += $retained;
+                            $this->telemetry?->observe(
+                                ObservabilityModule::Messaging,
+                                FrameworkMetric::MessagingMessageMemoryGrowthBytes,
+                                FrameworkMetricLabels::of(MetricLabelValue::of(MetricLabel::Consumer, TelemetryLabels::safe($name))),
+                                $retained,
+                            );
                             $processed++;
                             $this->flushTelemetry();
 
                             if ($maxMessages > 0 && $processed >= $maxMessages) {
                                 $this->stop();
                             } elseif ($maxMemoryBytes > 0 && memory_get_usage(true) >= $maxMemoryBytes) {
+                                // Largest first: the consumer whose messages kept the most memory is the one to look at.
+                                arsort($growth);
                                 $this->logger->warning('Consumer process reached its memory cap; stopping so it is restarted.', [
-                                    'consumers'    => array_keys($this->activeConsumers),
-                                    'memory_bytes' => memory_get_usage(true),
-                                    'cap_bytes'    => $maxMemoryBytes,
+                                    'consumers'          => array_keys($this->activeConsumers),
+                                    'memory_bytes'       => memory_get_usage(true),
+                                    'cap_bytes'          => $maxMemoryBytes,
+                                    'growth_by_consumer' => $growth,
                                 ]);
                                 $this->stop();
                             }

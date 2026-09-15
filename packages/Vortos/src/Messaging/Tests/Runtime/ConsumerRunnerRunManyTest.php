@@ -24,6 +24,11 @@ use Vortos\Messaging\Retry\RetryDelayCalculator;
 use Vortos\Messaging\Runtime\ConsumerRunner;
 use Vortos\Messaging\Serializer\SerializerLocator;
 use Vortos\Messaging\ValueObject\ReceivedMessage;
+use Vortos\Metrics\Contract\CounterInterface;
+use Vortos\Metrics\Contract\GaugeInterface;
+use Vortos\Metrics\Contract\HistogramInterface;
+use Vortos\Metrics\Contract\MetricsInterface;
+use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
 /**
  * A pollable fake that hands out a fixed queue one message per poll and records what happened to it,
@@ -157,6 +162,50 @@ final class ConsumerRunnerRunManyTest extends TestCase
         }
     }
 
+    public function test_each_consumer_reports_the_memory_its_messages_leave_behind(): void
+    {
+        $log     = new \ArrayObject();
+        $a       = new RecordingPollableConsumer('a', [$this->message('a1')], $log);
+        $b       = new RecordingPollableConsumer('b', [$this->message('b1'), $this->message('b2')], $log);
+        $metrics = new class implements MetricsInterface {
+            /** @var list<array{name: string, labels: array<string, string>}> */
+            public array $observed = [];
+            public function counter(string $name, array $labels = []): CounterInterface
+            {
+                return new class implements CounterInterface { public function increment(float $by = 1.0): void {} };
+            }
+            public function gauge(string $name, array $labels = []): GaugeInterface
+            {
+                return new class implements GaugeInterface {
+                    public function set(float $value): void {}
+                    public function increment(float $by = 1.0): void {}
+                    public function decrement(float $by = 1.0): void {}
+                };
+            }
+            public function histogram(string $name, array $labels = []): HistogramInterface
+            {
+                $sink = $this;
+                return new class($sink, $name, $labels) implements HistogramInterface {
+                    public function __construct(private object $sink, private string $name, private array $labels) {}
+                    public function observe(float $value): void
+                    {
+                        $this->sink->observed[] = ['name' => $this->name, 'labels' => $this->labels];
+                    }
+                };
+            }
+        };
+
+        $this->runner(['a' => $a, 'b' => $b], new FrameworkTelemetry($metrics))->runMany(['a', 'b']);
+
+        $growth = array_values(array_filter(
+            $metrics->observed,
+            static fn (array $o): bool => $o['name'] === 'messaging_message_memory_growth_bytes',
+        ));
+        $byConsumer = array_count_values(array_map(static fn (array $o): string => (string) ($o['labels']['consumer'] ?? ''), $growth));
+
+        self::assertSame(['a' => 1, 'b' => 2], $byConsumer, 'One observation per handled message, labelled with the consumer that handled it.');
+    }
+
     private function message(string $id): ReceivedMessage
     {
         return new ReceivedMessage(
@@ -177,7 +226,7 @@ final class ConsumerRunnerRunManyTest extends TestCase
     }
 
     /** @param array<string, ConsumerInterface> $consumers */
-    private function runner(array $consumers): ConsumerRunner
+    private function runner(array $consumers, ?FrameworkTelemetry $telemetry = null): ConsumerRunner
     {
         $cache = new class implements AtomicCacheInterface {
             public function get($key, $default = null): mixed { return $default; }
@@ -216,6 +265,7 @@ final class ConsumerRunnerRunManyTest extends TestCase
             handlerLocator:    new ServiceLocator([]),
             retryDecider:      new RetryDecider(new RetryDelayCalculator()),
             consumerRegistry:  new ConsumerRegistry([]),
+            telemetry:         $telemetry,
             wireEventMap:      [self::WIRE_NAME => RunnerTestPayload::class],
         );
     }

@@ -11,6 +11,9 @@ final class MessagingMetricDefinitions implements MetricDefinitionProviderInterf
 {
     private const DURATION_BUCKETS_MS = [1, 5, 10, 25, 50, 100, 250, 500, 1000];
 
+    /** 0, 64 KiB, 256 KiB, 1 MiB, 4 MiB, 16 MiB. */
+    private const MEMORY_GROWTH_BUCKETS_BYTES = [0, 65536, 262144, 1048576, 4194304, 16777216];
+
     public function definitions(): array
     {
         return [
@@ -45,6 +48,15 @@ final class MessagingMetricDefinitions implements MetricDefinitionProviderInterf
                 'Message processing duration in milliseconds by consumer and event.',
                 ['consumer', 'event'],
                 self::DURATION_BUCKETS_MS,
+            ),
+            // Several consumers can share one process, and the process's memory is one number. This is the
+            // growth each handled message left behind, by consumer, so a leak is traced to the consumer that
+            // causes it rather than to the whole group its process restarts.
+            MetricDefinition::histogram(
+                'messaging_message_memory_growth_bytes',
+                'Process memory retained after handling one message, by consumer.',
+                ['consumer'],
+                self::MEMORY_GROWTH_BUCKETS_BYTES,
             ),
             // Consumer-side liveness + lag. Emitted from inside the running consumer process, not
             // by an external broker exporter: a broker-side exporter reports a group's lag whether

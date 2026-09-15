@@ -21,6 +21,7 @@ enum FrameworkMetric: string
     case MessagingMessagesConsumedTotal = 'messaging_messages_consumed_total';
     case MessagingMessageRetriesTotal = 'messaging_message_retries_total';
     case MessagingMessageDurationMs = 'messaging_message_duration_ms';
+    case MessagingMessageMemoryGrowthBytes = 'messaging_message_memory_growth_bytes';
     case MessagingConsumerLag = 'messaging_consumer_lag';
     case MessagingConsumerPollCyclesTotal = 'messaging_consumer_poll_cycles_total';
     case MessagingConsumerAssignedPartitions = 'messaging_consumer_assigned_partitions';

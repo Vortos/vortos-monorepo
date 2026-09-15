@@ -24,6 +24,7 @@ final class GateDispositionDeclarationArchTest extends TestCase
      */
     private const ADVISORY = [
         \Vortos\Deploy\Preflight\Check\BackupReplicationAccessCheck::class,
+        \Vortos\Deploy\Preflight\Check\DatabaseRolesCheck::class,
         \Vortos\Deploy\Preflight\Check\IacDriftCheck::class,
     ];
 

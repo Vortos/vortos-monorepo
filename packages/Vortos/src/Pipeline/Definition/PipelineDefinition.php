@@ -24,6 +24,7 @@ final readonly class PipelineDefinition
     /**
      * @param list<SealedServiceEnv>   $sealedServiceEnvs
      * @param list<RootOfTrustEnvFile> $rootOfTrustEnvFiles
+     * @param list<\Vortos\Pipeline\Model\SealedToolingEnv> $sealedToolingEnvs
      * @param list<SyncedHostPath>     $syncedHostPaths
      * @param list<HostSystemBind>     $hostSystemBinds
      * @param list<AuxiliaryImage>     $auxiliaryImages
@@ -205,6 +206,9 @@ final readonly class PipelineDefinition
         // Host env files that hold the identity the sealed files are opened with, and so cannot be
         // delivered sealed themselves. Declared only so the topology policy can account for them.
         public array $rootOfTrustEnvFiles = [],
+        // Secret env files only the deploy one-shots read (the database owner credential), opened like the
+        // service envs and passed as an --env-file after the runtime env; no compose service may mount them.
+        public array $sealedToolingEnvs = [],
         // Project-relative compose topology whose env_file audiences are held to the declarations
         // above. Checked in the gating tests job whenever the topology is synced to the host.
         public string $composeTopologyPath = 'docker-compose.prod.yaml',
@@ -391,10 +395,17 @@ final readonly class PipelineDefinition
             }
             $hostEnvTargets[] = $root->target->value;
         }
+        foreach ($sealedToolingEnvs as $tooling) {
+            // @phpstan-ignore instanceof.alwaysTrue
+            if (!$tooling instanceof \Vortos\Pipeline\Model\SealedToolingEnv) {
+                throw new \InvalidArgumentException(sprintf('sealedToolingEnvs entries must be SealedToolingEnv instances, got %s.', get_debug_type($tooling)));
+            }
+            $hostEnvTargets[] = $tooling->target->value;
+        }
 
         if (\count(array_unique($hostEnvTargets)) !== \count($hostEnvTargets)) {
             throw new \InvalidArgumentException(sprintf(
-                'Each host env file may be declared once across sealedServiceEnvs and rootOfTrustEnvFiles, got [%s].',
+                'Each host env file may be declared once across sealedServiceEnvs, rootOfTrustEnvFiles and sealedToolingEnvs, got [%s].',
                 implode(', ', $hostEnvTargets),
             ));
         }
@@ -408,7 +419,7 @@ final readonly class PipelineDefinition
             }
         }
 
-        if ($sealedServiceEnvs !== [] && $this->oidc) {
+        if (($sealedServiceEnvs !== [] || $sealedToolingEnvs !== []) && $this->oidc) {
             throw new \InvalidArgumentException(
                 'Sealed service env files need the age-KEK deploy posture to be opened; under OIDC they would '
                 . 'be skipped and their services would boot without the credential.',
@@ -638,6 +649,15 @@ final readonly class PipelineDefinition
                 'target' => $r->target->value,
                 'services' => $r->services->names,
             ], $this->rootOfTrustEnvFiles);
+        }
+
+        if ($this->sealedToolingEnvs !== []) {
+            $data['sealed_tooling_envs'] = array_map(static fn (\Vortos\Pipeline\Model\SealedToolingEnv $t): array => [
+                'sealed_path' => $t->sealedPath,
+                'target' => $t->target->value,
+                'mode' => $t->mode->octal(),
+                'owner' => $t->owner->toString(),
+            ], $this->sealedToolingEnvs);
         }
 
         if ($this->syncComposeTopology) {

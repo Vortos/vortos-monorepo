@@ -6,6 +6,7 @@ namespace Vortos\Migration\DependencyInjection;
 
 use Doctrine\DBAL\Connection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\Reference as SfReference;
@@ -466,6 +467,62 @@ final class MigrationExtension extends Extension
 
         $container->registerForAutoconfiguration(MigrationSafetyAnalyzerInterface::class)
             ->addTag('vortos.migration.safety_analyzer');
+
+        $this->registerDatabaseRoles($container);
+    }
+
+    /**
+     * Least-privilege database roles: the catalog reader and inspector that hold the live database to the model
+     * config/persistence.php declares, the SQL that converges it, and the probe that pages on departure.
+     */
+    private function registerDatabaseRoles(ContainerBuilder $container): void
+    {
+        $declared = new Reference(\Vortos\Persistence\Access\DeclaredDatabaseRoles::class, ContainerInterface::NULL_ON_INVALID_REFERENCE);
+
+        $container->register(\Vortos\Migration\Access\PgRoleCatalogReader::class, \Vortos\Migration\Access\PgRoleCatalogReader::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setPublic(false);
+        $container->setAlias(\Vortos\Migration\Access\RoleCatalogReaderInterface::class, \Vortos\Migration\Access\PgRoleCatalogReader::class)->setPublic(false);
+
+        $container->register(\Vortos\Migration\Access\SchemaProviderModuleTableResolver::class, \Vortos\Migration\Access\SchemaProviderModuleTableResolver::class)
+            ->setArgument('$scanner', new Reference(ModuleSchemaProviderScanner::class))
+            ->setPublic(false);
+        $container->setAlias(\Vortos\Migration\Access\ModuleTableResolverInterface::class, \Vortos\Migration\Access\SchemaProviderModuleTableResolver::class)->setPublic(false);
+
+        $container->register(\Vortos\Migration\Access\DatabaseRoleConvergenceSql::class, \Vortos\Migration\Access\DatabaseRoleConvergenceSql::class)
+            ->setPublic(false);
+
+        $container->register(\Vortos\Migration\Access\DatabaseRoleConformanceInspector::class, \Vortos\Migration\Access\DatabaseRoleConformanceInspector::class)
+            ->setArgument('$reader', new Reference(\Vortos\Migration\Access\RoleCatalogReaderInterface::class))
+            ->setArgument('$tables', new Reference(\Vortos\Migration\Access\ModuleTableResolverInterface::class))
+            ->setArgument('$declared', $declared)
+            ->setPublic(false);
+
+        $container->register(\Vortos\Migration\Console\DatabaseRolesSqlCommand::class, \Vortos\Migration\Console\DatabaseRolesSqlCommand::class)
+            ->setArgument('$sql', new Reference(\Vortos\Migration\Access\DatabaseRoleConvergenceSql::class))
+            ->setArgument('$tables', new Reference(\Vortos\Migration\Access\ModuleTableResolverInterface::class))
+            ->setArgument('$declared', $declared)
+            ->addTag('console.command');
+
+        $container->register(\Vortos\Migration\Console\DatabaseRolesGrantCommand::class, \Vortos\Migration\Console\DatabaseRolesGrantCommand::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setArgument('$sql', new Reference(\Vortos\Migration\Access\DatabaseRoleConvergenceSql::class))
+            ->setArgument('$tables', new Reference(\Vortos\Migration\Access\ModuleTableResolverInterface::class))
+            ->setArgument('$declared', $declared)
+            ->addTag('console.command');
+
+        $container->register(\Vortos\Migration\Console\DatabaseRolesCheckCommand::class, \Vortos\Migration\Console\DatabaseRolesCheckCommand::class)
+            ->setArgument('$inspector', new Reference(\Vortos\Migration\Access\DatabaseRoleConformanceInspector::class))
+            ->addTag('console.command');
+
+        // Pages through a health_probe_failing rule; `alerts.database_role_conformance_covered` refuses a deploy
+        // that declares a model without one.
+        if (class_exists(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::class)) {
+            $container->register(\Vortos\Migration\Health\DatabaseRoleConformanceProbe::class, \Vortos\Migration\Health\DatabaseRoleConformanceProbe::class)
+                ->setArgument('$inspector', new Reference(\Vortos\Migration\Access\DatabaseRoleConformanceInspector::class))
+                ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
+                ->setPublic(false);
+        }
     }
 
     /**

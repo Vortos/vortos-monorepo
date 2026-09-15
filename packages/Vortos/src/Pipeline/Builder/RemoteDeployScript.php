@@ -134,13 +134,22 @@ final class RemoteDeployScript
             . 'VORTOS_EDGE_DIR="${VORTOS_EDGE_DIR:-${VORTOS_EDGE_CONFIG_DIR%/*}}"';
         $edgeConfigMount = '${VORTOS_EDGE_DIR:+-v "$VORTOS_EDGE_DIR:$VORTOS_EDGE_DIR" }';
 
+        // Tooling-only secrets (the database owner credential): passed to every deploy one-shot AFTER the
+        // runtime env, so their keys override the runtime credential for the one-shot and for nothing else.
+        // The docker CLI reads --env-file on the host as the deploy user, so no container group is added.
+        $toolingEnvFlags = '';
+        foreach ($definition->sealedToolingEnvs as $tooling) {
+            $toolingEnvFlags .= sprintf('--env-file %s/%s ', $deployDir, $tooling->target->value);
+        }
+
         // B16: the blue-green cutover shells `docker compose`/`docker pull` from inside the one-shot.
         // It reaches Docker ONLY through the least-privilege docker-socket-proxy (never the raw
         // socket), via DOCKER_HOST on the shared app network.
         $dockerRun = sprintf(
-            'docker run --rm --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 --env-file %s/.env.prod %s%s%s%s%s%s php bin/console ',
+            'docker run --rm --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 --env-file %s/.env.prod %s%s%s%s%s%s%s php bin/console ',
             $network,
             $deployDir,
+            $toolingEnvFlags,
             $groupAdd,
             $runtimeEnvMounts,
             $fileSecretMounts,
@@ -213,6 +222,22 @@ final class RemoteDeployScript
                 $sealed->target->value,
                 $sealed->mode->octal(),
                 $sealed->owner->toString(),
+            );
+        }
+
+        // Tooling-only sealed secrets: opened the same way, owned by the deploy user whose docker CLI reads them.
+        foreach ($definition->sealedToolingEnvs as $tooling) {
+            $lines[] = sprintf(
+                'docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/%s %s %s',
+                $deployDir,
+                $deployDir,
+                $toolingRef,
+                $definition->sealedEnvRevealScript,
+                $tooling->sealedPath,
+                $deployDir,
+                $tooling->target->value,
+                $tooling->mode->octal(),
+                $tooling->owner->toString(),
             );
         }
 

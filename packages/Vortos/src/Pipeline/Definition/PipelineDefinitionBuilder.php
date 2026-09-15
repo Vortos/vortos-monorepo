@@ -82,6 +82,8 @@ final class PipelineDefinitionBuilder
     private array $sealedServiceEnvs = [];
     /** @var list<RootOfTrustEnvFile> */
     private array $rootOfTrustEnvFiles = [];
+    /** @var list<\Vortos\Pipeline\Model\SealedToolingEnv> */
+    private array $sealedToolingEnvs = [];
     private string $composeTopologyPath = 'docker-compose.prod.yaml';
     /** @var list<SyncedHostPath> */
     private array $syncedHostPaths = [];
@@ -596,6 +598,18 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    /**
+     * Secret env files only the deploy one-shots read — the database owner credential that runs migrations and
+     * grants, which no running service may hold. See {@see \Vortos\Pipeline\Model\SealedToolingEnv}.
+     */
+    public function sealedToolingEnvs(\Vortos\Pipeline\Model\SealedToolingEnv ...$envs): self
+    {
+        $clone = clone $this;
+        $clone->sealedToolingEnvs = array_values($envs);
+
+        return $clone;
+    }
+
     /** Project-relative compose topology checked by `pipeline:topology:check`. */
     public function composeTopologyPath(string $path): self
     {
@@ -716,6 +730,7 @@ final class PipelineDefinitionBuilder
             preCutoverCommands: $this->preCutoverCommands,
             sealedServiceEnvs: $this->sealedServiceEnvs,
             rootOfTrustEnvFiles: $this->rootOfTrustEnvFiles,
+            sealedToolingEnvs: $this->sealedToolingEnvs,
             composeTopologyPath: $this->composeTopologyPath,
             syncedHostPaths: $this->syncedHostPaths,
             hostSystemBinds: $this->hostSystemBinds,

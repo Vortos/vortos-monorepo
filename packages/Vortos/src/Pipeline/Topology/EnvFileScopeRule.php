@@ -28,15 +28,16 @@ final class EnvFileScopeRule implements TopologyRuleInterface
 {
     public const NAME = 'env_file_scope';
 
-    /** @var array<string, ComposeServiceSet> absolute host path => allowed services */
+    /** @var array<string, ComposeServiceSet|null> absolute host path => allowed services; null = tooling-only, no service */
     private readonly array $scoped;
 
     /** @var array<string, true> */
     private readonly array $runtime;
 
     /**
-     * @param list<string>                     $runtimeEnvFiles absolute host paths any service may read
-     * @param array<string, ComposeServiceSet> $scopedFiles     bare file name in $deployDir => allowed services
+     * @param list<string>                          $runtimeEnvFiles absolute host paths any service may read
+     * @param array<string, ComposeServiceSet|null> $scopedFiles     bare file name in $deployDir => allowed services,
+     *                                                                or null for a tooling-only file no service may mount
      */
     public function __construct(string $deployDir, array $runtimeEnvFiles, array $scopedFiles)
     {
@@ -70,6 +71,9 @@ final class EnvFileScopeRule implements TopologyRuleInterface
         }
         foreach ($definition->rootOfTrustEnvFiles as $root) {
             $scoped[$root->target->value] = $root->services;
+        }
+        foreach ($definition->sealedToolingEnvs as $tooling) {
+            $scoped[$tooling->target->value] = null;
         }
 
         return new self($definition->remoteDeployDir, $definition->runtimeEnvFiles, $scoped);
@@ -124,6 +128,16 @@ final class EnvFileScopeRule implements TopologyRuleInterface
                     continue;
                 }
 
+                if (\array_key_exists($path, $this->scoped) && $this->scoped[$path] === null) {
+                    $violations[] = $this->violation(
+                        EnvFileScopeViolationKind::ToolingOnly,
+                        $service,
+                        $raw,
+                        'this file carries a deploy-tooling credential (sealedToolingEnvs) that only the deploy one-shots read; a running service must never hold it',
+                    );
+                    continue;
+                }
+
                 $allowed = $this->scoped[$path] ?? null;
                 if ($allowed === null) {
                     $violations[] = $this->violation(
@@ -171,6 +185,10 @@ final class EnvFileScopeRule implements TopologyRuleInterface
         }
 
         foreach ($this->scoped as $path => $allowed) {
+            // A tooling-only file has no service audience to be unconsumed by; the deploy one-shots read it.
+            if ($allowed === null) {
+                continue;
+            }
             foreach ($allowed->names as $service) {
                 if (!\in_array($service, $consumers[$path] ?? [], true)) {
                     $violations[] = $this->violation(

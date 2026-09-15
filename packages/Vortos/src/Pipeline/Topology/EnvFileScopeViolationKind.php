@@ -21,6 +21,9 @@ enum EnvFileScopeViolationKind: string implements TopologyViolationKind
     /** A scoped secret is marked `required: false`, so a missing file would boot the service without it. */
     case Optional = 'optional';
 
+    /** A service mounts a tooling-only secret (e.g. the database owner credential) that only deploy one-shots may read. */
+    case ToolingOnly = 'tooling_only';
+
     /** The entry cannot be resolved statically, so which file the service receives cannot be proven. */
     case Unverifiable = 'unverifiable';
 }

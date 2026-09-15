@@ -1159,6 +1159,15 @@ final class DeployExtension extends Extension
                 ->setPublic(false);
         }
 
+        // ── Least-privilege database roles, reported on every deploy (Advisory: cluster state) ──
+
+        if (class_exists(\Vortos\Migration\Access\DatabaseRoleConformanceInspector::class)) {
+            $container->register(\Vortos\Deploy\Preflight\Check\DatabaseRolesCheck::class, \Vortos\Deploy\Preflight\Check\DatabaseRolesCheck::class)
+                ->setArgument('$inspector', new Reference(\Vortos\Migration\Access\DatabaseRoleConformanceInspector::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                ->addTag(self::PREFLIGHT_CHECK_TAG)
+                ->setPublic(false);
+        }
+
         // ── R8-1: un-published module migration stubs as a deploy precondition ──
 
         if (class_exists(\Vortos\Migration\Service\UnpublishedStubDetector::class)) {

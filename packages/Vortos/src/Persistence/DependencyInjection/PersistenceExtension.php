@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Vortos\Config\DependencyInjection\ConfigExtension;
 use Vortos\Config\Stub\ConfigStub;
+use Vortos\Persistence\Access\DeclaredDatabaseRoles;
 
 /**
  * Core persistence extension.
@@ -41,8 +42,6 @@ final class PersistenceExtension extends Extension
         $projectDir = $container->getParameter('kernel.project_dir');
         $env = $container->getParameter('kernel.env');
 
-        $base = $projectDir . '/config/persistence.php';
-     
         $config = new VortosPersistenceConfig();
 
         $base = $projectDir . '/config/persistence.php';
@@ -61,6 +60,11 @@ final class PersistenceExtension extends Extension
         $container->setParameter('vortos.persistence.write_dsn', $resolved['write']['dsn']);
         $container->setParameter('vortos.persistence.read_dsn', $resolved['read']['dsn']);
         $container->setParameter('vortos.persistence.read_database', $resolved['read']['database']);
+
+        // One declaration of the least-privilege role model, read by type by every package that grants or checks it.
+        $container->register(DeclaredDatabaseRoles::class, DeclaredDatabaseRoles::class)
+            ->setArgument('$declaration', $resolved['database_roles'] ?? null)
+            ->setPublic(false);
 
         $container->register('vortos.config_stub.persistence', ConfigStub::class)
             ->setArguments(['persistence', __DIR__ . '/../stubs/persistence.php'])

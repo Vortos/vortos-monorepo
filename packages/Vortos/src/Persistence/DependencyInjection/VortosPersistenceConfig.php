@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Persistence\DependencyInjection;
 
+use Vortos\Persistence\Access\DatabaseRoleModel;
+
 /**
  * Fluent configuration object for the Vortos persistence layer.
  *
@@ -33,6 +35,7 @@ final class VortosPersistenceConfig
     private string  $readDsn;
     private string  $readDatabase;
     private ?string $frameworkTableMode = null;
+    private ?DatabaseRoleModel $databaseRoles = null;
 
     public function __construct()
     {
@@ -86,11 +89,24 @@ final class VortosPersistenceConfig
         return $this;
     }
 
+    /**
+     * The least-privilege database roles this environment runs with — see {@see DatabaseRoleModel} for why each
+     * audience gets its own role. Declared per environment (config/prod/persistence.php): the model is what the
+     * deploy grants, what `vortos:database:roles:check` and the database-role-conformance probe hold the live
+     * database to, and what the operator's superuser convergence renders.
+     */
+    public function databaseRoles(DatabaseRoleModel $model): static
+    {
+        $this->databaseRoles = $model;
+        return $this;
+    }
+
     /** @internal Used by PersistenceExtension — not for direct use */
     public function toArray(): array
     {
         return [
             'framework_table_mode' => $this->frameworkTableMode,
+            'database_roles' => $this->databaseRoles?->toArray(),
             'write' => [
                 'dsn' => $this->writeDsn,
             ],

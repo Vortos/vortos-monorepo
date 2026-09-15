@@ -599,6 +599,14 @@ final class AlertsExtension extends Extension
                     ->setArgument('$backupConfig', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
                     ->setPublic(false);
             }
+
+            // A declared least-privilege role model must page when the live database departs from it.
+            if (class_exists(\Vortos\Migration\Health\DatabaseRoleConformanceProbe::class)) {
+                $container->register(\Vortos\Alerts\Preflight\DatabaseRoleConformanceAlertsCheck::class, \Vortos\Alerts\Preflight\DatabaseRoleConformanceAlertsCheck::class)
+                    ->setArgument('$rules', new Reference(AlertRuleSet::class))
+                    ->setArgument('$roles', new Reference(\Vortos\Persistence\Access\DeclaredDatabaseRoles::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                    ->setPublic(false);
+            }
         }
     }
 

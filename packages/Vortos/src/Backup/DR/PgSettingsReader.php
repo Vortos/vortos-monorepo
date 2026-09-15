@@ -25,10 +25,16 @@ final class PgSettingsReader implements PostgresSettingsReaderInterface
         // pg_file_settings (measured on 18: pg_read_all_settings alone is not enough for the last), which
         // would make a clean cluster look drifted and a broken file look clean. Checked first, so a role
         // that cannot see is reported as such and nothing is guessed.
+        //
+        // pg_file_settings needs BOTH grants: SELECT on the view and EXECUTE on the function it calls, which
+        // runs with the caller's privileges (measured on 18: either alone is "permission denied"). Checking the
+        // view alone reported a role granted only the view as able to see, and the read then threw instead of
+        // coming back Unverifiable.
         $sourcesVisible = (bool) $this->connection->fetchOne(
             "SELECT (current_setting('is_superuser') = 'on'
                      OR pg_has_role(current_user, 'pg_read_all_settings', 'USAGE'))
-                AND has_table_privilege('pg_catalog.pg_file_settings', 'SELECT')",
+                AND has_table_privilege('pg_catalog.pg_file_settings', 'SELECT')
+                AND has_function_privilege('pg_catalog.pg_show_all_file_settings()', 'EXECUTE')",
         );
 
         if (!$sourcesVisible) {

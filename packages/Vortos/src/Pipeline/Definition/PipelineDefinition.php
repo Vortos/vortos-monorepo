@@ -27,6 +27,7 @@ final readonly class PipelineDefinition
      * @param list<SyncedHostPath>     $syncedHostPaths
      * @param list<HostSystemBind>     $hostSystemBinds
      * @param list<AuxiliaryImage>     $auxiliaryImages
+     * @param list<\Vortos\Pipeline\Model\PinnedImage> $pinnedImages
      * @param list<string>           $phpExtensions
      * @param list<string>           $environments
      * @param list<SplitPackage>     $splitPackageOverrides
@@ -224,6 +225,12 @@ final readonly class PipelineDefinition
         // proven live by the deploy. The sidecar holding the backup key used to be the one image nobody
         // scanned, signed or pinned.
         public array $auxiliaryImages = [],
+        // ── Pinned images (RC-5) ──
+        // Images built on demand (a generated images.yml, on changes to their build context) and run by a
+        // digest committed in the compose topology — datastores such as PostgreSQL with config and tools
+        // baked in. Unlike auxiliary images they never change bytes as a side effect of a release; the
+        // deploy verifies the signature of every application-repository image the topology references.
+        public array $pinnedImages = [],
     ) {
         if ($emitter === '') {
             throw new \InvalidArgumentException('Pipeline emitter must be non-empty.');
@@ -501,6 +508,40 @@ final readonly class PipelineDefinition
                 );
             }
         }
+
+        // RC-5.
+        $pinnedNames = [];
+        $pinnedServices = [];
+        foreach ($pinnedImages as $pinned) {
+            // @phpstan-ignore instanceof.alwaysTrue
+            if (!$pinned instanceof \Vortos\Pipeline\Model\PinnedImage) {
+                throw new \InvalidArgumentException(sprintf('pinnedImages entries must be PinnedImage instances, got %s.', get_debug_type($pinned)));
+            }
+            if (\in_array($pinned->name->value, $pinnedNames, true) || \in_array($pinned->name->value, $auxiliaryNames, true)) {
+                throw new \InvalidArgumentException(sprintf('Image name "%s" is declared more than once across pinnedImages and auxiliaryImages.', $pinned->name->value));
+            }
+            $pinnedNames[] = $pinned->name->value;
+            foreach ($pinned->services->names as $service) {
+                if (\in_array($service, $pinnedServices, true) || \in_array($service, $auxiliaryServices, true)) {
+                    throw new \InvalidArgumentException(sprintf('Compose service "%s" is declared for more than one pinned or auxiliary image.', $service));
+                }
+                $pinnedServices[] = $service;
+            }
+        }
+
+        if ($pinnedImages !== []) {
+            if ($imageRepository === null) {
+                throw new \InvalidArgumentException('Pinned images are built into the application repository; set imageRepository.');
+            }
+            if (!$emitScanGate || !$emitSign || !$verifySignatureBeforeRelease) {
+                throw new \InvalidArgumentException(
+                    'A pinned image is trusted only through its signature — its digest is committed and nothing rebuilds it at release — so it needs emitScanGate, emitSign and verifySignatureBeforeRelease.',
+                );
+            }
+            if (!$syncComposeTopology) {
+                throw new \InvalidArgumentException('Pinned images are run through the synced compose topology; enable syncComposeTopology.');
+            }
+        }
     }
 
     /**
@@ -620,6 +661,16 @@ final readonly class PipelineDefinition
                 'services' => $a->services->names,
                 'scan_ignore_file' => $a->scanIgnoreFile,
             ], $this->auxiliaryImages);
+        }
+
+        if ($this->pinnedImages !== []) {
+            $data['pinned_images'] = array_map(static fn (\Vortos\Pipeline\Model\PinnedImage $p): array => [
+                'name' => $p->name->value,
+                'dockerfile' => $p->dockerfile->value,
+                'context' => $p->context->value,
+                'services' => $p->services->names,
+                'scan_ignore_file' => $p->scanIgnoreFile,
+            ], $this->pinnedImages);
         }
 
         if ($this->hostSystemBinds !== []) {

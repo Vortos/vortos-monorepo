@@ -94,6 +94,12 @@ final class BackupConfigLoader
         return $this->config()?->objectivesValue();
     }
 
+    /** The declared PostgreSQL configuration file (RC-5), or null when none is declared. */
+    public function postgresConfigFileOrNull(): ?string
+    {
+        return $this->config()?->postgresConfigFileValue();
+    }
+
     /** For consumers that cannot mean anything without an objective: drills and the DR runbook. */
     public function recoveryObjectives(): RecoveryObjectives
     {

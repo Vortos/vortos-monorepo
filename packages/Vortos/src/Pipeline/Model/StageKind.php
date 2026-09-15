@@ -15,4 +15,6 @@ enum StageKind: string
     case IacPlan = 'iac-plan';
     case Deploy = 'deploy';
     case Split = 'split';
+    /** Builds a pinned image on demand, into its own workflow (RC-5). */
+    case PinnedImage = 'pinned-image';
 }

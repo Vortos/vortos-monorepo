@@ -592,6 +592,12 @@ final class AlertsExtension extends Extension
                     ->setArgument('$rules', new Reference(AlertRuleSet::class))
                     ->setArgument('$backupConfig', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
                     ->setPublic(false);
+
+                // RC-5: a declared PostgreSQL configuration file must page when the cluster departs from it.
+                $container->register(\Vortos\Alerts\Preflight\PostgresConfigDriftAlertsCheck::class, \Vortos\Alerts\Preflight\PostgresConfigDriftAlertsCheck::class)
+                    ->setArgument('$rules', new Reference(AlertRuleSet::class))
+                    ->setArgument('$backupConfig', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+                    ->setPublic(false);
             }
         }
     }

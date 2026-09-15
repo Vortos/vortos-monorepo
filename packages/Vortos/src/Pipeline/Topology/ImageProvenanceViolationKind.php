@@ -23,4 +23,7 @@ enum ImageProvenanceViolationKind: string implements TopologyViolationKind
 
     /** The reference interpolates something other than a declared auxiliary image variable, so what runs cannot be proven. */
     case Unverifiable = 'unverifiable';
+
+    /** A digest from the application repository on a service no pinned image declares: nothing built or will verify it. */
+    case UndeclaredOwnImage = 'undeclared_own_image';
 }

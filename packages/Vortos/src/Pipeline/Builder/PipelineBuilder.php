@@ -52,11 +52,124 @@ final class PipelineBuilder
         return new Pipeline(
             name: 'CI',
             triggers: $this->buildTriggers($definition),
-            stages: [...$stages, ...$splitStages],
+            stages: [...$stages, ...$splitStages, ...$this->pinnedImageStages($definition)],
             permissions: Permissions::readOnly(),
             concurrencyGroup: '${{ github.workflow }}-${{ github.ref }}',
             concurrencyCancelInProgress: true,
         );
+    }
+
+    /**
+     * RC-5: one on-demand build per pinned image, emitted into its own workflow. The image gets every gate the
+     * serving image gets — native arch check, SBOM, CVE gate, keyless signature verified in place — and the
+     * job summary states the exact digest reference to commit into the topology. Nothing here deploys: a
+     * datastore takes new bytes only through that committed, reviewed digest.
+     *
+     * @return list<Stage>
+     */
+    private function pinnedImageStages(PipelineDefinition $definition): array
+    {
+        if ($definition->pinnedImages === [] || $definition->imageRepository === null) {
+            return [];
+        }
+
+        $repo = $definition->imageRepository;
+        $loginProvider = $this->requireLoginProvider($definition->registryProvider);
+        $identityRegexp = \Vortos\Pipeline\Model\PinnedImage::signerIdentityRegexp();
+        $oidcIssuer = 'https://token.actions.githubusercontent.com';
+        $archScript = new ArchAssertionScript();
+
+        $runner = $definition->buildMode === BuildMode::Native
+            ? new RunnerSpec(
+                label: $definition->nativeRunnerLabel
+                    ?? throw new \LogicException('Native pinned image build reached without a runner label.'),
+                archHint: $definition->targetArch->value,
+            )
+            : new RunnerSpec(label: 'ubuntu-latest');
+
+        $permissions = (new Permissions([new Permission(PermissionScope::Contents, PermissionAccess::Read)]))
+            ->merge($loginProvider->requiredPermissions())
+            ->with(new Permission(PermissionScope::IdToken, PermissionAccess::Write));
+
+        $stages = [];
+        foreach ($definition->pinnedImages as $pinned) {
+            $name = $pinned->name->value;
+            $steps = [
+                new ActionStep('Checkout', KnownActionFactory::checkout()),
+                new ActionStep('Set up Docker Buildx', KnownActionFactory::setupBuildx()),
+            ];
+            if ($definition->buildMode === BuildMode::BuildxQemu) {
+                $steps[] = new ActionStep('Set up QEMU', KnownActionFactory::setupQemu());
+            }
+            $steps[] = $loginProvider->loginStep(new RegistryLoginContext($definition));
+
+            $with = [
+                'context' => $pinned->context->value,
+                'file' => $pinned->dockerfile->value,
+                'platforms' => $definition->targetArch->value,
+                'push' => 'true',
+                'provenance' => 'true',
+                'sbom' => $definition->emitSbom ? 'true' : 'false',
+                'tags' => $pinned->buildTag($repo),
+                'labels' => implode("\n", [
+                    'org.opencontainers.image.revision=${{ github.sha }}',
+                    'org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}',
+                    'org.opencontainers.image.created=${{ github.event.repository.updated_at }}',
+                ]),
+            ];
+            if ($definition->buildCache) {
+                $with['cache-from'] = sprintf('type=gha,scope=pinned-%s', $name);
+                $with['cache-to'] = sprintf('type=gha,scope=pinned-%s,mode=max', $name);
+            }
+            $steps[] = new ActionStep('Build and push', KnownActionFactory::buildPush(), $with, id: 'build');
+
+            $digestRef = $repo . '@${{ steps.build.outputs.digest }}';
+            $steps[] = new CommandStep('Verify architecture', $archScript->generate($digestRef, $definition->targetArch), id: 'archcheck');
+
+            if ($definition->emitSbom) {
+                $steps[] = new ActionStep(
+                    'Generate SBOM',
+                    KnownActionFactory::sbomAttest(),
+                    ['image' => $digestRef, 'format' => 'spdx-json'],
+                    continueOnError: $definition->sbomContinueOnError,
+                );
+            }
+
+            $scan = ['image-ref' => $digestRef, 'format' => 'table', 'exit-code' => '1', 'severity' => 'HIGH,CRITICAL', 'ignore-unfixed' => 'true'];
+            if ($pinned->scanIgnoreFile !== null) {
+                $scan['trivyignores'] = $pinned->scanIgnoreFile;
+            }
+            $steps[] = new ActionStep('Scan image for vulnerabilities (CVE gate)', KnownActionFactory::trivyImageScan(), $scan);
+
+            $steps[] = new ActionStep('Install Cosign', KnownActionFactory::cosignInstaller());
+            $steps[] = new CommandStep('Sign image (keyless, Sigstore)', sprintf('cosign sign --yes %s', $digestRef), id: 'sign');
+            $steps[] = new CommandStep(
+                'Verify image signature',
+                sprintf('cosign verify --certificate-identity-regexp "%s" --certificate-oidc-issuer "%s" %s', $identityRegexp, $oidcIssuer, $digestRef),
+                id: 'verify',
+            );
+            $steps[] = new CommandStep(
+                'Report the digest to commit',
+                sprintf(
+                    'printf %s "%s" "%s" >> "$GITHUB_STEP_SUMMARY"',
+                    "'### Pinned image %s\\n\\nSigned and verified. To run it, commit this into the topology (a deliberate recreate):\\n\\n\\`\\`\\`yaml\\nimage: %s\\n\\`\\`\\`\\n'",
+                    $name,
+                    $digestRef,
+                ),
+            );
+
+            $stages[] = new Stage(
+                id: 'pinned-' . $name,
+                displayName: sprintf('Build pinned image %s', $name),
+                kind: StageKind::PinnedImage,
+                steps: $steps,
+                runner: $runner,
+                permissions: $permissions,
+                timeoutMinutes: max($definition->defaultTimeoutMinutes, 60),
+            );
+        }
+
+        return $stages;
     }
 
     /** @return list<Stage> */
@@ -676,6 +789,28 @@ final class PipelineBuilder
             // The ops image runs console commands against production data — migrations, seeds,
             // the cutover itself. Verifying only the serving image would leave the artifact with
             // the most dangerous reach as the one nobody checked.
+            // RC-5: a pinned image is trusted only through its signature — its digest is committed and nothing
+            // rebuilds it at release — so every application-repository digest the topology references is
+            // verified here, read from the checked-out topology itself so the list can never drift from what
+            // runs. Finding none while pinned images are declared fails rather than verifying nothing.
+            if ($definition->pinnedImages !== []) {
+                $pattern = str_replace('.', '\.', $repo) . '@sha256:[a-f0-9]{64}';
+                $steps[] = new CommandStep(
+                    'Verify every pinned image the topology runs before releasing it',
+                    sprintf(
+                        "refs=\"\$(grep -oE '%s' %s | sort -u)\"\n"
+                        . "if [ -z \"\$refs\" ]; then echo \"::error::pinned images are declared but %s references no %s digest\"; exit 1; fi\n"
+                        . "for ref in \$refs; do cosign verify --certificate-identity-regexp \"%s\" --certificate-oidc-issuer \"%s\" \"\$ref\"; done",
+                        $pattern,
+                        $definition->composeTopologyPath,
+                        $definition->composeTopologyPath,
+                        $repo,
+                        \Vortos\Pipeline\Model\PinnedImage::signerIdentityRegexp(),
+                        'https://token.actions.githubusercontent.com',
+                    ),
+                );
+            }
+
             // RC-9: an auxiliary image runs long-lived with its own privileges (the backup sidecar holds the
             // backup key), so it is verified at release time exactly like the images above.
             foreach ($definition->auxiliaryImages as $auxiliary) {

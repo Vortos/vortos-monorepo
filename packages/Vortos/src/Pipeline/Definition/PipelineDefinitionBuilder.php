@@ -89,6 +89,8 @@ final class PipelineDefinitionBuilder
     private array $hostSystemBinds = [];
     /** @var list<AuxiliaryImage> */
     private array $auxiliaryImages = [];
+    /** @var list<\Vortos\Pipeline\Model\PinnedImage> */
+    private array $pinnedImages = [];
 
     public static function create(): self
     {
@@ -639,6 +641,18 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    /**
+     * Images built on demand into the application repository and run by a committed digest (RC-5).
+     * See {@see \Vortos\Pipeline\Model\PinnedImage}.
+     */
+    public function pinnedImages(\Vortos\Pipeline\Model\PinnedImage ...$images): self
+    {
+        $clone = clone $this;
+        $clone->pinnedImages = array_values($images);
+
+        return $clone;
+    }
+
     public function agnosticismMode(QualityMode $mode): self
     {
         $clone = clone $this;
@@ -706,6 +720,7 @@ final class PipelineDefinitionBuilder
             syncedHostPaths: $this->syncedHostPaths,
             hostSystemBinds: $this->hostSystemBinds,
             auxiliaryImages: $this->auxiliaryImages,
+            pinnedImages: $this->pinnedImages,
         );
     }
 }

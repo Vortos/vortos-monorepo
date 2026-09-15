@@ -8,18 +8,21 @@ use Vortos\Pipeline\Definition\PipelineDefinition;
 use Vortos\Pipeline\Model\ComposeServiceSet;
 
 /**
- * Every image the topology runs must be provably the bytes that were reviewed (RC-9).
+ * Every image the topology runs must be provably the bytes that were reviewed (RC-9, RC-5).
  *
  * WHY. The backup sidecar — holding the backup token, the backup key and the secret-store identity — ran
  * from a mutable `:main` tag built by a workflow that neither scanned nor signed it, and the database,
  * cache and socket proxy ran floating tags too. A tag is a pointer anyone with push access, or a
  * compromised upstream, can move; `compose pull` then silently runs different bytes. The rule holds each
- * service to one of two provable forms:
+ * service to one of these provable forms:
  *
  *  - a digest-pinned reference (`name[:tag]@sha256:<64 hex>`), where changing what runs is a reviewed diff;
  *  - exactly `${VORTOS_IMAGE_<NAME>:?…}` for a declared auxiliary image listing this service — built from
  *    the release, scanned, signed, verified and written by the deploy. The `:?` form is required so a
- *    hand-run compose without the deploy's interpolation file fails loudly instead of running nothing.
+ *    hand-run compose without the deploy's interpolation file fails loudly instead of running nothing;
+ *  - a digest from the application repository only on a service a pinned image declares (RC-5): that is the
+ *    image the pipeline built, scanned and signed, and whose signature the deploy verifies before release.
+ *    An application-repository digest anywhere else is an image nothing vouches for.
  *
  * A service that builds on the host, names no image, or interpolates anything else is refused.
  */
@@ -30,9 +33,15 @@ final class ImageProvenanceRule implements TopologyRuleInterface
     private const DIGEST_PINNED = '/^[a-z0-9][a-z0-9._\/:-]*@sha256:[a-f0-9]{64}$/';
     private const AUXILIARY_REFERENCE = '/^\$\{(VORTOS_IMAGE_[A-Z0-9]+):\?[^}]+\}$/';
 
-    /** @param array<string, ComposeServiceSet> $auxiliaryImages compose variable => services allowed to run it */
+    /**
+     * @param array<string, ComposeServiceSet> $auxiliaryImages compose variable => services allowed to run it
+     * @param ?string                          $ownRepository   the application image repository, when it is known
+     * @param array<string, ComposeServiceSet> $pinnedImages    pinned image name => services that run it by digest
+     */
     public function __construct(
         private readonly array $auxiliaryImages,
+        private readonly ?string $ownRepository = null,
+        private readonly array $pinnedImages = [],
     ) {}
 
     public static function forDefinition(PipelineDefinition $definition): self
@@ -42,7 +51,12 @@ final class ImageProvenanceRule implements TopologyRuleInterface
             $auxiliary[$image->name->composeVariable()] = $image->services;
         }
 
-        return new self($auxiliary);
+        $pinned = [];
+        foreach ($definition->pinnedImages as $image) {
+            $pinned[$image->name->value] = $image->services;
+        }
+
+        return new self($auxiliary, $definition->imageRepository, $pinned);
     }
 
     public function name(): string
@@ -55,6 +69,8 @@ final class ImageProvenanceRule implements TopologyRuleInterface
         $violations = [];
         /** @var array<string, list<string>> $consumers */
         $consumers = [];
+        /** @var array<string, true> $pinnedConsumers */
+        $pinnedConsumers = [];
 
         foreach ($topology->services as $service => $definition) {
             if (\array_key_exists('build', $definition)) {
@@ -87,6 +103,20 @@ final class ImageProvenanceRule implements TopologyRuleInterface
 
             if (preg_match(self::DIGEST_PINNED, $image) !== 1) {
                 $violations[] = $this->violation(ImageProvenanceViolationKind::Unpinned, $service, $image, 'a tag is a mutable pointer; pin the exact bytes with @sha256:<digest> so changing what runs is a reviewed diff');
+                continue;
+            }
+
+            if ($this->ownRepository !== null && self::repositoryOf($image) === $this->ownRepository) {
+                if ($this->pinnedImageFor($service) === null) {
+                    $violations[] = $this->violation(
+                        ImageProvenanceViolationKind::UndeclaredOwnImage,
+                        $service,
+                        $image,
+                        'a digest from the application repository on a service no pinned image declares; nothing built, scanned or signed it for this service, so the deploy cannot vouch for it (pinnedImages in config/pipeline.php)',
+                    );
+                } else {
+                    $pinnedConsumers[$service] = true;
+                }
             }
         }
 
@@ -98,7 +128,41 @@ final class ImageProvenanceRule implements TopologyRuleInterface
             }
         }
 
+        foreach ($this->pinnedImages as $name => $services) {
+            foreach ($services->names as $service) {
+                if (!isset($pinnedConsumers[$service])) {
+                    $violations[] = $this->violation(
+                        ImageProvenanceViolationKind::Unconsumed,
+                        $service,
+                        $name,
+                        sprintf('declared to run the pinned image "%s" but its image is not a digest from %s', $name, $this->ownRepository ?? 'the application repository'),
+                    );
+                }
+            }
+        }
+
         return $violations;
+    }
+
+    private function pinnedImageFor(string $service): ?string
+    {
+        foreach ($this->pinnedImages as $name => $services) {
+            if ($services->contains($service)) {
+                return $name;
+            }
+        }
+
+        return null;
+    }
+
+    /** `registry/path[:tag]@sha256:…` → `registry/path`; a port colon before the last slash is kept. */
+    private static function repositoryOf(string $reference): string
+    {
+        $name = explode('@', $reference, 2)[0];
+        $slash = strrpos($name, '/');
+        $colon = strrpos($name, ':');
+
+        return $colon !== false && ($slash === false || $colon > $slash) ? substr($name, 0, $colon) : $name;
     }
 
     private function violation(ImageProvenanceViolationKind $kind, string $service, string $subject, string $detail): TopologyViolation

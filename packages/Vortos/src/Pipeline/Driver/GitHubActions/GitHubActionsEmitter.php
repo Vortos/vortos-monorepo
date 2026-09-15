@@ -15,6 +15,8 @@ use Vortos\Pipeline\Model\Pipeline;
 use Vortos\Pipeline\Model\SplitPackage;
 use Vortos\Pipeline\Model\Stage;
 use Vortos\Pipeline\Model\StageKind;
+use Vortos\Pipeline\Model\Trigger;
+use Vortos\Pipeline\Model\TriggerEvent;
 
 #[AsDriver('github')]
 final class GitHubActionsEmitter implements PipelineEmitterInterface
@@ -45,8 +47,43 @@ final class GitHubActionsEmitter implements PipelineEmitterInterface
 
         $ciStages = array_values(array_filter(
             $pipeline->stages,
-            static fn (Stage $s): bool => $s->kind !== StageKind::Split,
+            static fn (Stage $s): bool => $s->kind !== StageKind::Split && $s->kind !== StageKind::PinnedImage,
         ));
+
+        // RC-5: pinned images build on demand in their own workflow — on a push that changes their Dockerfile
+        // or build context, or when dispatched — never as part of a release, so a datastore image only ever
+        // gets new bytes through a digest someone commits. The push trigger is deliberately not limited to the
+        // deployment branch: the first digest must exist before the release that runs it (see PinnedImage).
+        $pinnedStages = array_values(array_filter(
+            $pipeline->stages,
+            static fn (Stage $s): bool => $s->kind === StageKind::PinnedImage,
+        ));
+
+        if ($pinnedStages !== []) {
+            $paths = [];
+            foreach ($this->definition->pinnedImages as $pinned) {
+                $paths[] = $pinned->dockerfile->value;
+                $paths[] = $pinned->context->value . '/**';
+            }
+
+            $imagesPipeline = new Pipeline(
+                name: 'Pinned Images',
+                triggers: [
+                    new Trigger(TriggerEvent::WorkflowDispatch),
+                    new Trigger(TriggerEvent::Push, paths: array_values(array_unique($paths))),
+                ],
+                stages: $pinnedStages,
+                permissions: $pipeline->permissions,
+                concurrencyGroup: '${{ github.workflow }}-${{ github.ref }}',
+                concurrencyCancelInProgress: false,
+            );
+
+            $artifacts[] = new EmittedArtifact(
+                relativePath: \Vortos\Pipeline\Model\PinnedImage::WORKFLOW_PATH,
+                contents: $this->yamlWriter->dump($this->mapper->map($imagesPipeline)),
+                description: 'Pinned images — built, scanned and signed on demand; digests are committed to the topology',
+            );
+        }
 
         if ($ciStages !== []) {
             $ciPipeline = new Pipeline(

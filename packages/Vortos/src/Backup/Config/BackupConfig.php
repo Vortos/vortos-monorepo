@@ -41,6 +41,7 @@ final class BackupConfig
     private string $keyPrefix = 'backups';
     private string $environment = DefaultEnvironment::NAME;
     private ?RecoveryObjectives $objectives = null;
+    private ?string $postgresConfigFile = null;
     private ScheduleSetBuilder $schedules;
     private RetentionBuilder $retention;
     private AlertsBuilder $alerts;
@@ -194,6 +195,29 @@ final class BackupConfig
     public function objectivesValue(): ?RecoveryObjectives
     {
         return $this->objectives;
+    }
+
+    /**
+     * The absolute path of the PostgreSQL configuration file baked into the database image (RC-5).
+     *
+     * Declaring it arms the `postgres-config-drift` probe: every setting the running cluster has that is not
+     * a built-in default must come from this file, ALTER SYSTEM must be off, and the file must apply cleanly.
+     * A hand-applied change then pages instead of living silently in the data volume.
+     */
+    public function postgresConfigFile(string $path): self
+    {
+        if (!str_starts_with($path, '/') || preg_match('#(^|/)\.\.?(/|$)#', $path) === 1 || preg_match('#[\s\'"$`;&|<>]#', $path) === 1) {
+            throw new \InvalidArgumentException(sprintf('The PostgreSQL configuration file must be a normalised absolute path, got "%s".', $path));
+        }
+
+        $this->postgresConfigFile = $path;
+
+        return $this;
+    }
+
+    public function postgresConfigFileValue(): ?string
+    {
+        return $this->postgresConfigFile;
     }
 
     /** @param Closure(ScheduleSetBuilder): mixed $configure */

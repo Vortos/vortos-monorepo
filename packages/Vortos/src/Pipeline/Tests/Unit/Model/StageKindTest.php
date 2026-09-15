@@ -13,7 +13,7 @@ final class StageKindTest extends TestCase
     {
         $expected = [
             'test', 'static-analysis', 'agnosticism', 'security',
-            'migration-dry-run', 'build', 'iac-plan', 'deploy', 'split',
+            'migration-dry-run', 'build', 'iac-plan', 'deploy', 'split', 'pinned-image',
         ];
 
         $actual = array_map(static fn (StageKind $k): string => $k->value, StageKind::cases());

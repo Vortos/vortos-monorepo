@@ -616,6 +616,21 @@ final class BackupExtension extends Extension
             ->setArgument('$connection', new Reference(Connection::class))
             ->setPublic(false);
 
+        // RC-5: where the running cluster's configuration comes from, held to the file declared in
+        // config/backup.php (->postgresConfigFile). Names and sources only; never a setting value.
+        $container->register(\Vortos\Backup\DR\PostgresSettingsReaderInterface::class, \Vortos\Backup\DR\PgSettingsReader::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\DR\PostgresConfigDriftInspectorFactory::class, \Vortos\Backup\DR\PostgresConfigDriftInspectorFactory::class)
+            ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\DR\PostgresConfigDriftInspector::class, \Vortos\Backup\DR\PostgresConfigDriftInspector::class)
+            ->setFactory([new Reference(\Vortos\Backup\DR\PostgresConfigDriftInspectorFactory::class), 'create'])
+            ->setArgument('$reader', new Reference(\Vortos\Backup\DR\PostgresSettingsReaderInterface::class))
+            ->setPublic(false);
+
         $container->register(\Vortos\Backup\DR\RecoveryObjectivesInspectorFactory::class, \Vortos\Backup\DR\RecoveryObjectivesInspectorFactory::class)
             ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
             ->setPublic(false);
@@ -790,6 +805,14 @@ final class BackupExtension extends Extension
                 ->setArgument('$inspector', new Reference(\Vortos\Backup\DR\RecoveryObjectivesInspector::class))
                 ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
                 ->setPublic(false);
+
+            // RC-5: the running cluster configured by exactly the declared file. Pages through a
+            // health_probe_failing rule; `alerts.postgres_config_drift_covered` refuses a deploy that declares
+            // the file without one.
+            $container->register(\Vortos\Backup\Health\PostgresConfigDriftProbe::class, \Vortos\Backup\Health\PostgresConfigDriftProbe::class)
+                ->setArgument('$inspector', new Reference(\Vortos\Backup\DR\PostgresConfigDriftInspector::class))
+                ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
+                ->setPublic(false);
         }
 
         $container->register(\Vortos\Backup\Runtime\CronDueEvaluator::class, \Vortos\Backup\Runtime\CronDueEvaluator::class)
@@ -901,6 +924,9 @@ final class BackupExtension extends Extension
             ->addTag('console.command')->setPublic(false);
         $container->register(\Vortos\Backup\Console\BackupObjectivesCommand::class, \Vortos\Backup\Console\BackupObjectivesCommand::class)
             ->setArgument('$inspector', new Reference(\Vortos\Backup\DR\RecoveryObjectivesInspector::class))
+            ->addTag('console.command')->setPublic(false);
+        $container->register(\Vortos\Backup\Console\BackupPostgresConfigCommand::class, \Vortos\Backup\Console\BackupPostgresConfigCommand::class)
+            ->setArgument('$inspector', new Reference(\Vortos\Backup\DR\PostgresConfigDriftInspector::class))
             ->addTag('console.command')->setPublic(false);
 
         // Containerized PITR (WAL-shipping) recipe generator (P3-1).

@@ -47,6 +47,11 @@ final class BackupWorker
         private readonly CronDueEvaluator $evaluator = new CronDueEvaluator(),
         private readonly int $maxRetries = 5,
         private readonly int $baseBackoffSeconds = 30,
+        /**
+         * RC-10: keeps PostgreSQL's archive_timeout honoured after a restart. Runs on every tick because the stranded
+         * timer can appear at any moment the database restarts; null where no recovery objective is declared.
+         */
+        private readonly ?\Vortos\Backup\Pitr\CheckpointerWaker $checkpointerWaker = null,
     ) {
         $this->schedules = array_values([...$schedules]);
     }
@@ -64,6 +69,14 @@ final class BackupWorker
     {
         $now ??= $this->clock->now();
         $log = [];
+
+        // Before the schedules, so a long backup in this tick cannot delay waking a stranded archive timer.
+        if ($this->checkpointerWaker !== null) {
+            $wake = $this->checkpointerWaker->ensure($now);
+            if ($wake->outcome->isReportable()) {
+                $log[] = ['schedule' => 'archive-timeout-keeper', 'result' => $wake->summary()];
+            }
+        }
 
         foreach ($this->schedules as $schedule) {
             $state = $this->state->get($schedule->name);

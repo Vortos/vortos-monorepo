@@ -828,6 +828,22 @@ final class BackupExtension extends Extension
             ->setPublic(false);
         $container->setAlias(\Vortos\Backup\Runtime\BackupLifecycleRunnerInterface::class, \Vortos\Backup\Runtime\BackupLifecycleRunner::class)->setPublic(false);
 
+        // RC-10: PostgreSQL 18 strands archive_timeout for a whole checkpoint_timeout after every clean start; the
+        // always-on backup runtime wakes the checkpointer when (and only when) that is what is happening. No config
+        // switch: whether there is a timer to keep is read from the server (archive_mode, archive_timeout, recovery),
+        // and a connection that is not a PostgreSQL primary stays silent.
+        $container->register(\Vortos\Backup\Pitr\CheckpointerTimersReaderInterface::class, \Vortos\Backup\Pitr\PgCheckpointerTimersReader::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setPublic(false);
+        $container->register(\Vortos\Backup\Pitr\CheckpointRequesterInterface::class, \Vortos\Backup\Pitr\DbalCheckpointRequester::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setPublic(false);
+        $container->register(\Vortos\Backup\Pitr\CheckpointerWaker::class, \Vortos\Backup\Pitr\CheckpointerWaker::class)
+            ->setArgument('$timers', new Reference(\Vortos\Backup\Pitr\CheckpointerTimersReaderInterface::class))
+            ->setArgument('$archiver', new Reference(\Vortos\Backup\DR\ArchiverStatusReaderInterface::class))
+            ->setArgument('$requester', new Reference(\Vortos\Backup\Pitr\CheckpointRequesterInterface::class))
+            ->setPublic(false);
+
         $container->register(\Vortos\Backup\Runtime\BackupWorker::class, \Vortos\Backup\Runtime\BackupWorker::class)
             ->setArgument('$schedules', new Reference(BackupScheduleRegistry::class))
             ->setArgument('$runner', new Reference(\Vortos\Backup\Runtime\BackupLifecycleRunnerInterface::class))
@@ -835,6 +851,7 @@ final class BackupExtension extends Extension
             ->setArgument('$clock', new Reference(SystemClock::class))
             ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
             ->setArgument('$evaluator', new Reference(\Vortos\Backup\Runtime\CronDueEvaluator::class))
+            ->setArgument('$checkpointerWaker', new Reference(\Vortos\Backup\Pitr\CheckpointerWaker::class))
             ->setPublic(false);
 
         $container->register(\Vortos\Backup\Console\BackupWorkerCommand::class, \Vortos\Backup\Console\BackupWorkerCommand::class)

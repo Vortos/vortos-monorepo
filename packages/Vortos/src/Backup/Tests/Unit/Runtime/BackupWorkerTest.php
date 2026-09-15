@@ -43,6 +43,50 @@ final class BackupWorkerTest extends TestCase
         $this->assertCount(1, $runner->executed, 'must not double-fire within the same window');
     }
 
+    /** RC-10: the stranded archive timer is woken on the tick, before any schedule, and a healthy one logs nothing. */
+    public function test_each_tick_wakes_a_stranded_archive_timer_before_the_schedules(): void
+    {
+        $checkpoints = new \ArrayObject();
+        $waker = static function (string $lastCheckpoint) use ($checkpoints): \Vortos\Backup\Pitr\CheckpointerWaker {
+            $timers = new class ($lastCheckpoint) implements \Vortos\Backup\Pitr\CheckpointerTimersReaderInterface {
+                public function __construct(private string $lastCheckpoint) {}
+
+                public function read(): \Vortos\Backup\Pitr\CheckpointerTimers
+                {
+                    return new \Vortos\Backup\Pitr\CheckpointerTimers(true, 60, false, new DateTimeImmutable('2024-01-01 05:40:00 UTC'), new DateTimeImmutable($this->lastCheckpoint . ' UTC'));
+                }
+            };
+            $archiver = new class implements \Vortos\Backup\DR\ArchiverStatusReaderInterface {
+                public function read(): \Vortos\Backup\DR\ArchiverStatus
+                {
+                    return new \Vortos\Backup\DR\ArchiverStatus('000000010000000000000001', new DateTimeImmutable('2024-01-01 05:40:00 UTC'), null, null, '000000010000000000000002');
+                }
+            };
+            $requester = new class ($checkpoints) implements \Vortos\Backup\Pitr\CheckpointRequesterInterface {
+                public function __construct(private \ArrayObject $checkpoints) {}
+
+                public function checkpoint(): void
+                {
+                    $this->checkpoints->append('CHECKPOINT');
+                }
+            };
+
+            return new \Vortos\Backup\Pitr\CheckpointerWaker($timers, $archiver, $requester);
+        };
+
+        $stranded = new BackupWorker([$this->schedule('0 */6 * * *')], new RecordingLifecycleRunner(), $this->warmStore('nightly', '2024-01-01 00:00:00'), $this->clock('2024-01-01 06:00:00'), checkpointerWaker: $waker('2024-01-01 05:39:59'));
+        $log = $stranded->tick($this->at('2024-01-01 06:00:00'));
+
+        self::assertSame('archive-timeout-keeper', $log[0]['schedule']);
+        self::assertStringContainsString('CHECKPOINT issued', $log[0]['result']);
+        self::assertStringContainsString('fired', $log[1]['result'], 'the schedules still run in the same tick');
+        self::assertCount(1, $checkpoints);
+
+        $awake = new BackupWorker([], new RecordingLifecycleRunner(), new InMemoryScheduleStateStore(), $this->clock('2024-01-01 06:00:00'), checkpointerWaker: $waker('2024-01-01 05:45:00'));
+        self::assertSame([], $awake->tick($this->at('2024-01-01 06:00:00')), 'an awake checkpointer is not reported every tick');
+        self::assertCount(1, $checkpoints);
+    }
+
     public function test_not_fired_before_due(): void
     {
         $runner = new RecordingLifecycleRunner();

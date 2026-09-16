@@ -99,6 +99,10 @@ final class PgSettingsReader implements PostgresSettingsReaderInterface
                 'scope' => (string) $r['scope'],
             ], $catalog),
             sourcesVisible: true,
+            // Passed explicitly: this path is only reached when the role watches the cluster, but the parameter
+            // carries a `false` default, so omitting it reported every watching node as "not the watcher" — the
+            // one node that could read the configuration was the only one that stopped being heard.
+            clusterPrivileged: true,
         );
     }
 }

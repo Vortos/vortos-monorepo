@@ -31,9 +31,9 @@ final class BackupPostgresConfigCommandTest extends TestCase
         return new CommandTester(new BackupPostgresConfigCommand(new PostgresConfigDriftInspector($reader, $declared)));
     }
 
-    private static function snapshot(array $settings = [], bool $visible = true): PostgresSettingsSnapshot
+    private static function snapshot(array $settings = [], bool $visible = true, bool $clusterPrivileged = true): PostgresSettingsSnapshot
     {
-        return new PostgresSettingsSnapshot(self::FILE, false, $settings, [], [], $visible);
+        return new PostgresSettingsSnapshot(self::FILE, false, $settings, [], [], $visible, $clusterPrivileged);
     }
 
     /** @return iterable<string, array{?PostgresSettingsSnapshot, ?string, int}> */
@@ -41,7 +41,11 @@ final class BackupPostgresConfigCommandTest extends TestCase
     {
         yield 'clean' => [self::snapshot([['name' => 'wal_level', 'source' => 'configuration file', 'sourcefile' => self::FILE]]), self::FILE, 0];
         yield 'drifted' => [self::snapshot([['name' => 'archive_mode', 'source' => 'command line', 'sourcefile' => '']]), self::FILE, 1];
+        // A watching role that cannot read pg_file_settings is a blinded check: it fails.
         yield 'unverifiable' => [self::snapshot(visible: false), self::FILE, 1];
+        // A role that does not watch the cluster at all (the least-privilege application role) is not a failure:
+        // the node that watches answers the same question, and failing here pages for a healthy database.
+        yield 'not watched here' => [self::snapshot(visible: false, clusterPrivileged: false), self::FILE, 2];
         yield 'undeclared' => [self::snapshot(), null, 2];
         yield 'unreadable' => [null, self::FILE, 2];
     }

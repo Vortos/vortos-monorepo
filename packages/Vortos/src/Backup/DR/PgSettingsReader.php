@@ -30,12 +30,17 @@ final class PgSettingsReader implements PostgresSettingsReaderInterface
         // runs with the caller's privileges (measured on 18: either alone is "permission denied"). Checking the
         // view alone reported a role granted only the view as able to see, and the read then threw instead of
         // coming back Unverifiable.
-        $sourcesVisible = (bool) $this->connection->fetchOne(
+        // Reported apart, because they mean different things: the first says whether this role watches the cluster
+        // at all, the second whether a watching role can actually read the file the settings came from.
+        $visibility = $this->connection->fetchAssociative(
             "SELECT (current_setting('is_superuser') = 'on'
-                     OR pg_has_role(current_user, 'pg_read_all_settings', 'USAGE'))
-                AND has_table_privilege('pg_catalog.pg_file_settings', 'SELECT')
-                AND has_function_privilege('pg_catalog.pg_show_all_file_settings()', 'EXECUTE')",
+                     OR pg_has_role(current_user, 'pg_read_all_settings', 'USAGE')) AS cluster_privileged,
+                    (has_table_privilege('pg_catalog.pg_file_settings', 'SELECT')
+                     AND has_function_privilege('pg_catalog.pg_show_all_file_settings()', 'EXECUTE')) AS file_settings_readable",
         );
+
+        $clusterPrivileged = (bool) ($visibility['cluster_privileged'] ?? false);
+        $sourcesVisible = $clusterPrivileged && (bool) ($visibility['file_settings_readable'] ?? false);
 
         if (!$sourcesVisible) {
             return new PostgresSettingsSnapshot(
@@ -45,6 +50,7 @@ final class PgSettingsReader implements PostgresSettingsReaderInterface
                 fileErrors: [],
                 catalogSettings: [],
                 sourcesVisible: false,
+                clusterPrivileged: $clusterPrivileged,
             );
         }
 

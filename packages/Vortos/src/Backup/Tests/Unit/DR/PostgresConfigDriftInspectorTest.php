@@ -22,10 +22,10 @@ final class PostgresConfigDriftInspectorTest extends TestCase
     private const FILE = '/etc/postgresql/postgresql.conf';
 
     /** @param list<array{name: string, source: string, sourcefile: string}> $settings */
-    private function inspector(array $settings, bool $alterSystem = false, string $configFile = self::FILE, array $errors = [], ?string $declared = self::FILE, bool $throws = false, bool $sourcesVisible = true, array $catalog = []): PostgresConfigDriftInspector
+    private function inspector(array $settings, bool $alterSystem = false, string $configFile = self::FILE, array $errors = [], ?string $declared = self::FILE, bool $throws = false, bool $sourcesVisible = true, array $catalog = [], bool $clusterPrivileged = true): PostgresConfigDriftInspector
     {
-        $reader = new class ($settings, $alterSystem, $configFile, $errors, $throws, $sourcesVisible, $catalog) implements PostgresSettingsReaderInterface {
-            public function __construct(private array $s, private bool $a, private string $f, private array $e, private bool $t, private bool $v, private array $c) {}
+        $reader = new class ($settings, $alterSystem, $configFile, $errors, $throws, $sourcesVisible, $catalog, $clusterPrivileged) implements PostgresSettingsReaderInterface {
+            public function __construct(private array $s, private bool $a, private string $f, private array $e, private bool $t, private bool $v, private array $c, private bool $p) {}
 
             public function read(): PostgresSettingsSnapshot
             {
@@ -33,7 +33,7 @@ final class PostgresConfigDriftInspectorTest extends TestCase
                     throw new \RuntimeException('SQLSTATE[08006] could not connect to postgresql://user:secret@write_db');
                 }
 
-                return new PostgresSettingsSnapshot($this->f, $this->a, $this->s, $this->e, $this->c, $this->v);
+                return new PostgresSettingsSnapshot($this->f, $this->a, $this->s, $this->e, $this->c, $this->v, $this->p);
             }
         };
 
@@ -104,13 +104,33 @@ final class PostgresConfigDriftInspectorTest extends TestCase
         );
     }
 
-    /** A role without pg_read_all_settings sees sourcefile NULL: that must never read as clean or as drift. */
-    public function test_a_role_that_cannot_see_sources_is_unverifiable_and_pages(): void
+    /**
+     * A WATCHING role (superuser or pg_read_all_settings) that still cannot read pg_file_settings sees sourcefile
+     * NULL: that must never read as clean or as drift, and it must be heard — the check has been blinded.
+     */
+    public function test_a_watching_role_that_cannot_read_file_settings_is_unverifiable_and_pages(): void
     {
-        $inspector = $this->inspector([], alterSystem: true, sourcesVisible: false);
+        $inspector = $this->inspector([], alterSystem: true, sourcesVisible: false, clusterPrivileged: true);
 
         self::assertSame(PostgresConfigDriftStatus::Unverifiable, $inspector->inspect()->status);
         self::assertSame(ProbeStatus::Fail, (new PostgresConfigDriftProbe($inspector))->check()->status);
+    }
+
+    /**
+     * The least-privilege application role holds no cluster-wide settings visibility BY DESIGN, so this node was
+     * never the one watching the configuration. Measured on production 2026-09-16: the first night the app stopped
+     * being a superuser, every colour reported "unverifiable" and paged Critical on a database the backup sidecar
+     * was reporting clean the whole time.
+     */
+    public function test_a_node_that_does_not_watch_the_cluster_reports_it_and_never_pages(): void
+    {
+        $inspector = $this->inspector([], sourcesVisible: false, clusterPrivileged: false);
+        $report = $inspector->inspect();
+
+        self::assertSame(PostgresConfigDriftStatus::NotWatchedHere, $report->status);
+        self::assertSame(ProbeStatus::Warn, (new PostgresConfigDriftProbe($inspector))->check()->status);
+        self::assertStringContainsString('not a cluster-watching role', (string) $report->reason);
+        self::assertSame([], $report->drift);
     }
 
     public function test_a_file_error_is_drift(): void

@@ -54,7 +54,7 @@ final class BackupPostgresConfigCommand extends Command
         return match ($report->status) {
             PostgresConfigDriftStatus::Clean => Command::SUCCESS,
             PostgresConfigDriftStatus::Drifted, PostgresConfigDriftStatus::Unverifiable => Command::FAILURE,
-            PostgresConfigDriftStatus::Undeclared, PostgresConfigDriftStatus::Indeterminate => 2,
+            PostgresConfigDriftStatus::Undeclared, PostgresConfigDriftStatus::Indeterminate, PostgresConfigDriftStatus::NotWatchedHere => 2,
         };
     }
 }

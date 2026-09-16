@@ -51,6 +51,10 @@ final class PostgresConfigDriftProbe implements HealthProbeInterface
             // Warn, never ProbeResult::skipped() (a Fail): an installation that declares no config file is not drifting.
             PostgresConfigDriftStatus::Undeclared => ProbeResult::warn(self::NAME, $this->kind(), $latencyMs, 'config_undeclared', $report->toDetail()),
             PostgresConfigDriftStatus::Indeterminate => ProbeResult::warn(self::NAME, $this->kind(), $latencyMs, 'config_indeterminate', $report->toDetail()),
+            // Warn: this node's role does not watch the cluster (a least-privilege application role), so the answer
+            // belongs to the node that does. Failing here would page for every colour of a perfectly configured
+            // database — which is exactly what it did the first night the application stopped being a superuser.
+            PostgresConfigDriftStatus::NotWatchedHere => ProbeResult::warn(self::NAME, $this->kind(), $latencyMs, 'config_not_watched_here', $report->toDetail()),
             PostgresConfigDriftStatus::Drifted => ProbeResult::fail(self::NAME, $this->kind(), $latencyMs, 'config_drifted', $report->toDetail()),
             PostgresConfigDriftStatus::Unverifiable => ProbeResult::fail(self::NAME, $this->kind(), $latencyMs, 'config_unverifiable', $report->toDetail()),
         };

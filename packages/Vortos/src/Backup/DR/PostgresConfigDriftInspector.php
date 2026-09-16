@@ -35,6 +35,13 @@ final class PostgresConfigDriftInspector
             return PostgresConfigDriftReport::indeterminate($e::class);
         }
 
+        // Two different answers, deliberately: a role with no cluster-wide settings visibility was never the node
+        // that watches the configuration (least-privilege application roles are exactly that), while a watching
+        // role that cannot read pg_file_settings is a check that has been blinded and must be heard.
+        if (!$snapshot->clusterPrivileged) {
+            return PostgresConfigDriftReport::notWatchedHere($this->declaredConfigFile);
+        }
+
         if (!$snapshot->sourcesVisible) {
             return PostgresConfigDriftReport::unverifiable($this->declaredConfigFile);
         }

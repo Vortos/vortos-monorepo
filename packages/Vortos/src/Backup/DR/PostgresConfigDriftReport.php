@@ -33,7 +33,13 @@ final readonly class PostgresConfigDriftReport
 
     public static function unverifiable(string $declaredConfigFile): self
     {
-        return new self(PostgresConfigDriftStatus::Unverifiable, $declaredConfigFile, [], 'the connection role cannot read setting sources or pg_file_settings; grant it pg_read_all_settings and SELECT on pg_file_settings');
+        return new self(PostgresConfigDriftStatus::Unverifiable, $declaredConfigFile, [], 'this role watches the cluster but cannot read pg_file_settings; grant it SELECT on pg_catalog.pg_file_settings and EXECUTE on pg_show_all_file_settings()');
+    }
+
+    /** Not this node's question: its role holds no cluster-wide settings visibility, and is not meant to. */
+    public static function notWatchedHere(string $declaredConfigFile): self
+    {
+        return new self(PostgresConfigDriftStatus::NotWatchedHere, $declaredConfigFile, [], 'this connection role is not a cluster-watching role (no pg_read_all_settings), so the configuration is checked on the node that is');
     }
 
     /** @return array<string, mixed> */

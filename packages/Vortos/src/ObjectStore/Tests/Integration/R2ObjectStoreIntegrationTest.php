@@ -9,6 +9,9 @@ use Psr\Log\NullLogger;
 use Vortos\ObjectStore\Capability\ProviderCapabilities;
 use Vortos\ObjectStore\Driver\S3\S3ClientFactory;
 use Vortos\ObjectStore\Driver\S3\S3CompatibleObjectStore;
+use Vortos\ObjectStore\Lifecycle\LifecyclePlanChange;
+use Vortos\ObjectStore\Lifecycle\LifecycleRule;
+use Vortos\ObjectStore\Lifecycle\ObjectStorageClass;
 use Vortos\ObjectStore\Lifecycle\S3LifecycleManager;
 use Vortos\ObjectStore\ValueObject\PutObjectOptions;
 use Vortos\ObjectStore\ValueObject\TemporaryUploadUrlOptions;
@@ -23,9 +26,14 @@ use Vortos\ObjectStore\ValueObject\TemporaryUploadUrlOptions;
  *   OBJECT_STORE_ACCESS_KEY_ID=...
  *   OBJECT_STORE_SECRET_ACCESS_KEY=...
  *   OBJECT_STORE_BUCKET=...
+ *
+ * Point it at a non-production bucket: the lifecycle test writes the bucket's lifecycle document.
  */
 final class R2ObjectStoreIntegrationTest extends TestCase
 {
+    /** A prefix no application writes to, so a probe rule that outlives a failed run acts on nothing. */
+    private const PROBE_PREFIX = 'vortos-lifecycle-probe';
+
     public function test_real_r2_object_lifecycle_and_presign_flow(): void
     {
         if (getenv('OBJECT_STORE_INTEGRATION') !== '1') {
@@ -52,29 +60,99 @@ final class R2ObjectStoreIntegrationTest extends TestCase
         }
     }
 
-    public function test_real_r2_managed_lifecycle_rule_can_be_applied_and_removed(): void
+    /**
+     * Proves the plan converges against the provider's real echo of a rule. A unit test can only
+     * feed the parser shapes someone wrote down; if the provider returns a rule in a shape
+     * fromS3Rule() does not recognise, the second plan reports Update forever and every deploy
+     * would rewrite the bucket's lifecycle.
+     */
+    public function test_real_managed_lifecycle_rules_converge_update_and_are_removed_without_touching_other_rules(): void
     {
         if (getenv('OBJECT_STORE_INTEGRATION') !== '1') {
             $this->markTestSkipped('Real object-store integration tests are disabled.');
         }
 
-        $manager = new S3LifecycleManager(
+        // A namespace unique to this run: planRemoveManagedRules() removes every rule in the
+        // namespace, so sharing the default "vortos-" would delete the bucket's real managed rules.
+        $namespace = 'vortos-it-' . bin2hex(random_bytes(4)) . '-';
+        $ruleId = $namespace . 'probe-ia';
+
+        $before = $this->lifecycleManager($namespace, [])->current();
+
+        try {
+            $declared = $this->lifecycleManager($namespace, [
+                LifecycleRule::transitionAfter($ruleId, self::PROBE_PREFIX, 30, ObjectStorageClass::InfrequentAccess),
+            ]);
+
+            $create = $declared->planManagedRules();
+            $this->assertSame(LifecyclePlanChange::Create, $create->change($ruleId)?->change());
+            $applied = $declared->apply($create);
+            $this->assertTrue($applied->hasRule($ruleId));
+
+            $converged = $declared->planManagedRules();
+            $this->assertFalse(
+                $converged->hasChanges(),
+                'Provider echoed the rule in a shape the model does not parse: ' . json_encode($converged->toArray()),
+            );
+            $this->assertOtherRulesUntouched($before->rules(), $declared->current()->rules(), $namespace);
+
+            $redeclared = $this->lifecycleManager($namespace, [
+                LifecycleRule::transitionAfter($ruleId, self::PROBE_PREFIX, 60, ObjectStorageClass::InfrequentAccess),
+            ]);
+            $update = $redeclared->planManagedRules();
+            $this->assertSame(LifecyclePlanChange::Update, $update->change($ruleId)?->change());
+            $redeclared->apply($update);
+            $this->assertFalse($redeclared->planManagedRules()->hasChanges());
+
+            $undeclared = $this->lifecycleManager($namespace, []);
+            $remove = $undeclared->planManagedRules();
+            $this->assertSame(LifecyclePlanChange::Remove, $remove->change($ruleId)?->change());
+            $removed = $undeclared->apply($remove);
+            $this->assertFalse($removed->hasRule($ruleId));
+            $this->assertOtherRulesUntouched($before->rules(), $undeclared->current()->rules(), $namespace);
+        } finally {
+            $cleanup = $this->lifecycleManager($namespace, []);
+            $plan = $cleanup->planRemoveManagedRules();
+            if ($plan->hasChanges()) {
+                $cleanup->apply($plan);
+            }
+        }
+    }
+
+    /** @param list<LifecycleRule> $declaredRules */
+    private function lifecycleManager(string $namespace, array $declaredRules): S3LifecycleManager
+    {
+        return new S3LifecycleManager(
             $this->client(),
             $this->requiredEnv('OBJECT_STORE_BUCKET'),
             ProviderCapabilities::forProvider(getenv('OBJECT_STORE_PROVIDER') ?: 'r2'),
             new NullLogger(),
             'tmp',
             86400,
-            'vortos-object-store-integration-temp-expiry',
+            $namespace . 'temp-expiry',
+            manageTemporaryUploads: false,
+            declaredRules: array_map(static fn(LifecycleRule $rule): array => $rule->toConfigArray(), $declaredRules),
+            managedRuleIdPrefix: $namespace,
         );
+    }
 
-        $applyPlan = $manager->planTemporaryUploadExpiry();
-        $applied = $manager->apply($applyPlan);
-        $this->assertTrue($applied->hasRule('vortos-object-store-integration-temp-expiry'));
+    /**
+     * @param list<array<string, mixed>> $before
+     * @param list<array<string, mixed>> $after
+     */
+    private function assertOtherRulesUntouched(array $before, array $after, string $namespace): void
+    {
+        $others = static fn(array $rules): array => array_values(array_filter(
+            array_map(static fn(array $rule): string => (string) json_encode($rule), $rules),
+            static fn(string $encoded): bool => !str_contains($encoded, '"' . $namespace),
+        ));
 
-        $removePlan = $manager->planRemoveManagedRule();
-        $removed = $manager->apply($removePlan);
-        $this->assertFalse($removed->hasRule('vortos-object-store-integration-temp-expiry'));
+        $expected = $others($before);
+        $actual = $others($after);
+        sort($expected);
+        sort($actual);
+
+        $this->assertSame($expected, $actual, 'Rules outside the managed namespace changed.');
     }
 
     private function client(): \Aws\S3\S3Client

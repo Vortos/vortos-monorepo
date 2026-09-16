@@ -108,6 +108,7 @@ final class ObjectStoreExtensionDefaultsTest extends TestCase
         $this->assertSame('vortos-object-store-expire-temporary-uploads', $this->container->getParameter('vortos_object_store.lifecycle.rule_id'));
         $this->assertTrue($this->container->getParameter('vortos_object_store.lifecycle.require_confirmation'));
         $this->assertFalse($this->container->getParameter('vortos_object_store.lifecycle.round_up_minimum_lifecycle_day'));
+        $this->assertSame('vortos-', $this->container->getParameter('vortos_object_store.lifecycle.managed_rule_id_prefix'));
     }
 
     public function test_observability_defaults_to_enabled_and_can_use_noop_framework_services(): void

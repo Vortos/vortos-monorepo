@@ -6,6 +6,8 @@ namespace Vortos\ObjectStore\DependencyInjection;
 
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
+use Vortos\ObjectStore\Lifecycle\LifecycleRuleStatus;
+use Vortos\ObjectStore\Lifecycle\ObjectStorageClass;
 
 final class Configuration implements ConfigurationInterface
 {
@@ -110,6 +112,38 @@ final class Configuration implements ConfigurationInterface
                         ->scalarNode('rule_id')->defaultValue('vortos-object-store-expire-temporary-uploads')->end()
                         ->booleanNode('require_confirmation')->defaultTrue()->end()
                         ->booleanNode('round_up_minimum_lifecycle_day')->defaultFalse()->end()
+                        ->scalarNode('managed_rule_id_prefix')->defaultValue('vortos-')->cannotBeEmpty()->end()
+                        ->arrayNode('rules')
+                            ->info('Declared lifecycle rules (LifecycleRule::toConfigArray() shape). IDs must start with managed_rule_id_prefix.')
+                            ->arrayPrototype()
+                                ->children()
+                                    ->scalarNode('id')->isRequired()->cannotBeEmpty()->end()
+                                    ->scalarNode('prefix')->isRequired()->cannotBeEmpty()->end()
+                                    ->scalarNode('expiration_days')
+                                        ->defaultNull()
+                                        ->validate()
+                                            ->ifTrue(static fn(mixed $v): bool => $v !== null && !is_int($v))
+                                            ->thenInvalid('expiration_days must be an integer or null, got %s.')
+                                        ->end()
+                                    ->end()
+                                    ->arrayNode('transitions')
+                                        ->arrayPrototype()
+                                            ->children()
+                                                ->integerNode('days')->isRequired()->end()
+                                                ->enumNode('storage_class')
+                                                    ->isRequired()
+                                                    ->values(array_map(static fn(ObjectStorageClass $c): string => $c->value, ObjectStorageClass::cases()))
+                                                ->end()
+                                            ->end()
+                                        ->end()
+                                    ->end()
+                                    ->enumNode('status')
+                                        ->values(array_map(static fn(LifecycleRuleStatus $s): string => $s->value, LifecycleRuleStatus::cases()))
+                                        ->defaultValue(LifecycleRuleStatus::Enabled->value)
+                                    ->end()
+                                ->end()
+                            ->end()
+                        ->end()
                     ->end()
                 ->end()
                 ->arrayNode('circuit_breaker')

@@ -78,7 +78,40 @@ php bin/console vortos:object-store:lifecycle apply --confirm
 php bin/console vortos:object-store:lifecycle remove --confirm
 ```
 
-The managed rule ID defaults to `vortos-object-store-expire-temporary-uploads`. The manager upserts only that rule, preserves unrelated rules, and writes the merged lifecycle config back through the S3 API.
+`apply` brings the bucket to the declared rule set and is idempotent: when nothing drifted it writes nothing, so it is safe to run on every deploy. `plan` exits `2` when there are changes, `0` when up to date.
+
+### Declaring rules
+
+```php
+use Vortos\ObjectStore\Lifecycle\LifecycleRule;
+use Vortos\ObjectStore\Lifecycle\ObjectStorageClass;
+
+$config->lifecycle()
+    ->enabled(true)
+    ->requireConfirmation(true)
+    ->rule(LifecycleRule::transitionAfter('vortos-app-submissions-ia', 'submissions', 90, ObjectStorageClass::InfrequentAccess))
+    ->rule(LifecycleRule::expireAfter('vortos-app-exports-expire', 'exports', 7));
+```
+
+- **Ownership is by rule-ID namespace** (`managedRuleIdPrefix()`, default `vortos-`). Every rule whose ID starts with it is managed: a managed rule removed from config is removed from the bucket on the next `apply`. Rules outside the namespace (console-made rules, the provider's default multipart-abort rule) are never touched. Declaring a rule outside the namespace fails the container build.
+- **The temporary-upload expiry rule** (`rule_id`, default `vortos-object-store-expire-temporary-uploads`) is built from `bucket.temporary_key_prefix` and `orphan_ttl_seconds` while `manageTemporaryUploads(true)`. With it off, that ID is treated as unowned and left in place.
+- **Every rule needs a non-empty prefix.** A bucket-wide rule would also act on temporary uploads and public assets.
+- **Rules are compared as models**, not raw arrays, so a provider's key order or legacy `Prefix` field does not read as drift. A managed rule the model cannot represent exactly (date expiry, tag filter, archive class) is rewritten to the declared shape.
+- Declarations are validated when config loads (even with lifecycle disabled), and again at `plan` against provider capabilities.
+
+### Storage-class transitions
+
+Only `ObjectStorageClass::InfrequentAccess` (`STANDARD_IA`) is supported. Archive tiers are deliberately excluded: their objects cannot be read through a presigned GET until restored.
+
+| Provider | Transitions | Earliest transition |
+|---|---|---|
+| `r2` | yes | 1 day — but Infrequent Access bills a **30-day minimum storage duration** and a per-GB retrieval fee; lifecycle cannot move objects back to Standard |
+| `aws_s3`, `s3` | yes | 30 days (AWS refuses earlier) |
+| `generic_s3` | no | — `plan` fails |
+
+Do not transition prefixes whose objects are deleted within 30 days or read constantly (public assets, support attachments): the minimum duration and retrieval fees cost more than Standard.
+
+Managing lifecycle needs write access to the bucket configuration — on R2 an API token with bucket-level **Workers R2 Storage Write**. Check the token before making `apply` part of a deploy.
 
 ## Commands
 

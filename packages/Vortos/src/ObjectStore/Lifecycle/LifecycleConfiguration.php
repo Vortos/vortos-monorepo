@@ -62,17 +62,4 @@ final class LifecycleConfiguration
     {
         return ['Rules' => $this->rules];
     }
-
-    public function equals(self $other): bool
-    {
-        return $this->canonical($this->rules) === $this->canonical($other->rules());
-    }
-
-    /** @param list<array<string, mixed>> $rules */
-    private function canonical(array $rules): string
-    {
-        usort($rules, static fn(array $a, array $b): int => strcmp((string) ($a['ID'] ?? ''), (string) ($b['ID'] ?? '')));
-
-        return json_encode($rules, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-    }
 }

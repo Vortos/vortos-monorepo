@@ -62,7 +62,18 @@ return static function (VortosObjectStoreConfig $config): void {
     // php bin/console vortos:object-store:lifecycle plan
     // php bin/console vortos:object-store:lifecycle apply --confirm
     // It never mutates bucket infrastructure during HTTP requests or boot.
-    // $config->lifecycle()->enabled(true)->requireConfirmation(true);
+    // Rules whose ID starts with the managed prefix (default "vortos-") are owned by this
+    // config: undeclared ones are removed on apply, all other rules are left alone.
+    // Infrequent Access bills a 30-day minimum on R2 — only tier data kept well beyond that.
+    // $config->lifecycle()
+    //     ->enabled(true)
+    //     ->requireConfirmation(true)
+    //     ->rule(\Vortos\ObjectStore\Lifecycle\LifecycleRule::transitionAfter(
+    //         'vortos-app-uploads-ia',
+    //         'uploads',
+    //         90,
+    //         \Vortos\ObjectStore\Lifecycle\ObjectStorageClass::InfrequentAccess,
+    //     ));
 
     // Circuit breaker — fast-fail when the provider is unavailable instead of
     // waiting for SDK timeouts. Application exceptions (not found, size limit,

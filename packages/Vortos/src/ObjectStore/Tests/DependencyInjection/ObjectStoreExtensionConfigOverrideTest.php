@@ -7,7 +7,10 @@ namespace Vortos\ObjectStore\Tests\DependencyInjection;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Vortos\ObjectStore\Config\ObjectStoreObservabilitySection;
+use Vortos\ObjectStore\Contract\LifecycleManagerInterface;
 use Vortos\ObjectStore\DependencyInjection\ObjectStoreExtension;
+use Vortos\ObjectStore\Exception\ObjectStoreConfigurationException;
+use Vortos\ObjectStore\Lifecycle\S3LifecycleManager;
 
 final class ObjectStoreExtensionConfigOverrideTest extends TestCase
 {
@@ -182,5 +185,75 @@ PHP);
         $this->assertSame('custom-managed-rule', $container->getParameter('vortos_object_store.lifecycle.rule_id'));
         $this->assertFalse($container->getParameter('vortos_object_store.lifecycle.require_confirmation'));
         $this->assertTrue($container->getParameter('vortos_object_store.lifecycle.round_up_minimum_lifecycle_day'));
+    }
+
+    public function test_declared_lifecycle_rules_reach_the_s3_lifecycle_manager(): void
+    {
+        $container = $this->loadConfig('object_store_lifecycle_rules_', <<<'PHP'
+<?php
+use Vortos\ObjectStore\DependencyInjection\VortosObjectStoreConfig;
+use Vortos\ObjectStore\Lifecycle\LifecycleRule;
+use Vortos\ObjectStore\Lifecycle\ObjectStorageClass;
+
+return static function (VortosObjectStoreConfig $config): void {
+    $config->driver('s3')->provider('r2')->region('auto')->bucket('media');
+    $config->client()->accountId('abc123')->credentials('key', 'secret');
+    $config->lifecycle()
+        ->enabled(true)
+        ->managedRuleIdPrefix('app-')
+        ->ruleId('app-expire-temporary-uploads')
+        ->rule(LifecycleRule::transitionAfter('app-submissions-ia', 'submissions', 90, ObjectStorageClass::InfrequentAccess));
+    $config->outbox()->enabled(false);
+};
+PHP);
+
+        $this->assertSame('app-', $container->getParameter('vortos_object_store.lifecycle.managed_rule_id_prefix'));
+        $this->assertTrue($container->hasDefinition(S3LifecycleManager::class));
+        $this->assertSame(S3LifecycleManager::class, (string) $container->getAlias(LifecycleManagerInterface::class));
+
+        $definition = $container->getDefinition(S3LifecycleManager::class);
+        $this->assertSame('app-', $definition->getArgument('$managedRuleIdPrefix'));
+        $this->assertSame([[
+            'id' => 'app-submissions-ia',
+            'prefix' => 'submissions/',
+            'expiration_days' => null,
+            'transitions' => [['days' => 90, 'storage_class' => 'STANDARD_IA']],
+            'status' => 'Enabled',
+        ]], $definition->getArgument('$declaredRules'));
+    }
+
+    public function test_a_declared_rule_outside_the_managed_namespace_fails_the_container_build(): void
+    {
+        $this->expectException(ObjectStoreConfigurationException::class);
+
+        // Lifecycle management is off here on purpose: declarations must still be validated, because
+        // the same config ships to the environment where it is on.
+        $this->loadConfig('object_store_lifecycle_foreign_rule_', <<<'PHP'
+<?php
+use Vortos\ObjectStore\DependencyInjection\VortosObjectStoreConfig;
+use Vortos\ObjectStore\Lifecycle\LifecycleRule;
+
+return static function (VortosObjectStoreConfig $config): void {
+    $config->lifecycle()
+        ->enabled(false)
+        ->rule(LifecycleRule::expireAfter('someone-elses-rule', 'exports', 7));
+    $config->outbox()->enabled(false);
+};
+PHP);
+    }
+
+    private function loadConfig(string $dirPrefix, string $configPhp): ContainerBuilder
+    {
+        $projectDir = sys_get_temp_dir() . '/' . $dirPrefix . uniqid();
+        mkdir($projectDir . '/config', 0777, true);
+        file_put_contents($projectDir . '/config/object_store.php', $configPhp);
+
+        $container = new ContainerBuilder();
+        $container->setParameter('kernel.project_dir', $projectDir);
+        $container->setParameter('kernel.env', 'test');
+
+        (new ObjectStoreExtension())->load([], $container);
+
+        return $container;
     }
 }

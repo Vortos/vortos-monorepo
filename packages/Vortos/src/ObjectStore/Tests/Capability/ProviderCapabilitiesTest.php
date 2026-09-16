@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Vortos\ObjectStore\Tests\Capability;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Vortos\ObjectStore\Capability\ObjectStoreProviderCapability;
 use Vortos\ObjectStore\Capability\ProviderCapabilities;
 use Vortos\ObjectStore\Exception\ObjectStoreConfigurationException;
+use Vortos\ObjectStore\Lifecycle\ObjectStorageClass;
 
 final class ProviderCapabilitiesTest extends TestCase
 {
@@ -33,5 +35,41 @@ final class ProviderCapabilitiesTest extends TestCase
     {
         $this->expectException(ObjectStoreConfigurationException::class);
         ProviderCapabilities::forProvider('r2')->assertSupported(ObjectStoreProviderCapability::KmsEncryption);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function transitionProviders(): iterable
+    {
+        yield 'r2' => ['r2'];
+        yield 'aws_s3' => ['aws_s3'];
+        yield 's3' => ['s3'];
+    }
+
+    #[DataProvider('transitionProviders')]
+    public function test_storage_class_transitions_are_supported_where_the_provider_implements_them(string $provider): void
+    {
+        $this->assertTrue(ProviderCapabilities::forProvider($provider)->supports(ObjectStoreProviderCapability::LifecycleStorageClassTransition));
+    }
+
+    public function test_generic_s3_does_not_claim_storage_class_transitions(): void
+    {
+        $this->assertFalse(ProviderCapabilities::forProvider('generic_s3')->supports(ObjectStoreProviderCapability::LifecycleStorageClassTransition));
+    }
+
+    public function test_aws_refuses_infrequent_access_before_thirty_days(): void
+    {
+        $this->assertSame(30, ProviderCapabilities::forProvider('aws_s3')->minimumTransitionDays(ObjectStorageClass::InfrequentAccess));
+        $this->assertSame(30, ProviderCapabilities::forProvider('s3')->minimumTransitionDays(ObjectStorageClass::InfrequentAccess));
+    }
+
+    public function test_r2_accepts_infrequent_access_after_one_day(): void
+    {
+        $this->assertSame(1, ProviderCapabilities::forProvider('r2')->minimumTransitionDays(ObjectStorageClass::InfrequentAccess));
+    }
+
+    public function test_minimum_transition_days_throws_where_transitions_are_unsupported(): void
+    {
+        $this->expectException(ObjectStoreConfigurationException::class);
+        ProviderCapabilities::forProvider('generic_s3')->minimumTransitionDays(ObjectStorageClass::InfrequentAccess);
     }
 }

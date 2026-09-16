@@ -59,6 +59,8 @@ use Vortos\ObjectStore\Multipart\S3ServerSideMultipartMaintenance;
 use Vortos\ObjectStore\Multipart\S3ServerSideMultipartUploadManager;
 use Vortos\ObjectStore\Health\S3ObjectStoreHealthCheck;
 use Vortos\ObjectStore\Preflight\ObjectStoreReachableDoctorCheck;
+use Vortos\ObjectStore\Lifecycle\LifecycleRule;
+use Vortos\ObjectStore\Lifecycle\ManagedLifecycleRules;
 use Vortos\ObjectStore\Lifecycle\NullLifecycleManager;
 use Vortos\ObjectStore\Lifecycle\S3LifecycleManager;
 use Vortos\ObjectStore\Outbox\ObjectOperationSerializer;
@@ -592,6 +594,15 @@ final class ObjectStoreExtension extends Extension
 
     private function registerLifecycle(ContainerBuilder $container, array $config): void
     {
+        // Validate declarations at container build even when lifecycle management is off here: the
+        // same config ships to the environment where it is on, and a bad rule should fail CI, not
+        // the first `lifecycle plan` against production.
+        $declaredRules = array_map(
+            static fn(array $rule): LifecycleRule => LifecycleRule::fromConfigArray($rule),
+            array_values($config['lifecycle']['rules']),
+        );
+        new ManagedLifecycleRules($config['lifecycle']['managed_rule_id_prefix'], $declaredRules);
+
         if (!$config['lifecycle']['enabled'] || $config['driver'] !== 's3') {
             $container->register(NullLifecycleManager::class, NullLifecycleManager::class)
                 ->setShared(true)
@@ -610,6 +621,8 @@ final class ObjectStoreExtension extends Extension
             '$managedRuleId' => $config['lifecycle']['rule_id'],
             '$roundUpMinimumLifecycleDay' => $config['lifecycle']['round_up_minimum_lifecycle_day'],
             '$manageTemporaryUploads' => $config['lifecycle']['manage_temporary_uploads'],
+            '$declaredRules' => array_map(static fn(LifecycleRule $rule): array => $rule->toConfigArray(), $declaredRules),
+            '$managedRuleIdPrefix' => $config['lifecycle']['managed_rule_id_prefix'],
             '$observabilityDisabledSections' => array_values(array_unique(array_merge(
                 $config['observability']['logging_disabled_for'],
                 $config['observability']['tracing_disabled_for'],
@@ -753,6 +766,7 @@ final class ObjectStoreExtension extends Extension
         $container->setParameter('vortos_object_store.lifecycle.rule_id', $config['lifecycle']['rule_id']);
         $container->setParameter('vortos_object_store.lifecycle.require_confirmation', $config['lifecycle']['require_confirmation']);
         $container->setParameter('vortos_object_store.lifecycle.round_up_minimum_lifecycle_day', $config['lifecycle']['round_up_minimum_lifecycle_day']);
+        $container->setParameter('vortos_object_store.lifecycle.managed_rule_id_prefix', $config['lifecycle']['managed_rule_id_prefix']);
         $container->setParameter('vortos_object_store.observability.logging', $config['observability']['logging']);
         $container->setParameter('vortos_object_store.observability.tracing', $config['observability']['tracing']);
         $container->setParameter('vortos_object_store.observability.metrics', $config['observability']['metrics']);

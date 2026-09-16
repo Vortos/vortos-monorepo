@@ -14,11 +14,15 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Vortos\ObjectStore\Contract\LifecycleManagerInterface;
 use Vortos\ObjectStore\Lifecycle\LifecycleConfiguration;
 use Vortos\ObjectStore\Lifecycle\LifecyclePlan;
+use Vortos\ObjectStore\Lifecycle\LifecyclePlanChange;
+use Vortos\ObjectStore\Lifecycle\LifecycleRuleChange;
 
-#[AsCommand(name: 'vortos:object-store:lifecycle', description: 'Show, plan, apply, or remove the managed object-store lifecycle rule')]
+#[AsCommand(name: 'vortos:object-store:lifecycle', description: 'Show, plan, apply, or remove the managed object-store lifecycle rules')]
 final class ObjectStoreLifecycleCommand extends Command
 {
     private const ACTIONS = ['show', 'plan', 'apply', 'remove'];
+
+    private const RULE_COLUMNS = ['ID', 'Status', 'Prefix', 'Expiration days', 'Transitions'];
 
     public function __construct(
         private readonly LifecycleManagerInterface $lifecycleManager,
@@ -77,7 +81,7 @@ final class ObjectStoreLifecycleCommand extends Command
 
     private function plan(SymfonyStyle $io, bool $json): int
     {
-        $plan = $this->lifecycleManager->planTemporaryUploadExpiry();
+        $plan = $this->lifecycleManager->planManagedRules();
         $this->renderPlan($io, $plan, $json);
 
         return $plan->hasChanges() ? 2 : Command::SUCCESS;
@@ -85,7 +89,7 @@ final class ObjectStoreLifecycleCommand extends Command
 
     private function apply(SymfonyStyle $io, bool $json, bool $confirmed, bool $dryRun): int
     {
-        $plan = $this->lifecycleManager->planTemporaryUploadExpiry();
+        $plan = $this->lifecycleManager->planManagedRules();
         if ($dryRun) {
             $this->renderPlan($io, $plan, $json);
             return $plan->hasChanges() ? 2 : Command::SUCCESS;
@@ -104,7 +108,7 @@ final class ObjectStoreLifecycleCommand extends Command
 
     private function remove(SymfonyStyle $io, bool $json, bool $confirmed, bool $dryRun): int
     {
-        $plan = $this->lifecycleManager->planRemoveManagedRule();
+        $plan = $this->lifecycleManager->planRemoveManagedRules();
         if ($dryRun) {
             $this->renderPlan($io, $plan, $json);
             return $plan->hasChanges() ? 2 : Command::SUCCESS;
@@ -130,33 +134,42 @@ final class ObjectStoreLifecycleCommand extends Command
 
         $io->title('Object Store Lifecycle Plan');
         $io->definitionList(
-            ['Change' => $plan->change()->value],
-            ['Managed rule' => $plan->managedRuleId()],
             ['Current rules' => (string) count($plan->current()->rules())],
             ['Desired rules' => (string) count($plan->desired()->rules())],
         );
 
-        if (!$plan->hasChanges()) {
-            $io->success('Lifecycle configuration is already up to date.');
-            return;
+        if ($plan->changes() !== []) {
+            $io->table(['Change', ...self::RULE_COLUMNS], array_map(
+                fn(LifecycleRuleChange $change): array => [
+                    $change->change()->value,
+                    ...$this->rowForRule($change->desired() ?? $change->current() ?? ['ID' => $change->ruleId()]),
+                ],
+                $plan->changes(),
+            ));
         }
 
-        $io->section('Desired managed rule');
-        $this->renderRule($io, $plan->desired()->rule($plan->managedRuleId()));
+        if (!$plan->hasChanges()) {
+            $io->success('Lifecycle configuration is already up to date.');
+        }
     }
 
     private function renderApplied(SymfonyStyle $io, bool $json, LifecyclePlan $plan, LifecycleConfiguration $applied): void
     {
+        $changed = array_values(array_filter(
+            $plan->changes(),
+            static fn(LifecycleRuleChange $change): bool => $change->change() !== LifecyclePlanChange::None,
+        ));
+
         if ($json) {
             $io->writeln(json_encode([
                 'applied' => true,
-                'change' => $plan->change()->value,
+                'changes' => array_map(static fn(LifecycleRuleChange $change): array => $change->toArray(), $changed),
                 'rules' => $applied->rules(),
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             return;
         }
 
-        $io->success(sprintf('Lifecycle configuration applied (%s).', $plan->change()->value));
+        $io->success(sprintf('Lifecycle configuration applied (%d rule change(s)).', count($changed)));
     }
 
     private function renderRules(SymfonyStyle $io, LifecycleConfiguration $configuration): void
@@ -166,31 +179,29 @@ final class ObjectStoreLifecycleCommand extends Command
             return;
         }
 
-        $io->table(['ID', 'Status', 'Prefix', 'Expiration days'], array_map(
+        $io->table(self::RULE_COLUMNS, array_map(
             fn(array $rule): array => $this->rowForRule($rule),
             $configuration->rules(),
         ));
     }
 
-    /** @param array<string, mixed>|null $rule */
-    private function renderRule(SymfonyStyle $io, ?array $rule): void
-    {
-        if ($rule === null) {
-            $io->comment('No managed rule will be present.');
-            return;
-        }
-
-        $io->table(['ID', 'Status', 'Prefix', 'Expiration days'], [$this->rowForRule($rule)]);
-    }
-
-    /** @param array<string, mixed> $rule */
+    /**
+     * @param array<string, mixed> $rule
+     * @return list<string>
+     */
     private function rowForRule(array $rule): array
     {
+        $transitions = [];
+        foreach (is_array($rule['Transitions'] ?? null) ? $rule['Transitions'] : [] as $transition) {
+            $transitions[] = sprintf('%sd → %s', (string) ($transition['Days'] ?? '?'), (string) ($transition['StorageClass'] ?? '?'));
+        }
+
         return [
             (string) ($rule['ID'] ?? ''),
             (string) ($rule['Status'] ?? ''),
             (string) (($rule['Filter']['Prefix'] ?? null) ?? ($rule['Prefix'] ?? '')),
             (string) ($rule['Expiration']['Days'] ?? ''),
+            implode(', ', $transitions),
         ];
     }
 

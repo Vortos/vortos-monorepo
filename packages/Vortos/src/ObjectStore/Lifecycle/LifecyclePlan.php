@@ -4,13 +4,20 @@ declare(strict_types=1);
 
 namespace Vortos\ObjectStore\Lifecycle;
 
+/**
+ * The bucket lifecycle configuration before and after applying the declared rules, and the per-rule
+ * changes between them.
+ *
+ * A bucket holds one lifecycle document, so apply always writes `desired` whole. That is why the plan
+ * carries the unmanaged rules too: they are part of what gets written, unchanged.
+ */
 final class LifecyclePlan
 {
+    /** @param list<LifecycleRuleChange> $changes one entry per managed rule, including unchanged ones */
     public function __construct(
         private readonly LifecycleConfiguration $current,
         private readonly LifecycleConfiguration $desired,
-        private readonly LifecyclePlanChange $change,
-        private readonly string $managedRuleId,
+        private readonly array $changes,
     ) {}
 
     public function current(): LifecycleConfiguration
@@ -23,31 +30,42 @@ final class LifecyclePlan
         return $this->desired;
     }
 
-    public function change(): LifecyclePlanChange
+    /** @return list<LifecycleRuleChange> */
+    public function changes(): array
     {
-        return $this->change;
+        return $this->changes;
     }
 
-    public function managedRuleId(): string
+    public function change(string $ruleId): ?LifecycleRuleChange
     {
-        return $this->managedRuleId;
+        foreach ($this->changes as $change) {
+            if ($change->ruleId() === $ruleId) {
+                return $change;
+            }
+        }
+
+        return null;
     }
 
     public function hasChanges(): bool
     {
-        return $this->change !== LifecyclePlanChange::None;
+        foreach ($this->changes as $change) {
+            if ($change->change() !== LifecyclePlanChange::None) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [
-            'change' => $this->change->value,
-            'managed_rule_id' => $this->managedRuleId,
+            'has_changes' => $this->hasChanges(),
             'current_rule_count' => count($this->current->rules()),
             'desired_rule_count' => count($this->desired->rules()),
-            'current_managed_rule' => $this->current->rule($this->managedRuleId),
-            'desired_managed_rule' => $this->desired->rule($this->managedRuleId),
+            'changes' => array_map(static fn(LifecycleRuleChange $c): array => $c->toArray(), $this->changes),
         ];
     }
 }

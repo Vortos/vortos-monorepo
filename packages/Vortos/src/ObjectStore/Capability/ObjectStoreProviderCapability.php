@@ -13,6 +13,7 @@ enum ObjectStoreProviderCapability: string
     case PublicUrls = 'public_urls';
     case LifecycleConfiguration = 'lifecycle_configuration';
     case LifecyclePrefixExpiration = 'lifecycle_prefix_expiration';
+    case LifecycleStorageClassTransition = 'lifecycle_storage_class_transition';
     case ObjectAcl = 'object_acl';
     case ObjectLock = 'object_lock';
     case ObjectTagging = 'object_tagging';

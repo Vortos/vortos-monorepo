@@ -14,12 +14,12 @@ final class NullLifecycleManager implements LifecycleManagerInterface
         throw $this->unsupported();
     }
 
-    public function planTemporaryUploadExpiry(): LifecyclePlan
+    public function planManagedRules(): LifecyclePlan
     {
         throw $this->unsupported();
     }
 
-    public function planRemoveManagedRule(): LifecyclePlan
+    public function planRemoveManagedRules(): LifecyclePlan
     {
         throw $this->unsupported();
     }

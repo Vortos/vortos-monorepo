@@ -7,6 +7,8 @@ namespace Vortos\ObjectStore\Tests\DependencyInjection;
 use PHPUnit\Framework\TestCase;
 use Vortos\ObjectStore\Config\ObjectStoreObservabilitySection;
 use Vortos\ObjectStore\DependencyInjection\VortosObjectStoreConfig;
+use Vortos\ObjectStore\Lifecycle\LifecycleRule;
+use Vortos\ObjectStore\Lifecycle\ObjectStorageClass;
 
 final class VortosObjectStoreConfigTest extends TestCase
 {
@@ -65,5 +67,42 @@ final class VortosObjectStoreConfigTest extends TestCase
         $this->assertSame('managed', $array['lifecycle']['rule_id']);
         $this->assertFalse($array['lifecycle']['require_confirmation']);
         $this->assertTrue($array['lifecycle']['round_up_minimum_lifecycle_day']);
+    }
+
+    public function test_declared_lifecycle_rules_export_as_scalars_under_their_namespace(): void
+    {
+        $config = new VortosObjectStoreConfig();
+        $config->lifecycle()
+            ->managedRuleIdPrefix('app-')
+            ->rule(LifecycleRule::transitionAfter('app-submissions-ia', 'submissions', 90, ObjectStorageClass::InfrequentAccess))
+            ->rule(LifecycleRule::expireAfter('app-exports-expire', '/exports/', 7));
+
+        $array = $config->toArray();
+
+        $this->assertSame('app-', $array['lifecycle']['managed_rule_id_prefix']);
+        $this->assertSame([
+            [
+                'id' => 'app-submissions-ia',
+                'prefix' => 'submissions/',
+                'expiration_days' => null,
+                'transitions' => [['days' => 90, 'storage_class' => 'STANDARD_IA']],
+                'status' => 'Enabled',
+            ],
+            [
+                'id' => 'app-exports-expire',
+                'prefix' => 'exports/',
+                'expiration_days' => 7,
+                'transitions' => [],
+                'status' => 'Enabled',
+            ],
+        ], $array['lifecycle']['rules']);
+    }
+
+    public function test_lifecycle_namespace_defaults_to_vortos_with_no_declared_rules(): void
+    {
+        $array = (new VortosObjectStoreConfig())->toArray();
+
+        $this->assertSame('vortos-', $array['lifecycle']['managed_rule_id_prefix']);
+        $this->assertSame([], $array['lifecycle']['rules']);
     }
 }

@@ -18,7 +18,10 @@ use Vortos\Tracing\Contract\TracingInterface;
 
 final class S3LifecycleManager implements LifecycleManagerInterface
 {
-    /** @param string[] $observabilityDisabledSections */
+    /**
+     * @param list<array<string, mixed>> $declaredRules LifecycleRule::toConfigArray() shapes
+     * @param string[] $observabilityDisabledSections
+     */
     public function __construct(
         private readonly S3Client $client,
         private readonly string $bucket,
@@ -29,6 +32,8 @@ final class S3LifecycleManager implements LifecycleManagerInterface
         private readonly string $managedRuleId,
         private readonly bool $roundUpMinimumLifecycleDay = false,
         private readonly bool $manageTemporaryUploads = true,
+        private readonly array $declaredRules = [],
+        private readonly string $managedRuleIdPrefix = 'vortos-',
         private readonly ?TracingInterface $tracer = null,
         private readonly ?MetricsInterface $metrics = null,
         private readonly array $observabilityDisabledSections = [],
@@ -56,50 +61,142 @@ final class S3LifecycleManager implements LifecycleManagerInterface
         });
     }
 
-    public function planTemporaryUploadExpiry(): LifecyclePlan
+    public function planManagedRules(): LifecyclePlan
     {
         $this->assertUsable();
 
         return $this->observe('lifecycle_plan', function (): LifecyclePlan {
-            if (!$this->manageTemporaryUploads) {
-                $current = $this->current();
-                return new LifecyclePlan($current, $current, LifecyclePlanChange::None, $this->managedRuleId);
+            $managed = $this->managedRules();
+            $this->assertProviderAccepts($managed);
+            $current = $this->current();
+
+            $desiredRules = [];
+            $changes = [];
+
+            foreach ($current->rules() as $existing) {
+                $id = (string) ($existing['ID'] ?? '');
+                if (!$this->owns($managed, $id)) {
+                    $desiredRules[] = $existing;
+                    continue;
+                }
+
+                if ($managed->rule($id) === null) {
+                    $changes[] = new LifecycleRuleChange($id, LifecyclePlanChange::Remove, $existing, null);
+                }
             }
 
-            $current = $this->current();
-            $rule = LifecycleRule::temporaryUploadExpiry(
-                $this->managedRuleId,
-                $this->temporaryPrefix,
-                $this->orphanTtlSeconds,
-                $this->roundUpMinimumLifecycleDay,
-            );
-            $desired = $current->withRule($rule);
-            $existing = $current->rule($this->managedRuleId);
+            foreach ($managed->rules() as $rule) {
+                $existing = $current->rule($rule->id());
+                $parsed = $existing === null ? null : LifecycleRule::fromS3Rule($existing);
 
-            return new LifecyclePlan(
-                $current,
-                $desired,
-                $current->equals($desired) ? LifecyclePlanChange::None : ($existing === null ? LifecyclePlanChange::Create : LifecyclePlanChange::Update),
-                $this->managedRuleId,
-            );
+                $change = match (true) {
+                    $existing === null => LifecyclePlanChange::Create,
+                    $parsed !== null && $parsed->equals($rule) => LifecyclePlanChange::None,
+                    default => LifecyclePlanChange::Update,
+                };
+
+                $desiredRules[] = $rule->toS3Rule();
+                $changes[] = new LifecycleRuleChange($rule->id(), $change, $existing, $rule->toS3Rule());
+            }
+
+            // The declared set alone is capped in ManagedLifecycleRules; this catches declared plus
+            // console-created rules together overflowing the bucket's limit, before the provider does.
+            if (count($desiredRules) > ManagedLifecycleRules::MAX_RULES_PER_BUCKET) {
+                throw new ObjectStoreConfigurationException(sprintf(
+                    'Bucket "%s" would hold %d lifecycle rules; providers accept at most %d.',
+                    $this->bucket,
+                    count($desiredRules),
+                    ManagedLifecycleRules::MAX_RULES_PER_BUCKET,
+                ));
+            }
+
+            return new LifecyclePlan($current, new LifecycleConfiguration($desiredRules), $changes);
         });
     }
 
-    public function planRemoveManagedRule(): LifecyclePlan
+    public function planRemoveManagedRules(): LifecyclePlan
     {
         $this->assertUsable();
 
         return $this->observe('lifecycle_remove', function (): LifecyclePlan {
+            $managed = $this->managedRules();
             $current = $this->current();
-            $desired = $current->withoutRule($this->managedRuleId);
 
-            return new LifecyclePlan(
-                $current,
-                $desired,
-                $current->equals($desired) ? LifecyclePlanChange::None : LifecyclePlanChange::Remove,
-                $this->managedRuleId,
-            );
+            $desiredRules = [];
+            $changes = [];
+            foreach ($current->rules() as $existing) {
+                $id = (string) ($existing['ID'] ?? '');
+                if ($this->owns($managed, $id)) {
+                    $changes[] = new LifecycleRuleChange($id, LifecyclePlanChange::Remove, $existing, null);
+                    continue;
+                }
+                $desiredRules[] = $existing;
+            }
+
+            return new LifecyclePlan($current, new LifecycleConfiguration($desiredRules), $changes);
         });
+    }
+
+    /**
+     * Built on every call from constructor config — never cached on the service, which lives for the
+     * whole worker process.
+     */
+    private function managedRules(): ManagedLifecycleRules
+    {
+        $rules = array_map(
+            static fn(array $config): LifecycleRule => LifecycleRule::fromConfigArray($config),
+            $this->declaredRules,
+        );
+
+        if ($this->manageTemporaryUploads) {
+            array_unshift($rules, LifecycleRule::temporaryUploadExpiry(
+                $this->managedRuleId,
+                $this->temporaryPrefix,
+                $this->orphanTtlSeconds,
+                $this->roundUpMinimumLifecycleDay,
+            ));
+        }
+
+        return new ManagedLifecycleRules($this->managedRuleIdPrefix, $rules);
+    }
+
+    /**
+     * With temporary-upload management switched off, the temporary-upload rule ID belongs to whoever
+     * switched it off: removing it as "undeclared" would delete the orphan cleanup they now run
+     * themselves.
+     */
+    private function owns(ManagedLifecycleRules $managed, string $ruleId): bool
+    {
+        if (!$this->manageTemporaryUploads && $ruleId === $this->managedRuleId) {
+            return false;
+        }
+
+        return $managed->owns($ruleId);
+    }
+
+    private function assertProviderAccepts(ManagedLifecycleRules $managed): void
+    {
+        if (!$managed->hasTransitions()) {
+            return;
+        }
+
+        $this->capabilities->assertSupported(ObjectStoreProviderCapability::LifecycleStorageClassTransition);
+
+        foreach ($managed->rules() as $rule) {
+            foreach ($rule->transitions() as $transition) {
+                $minimum = $this->capabilities->minimumTransitionDays($transition->storageClass());
+                if ($transition->days() < $minimum) {
+                    throw new ObjectStoreConfigurationException(sprintf(
+                        'Lifecycle rule "%s" transitions to %s after %d days; provider "%s" requires at least %d.',
+                        $rule->id(),
+                        $transition->storageClass()->value,
+                        $transition->days(),
+                        $this->capabilities->provider(),
+                        $minimum,
+                    ));
+                }
+            }
+        }
     }
 
     public function apply(LifecyclePlan $plan): LifecycleConfiguration

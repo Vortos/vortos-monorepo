@@ -18,7 +18,7 @@ use Doctrine\Migrations\DependencyFactory;
  * Lazy: the factory is created on first call to create(), not at container compile time,
  * so no DB connection is attempted until a migration command actually runs.
  */
-final class DependencyFactoryProvider implements DependencyFactoryProviderInterface
+final class DependencyFactoryProvider implements DependencyFactoryProviderInterface, ConnectionDependencyFactoryProviderInterface
 {
     private ?DependencyFactory $factory = null;
 
@@ -37,5 +37,13 @@ final class DependencyFactoryProvider implements DependencyFactoryProviderInterf
         }
 
         return $this->factory;
+    }
+
+    public function forConnection(Connection $connection): DependencyFactory
+    {
+        return DependencyFactory::fromConnection(
+            new PhpFile($this->projectDir . '/migrations.php'),
+            new ExistingConnection($connection),
+        );
     }
 }

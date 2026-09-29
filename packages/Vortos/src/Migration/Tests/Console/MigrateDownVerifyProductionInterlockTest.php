@@ -10,7 +10,9 @@ use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Vortos\Migration\Console\MigrateDownVerifyCommand;
 use Vortos\Migration\Safety\MigrationArtifactFactoryInterface;
-use Vortos\Migration\Service\DependencyFactoryProviderInterface;
+use Vortos\Migration\Service\ConnectionDependencyFactoryProviderInterface;
+use Vortos\Migration\Service\ReversibilityVerifier;
+use Vortos\Migration\Service\TransactionAwareMigrationRunner;
 
 final class MigrateDownVerifyProductionInterlockTest extends TestCase
 {
@@ -36,9 +38,14 @@ final class MigrateDownVerifyProductionInterlockTest extends TestCase
         $connection = $this->createMock(Connection::class);
         $connection->method('getDatabase')->willReturn('app_db');
 
-        $factoryProvider = $this->createMock(DependencyFactoryProviderInterface::class);
+        $factories       = $this->createMock(ConnectionDependencyFactoryProviderInterface::class);
         $artifactFactory = $this->createMock(MigrationArtifactFactoryInterface::class);
 
-        return new MigrateDownVerifyCommand($connection, $factoryProvider, $artifactFactory);
+        return new MigrateDownVerifyCommand(
+            $connection,
+            $factories,
+            new ReversibilityVerifier(new TransactionAwareMigrationRunner()),
+            $artifactFactory,
+        );
     }
 }

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vortos\Migration\Command;
 
-use Doctrine\Migrations\Version\Version;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
@@ -13,6 +12,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Vortos\Migration\Service\DependencyFactoryProviderInterface;
+use Vortos\Migration\Service\RollbackTarget;
 use Vortos\Migration\Service\TransactionAwareMigrationRunner;
 
 /**
@@ -71,7 +71,7 @@ final class MigrateRollbackCommand extends Command
             ? $executed->count()
             : max(1, min((int) $input->getOption('steps'), 1000));
 
-        $targetVersion = $this->resolveTarget($executed->getItems(), $steps);
+        $targetVersion = RollbackTarget::toUndo($executed, $steps, $factory->getVersionComparator());
         $plan          = $factory->getMigrationPlanCalculator()->getPlanUntilVersion($targetVersion);
 
         if (count($plan) === 0) {
@@ -102,22 +102,5 @@ final class MigrateRollbackCommand extends Command
         $output->writeln(sprintf('<info>✔ Rolled back %d migration(s).</info>', count($plan)));
 
         return Command::SUCCESS;
-    }
-
-    /**
-     * @param array<string, \Doctrine\Migrations\Metadata\ExecutedMigration> $executedItems
-     */
-    private function resolveTarget(array $executedItems, int $steps): Version
-    {
-        $versions = array_keys($executedItems);
-        sort($versions);
-
-        $count = count($versions);
-
-        if ($steps >= $count) {
-            return new Version('0');
-        }
-
-        return new Version($versions[$count - $steps - 1]);
     }
 }

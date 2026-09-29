@@ -13,7 +13,8 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Vortos\Migration\Safety\MigrationArtifactFactoryInterface;
 use Vortos\Migration\Safety\MigrationSafetyAnalyzerInterface;
-use Vortos\Migration\Service\DependencyFactoryProviderInterface;
+use Vortos\Migration\Service\ConnectionDependencyFactoryProviderInterface;
+use Vortos\Migration\Service\ReversibilityVerifier;
 
 #[AsCommand(
     name: 'vortos:migrate:down-verify',
@@ -23,9 +24,17 @@ final class MigrateDownVerifyCommand extends Command
 {
     private const DB_PREFIX = 'vortos_downverify_';
 
+    private const PHASE_LABELS = [
+        'prerequisite' => 'PREREQUISITE UP',
+        'up'           => 'UP',
+        'down'         => 'DOWN',
+        're-up'        => 'RE-UP',
+    ];
+
     public function __construct(
         private readonly Connection $connection,
-        private readonly DependencyFactoryProviderInterface $factoryProvider,
+        private readonly ConnectionDependencyFactoryProviderInterface $factories,
+        private readonly ReversibilityVerifier $verifier,
         private readonly MigrationArtifactFactoryInterface $artifactFactory,
         private readonly ?MigrationSafetyAnalyzerInterface $analyzer = null,
     ) {
@@ -92,89 +101,31 @@ final class MigrateDownVerifyCommand extends Command
         $disposableConnection = $this->createDisposableConnection($dbName);
 
         try {
-            $factory = $this->factoryProvider->create();
-            $available = $factory->getMigrationRepository()->getMigrations();
-            $allItems = $available->getItems();
-
-            if ($allItems === []) {
-                $this->outputResult($output, $json, true, 0);
-                return Command::SUCCESS;
-            }
-
-            $versions = array_map(
-                static fn ($item) => (string) $item->getVersion(),
-                $allItems,
+            // The project's migrations, run by Doctrine against the disposable database exactly as
+            // vortos:migrate runs them — see ReversibilityVerifier for what extracting SQL text got wrong.
+            $result = $this->verifier->verify(
+                fn () => $this->factories->forConnection($disposableConnection),
+                $count,
+                $json ? null : static function (string $message) use ($output): void { $output->writeln($message); },
             );
 
-            if ($count > 0 && $count < count($versions)) {
-                $versions = array_slice($versions, -$count);
-            }
+            if (!$result->ok) {
+                $this->outputError($output, $json, sprintf(
+                    '%s failed for %s: %s',
+                    self::PHASE_LABELS[$result->phase] ?? strtoupper((string) $result->phase),
+                    $this->shortVersion((string) $result->version),
+                    $result->reason,
+                ), $result->phase, $result->version);
 
-            if (!$json) {
-                $output->writeln('Phase 1: Migrating UP…');
-            }
-            foreach ($versions as $version) {
-                $artifact = $this->artifactFactory->fromClass($version);
-                foreach ($artifact->upSql as $sql) {
-                    $disposableConnection->executeStatement($sql);
-                }
-            }
-
-            if (!$json) {
-                $output->writeln('Phase 2: Rolling back DOWN…');
-            }
-            $reversedVersions = array_reverse($versions);
-            foreach ($reversedVersions as $version) {
-                $artifact = $this->artifactFactory->fromClass($version);
-
-                if ($artifact->downSql === []) {
-                    $this->outputError($output, $json, sprintf(
-                        'Migration %s has no down() SQL — not reversible.',
-                        $this->shortVersion($version),
-                    ), 'down', $version);
-                    return Command::FAILURE;
-                }
-
-                try {
-                    foreach ($artifact->downSql as $sql) {
-                        $disposableConnection->executeStatement($sql);
-                    }
-                } catch (\Throwable $e) {
-                    $this->outputError($output, $json, sprintf(
-                        'DOWN failed for %s: %s',
-                        $this->shortVersion($version),
-                        $e->getMessage(),
-                    ), 'down', $version);
-                    return Command::FAILURE;
-                }
-            }
-
-            if (!$json) {
-                $output->writeln('Phase 3: Re-migrating UP…');
-            }
-            foreach ($versions as $version) {
-                $artifact = $this->artifactFactory->fromClass($version);
-                try {
-                    foreach ($artifact->upSql as $sql) {
-                        $disposableConnection->executeStatement($sql);
-                    }
-                } catch (\Throwable $e) {
-                    $this->outputError($output, $json, sprintf(
-                        'RE-UP failed for %s: %s',
-                        $this->shortVersion($version),
-                        $e->getMessage(),
-                    ), 're-up', $version);
-                    return Command::FAILURE;
-                }
-            }
-
-            $downSafetyIssues = $this->analyzeDownSql($versions, $output, $json);
-
-            if ($downSafetyIssues > 0) {
                 return Command::FAILURE;
             }
 
-            $this->outputResult($output, $json, true, count($versions));
+            if ($this->analyzeDownSql($result->verified, $output, $json) > 0) {
+                return Command::FAILURE;
+            }
+
+            $this->outputResult($output, $json, true, $result->verifiedCount);
+
             return Command::SUCCESS;
         } finally {
             $disposableConnection->close();

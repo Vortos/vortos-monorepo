@@ -45,6 +45,7 @@ use Vortos\Migration\Safety\Rule\SafetyRuleSet;
 use Vortos\Migration\Safety\SchemaDriftAuditor;
 use Vortos\Migration\Safety\SchemaDriftAuditorInterface;
 use Vortos\Migration\Service\DependencyFactoryProvider;
+use Vortos\Migration\Service\ReversibilityVerifier;
 use Vortos\Migration\Service\DependencyFactoryProviderInterface;
 use Vortos\Foundation\Module\ModulePathResolver;
 use Vortos\Migration\Service\MigrationDriftDetector;
@@ -457,9 +458,14 @@ final class MigrationExtension extends Extension
             ->setPublic(true)
             ->addTag('console.command');
 
+        $container->register(ReversibilityVerifier::class, ReversibilityVerifier::class)
+            ->setArgument('$runner', new Reference(TransactionAwareMigrationRunner::class))
+            ->setPublic(false);
+
         $container->register(MigrateDownVerifyCommand::class, MigrateDownVerifyCommand::class)
             ->setArgument('$connection', new Reference(Connection::class))
-            ->setArgument('$factoryProvider', new Reference(DependencyFactoryProvider::class))
+            ->setArgument('$factories', new Reference(DependencyFactoryProvider::class))
+            ->setArgument('$verifier', new Reference(ReversibilityVerifier::class))
             ->setArgument('$artifactFactory', new Reference(MigrationArtifactFactoryInterface::class))
             ->setArgument('$analyzer', new Reference(MigrationSafetyAnalyzerInterface::class))
             ->setPublic(true)

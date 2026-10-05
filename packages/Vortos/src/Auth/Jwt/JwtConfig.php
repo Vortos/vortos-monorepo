@@ -39,14 +39,53 @@ final readonly class JwtConfig
         public string $issuer = 'vortos',
 
         /**
-         * Token audience — included in 'aud' claim and validated on every token.
-         * Prevents cross-service token confusion when services share a keyring.
+         * Default token audience — written to the 'aud' claim by {@see JwtService::issue()}
+         * when the caller does not pass an explicit one. Prevents cross-service token
+         * confusion when services share a keyring.
          */
         public string $audience = 'vortos',
+
+        /**
+         * The audiences this service will ACCEPT on validation, beyond {@see $audience}.
+         *
+         * A single API that serves several first-party clients (e.g. a customer SPA and an
+         * admin console) mints a distinct audience per client — see
+         * {@see JwtService::issue()}'s `$audience` parameter — so that a token minted for one
+         * client is structurally rejected on the other's routes. All of those audiences must
+         * be listed here, or validation of a legitimately-issued token fails.
+         *
+         * The default audience is always accepted whether or not it appears here, so the
+         * common single-audience deployment needs no configuration. Empty means "accept only
+         * the default audience", which is the historical behaviour.
+         *
+         * @var list<string>
+         */
+        public array $additionalAudiences = [],
     ) {}
 
     /**
+     * Every audience this service accepts on validation: the default plus any additional ones,
+     * de-duplicated. Issuance still defaults to {@see $audience}; this governs acceptance only.
+     *
+     * @return list<string>
+     */
+    public function acceptedAudiences(): array
+    {
+        return array_values(array_unique([$this->audience, ...$this->additionalAudiences]));
+    }
+
+    /**
+     * Whether a token's `aud` claim is one this service accepts.
+     */
+    public function acceptsAudience(mixed $audience): bool
+    {
+        return is_string($audience) && in_array($audience, $this->acceptedAudiences(), true);
+    }
+
+    /**
      * Convenience constructor for the common single-secret HS256 case (tests, single-service apps).
+     *
+     * @param list<string> $additionalAudiences
      */
     public static function fromSecret(
         string $secret,
@@ -54,7 +93,15 @@ final readonly class JwtConfig
         int $refreshTokenTtl = 604800,
         string $issuer = 'vortos',
         string $audience = 'vortos',
+        array $additionalAudiences = [],
     ): self {
-        return new self(Keyring::fromSecret($secret), $accessTokenTtl, $refreshTokenTtl, $issuer, $audience);
+        return new self(
+            Keyring::fromSecret($secret),
+            $accessTokenTtl,
+            $refreshTokenTtl,
+            $issuer,
+            $audience,
+            $additionalAudiences,
+        );
     }
 }

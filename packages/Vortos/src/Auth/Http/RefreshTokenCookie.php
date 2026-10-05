@@ -84,6 +84,29 @@ final class RefreshTokenCookie
     }
 
     /**
+     * Derive a cookie identical to this one but with a different name.
+     *
+     * One API that serves several first-party clients (a customer SPA and an admin console,
+     * say) must give each client its OWN refresh cookie, or the browser keeps a single slot
+     * and the client that logs in last silently overwrites the other's session. Deriving the
+     * per-client cookies from one configured base keeps every other attribute — path, domain,
+     * sameSite, secure, ttl, enabled — identical and in one place, so they cannot drift apart
+     * (a mismatch on clear() would leave a session cookie undeletable).
+     */
+    public function withName(string $name): self
+    {
+        return new self(
+            enabled:  $this->enabled,
+            name:     $name,
+            path:     $this->path,
+            domain:   $this->domain,
+            sameSite: $this->sameSite,
+            secure:   $this->secure,
+            ttl:      $this->ttl,
+        );
+    }
+
+    /**
      * The refresh token the browser presented, or null.
      *
      * Returns null rather than throwing when the cookie is absent: a first login,

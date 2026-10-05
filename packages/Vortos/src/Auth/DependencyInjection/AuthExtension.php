@@ -157,6 +157,7 @@ final class AuthExtension extends Extension
                 $resolved['refresh_token_ttl'],
                 $resolved['issuer'],
                 $resolved['audience'],
+                $resolved['additional_audiences'] ?? [],
             ])
             ->setShared(true)->setPublic(false);
 

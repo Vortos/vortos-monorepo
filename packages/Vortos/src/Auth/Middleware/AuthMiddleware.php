@@ -66,6 +66,15 @@ final class AuthMiddleware implements MiddlewareInterface
 
         $this->arrayAdapter->set('auth:identity', $identity);
         $this->arrayAdapter->set('auth:authz_version', $authzVersion);
+        // The token's audience — the client it was minted for (e.g. a customer SPA vs an admin
+        // console). Exposed so an application serving several first-party clients from one API can
+        // enforce that a token is only used by the client it was issued to, without decoding the
+        // bearer a second time. Null for anonymous requests and for legacy tokens without the claim.
+        $this->arrayAdapter->set('auth:audience', $validated?->audience);
+        // The session id (the refresh-token jti this access token belongs to), so a controller that
+        // supersedes the current session — switching organisation re-mints one — can revoke the one
+        // it replaces instead of leaving it live in the store until it expires. Null when absent.
+        $this->arrayAdapter->set('auth:session_id', $validated?->sessionId);
 
         if ($this->routeRequiresAuth($request) && !$identity->isAuthenticated()) {
             return new JsonResponse(

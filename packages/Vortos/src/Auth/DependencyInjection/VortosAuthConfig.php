@@ -29,6 +29,8 @@ final class VortosAuthConfig
     private int $sessionLivenessCircuitBreakerResetSeconds = 30;
     private string $issuer = 'vortos';
     private string $audience = 'vortos';
+    /** @var list<string> */
+    private array $additionalAudiences = [];
     private string $tokenStorage = InMemoryTokenStorage::class;
     private ?LockoutConfig $lockoutConfig = null;
     private LockoutFailureMode $lockoutFailureMode = LockoutFailureMode::FailClosed;
@@ -231,6 +233,29 @@ final class VortosAuthConfig
         return $this;
     }
 
+    /**
+     * Additional audiences this service ACCEPTS on validation, beyond the default one.
+     *
+     * A single API serving several first-party clients mints a distinct audience per client
+     * (see the login/refresh controllers) so a token minted for one client is rejected on
+     * another's routes. Every such audience must be listed here. The default audience is
+     * always accepted; this adds to it. Idempotent and order-independent.
+     *
+     * @param array<mixed> $audiences
+     */
+    public function additionalAudiences(array $audiences): static
+    {
+        foreach ($audiences as $audience) {
+            if (!is_string($audience) || $audience === '') {
+                throw new \InvalidArgumentException('Each additional audience must be a non-empty string.');
+            }
+        }
+
+        /** @var list<string> $audiences */
+        $this->additionalAudiences = array_values(array_unique($audiences));
+        return $this;
+    }
+
     public function tokenStorage(string $storageClass): static
     {
         $this->tokenStorage = $storageClass;
@@ -385,6 +410,7 @@ final class VortosAuthConfig
             'session_liveness_circuit_breaker_reset_seconds' => $this->sessionLivenessCircuitBreakerResetSeconds,
             'issuer'                      => $this->issuer,
             'audience'                    => $this->audience,
+            'additional_audiences'        => $this->additionalAudiences,
             'token_storage'               => $this->tokenStorage,
             'lockout_failure_mode'        => $this->lockoutFailureMode->value,
             'lockout_circuit_breaker_threshold' => $this->lockoutCircuitBreakerThreshold,

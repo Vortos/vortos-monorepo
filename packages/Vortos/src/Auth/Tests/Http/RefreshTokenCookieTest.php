@@ -134,4 +134,42 @@ final class RefreshTokenCookieTest extends TestCase
         $this->assertTrue($defaults['secure']);
         $this->assertSame(Cookie::SAMESITE_LAX, $defaults['same_site']);
     }
+
+    public function test_with_name_derives_a_per_client_cookie_keeping_every_other_attribute(): void
+    {
+        // Per-client cookies must agree on path/domain/sameSite/secure/ttl/enabled and differ
+        // ONLY by name, so two first-party SPAs on one API keep separate sessions in one browser
+        // and each can still clear its own (a mismatch would leave a session cookie undeletable).
+        $base    = $this->cookie();
+        $derived = $base->withName('sqadmin_rt');
+
+        $this->assertSame('sqadmin_rt', $derived->name());
+
+        $onBase = new Response();
+        $onDerived = new Response();
+        $base->attach($onBase, 't1');
+        $derived->attach($onDerived, 't2');
+
+        $b = $this->cookiesOn($onBase)[0];
+        $d = $this->cookiesOn($onDerived)[0];
+
+        $this->assertSame('sq_rt', $b->getName());
+        $this->assertSame('sqadmin_rt', $d->getName());
+        $this->assertSame($b->getPath(), $d->getPath());
+        $this->assertSame($b->getDomain(), $d->getDomain());
+        $this->assertSame($b->getSameSite(), $d->getSameSite());
+        $this->assertSame($b->isSecure(), $d->isSecure());
+        $this->assertTrue($d->isHttpOnly());
+    }
+
+    public function test_with_name_on_a_disabled_transport_stays_inert(): void
+    {
+        $derived = $this->cookie(enabled: false)->withName('sqadmin_rt');
+
+        $response = new Response();
+        $derived->attach($response, 'token');
+
+        $this->assertCount(0, $this->cookiesOn($response));
+        $this->assertNull($derived->read(Request::create('/', 'POST', [], ['sqadmin_rt' => 'x'])));
+    }
 }

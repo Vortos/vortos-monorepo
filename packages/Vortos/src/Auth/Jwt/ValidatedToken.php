@@ -20,11 +20,16 @@ final readonly class ValidatedToken
      *                               check whether the session is still live (not revoked)
      *                               without decoding the refresh token. Null on legacy tokens
      *                               issued before the claim existed.
+     * @param string|null $audience The `aud` claim — the client this token was minted for
+     *                               (e.g. a customer SPA vs an admin console). Lets a request
+     *                               middleware enforce that a token is only used by the client
+     *                               it was issued to. Null on legacy tokens without the claim.
      */
     public function __construct(
         public UserIdentityInterface $identity,
         public int $authzVersion,
         public int $issuedAt = 0,
         public ?string $sessionId = null,
+        public ?string $audience = null,
     ) {}
 }

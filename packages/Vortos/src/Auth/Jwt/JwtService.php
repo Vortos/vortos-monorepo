@@ -86,18 +86,32 @@ final class JwtService
      *
      * @throws \Vortos\Auth\Session\Exception\SessionLimitExceededException If session limit is exceeded with RejectNew policy.
      */
-    public function issue(UserIdentityInterface $identity, int $authzVersion = 0, array $sessionMeta = []): JwtToken
+    public function issue(UserIdentityInterface $identity, int $authzVersion = 0, array $sessionMeta = [], ?string $audience = null): JwtToken
     {
         $now = time();
         $accessExpiresAt = $now + $this->config->accessTokenTtl;
         $refreshExpiresAt = $now + $this->config->refreshTokenTtl;
         $jti = (string) new \Symfony\Component\Uid\UuidV7();
 
+        // A per-client audience binds the token to the client it was minted for (customer SPA
+        // vs admin console). It must be one the service also accepts, or the token it issues
+        // could never be validated back — a misconfiguration that should fail loudly here, at
+        // issuance, not silently at the next request.
+        $audience ??= $this->config->audience;
+        if (!$this->config->acceptsAudience($audience)) {
+            throw new \InvalidArgumentException(sprintf(
+                'Refusing to issue a token for audience "%s": it is not in the accepted set (%s). '
+                . 'Add it via JwtConfig additionalAudiences.',
+                $audience,
+                implode(', ', $this->config->acceptedAudiences()),
+            ));
+        }
+
         $claims = $identity->getClaims();
 
         $accessPayload = [
             'iss'           => $this->config->issuer,
-            'aud'           => $this->config->audience,
+            'aud'           => $audience,
             'sub'           => $identity->id(),
             'iat'           => $now,
             'exp'           => $accessExpiresAt,
@@ -116,7 +130,7 @@ final class JwtService
 
         $refreshPayload = [
             'iss'  => $this->config->issuer,
-            'aud'  => $this->config->audience,
+            'aud'  => $audience,
             'sub'  => $identity->id(),
             'iat'  => $now,
             'exp'  => $refreshExpiresAt,
@@ -166,7 +180,7 @@ final class JwtService
             throw new TokenInvalidException('Token issuer is invalid.');
         }
 
-        if (($payload['aud'] ?? '') !== $this->config->audience) {
+        if (!$this->config->acceptsAudience($payload['aud'] ?? null)) {
             throw new TokenInvalidException('Token audience is invalid.');
         }
 
@@ -179,6 +193,7 @@ final class JwtService
             authzVersion: (int) ($payload['authz_version'] ?? 0),
             issuedAt: (int) ($payload['iat'] ?? 0),
             sessionId: isset($payload['sid']) ? (string) $payload['sid'] : null,
+            audience: isset($payload['aud']) ? (string) $payload['aud'] : null,
         );
     }
 
@@ -219,7 +234,7 @@ final class JwtService
             throw new TokenInvalidException('Token issuer is invalid.');
         }
 
-        if (($payload['aud'] ?? '') !== $this->config->audience) {
+        if (!$this->config->acceptsAudience($payload['aud'] ?? null)) {
             throw new TokenInvalidException('Token audience is invalid.');
         }
 
@@ -262,7 +277,10 @@ final class JwtService
 
         $this->sessionEnforcer?->removeSession($sub, $jti);
 
-        return $this->issue($identity, $authzVersion, $carriedMeta);
+        // Rotate within the SAME audience the presented token carried, so a refresh never
+        // launders a token from one client (customer SPA) into another (admin console). The
+        // claim was just checked against the accept-set above, so it is safe to carry through.
+        return $this->issue($identity, $authzVersion, $carriedMeta, $payload['aud'] ?? null);
     }
 
     /**
@@ -301,7 +319,7 @@ final class JwtService
             throw new TokenInvalidException('Token issuer is invalid.');
         }
 
-        if (($payload['aud'] ?? '') !== $this->config->audience) {
+        if (!$this->config->acceptsAudience($payload['aud'] ?? null)) {
             throw new TokenInvalidException('Token audience is invalid.');
         }
 

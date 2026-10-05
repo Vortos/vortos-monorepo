@@ -144,7 +144,7 @@ final class SecurityExtension extends Extension
     {
         $container->register(CorsMiddleware::class, CorsMiddleware::class)
             ->setArgument('$config', $resolved)
-            ->setArgument('$routeMap', []) // filled by CorsCompilerPass (routes with #[Cors])
+            ->setArgument('$routeMap', []) // replaced by CorsCompilerPass with the #[Cors] route overrides
             ->addTag('kernel.event_subscriber')
             ->setShared(true)
             ->setPublic(true);

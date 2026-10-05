@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\OpsKit\Driver\DependencyInjection\CollectDriversCompilerPass;
+use Vortos\Security\DependencyInjection\Compiler\CorsCompilerPass;
 use Vortos\Security\DependencyInjection\Compiler\CorsPreflightCompilerPass;
 use Vortos\Security\DependencyInjection\Compiler\CsrfCompilerPass;
 use Vortos\Security\DependencyInjection\Compiler\EncryptionCompilerPass;
@@ -32,6 +33,7 @@ final class SecurityPackage implements PackageInterface
     {
         $container->addCompilerPass(new SecurityHeadersCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new IpFilterCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
+        $container->addCompilerPass(new CorsCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new CsrfCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new RequestSignatureCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);
         $container->addCompilerPass(new EncryptionCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 40);

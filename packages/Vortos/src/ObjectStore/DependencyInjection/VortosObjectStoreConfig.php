@@ -19,6 +19,8 @@ final class VortosObjectStoreConfig
     private ObjectStoreCircuitBreakerConfig $circuitBreakerConfig;
     private ObjectStoreObservabilityConfig $observabilityConfig;
     private ObjectStoreHealthConfig $healthConfig;
+    private ObjectStoreDownloadConfig $downloadConfig;
+    private ObjectStoreBulkTransferConfig $bulkTransferConfig;
 
     public function __construct()
     {
@@ -35,6 +37,8 @@ final class VortosObjectStoreConfig
         $this->circuitBreakerConfig = new ObjectStoreCircuitBreakerConfig();
         $this->observabilityConfig = new ObjectStoreObservabilityConfig();
         $this->healthConfig = new ObjectStoreHealthConfig();
+        $this->downloadConfig = new ObjectStoreDownloadConfig();
+        $this->bulkTransferConfig = new ObjectStoreBulkTransferConfig();
 
         $this->clientConfig
             ->endpoint($_ENV['OBJECT_STORE_ENDPOINT'] ?? null)
@@ -133,6 +137,16 @@ final class VortosObjectStoreConfig
         return $this->healthConfig;
     }
 
+    public function download(): ObjectStoreDownloadConfig
+    {
+        return $this->downloadConfig;
+    }
+
+    public function bulkTransfer(): ObjectStoreBulkTransferConfig
+    {
+        return $this->bulkTransferConfig;
+    }
+
     /** @internal */
     public function toArray(): array
     {
@@ -150,6 +164,8 @@ final class VortosObjectStoreConfig
             'circuit_breaker' => $this->circuitBreakerConfig->toArray(),
             'observability'   => $this->observabilityConfig->toArray(),
             'health'          => $this->healthConfig->toArray(),
+            'download'        => $this->downloadConfig->toArray(),
+            'bulk_transfer'   => $this->bulkTransferConfig->toArray(),
         ];
     }
 }

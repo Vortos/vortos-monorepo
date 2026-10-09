@@ -58,11 +58,15 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
      */
     private const READ_CHUNK_BYTES = 262_144;
 
+    private readonly S3RangedDownloader $downloader;
+
     public function __construct(
         private readonly S3Client $client,
         private readonly string $bucket,
         private readonly string $provider = 'generic_s3',
         private readonly int $multipartPartSizeBytes = 16_777_216,
+        int $downloadPartSizeBytes = 16_777_216,
+        int $downloadConcurrency = 4,
     ) {
         if ($bucket === '') {
             throw new \InvalidArgumentException('Object store bucket cannot be empty for the S3 driver.');
@@ -70,6 +74,8 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
         if ($multipartPartSizeBytes < self::MIN_PART_SIZE) {
             throw new \InvalidArgumentException('S3 multipart part size must be at least 5 MiB.');
         }
+
+        $this->downloader = new S3RangedDownloader($client, $downloadPartSizeBytes, $downloadConcurrency);
     }
 
     /**
@@ -393,12 +399,29 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
      * logical_full dumps are ~2.5 MB, the restore drills kept passing and reported nothing. The
      * WAL archive was healthy and the thing it depended on could not be read back.
      *
-     * The AWS SDK already hands back a PSR-7 stream; StreamWrapper exposes it as a PHP resource
-     * without reading it, so memory is now bounded by the consumer's chunk size.
+     * Memory is bounded by a chunk, not the object: a whole-object read is spooled part by part
+     * through a php://temp handle that spills to disk, and a ranged read wraps the SDK's PSR-7 body
+     * with StreamWrapper without reading it.
+     *
+     * A whole-object read is also no longer ONE request. It used to be, which made the client's
+     * request timeout a ceiling on object size: a 357 MB base backup through a 5 s client failed
+     * whenever R2 delivered under ~70 MB/s, mid-transfer, after the restore drill and the
+     * post-upload checksum read had already pulled most of it.
      */
     public function stream(ObjectKey|string $key, ?GetObjectOptions $options = null): mixed
     {
         $key = ObjectKey::from($key);
+
+        // A whole-object read goes through ranged parts so no single request has to carry the
+        // entire object (see S3RangedDownloader). A caller-chosen range is already one bounded
+        // request and keeps the direct path.
+        if ($options?->range() === null) {
+            try {
+                return $this->downloader->download($this->objectRequest($key, $options));
+            } catch (AwsException $e) {
+                $this->mapException($e, $key);
+            }
+        }
 
         try {
             $result = $this->client->getObject($this->objectRequest($key, $options));
@@ -751,6 +774,16 @@ final class S3CompatibleObjectStore implements ObjectStoreInterface
         // under-scoped credential on an existence check reads as a generic store failure.
         if (in_array($code, ['AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch', 'Forbidden', '403'], true)) {
             throw new ObjectStoreAccessDeniedException($message, previous: $e);
+        }
+
+        // Only ranged reads send If-Match, pinned to the ETag of their first part: the object was
+        // replaced while it was being read, and the parts already fetched belong to another version.
+        if ($code === 'PreconditionFailed') {
+            throw new ObjectStoreException(sprintf(
+                '%s object store error: %s changed while it was being read; retry the read.',
+                $this->provider,
+                $key?->value() ?? 'the object',
+            ), previous: $e);
         }
 
         if (in_array($code, ['SlowDown', 'Throttling', 'ThrottlingException', 'TooManyRequestsException'], true)) {

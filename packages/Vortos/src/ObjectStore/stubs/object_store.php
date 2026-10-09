@@ -43,6 +43,21 @@ return static function (VortosObjectStoreConfig $config): void {
         ->httpTimeout(10.0)
         ->maxRetries(3);
 
+    // Whole-object reads are fetched as byte-range parts, so the request timeout above bounds
+    // one part, never the object.
+    // $config->download()
+    //     ->partSizeBytes(16_777_216)
+    //     ->concurrency(4);
+
+    // The WAL and backups buckets use their own client: no total timeout (a base backup's
+    // transfer time grows with the database), failing instead on a stall — under
+    // stallMinBytesPerSecond for stallTimeoutSeconds. httpTimeout above never applies to them.
+    // $config->bulkTransfer()
+    //     ->connectTimeout(5.0)
+    //     ->stallTimeoutSeconds(60)
+    //     ->stallMinBytesPerSecond(1024)
+    //     ->maxRetries(5);
+
     // Enabled by default so promotions from tmp/ to permanent keys are reliable.
     // Disable only when you deliberately want synchronous object mutations.
     // $config->outbox()->enabled(false);

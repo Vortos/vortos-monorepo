@@ -163,6 +163,28 @@ final class ObjectStoreExtension extends Extension
                     $config['bucket']['name'],
                     $config['provider'],
                     $config['multipart']['part_size_bytes'],
+                    $config['download']['part_size_bytes'],
+                    $config['download']['concurrency'],
+                ])
+                ->setShared(true)
+                ->setPublic(false);
+
+            // Same account and credentials as the client above, different transport contract: see
+            // ObjectStoreBulkTransferConfig. Only the WAL and backups stores use it.
+            $container->register('vortos_object_store.bulk_client', \Aws\S3\S3Client::class)
+                ->setFactory([S3ClientFactory::class, 'createForBulkTransfer'])
+                ->setArguments([
+                    $config['provider'],
+                    $config['region'],
+                    $config['client']['endpoint'],
+                    $config['client']['account_id'],
+                    $config['client']['access_key_id'],
+                    $config['client']['secret_access_key'],
+                    $config['bulk_transfer']['connect_timeout'],
+                    $config['bulk_transfer']['stall_timeout_seconds'],
+                    $config['bulk_transfer']['stall_min_bytes_per_second'],
+                    $config['bulk_transfer']['max_retries'],
+                    $config['client']['path_style_endpoint'],
                 ])
                 ->setShared(true)
                 ->setPublic(false);
@@ -303,10 +325,14 @@ final class ObjectStoreExtension extends Extension
      * two places for the chain to drift — and a secondary store that quietly skips a middleware the
      * primary applies is precisely the kind of divergence nobody notices until a restore.
      *
-     * The S3 client is shared with the primary store — same account, same credentials, different
-     * bucket — so each of these costs one extra driver instance and nothing else. Note that sharing
-     * the client means this alone does NOT isolate credentials; separating buckets is what makes a
-     * scoped-down credential possible, not what applies one.
+     * The S3 client is NOT the primary store's. Same account and credentials, but the primary
+     * client carries the application's request timeout — a latency budget for a web worker, tuned
+     * short — and a base backup's healthy transfer time grows with the database. Sharing it made
+     * that timeout a ceiling on backup size: 357 MB reads died mid-transfer at 5 s, failing the
+     * restore drill and the post-upload checksum read, and a real restore would have died the same
+     * way. These stores use `vortos_object_store.bulk_client`, which fails on a stall rather than on
+     * elapsed time. Credentials are still shared, so this alone does NOT isolate them; separating
+     * buckets is what makes a scoped-down credential possible, not what applies one.
      *
      * @param array<string, mixed> $config
      */
@@ -322,10 +348,12 @@ final class ObjectStoreExtension extends Extension
 
         $container->register("vortos_object_store.{$name}.driver", S3CompatibleObjectStore::class)
             ->setArguments([
-                new Reference(\Aws\S3\S3Client::class),
+                new Reference('vortos_object_store.bulk_client'),
                 $bucket,
                 $config['provider'],
                 $config['multipart']['part_size_bytes'],
+                $config['download']['part_size_bytes'],
+                $config['download']['concurrency'],
             ])
             ->setShared(true)
             ->setPublic(false);
@@ -727,6 +755,12 @@ final class ObjectStoreExtension extends Extension
         $container->setParameter('vortos_object_store.client.connect_timeout', $config['client']['connect_timeout']);
         $container->setParameter('vortos_object_store.client.max_retries', $config['client']['max_retries']);
         $container->setParameter('vortos_object_store.client.path_style_endpoint', $config['client']['path_style_endpoint']);
+        $container->setParameter('vortos_object_store.download.part_size_bytes', $config['download']['part_size_bytes']);
+        $container->setParameter('vortos_object_store.download.concurrency', $config['download']['concurrency']);
+        $container->setParameter('vortos_object_store.bulk_transfer.connect_timeout', $config['bulk_transfer']['connect_timeout']);
+        $container->setParameter('vortos_object_store.bulk_transfer.stall_timeout_seconds', $config['bulk_transfer']['stall_timeout_seconds']);
+        $container->setParameter('vortos_object_store.bulk_transfer.stall_min_bytes_per_second', $config['bulk_transfer']['stall_min_bytes_per_second']);
+        $container->setParameter('vortos_object_store.bulk_transfer.max_retries', $config['bulk_transfer']['max_retries']);
         $container->setParameter('vortos_object_store.bucket.name', $config['bucket']['name']);
         $container->setParameter('vortos_object_store.bucket.key_prefix', $config['bucket']['key_prefix']);
         $container->setParameter('vortos_object_store.bucket.temporary_key_prefix', $config['bucket']['temporary_key_prefix']);

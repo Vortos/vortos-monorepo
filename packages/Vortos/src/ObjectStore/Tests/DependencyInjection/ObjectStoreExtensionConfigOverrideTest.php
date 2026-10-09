@@ -6,6 +6,7 @@ namespace Vortos\ObjectStore\Tests\DependencyInjection;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Reference;
 use Vortos\ObjectStore\Config\ObjectStoreObservabilitySection;
 use Vortos\ObjectStore\Contract\LifecycleManagerInterface;
 use Vortos\ObjectStore\DependencyInjection\ObjectStoreExtension;
@@ -93,6 +94,41 @@ PHP);
         $this->assertTrue($container->hasDefinition(\Vortos\ObjectStore\Command\ObjectStoreMultipartCommand::class));
         $this->assertSame('s3', $container->getParameter('vortos_object_store.driver'));
         $this->assertSame('abc123', $container->getParameter('vortos_object_store.client.account_id'));
+    }
+
+    /**
+     * The WAL and backups stores must never share the application's client.
+     *
+     * They did, and the application's 5 s request timeout became a ceiling on backup size: 357 MB
+     * base backups died mid-transfer, failing the restore drill and the post-upload checksum read.
+     */
+    public function test_wal_and_backups_stores_use_the_bulk_transfer_client_not_the_application_client(): void
+    {
+        $container = $this->loadConfig('object_store_bulk_', <<<'PHP'
+<?php
+use Vortos\ObjectStore\DependencyInjection\VortosObjectStoreConfig;
+
+return static function (VortosObjectStoreConfig $config): void {
+    $config->driver('s3')->provider('r2')->region('auto')->bucket('media');
+    $config->bucketConfig()->walName('media-wal')->backupsName('media-backups');
+    $config->client()->accountId('abc123')->credentials('key', 'secret')->httpTimeout(5.0);
+    $config->bulkTransfer()->stallTimeoutSeconds(45)->stallMinBytesPerSecond(2048);
+};
+PHP);
+
+        foreach (['wal', 'backups'] as $name) {
+            $client = $container->getDefinition("vortos_object_store.{$name}.driver")->getArgument(0);
+            $this->assertInstanceOf(Reference::class, $client);
+            $this->assertSame('vortos_object_store.bulk_client', (string) $client, "{$name} store must use the bulk client");
+        }
+
+        $primary = $container->getDefinition(\Vortos\ObjectStore\Driver\S3\S3CompatibleObjectStore::class)->getArgument(0);
+        $this->assertSame(\Aws\S3\S3Client::class, (string) $primary);
+
+        $bulk = $container->getDefinition('vortos_object_store.bulk_client');
+        $this->assertSame([\Vortos\ObjectStore\Driver\S3\S3ClientFactory::class, 'createForBulkTransfer'], $bulk->getFactory());
+        $this->assertSame(45, $bulk->getArgument(7));
+        $this->assertSame(2048, $bulk->getArgument(8));
     }
 
     public function test_observability_can_be_opted_out(): void

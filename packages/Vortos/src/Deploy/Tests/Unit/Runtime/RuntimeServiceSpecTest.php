@@ -84,7 +84,7 @@ final class RuntimeServiceSpecTest extends TestCase
             // Single-container default: no sibling supervisor configs to consider.
             'sibling_supervisor_configs' => [],
             // Docker's defaults unless declared, and everything on the one network.
-            'hardening' => ['locked' => false, 'writable_paths' => []],
+            'hardening' => ['locked' => false, 'writable_paths' => [], 'owner' => null],
             'edge_topology' => [
                 'serving_network' => 'vortos-net',
                 'init_network' => 'vortos-net',

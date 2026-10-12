@@ -306,14 +306,14 @@ final class ComposeFileTest extends TestCase
     {
         $spec = new RuntimeServiceSpec(
             networks: ['vortos-net', 'vortos-edge'],
-            hardening: \Vortos\Deploy\Runtime\ContainerHardening::locked(['/tmp', '/var/www/html/var']),
+            hardening: \Vortos\Deploy\Runtime\ContainerHardening::locked(['/tmp', '/var/www/html/var'], 1000, 1000),
         );
         $compose = (new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), $spec))->toArray();
 
         foreach (['app-blue', 'worker-blue'] as $service) {
             $this->assertSame(['ALL'], $compose['services'][$service]['cap_drop'], $service);
             $this->assertTrue($compose['services'][$service]['read_only'], $service);
-            $this->assertSame(['/tmp', '/var/www/html/var'], $compose['services'][$service]['tmpfs'], $service);
+            $this->assertSame(['/tmp:uid=1000,gid=1000,mode=0700', '/var/www/html/var:uid=1000,gid=1000,mode=0700'], $compose['services'][$service]['tmpfs'], $service);
             $this->assertSame(['vortos-net', 'vortos-edge'], $compose['services'][$service]['networks'], $service);
         }
 

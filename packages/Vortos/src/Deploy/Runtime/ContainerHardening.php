@@ -23,6 +23,9 @@ namespace Vortos\Deploy\Runtime;
  * path becomes an in-memory tmpfs — empty at every start, gone at every stop, never on disk. They
  * are declared rather than guessed: the set was measured on production with "docker diff", and a
  * path left out fails loudly at boot instead of being silently writable.
+ *
+ * A tmpfs is created root-owned, so each is mounted owned by the user the process runs as, mode
+ * 0700: writable by the application and by nothing else in the container.
  */
 final readonly class ContainerHardening
 {
@@ -32,7 +35,13 @@ final readonly class ContainerHardening
     private function __construct(
         public bool $locked,
         public array $writablePaths,
+        public ?int $ownerUid = null,
+        public ?int $ownerGid = null,
     ) {
+        if (($ownerUid === null) !== ($ownerGid === null) || ($ownerUid !== null && ($ownerUid < 0 || $ownerGid < 0))) {
+            throw new \InvalidArgumentException('ContainerHardening owner needs both a uid and a gid, each zero or more.');
+        }
+
         foreach ($writablePaths as $path) {
             if (!str_starts_with($path, '/') || str_contains($path, ':') || preg_match('/\s/', $path) === 1) {
                 throw new \InvalidArgumentException(sprintf(
@@ -58,10 +67,12 @@ final readonly class ContainerHardening
      * path the process writes.
      *
      * @param list<string> $writablePaths
+     * @param int $ownerUid the user the container's process runs as, who owns each tmpfs
+     * @param int $ownerGid that user's group
      */
-    public static function locked(array $writablePaths): self
+    public static function locked(array $writablePaths, int $ownerUid, int $ownerGid): self
     {
-        return new self(true, $writablePaths);
+        return new self(true, $writablePaths, $ownerUid, $ownerGid);
     }
 
     /**
@@ -82,15 +93,22 @@ final readonly class ContainerHardening
         ];
 
         if ($this->writablePaths !== []) {
-            $keys['tmpfs'] = $this->writablePaths;
+            $keys['tmpfs'] = array_map(
+                fn (string $path): string => sprintf('%s:uid=%d,gid=%d,mode=0700', $path, (int) $this->ownerUid, (int) $this->ownerGid),
+                $this->writablePaths,
+            );
         }
 
         return $keys;
     }
 
-    /** @return array{locked: bool, writable_paths: list<string>} */
+    /** @return array{locked: bool, writable_paths: list<string>, owner: string|null} */
     public function toArray(): array
     {
-        return ['locked' => $this->locked, 'writable_paths' => $this->writablePaths];
+        return [
+            'locked' => $this->locked,
+            'writable_paths' => $this->writablePaths,
+            'owner' => $this->ownerUid === null ? null : sprintf('%d:%d', $this->ownerUid, $this->ownerGid),
+        ];
     }
 }

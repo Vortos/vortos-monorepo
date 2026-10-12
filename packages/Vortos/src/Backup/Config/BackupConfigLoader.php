@@ -95,6 +95,11 @@ final class BackupConfigLoader
     }
 
     /** The declared PostgreSQL configuration file (RC-5), or null when none is declared. */
+    public function pgBackRestOrNull(): ?\Vortos\Backup\PgBackRest\PgBackRestRepository
+    {
+        return $this->config()?->pgBackRestValue();
+    }
+
     public function postgresConfigFileOrNull(): ?string
     {
         return $this->config()?->postgresConfigFileValue();

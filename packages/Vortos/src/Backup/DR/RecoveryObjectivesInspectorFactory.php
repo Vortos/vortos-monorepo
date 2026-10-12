@@ -27,6 +27,7 @@ final class RecoveryObjectivesInspectorFactory
         DrillReportStoreInterface $drills,
         ClockInterface $clock,
         CronDueEvaluator $evaluator,
+        ?PitrAnchorReaderInterface $anchors = null,
     ): RecoveryObjectivesInspector {
         return new RecoveryObjectivesInspector(
             $this->loader->recoveryObjectivesOrNull(),
@@ -38,6 +39,7 @@ final class RecoveryObjectivesInspectorFactory
             $clock,
             $this->loader->environment(),
             $evaluator,
+            $anchors,
         );
     }
 }

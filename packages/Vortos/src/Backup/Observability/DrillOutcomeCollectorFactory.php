@@ -9,7 +9,6 @@ use Vortos\Backup\Catalog\BackupCatalogReadModelInterface;
 use Vortos\Backup\Config\BackupConfigLoader;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Drill\DrillReportStoreInterface;
-use Vortos\Backup\Schedule\BackupScheduleType;
 use Vortos\Metrics\Telemetry\FrameworkTelemetry;
 
 /**
@@ -60,7 +59,7 @@ final class DrillOutcomeCollectorFactory
         $kinds = [];
 
         foreach ($this->loader->schedules() as $schedule) {
-            if ($schedule->type !== BackupScheduleType::Drill) {
+            if (!$schedule->type->isDrill()) {
                 continue;
             }
             $kinds[$schedule->kind->value] = $schedule->kind;

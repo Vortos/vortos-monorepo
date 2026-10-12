@@ -21,10 +21,11 @@ use RuntimeException;
  * never a raw `/var/run/docker.sock`. Mounting the real socket into an application container is
  * equivalent to granting root on the host; the proxy's allowlist is what makes this acceptable, and
  * the constructor refuses a unix socket to keep that property from being quietly given away. The
- * endpoints used here — images/create, containers/create|start|delete, containers/json — are all
- * within the allowlist the deploy path already requires (CONTAINERS, IMAGES, NETWORKS, POST).
+ * endpoints used here — images/create, containers/create|start|delete, containers/json, and
+ * containers/{id}/exec + exec/{id}/start|json — are all within the allowlist the deploy path already
+ * requires (CONTAINERS, IMAGES, NETWORKS, POST, EXEC).
  */
-final class DockerEngineContainerRuntime implements ContainerRuntimeInterface
+final class DockerEngineContainerRuntime implements ContainerRuntimeInterface, ContainerExecInterface
 {
     /**
      * Fallback only. The real version is negotiated from the daemon at first use — see
@@ -91,6 +92,18 @@ final class DockerEngineContainerRuntime implements ContainerRuntimeInterface
 
         if ($spec->network !== null) {
             $config['HostConfig']['NetworkMode'] = $spec->network;
+        }
+
+        if ($spec->user !== null) {
+            $config['User'] = $spec->user;
+        }
+
+        if ($spec->readOnlyBinds !== []) {
+            $config['HostConfig']['Binds'] = array_map(
+                static fn (string $host, string $target): string => $host . ':' . $target . ':ro',
+                array_keys($spec->readOnlyBinds),
+                array_values($spec->readOnlyBinds),
+            );
         }
 
         [$status, $body] = $this->request(
@@ -321,6 +334,166 @@ final class DockerEngineContainerRuntime implements ContainerRuntimeInterface
         }
 
         return $removed;
+    }
+
+    public function findRunningByComposeService(string $service): RunningContainer
+    {
+        $filters = rawurlencode(json_encode([
+            'label' => ['com.docker.compose.service=' . $service],
+            'status' => ['running'],
+        ], JSON_THROW_ON_ERROR));
+        [$status, $body] = $this->request('GET', '/containers/json?filters=' . $filters);
+
+        if ($status >= 400) {
+            throw new RuntimeException(sprintf('Cannot list containers of service "%s" (HTTP %d): %s', $service, $status, $body));
+        }
+
+        $containers = json_decode($body, true);
+        $containers = \is_array($containers) ? array_values(array_filter($containers, \is_array(...))) : [];
+
+        if (\count($containers) !== 1) {
+            // Never guess between two: an exec into the wrong cluster would back up, or drill, the
+            // wrong database and report it as this one.
+            throw new RuntimeException(sprintf(
+                'Expected exactly one running container of compose service "%s", found %d.',
+                $service,
+                \count($containers),
+            ));
+        }
+
+        $container = $containers[0];
+        $id = $container['Id'] ?? null;
+        $image = $container['Image'] ?? null;
+        $names = $container['Names'] ?? [];
+        if (!\is_string($id) || !\is_string($image) || !\is_array($names)) {
+            throw new RuntimeException('Docker returned a container without an id or image: ' . $body);
+        }
+        $name = \is_string($names[0] ?? null) ? ltrim($names[0], '/') : $id;
+
+        return new RunningContainer($id, $name, $image);
+    }
+
+    /**
+     * Run a command in a running container and return its exit code and output.
+     *
+     * DETACHED, then polled, rather than attached: an attached exec holds one HTTP response open for the
+     * whole command, and the socket-proxy closes a connection after ten idle minutes (measured: haproxy
+     * `timeout server 10m`). A backup prints nothing for long stretches, so an attached exec would be cut
+     * mid-backup as the database grows, and the command would be reported failed while still running.
+     * Output goes to two files in the container's /tmp and is read back by a short attached exec once the
+     * command has exited — by stream, so stdout (JSON, for `info`) never mixes with stderr.
+     */
+    public function exec(string $containerId, array $command, int $timeoutSeconds): ExecResult
+    {
+        if ($command === []) {
+            throw new RuntimeException('Refusing to exec an empty command.');
+        }
+
+        $token = bin2hex(random_bytes(8));
+        $out = '/tmp/vortos-exec-' . $token . '.out';
+        $err = '/tmp/vortos-exec-' . $token . '.err';
+
+        // The command's words are passed as arguments to `sh -c`, never spliced into the script, so no
+        // value is ever interpreted by the shell.
+        $run = $this->createExec($containerId, ['sh', '-c', 'exec "$@" >"$VORTOS_EXEC_OUT" 2>"$VORTOS_EXEC_ERR"', 'sh', ...$command], [
+            'VORTOS_EXEC_OUT=' . $out,
+            'VORTOS_EXEC_ERR=' . $err,
+        ], attach: false);
+
+        [$status, $body] = $this->request('POST', '/exec/' . $run . '/start', ['Detach' => true, 'Tty' => false]);
+        if ($status >= 400) {
+            throw new RuntimeException(sprintf('Cannot start exec in container %s (HTTP %d): %s', $containerId, $status, $body));
+        }
+
+        $deadline = microtime(true) + $timeoutSeconds;
+        while (true) {
+            [$status, $body] = $this->request('GET', '/exec/' . $run . '/json');
+            $state = json_decode($body, true);
+            if ($status < 400 && \is_array($state) && ($state['Running'] ?? true) === false && \is_int($state['ExitCode'] ?? null)) {
+                $exitCode = $state['ExitCode'];
+                break;
+            }
+            if (microtime(true) >= $deadline) {
+                throw new RuntimeException(sprintf(
+                    'Command "%s" in container %s did not finish within %d s. It may still be running there; '
+                    . 'its own lock keeps a second run from overlapping it.',
+                    implode(' ', $command),
+                    $containerId,
+                    $timeoutSeconds,
+                ));
+            }
+            usleep(1_000_000);
+        }
+
+        $read = $this->createExec($containerId, ['sh', '-c', 'if [ -f "$VORTOS_EXEC_OUT" ]; then cat "$VORTOS_EXEC_OUT"; fi; if [ -f "$VORTOS_EXEC_ERR" ]; then cat "$VORTOS_EXEC_ERR" >&2; fi; rm -f "$VORTOS_EXEC_OUT" "$VORTOS_EXEC_ERR"'], [
+            'VORTOS_EXEC_OUT=' . $out,
+            'VORTOS_EXEC_ERR=' . $err,
+        ], attach: true);
+        [$status, $body] = $this->rawRequest('POST', '/' . $this->apiVersion() . '/exec/' . $read . '/start', ['Detach' => false, 'Tty' => false]);
+        if ($status >= 400) {
+            throw new RuntimeException(sprintf('Cannot read the output of an exec in container %s (HTTP %d): %s', $containerId, $status, $body));
+        }
+
+        [$stdout, $stderr] = self::splitStreams($body);
+
+        return new ExecResult($exitCode, $stdout, $stderr);
+    }
+
+    /**
+     * @param list<string> $command
+     * @param list<string> $env
+     */
+    private function createExec(string $containerId, array $command, array $env, bool $attach): string
+    {
+        [$status, $body] = $this->request('POST', '/containers/' . $containerId . '/exec', [
+            'AttachStdout' => $attach,
+            'AttachStderr' => $attach,
+            'Tty' => false,
+            'Env' => $env,
+            'Cmd' => $command,
+        ]);
+
+        $decoded = json_decode($body, true);
+        $id = \is_array($decoded) && \is_string($decoded['Id'] ?? null) ? $decoded['Id'] : null;
+
+        if ($status >= 400 || $id === null) {
+            throw new RuntimeException(sprintf('Cannot create exec in container %s (HTTP %d): %s', $containerId, $status, $body));
+        }
+
+        return $id;
+    }
+
+    /**
+     * Docker's multiplexed stream split by stream: frames of type 1 are stdout, type 2 stderr. Unlike
+     * {@see demultiplex()} this refuses unframed input — an exec without a TTY is always framed, so
+     * anything else is a protocol error, not output.
+     *
+     * @return array{0: string, 1: string} [stdout, stderr]
+     */
+    public static function splitStreams(string $body): array
+    {
+        $streams = [1 => '', 2 => ''];
+        $offset = 0;
+        $length = \strlen($body);
+
+        while ($offset < $length) {
+            if ($offset + 8 > $length) {
+                throw new RuntimeException('Truncated Docker stream frame header.');
+            }
+            $type = \ord($body[$offset]);
+            if ($type > 2 || substr($body, $offset + 1, 3) !== "\0\0\0") {
+                throw new RuntimeException('Unframed Docker exec output; expected a multiplexed stream.');
+            }
+            /** @var array{1: int} $size */
+            $size = unpack('N', substr($body, $offset + 4, 4)) ?: [1 => 0];
+            $offset += 8;
+            if ($type !== 0) {
+                $streams[$type] .= substr($body, $offset, $size[1]);
+            }
+            $offset += $size[1];
+        }
+
+        return [$streams[1], $streams[2]];
     }
 
     /**

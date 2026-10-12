@@ -64,6 +64,17 @@ final class DrillScheduleKindDispatchTest extends TestCase
         $this->reports = new InMemoryDrillReportStore();
     }
 
+    /**
+     * A pgBackRest schedule on a node where pgBackRest is not wired must fail as itself — never fall
+     * through to a framework backup that would report green for a lifecycle that never ran.
+     */
+    public function testAPgBackRestScheduleWithoutPgBackRestWiredFailsAsItself(): void
+    {
+        $this->expectExceptionMessage('a pgBackRest schedule is due but pgBackRest is not wired');
+
+        $this->lifecycle()->execute(new BackupSchedule('pgbackrest-full', DatabaseEngine::Postgres, BackupKind::PhysicalBase, 'production', '0 2 * * 0', BackupScheduleType::PgBackRestFull));
+    }
+
     private function seed(BackupKind $kind, string $at): void
     {
         (new BackupRunner(

@@ -54,6 +54,34 @@ final class ScheduleSetBuilder
     }
 
     /**
+     * pgBackRest's lifecycle; requires BackupConfig::pgBackRest(). Fulls are the anchor every
+     * differential refers to, so a full is due weekly at least; differentials carry only the blocks
+     * changed since that full, so they are cheap enough to take daily. The kind is PhysicalBase for
+     * all four: each is, or proves, a point-in-time recovery anchor.
+     */
+    public function pgBackRestFull(string $cron, ?string $name = null): self
+    {
+        return $this->add($cron, BackupScheduleType::PgBackRestFull, BackupKind::PhysicalBase, $name);
+    }
+
+    public function pgBackRestDifferential(string $cron, ?string $name = null): self
+    {
+        return $this->add($cron, BackupScheduleType::PgBackRestDifferential, BackupKind::PhysicalBase, $name);
+    }
+
+    /** Re-reads the whole repository against its checksums; finds rot a restore would only meet later. */
+    public function pgBackRestVerify(string $cron, ?string $name = null): self
+    {
+        return $this->add($cron, BackupScheduleType::PgBackRestVerify, BackupKind::PhysicalBase, $name);
+    }
+
+    /** Restores the newest backup into a disposable server and replays the archive to its end. */
+    public function pgBackRestDrill(string $cron, ?string $name = null): self
+    {
+        return $this->add($cron, BackupScheduleType::PgBackRestDrill, BackupKind::PhysicalBase, $name);
+    }
+
+    /**
      * @return list<array{name: string, cron: string, type: BackupScheduleType, kind: BackupKind}>
      */
     public function entries(): array

@@ -13,7 +13,9 @@ use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\RetentionPolicy;
 use Vortos\Backup\Environment\DefaultEnvironment;
 use Vortos\Backup\Pitr\WalCompression;
+use Vortos\Backup\PgBackRest\PgBackRestRepository;
 use Vortos\Backup\Schedule\BackupSchedule;
+use Vortos\Backup\Schedule\BackupScheduleType;
 
 /**
  * R8-6 (A6–A9): the single fluent surface an app uses to declare its whole backup lifecycle as
@@ -42,6 +44,7 @@ final class BackupConfig
     private string $environment = DefaultEnvironment::NAME;
     private ?RecoveryObjectives $objectives = null;
     private ?string $postgresConfigFile = null;
+    private ?PgBackRestRepository $pgBackRest = null;
     private ScheduleSetBuilder $schedules;
     private RetentionBuilder $retention;
     private AlertsBuilder $alerts;
@@ -220,6 +223,24 @@ final class BackupConfig
         return $this->postgresConfigFile;
     }
 
+    /**
+     * Physical backups and the WAL archive by pgBackRest, running beside the cluster in the database
+     * service's container. The repository (bucket, cipher, retention) is pgBackRest's own configuration,
+     * baked into the database image; this declares only how to reach it. Its schedules are the
+     * pgBackRest* entries of ->schedule(); declaring either without the other is refused at load.
+     */
+    public function pgBackRest(string $stanza, string $databaseService, string $repositoryEnvFile, int $commandTimeoutSeconds = 21_600): self
+    {
+        $this->pgBackRest = new PgBackRestRepository($stanza, $databaseService, $repositoryEnvFile, $commandTimeoutSeconds);
+
+        return $this;
+    }
+
+    public function pgBackRestValue(): ?PgBackRestRepository
+    {
+        return $this->pgBackRest;
+    }
+
     /** @param Closure(ScheduleSetBuilder): mixed $configure */
     public function schedule(Closure $configure): self
     {
@@ -299,6 +320,19 @@ final class BackupConfig
         // (and every deploy gate that compiles the container) instead of reappearing as a silent default.
         if ($this->schedules->entries() !== [] && $this->objectives === null) {
             throw RecoveryObjectivesNotDeclaredException::create();
+        }
+
+        $pgBackRestTypes = array_values(array_filter(
+            array_map(static fn (array $entry): BackupScheduleType => $entry['type'], $this->schedules->entries()),
+            static fn (BackupScheduleType $type): bool => $type->isPgBackRest(),
+        ));
+        if ($this->pgBackRest === null && $pgBackRestTypes !== []) {
+            throw new InvalidArgumentException('config/backup.php schedules pgBackRest but does not declare its repository: add ->pgBackRest(...).');
+        }
+        if ($this->pgBackRest !== null && !\in_array(BackupScheduleType::PgBackRestFull, $pgBackRestTypes, true)) {
+            // Differentials refer to a full, and expiry keys off fulls: without a full schedule the
+            // repository holds one full for ever and every restore point depends on it.
+            throw new InvalidArgumentException('config/backup.php declares ->pgBackRest(...) without a ->pgBackRestFull(...) schedule.');
         }
 
         foreach ($this->schedules->entries() as $entry) {

@@ -91,6 +91,10 @@ final class CronFragmentGenerator
                     ? '--' . BackupDrillCommand::OPTION_PITR
                     : '--' . BackupDrillCommand::OPTION_KIND . '=' . $schedule->kind->value,
             ),
+            BackupScheduleType::PgBackRestFull,
+            BackupScheduleType::PgBackRestDifferential,
+            BackupScheduleType::PgBackRestVerify,
+            BackupScheduleType::PgBackRestDrill => $schedule->type->consoleVerb(),
         };
     }
 }

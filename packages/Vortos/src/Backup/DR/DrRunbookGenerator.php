@@ -140,14 +140,14 @@ final class DrRunbookGenerator
                     ucfirst($schedule->type->value),
                     $schedule->name,
                     $schedule->cron,
-                    $schedule->type === BackupScheduleType::Drill
+                    $schedule->type->isDrill()
                         ? ': provision → restore → invariant checks → measured RTO. This is the only check that '
                             . 'proves a backup restores; `backup:verify` proves only that the bytes are intact.'
                         : '',
                 );
             }
 
-            if (!$this->hasSchedule(BackupScheduleType::Drill)) {
+            if (!$this->hasSchedule(BackupScheduleType::Drill) && !$this->hasSchedule(BackupScheduleType::PgBackRestDrill)) {
                 $lines[] = '- **WARNING: no restore drill is scheduled.** Nothing verifies that these backups '
                     . 'can actually be restored.';
             }

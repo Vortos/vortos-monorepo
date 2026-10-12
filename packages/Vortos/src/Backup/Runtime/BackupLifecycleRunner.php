@@ -27,6 +27,7 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
         private readonly RetentionPolicy $retentionPolicy,
         private readonly string $storeKey,
         private readonly ?DrillRunner $drillRunner = null,
+        private readonly ?\Vortos\Backup\PgBackRest\PgBackRestLifecycle $pgBackRest = null,
     ) {
     }
 
@@ -36,6 +37,13 @@ final class BackupLifecycleRunner implements BackupLifecycleRunnerInterface
             BackupScheduleType::Backup => $this->runBackup($schedule),
             BackupScheduleType::Retention => $this->runRetention($schedule),
             BackupScheduleType::Drill => $this->runDrill($schedule),
+            BackupScheduleType::PgBackRestFull,
+            BackupScheduleType::PgBackRestDifferential,
+            BackupScheduleType::PgBackRestVerify,
+            BackupScheduleType::PgBackRestDrill => ($this->pgBackRest ?? throw new \RuntimeException(
+                'a pgBackRest schedule is due but pgBackRest is not wired: it needs ->pgBackRest(...) in config/backup.php '
+                . 'and the Docker API proxy (VORTOS_BACKUP_DRILL_DOCKER_HOST) on this node.',
+            ))->execute($schedule),
         };
     }
 

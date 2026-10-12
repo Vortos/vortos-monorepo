@@ -8,6 +8,7 @@ use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Backup\Drill\DrillRunner;
+use Vortos\Backup\PgBackRest\PgBackRestDrill;
 
 final class CollectInvariantChecksPass implements CompilerPassInterface
 {
@@ -15,15 +16,16 @@ final class CollectInvariantChecksPass implements CompilerPassInterface
 
     public function process(ContainerBuilder $container): void
     {
-        if (!$container->hasDefinition(DrillRunner::class)) {
-            return;
-        }
-
         $refs = [];
         foreach ($container->findTaggedServiceIds(self::TAG) as $id => $tags) {
             $refs[] = new Reference($id);
         }
 
-        $container->getDefinition(DrillRunner::class)->setArgument('$invariantChecks', $refs);
+        // Every drill proves the restored database with the same checks, whichever restore path it took.
+        foreach ([DrillRunner::class, PgBackRestDrill::class] as $drill) {
+            if ($container->hasDefinition($drill)) {
+                $container->getDefinition($drill)->setArgument('$invariantChecks', $refs);
+            }
+        }
     }
 }

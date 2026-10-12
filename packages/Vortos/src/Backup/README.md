@@ -62,3 +62,31 @@ validated at config time and asserted by the TCK (`Testing\*ConformanceTestCase`
 | `VORTOS_BACKUP_KEY_PREFIX` | `backups` | object key prefix |
 | `VORTOS_BACKUP_LOCK_DIR` | `<project>/var/backup-locks` | single-flight locks |
 | `VORTOS_BACKUP_MONGO_URI` | _(empty)_ | mongodump `--uri` |
+
+## pgBackRest (physical backups and the WAL archive)
+
+`config/backup.php` declares the repository and its schedules; the repository itself (bucket, cipher,
+retention, compression) is pgBackRest's own configuration, baked into the database image.
+
+```php
+->pgBackRest(stanza: 'main', databaseService: 'write_db', repositoryEnvFile: '/opt/app/pgbackrest.env')
+->schedule(fn ($s) => $s
+    ->pgBackRestFull('0 2 * * 0')            // weekly full
+    ->pgBackRestDifferential('0 2 * * 1-6')  // daily, changed blocks only
+    ->pgBackRestVerify('30 4 * * 0')         // re-read the repository against its checksums
+    ->pgBackRestDrill('30 1 * * *'))         // restore + replay to the end of the archive
+```
+
+- pgBackRest runs **inside the database container**; the backup node drives it with Docker exec through
+  the least-privilege proxy (`VORTOS_BACKUP_DRILL_DOCKER_HOST`) and never holds the repository credential.
+  Exec is detached and polled, so no proxy idle timeout can cut a long backup.
+- Expiry is pgBackRest's own, run at the end of every backup — there is no retention schedule.
+- The **drill** starts a disposable container from the database's own image, mounts the credential
+  read-only, restores as the server user with `archive_mode=off` (a promoted drill never pushes a timeline
+  into the production repository), waits for promotion, then runs the same invariants as every drill plus
+  `wal_replayed`, which must reach the newest segment archived when the drill began.
+- The **`pgbackrest-repository` probe** (Monitoring) pages when the repository is unreadable or not ok,
+  when the newest backup or full is older than its schedule allows, or when the server reports segments
+  archived that the repository never stored (`archive-push-queue-max` overflow).
+- The recovery-time projection anchors on the newest pgBackRest backup when pgBackRest is declared.
+- Operator: `backup:pgbackrest status|info|check|backup --type=full|diff|verify|drill`.

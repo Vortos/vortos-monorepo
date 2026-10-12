@@ -556,6 +556,48 @@ final class BackupExtension extends Extension
                 ->setArgument('$network', $drillNetwork !== '' ? $drillNetwork : null)
                 ->setArgument('$pgdata', $drillPitrPgdata)
                 ->setPublic(false);
+
+            // ── pgBackRest (config/backup.php ->pgBackRest()) ─────────────────────────────────────
+            //
+            // Only where the Docker API proxy is: pgBackRest runs inside the database container, and this
+            // node drives it there with exec — it never holds the repository credential. Built by a
+            // factory from the declaration at runtime; each service is null when pgBackRest is undeclared.
+            $container->setAlias(\Vortos\Backup\Drill\Container\ContainerExecInterface::class, \Vortos\Backup\Drill\Container\DockerEngineContainerRuntime::class)
+                ->setPublic(false);
+            $container->register(\Vortos\Backup\PgBackRest\PgBackRestFactory::class, \Vortos\Backup\PgBackRest\PgBackRestFactory::class)
+                ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
+                ->setPublic(false);
+            $container->register(\Vortos\Backup\PgBackRest\PgBackRestClient::class, \Vortos\Backup\PgBackRest\PgBackRestClient::class)
+                ->setFactory([new Reference(\Vortos\Backup\PgBackRest\PgBackRestFactory::class), 'client'])
+                ->setArgument('$docker', new Reference(\Vortos\Backup\Drill\Container\ContainerExecInterface::class))
+                ->setPublic(false);
+            $container->register(\Vortos\Backup\PgBackRest\PromotedServerProbeInterface::class, \Vortos\Backup\PgBackRest\PdoPromotedServerProbe::class)
+                ->setPublic(false);
+            $container->register(\Vortos\Backup\PgBackRest\PgBackRestDrill::class, \Vortos\Backup\PgBackRest\PgBackRestDrill::class)
+                ->setFactory([new Reference(\Vortos\Backup\PgBackRest\PgBackRestFactory::class), 'drill'])
+                ->setArgument('$client', new Reference(\Vortos\Backup\PgBackRest\PgBackRestClient::class))
+                ->setArgument('$runtime', new Reference(\Vortos\Backup\Drill\Container\ContainerRuntimeInterface::class))
+                ->setArgument('$probe', new Reference(\Vortos\Backup\PgBackRest\PromotedServerProbeInterface::class))
+                ->setArgument('$source', new Reference(Connection::class))
+                ->setArgument('$segmentSize', new Reference(\Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class))
+                ->setArgument('$reports', new Reference(DrillReportStoreInterface::class))
+                ->setArgument('$events', new Reference(BackupEventSinkInterface::class))
+                ->setArgument('$clock', new Reference(SystemClock::class))
+                // The same invariants as every other drill (CollectInvariantChecksPass fills this).
+                ->setArgument('$invariantChecks', [])
+                ->setArgument('$network', $drillNetwork !== '' ? $drillNetwork : null)
+                ->setArgument('$timeoutSeconds', $drillPitrTimeout)
+                ->setPublic(false);
+            $container->register(\Vortos\Backup\PgBackRest\PgBackRestLifecycle::class, \Vortos\Backup\PgBackRest\PgBackRestLifecycle::class)
+                ->setFactory([new Reference(\Vortos\Backup\PgBackRest\PgBackRestFactory::class), 'lifecycle'])
+                ->setArgument('$client', new Reference(\Vortos\Backup\PgBackRest\PgBackRestClient::class))
+                ->setArgument('$drill', new Reference(\Vortos\Backup\PgBackRest\PgBackRestDrill::class))
+                ->setPublic(false);
+            $container->register('vortos.backup.pgbackrest.anchor_reader', \Vortos\Backup\DR\PitrAnchorReaderInterface::class)
+                ->setFactory([new Reference(\Vortos\Backup\PgBackRest\PgBackRestFactory::class), 'anchorReader'])
+                ->setArgument('$client', new Reference(\Vortos\Backup\PgBackRest\PgBackRestClient::class))
+                ->setArgument('$segmentSize', new Reference(\Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class))
+                ->setPublic(false);
         } elseif ($drillDsn !== '') {
             $container->register(\Vortos\Backup\Drill\Driver\Postgres\EphemeralDatabaseProvisioner::class)
                 ->setArgument('$drillDsn', $drillDsn)
@@ -631,6 +673,28 @@ final class BackupExtension extends Extension
             ->setArgument('$reader', new Reference(\Vortos\Backup\DR\PostgresSettingsReaderInterface::class))
             ->setPublic(false);
 
+        // FB-65: a WAL file name is a position only at the cluster's real wal_segment_size, fixed per cluster at
+        // initdb. Read by the WAL efficiency probe and by everything pgBackRest that measures WAL distance.
+        $container->register(\Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class, \Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class)
+            ->setArgument('$connection', new Reference(Connection::class))
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\PgBackRest\PgBackRestRepositoryInspector::class, \Vortos\Backup\PgBackRest\PgBackRestRepositoryInspector::class)
+            ->setArgument('$client', new Reference(\Vortos\Backup\PgBackRest\PgBackRestClient::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$schedules', new Reference(BackupScheduleRegistry::class))
+            ->setArgument('$archiver', new Reference(\Vortos\Backup\DR\ArchiverStatusReaderInterface::class))
+            ->setArgument('$segmentSize', new Reference(\Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$evaluator', new Reference(\Vortos\Backup\Runtime\CronDueEvaluator::class))
+            ->setPublic(false);
+
+        $container->register(\Vortos\Backup\Console\BackupPgBackRestCommand::class, \Vortos\Backup\Console\BackupPgBackRestCommand::class)
+            ->setArgument('$client', new Reference(\Vortos\Backup\PgBackRest\PgBackRestClient::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$drill', new Reference(\Vortos\Backup\PgBackRest\PgBackRestDrill::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$inspector', new Reference(\Vortos\Backup\PgBackRest\PgBackRestRepositoryInspector::class))
+            ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
+            ->addTag('console.command')->setPublic(false);
+
         $container->register(\Vortos\Backup\DR\RecoveryObjectivesInspectorFactory::class, \Vortos\Backup\DR\RecoveryObjectivesInspectorFactory::class)
             ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
             ->setPublic(false);
@@ -643,6 +707,7 @@ final class BackupExtension extends Extension
             ->setArgument('$drills', new Reference(DrillReportStoreInterface::class))
             ->setArgument('$clock', new Reference(SystemClock::class))
             ->setArgument('$evaluator', new Reference(\Vortos\Backup\Runtime\CronDueEvaluator::class))
+            ->setArgument('$anchors', new Reference('vortos.backup.pgbackrest.anchor_reader', ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
 
         $container->register('vortos.backup.declared_schedules', 'array')
@@ -771,9 +836,6 @@ final class BackupExtension extends Extension
             // FB-65: the ratio is only honest against the cluster's real wal_segment_size, which is fixed
             // per cluster at initdb. Dividing by an assumed 16 MiB made an uncompressed 2 MiB archive read
             // as 8x compressed, and the regression alarm could not fire.
-            $container->register(\Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class, \Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class)
-                ->setArgument('$connection', new Reference(Connection::class))
-                ->setPublic(false);
 
             $container->register(\Vortos\Backup\Health\WalEfficiencyProbeFactory::class, \Vortos\Backup\Health\WalEfficiencyProbeFactory::class)
                 ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
@@ -796,6 +858,13 @@ final class BackupExtension extends Extension
             // says it restored; neither says whether a recovery would lose less than the RPO or finish
             // inside the RTO, which is the promise. Both page through health_probe_failing rules, and
             // `alerts.recovery_objectives_covered` refuses a deploy that declares objectives without them.
+            // pgBackRest's repository, judged from its own report. Pages through a health_probe_failing rule;
+            // reports Warn (never Fail) where pgBackRest is not declared.
+            $container->register(\Vortos\Backup\Health\PgBackRestRepositoryProbe::class, \Vortos\Backup\Health\PgBackRestRepositoryProbe::class)
+                ->setArgument('$inspector', new Reference(\Vortos\Backup\PgBackRest\PgBackRestRepositoryInspector::class))
+                ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
+                ->setPublic(false);
+
             $container->register(\Vortos\Backup\Health\RecoveryPointObjectiveProbe::class, \Vortos\Backup\Health\RecoveryPointObjectiveProbe::class)
                 ->setArgument('$inspector', new Reference(\Vortos\Backup\DR\RecoveryObjectivesInspector::class))
                 ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
@@ -825,6 +894,7 @@ final class BackupExtension extends Extension
             ->setArgument('$retentionPolicy', new Reference(RetentionPolicy::class))
             ->setArgument('$storeKey', $storeKey)
             ->setArgument('$drillRunner', new Reference(DrillRunner::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$pgBackRest', new Reference(\Vortos\Backup\PgBackRest\PgBackRestLifecycle::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
         $container->setAlias(\Vortos\Backup\Runtime\BackupLifecycleRunnerInterface::class, \Vortos\Backup\Runtime\BackupLifecycleRunner::class)->setPublic(false);
 

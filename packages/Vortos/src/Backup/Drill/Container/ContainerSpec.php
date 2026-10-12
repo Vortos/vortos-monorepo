@@ -14,6 +14,7 @@ final readonly class ContainerSpec
      * @param array<string, string> $env
      * @param array<string, string> $labels
      * @param list<string>          $command
+     * @param array<string, string> $readOnlyBinds host path => container path
      */
     public function __construct(
         public string $image,
@@ -52,5 +53,23 @@ final readonly class ContainerSpec
          * standing proof the value is adequate for this workload.
          */
         public int $shmSizeBytes = 67108864,
-    ) {}
+        /**
+         * The user the container's first process runs as (`uid:gid`); null keeps the image's USER. The
+         * pgBackRest drill starts as root only to read a root-only repository credential, then drops to
+         * the server's own user before restoring anything.
+         */
+        public ?string $user = null,
+        /**
+         * Host files mounted read-only. The pgBackRest drill receives the repository credential this
+         * way so the process that orchestrates the drill never holds it: the Engine API's `Env` would
+         * require the caller to read the secret first.
+         */
+        public array $readOnlyBinds = [],
+    ) {
+        foreach ($readOnlyBinds as $host => $target) {
+            if (!str_starts_with($host, '/') || !str_starts_with($target, '/') || str_contains($host . $target, ':') || str_contains($host . $target, '..')) {
+                throw new \InvalidArgumentException(sprintf('A read-only bind must map an absolute host path to an absolute container path, got "%s" => "%s".', $host, $target));
+            }
+        }
+    }
 }

@@ -57,6 +57,8 @@ final class RecoveryObjectivesInspector
         private readonly ClockInterface $clock,
         private readonly string $environment,
         private readonly CronDueEvaluator $evaluator = new CronDueEvaluator(),
+        /** Null: the framework's own catalog. pgBackRest installations pass its repository. */
+        private readonly ?PitrAnchorReaderInterface $anchors = null,
     ) {}
 
     /** The catalog environment measured — 'production', not APP_ENV. */
@@ -134,19 +136,23 @@ final class RecoveryObjectivesInspector
 
         $objective = $this->objectives->rtoSeconds;
 
+        $now = $this->clock->now();
+        $anchors = $this->anchors ?? new CatalogPitrAnchorReader($this->catalog, $this->wal, $this->environment);
+
         try {
-            $anchor = $this->catalog->latestOfKind(DatabaseEngine::Postgres, $this->environment, [BackupKind::PhysicalBase]);
-            $report = $this->drills->latestOfKind(DatabaseEngine::Postgres->value, $this->environment, BackupKind::PhysicalBase);
+            $anchor = $anchors->read($now);
         } catch (Throwable $e) {
-            return new RecoveryTimeAssessment(ObjectiveStatus::Indeterminate, $objective, 'cannot read the catalog: ' . $e->getMessage());
+            return new RecoveryTimeAssessment(ObjectiveStatus::Indeterminate, $objective, 'cannot read the recovery anchor: ' . $e->getMessage());
         }
 
-        if ($anchor === null) {
-            return new RecoveryTimeAssessment(
-                ObjectiveStatus::Indeterminate,
-                $objective,
-                'no physical base backup exists, so there is no point-in-time recovery to time',
-            );
+        if ($anchor->anchorAt === null) {
+            return new RecoveryTimeAssessment(ObjectiveStatus::Indeterminate, $objective, $anchor->absence);
+        }
+
+        try {
+            $report = $this->drills->latestOfKind(DatabaseEngine::Postgres->value, $this->environment, BackupKind::PhysicalBase);
+        } catch (Throwable $e) {
+            return new RecoveryTimeAssessment(ObjectiveStatus::Indeterminate, $objective, 'cannot read the drill reports: ' . $e->getMessage());
         }
 
         $cost = $report !== null ? $this->replayCost($report) : null;
@@ -158,25 +164,13 @@ final class RecoveryObjectivesInspector
                 $report === null
                     ? 'no point-in-time drill has run, so replay cost has never been measured'
                     : sprintf('the newest point-in-time drill (%s, %s) carries no replay measurement', $report->id, $report->outcome->value),
-                anchorAt: $anchor->createdAt,
+                anchorAt: $anchor->anchorAt,
             );
         }
 
         [$msPerSegment, $fixedMs] = $cost;
-        $now = $this->clock->now();
-
-        try {
-            $sinceAnchor = $this->wal->walVolumeSince(DatabaseEngine::Postgres, $this->environment, $anchor->createdAt)['segments'];
-            $recent = $this->wal->walVolumeSince(
-                DatabaseEngine::Postgres,
-                $this->environment,
-                $now->modify('-' . self::ARCHIVE_RATE_WINDOW_SECONDS . ' seconds'),
-            )['segments'];
-        } catch (Throwable $e) {
-            return new RecoveryTimeAssessment(ObjectiveStatus::Indeterminate, $objective, 'cannot read archived WAL volume: ' . $e->getMessage());
-        }
-
-        $segmentsPerSecond = $recent / self::ARCHIVE_RATE_WINDOW_SECONDS;
+        $sinceAnchor = $anchor->segmentsSinceAnchor;
+        $segmentsPerSecond = $anchor->segmentsPerSecond;
         $projectedMs = $fixedMs + $msPerSegment * $sinceAnchor;
         $objectiveMs = (float) $this->objectives->rtoMilliseconds();
 
@@ -224,7 +218,7 @@ final class RecoveryObjectivesInspector
             segmentsPerHour: $segmentsPerSecond * 3600,
             replayMsPerSegment: $msPerSegment,
             fixedMs: (int) round($fixedMs),
-            anchorAt: $anchor->createdAt,
+            anchorAt: $anchor->anchorAt,
             nextAnchorAt: $nextAnchorAt,
             // Only when it will actually happen. A crossing time that the next base backup pre-empts
             // is not a prediction, and printing one on a healthy system invites someone to act on it.
@@ -273,7 +267,9 @@ final class RecoveryObjectivesInspector
         $next = null;
 
         foreach ($this->schedules->all() as $schedule) {
-            if ($schedule->type !== BackupScheduleType::Backup || $schedule->kind !== BackupKind::PhysicalBase) {
+            $laysAnchor = ($schedule->type === BackupScheduleType::Backup && $schedule->kind === BackupKind::PhysicalBase)
+                || $schedule->type->takesPgBackRestBackup();
+            if (!$laysAnchor) {
                 continue;
             }
 

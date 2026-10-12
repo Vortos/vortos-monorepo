@@ -83,6 +83,9 @@ final class PipelineDefinitionBuilder
     private array $preCutoverCommands = [];
     /** @var list<SealedServiceEnv> */
     private array $sealedServiceEnvs = [];
+
+    /** @var list<\Vortos\Pipeline\Model\DerivedServiceEnv> */
+    private array $derivedServiceEnvs = [];
     /** @var list<RootOfTrustEnvFile> */
     private array $rootOfTrustEnvFiles = [];
     /** @var list<\Vortos\Pipeline\Model\SealedToolingEnv> */
@@ -599,6 +602,18 @@ final class PipelineDefinitionBuilder
     }
 
     /**
+     * Service runtime envs derived from the app-wide sealed env by an allowlist of names (RC-7),
+     * materialised by the deploy one-shot before the topology sync. See {@see \Vortos\Pipeline\Model\DerivedServiceEnv}.
+     */
+    public function derivedServiceEnvs(\Vortos\Pipeline\Model\DerivedServiceEnv ...$envs): self
+    {
+        $clone = clone $this;
+        $clone->derivedServiceEnvs = array_values($envs);
+
+        return $clone;
+    }
+
+    /**
      * Host env files holding the identity sealed files are opened with, declared so the topology policy
      * can account for them. See {@see RootOfTrustEnvFile}.
      */
@@ -744,6 +759,7 @@ final class PipelineDefinitionBuilder
             sealedServiceEnvs: $this->sealedServiceEnvs,
             rootOfTrustEnvFiles: $this->rootOfTrustEnvFiles,
             sealedToolingEnvs: $this->sealedToolingEnvs,
+            derivedServiceEnvs: $this->derivedServiceEnvs,
             composeTopologyPath: $this->composeTopologyPath,
             syncedHostPaths: $this->syncedHostPaths,
             hostSystemBinds: $this->hostSystemBinds,

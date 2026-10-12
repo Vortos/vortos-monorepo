@@ -186,4 +186,23 @@ final class BindMountScopeRuleTest extends TestCase
 
         self::assertStringStartsWith('[bind_mount_scope/access_wider_than_declared] service "write_db", "./docker/postgres/init:/docker-entrypoint-initdb.d": ', $violation->message());
     }
+
+    /**
+     * RC-7: the secret store is delivered for the deploy one-shots alone. Unmounted it is clear (not
+     * "unconsumed" — it has no service audience to be unconsumed by); mounted by any service it is refused.
+     */
+    public function test_a_deploy_only_synced_path_may_be_mounted_by_no_service(): void
+    {
+        $policy = new TopologyPolicy('/opt/vortos', [new BindMountScopeRule('/opt/vortos', ['vortos-secrets.age' => null], [])]);
+        $kinds = static fn (string $yaml): array => array_map(
+            static fn (TopologyViolation $v): string => $v->kind->value . ':' . $v->service,
+            $policy->evaluate($yaml),
+        );
+
+        self::assertSame([], $kinds("services:\n  backup-scheduler:\n    image: x\n"));
+        self::assertSame(
+            ['service_not_allowed:backup-scheduler'],
+            $kinds("services:\n  backup-scheduler:\n    volumes:\n      - ./vortos-secrets.age:/app/vortos-secrets.age:ro\n"),
+        );
+    }
 }

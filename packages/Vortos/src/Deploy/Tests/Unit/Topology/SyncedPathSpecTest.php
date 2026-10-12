@@ -53,4 +53,12 @@ final class SyncedPathSpecTest extends TestCase
 
         SyncedPathSpec::parse($spec);
     }
+
+    /** A deploy-only file ("@-") names no service, so nothing is ever recreated for it. */
+    public function test_a_deploy_only_path_names_no_service(): void
+    {
+        $spec = SyncedPathSpec::parse('vortos-secrets.age@0640@1001:1000@-');
+
+        self::assertSame([], $spec->services);
+    }
 }

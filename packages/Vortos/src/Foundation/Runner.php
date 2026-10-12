@@ -295,8 +295,19 @@ class Runner
      *
      * prod+http deliberately takes (b): resolving at compile time would bake the values into the
      * dump on disk — turning a cache file into a secrets file, and freezing env changes until the
-     * config hash happens to move. Every other context (CLI commands, queue workers, dev/test http)
-     * has no dump and therefore must take (a).
+     * config hash happens to move.
+     *
+     * prod console (queue workers, the scheduler and backup node, deploy one-shots) takes (b) too,
+     * but never writes the dump: it is generated and loaded in memory, per process. It used to take
+     * (a), and (a) resolves EVERY env reference in the application at boot, whether or not the
+     * process will ever build the service that needs it. So every node needed every secret just to
+     * start — the backup node held the payout encryption key, the payment-gateway credentials and
+     * the token signing key because the container would not compile without them (RC-7). Resolved
+     * on use, a process that is never handed a secret boots, and fails only if it actually builds a
+     * service that needs one — at that service, naming the variable.
+     *
+     * dev/test (any context) keeps (a): there is nothing to protect, and failing at boot on a
+     * missing variable is the faster signal while developing.
      *
      * What FB-45 was: prod+http compiled with resolution OFF and then returned that builder,
      * because dumping was treated as a side effect rather than as the step that produces the
@@ -310,6 +321,13 @@ class Runner
      */
     private function getCompiledContainer(): Container
     {
+        if ($this->environment === 'prod' && $this->context !== 'http') {
+            // (b), in memory. The degraded fallback is the same as the http path's: never the
+            // unresolved builder, so a dumper failure costs a second compile, not placeholder tokens.
+            return $this->loadInMemoryDump($this->buildContainer(resolveEnvPlaceholders: false))
+                ?? $this->buildContainer(resolveEnvPlaceholders: true);
+        }
+
         $servesFromDump = $this->environment === 'prod' && $this->context === 'http';
 
         if ($servesFromDump) {
@@ -427,6 +445,48 @@ class Runner
         $container = new $class();
 
         return $container;
+    }
+
+    /**
+     * Generates the container class from an unresolved builder and loads it without a file, or
+     * returns null if the dumper fails.
+     *
+     * Why not the http dump on disk: a console process is short-lived or a single long loop, so a
+     * shared cache buys little, and the dump still carries every value config files read from the
+     * environment directly — on a node whose var/ is a persistent volume that would put those values
+     * on disk. In memory there is nothing to clean up, lock or go stale.
+     *
+     * The class name is per config hash with its own suffix, so it can never collide with an http
+     * dump, and a second boot of the same project in one process reuses the class it already has.
+     */
+    private function loadInMemoryDump(ContainerBuilder $container): ?Container
+    {
+        $class = $this->dumpClassName($this->configHash()) . '_InMemory';
+
+        if (!class_exists($class, autoload: false)) {
+            try {
+                $code = (new PhpDumper($container))->dump(['class' => $class]);
+            } catch (\Throwable) {
+                return null;
+            }
+
+            if (!\is_string($code) || !str_starts_with($code, '<?php')) {
+                return null;
+            }
+
+            // The dumper's own output for the builder this process just compiled from the
+            // application's config — the same code the http path requires from disk.
+            eval(substr($code, \strlen('<?php')));
+        }
+
+        if (!class_exists($class, autoload: false)) {
+            return null;
+        }
+
+        /** @var Container $loaded */
+        $loaded = new $class();
+
+        return $loaded;
     }
 
     /** The class a dump declares. Per-hash, so two dumps can coexist in one process. */

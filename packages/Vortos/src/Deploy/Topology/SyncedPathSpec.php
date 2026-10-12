@@ -6,7 +6,8 @@ namespace Vortos\Deploy\Topology;
 
 /**
  * One path the deploy copies from the release image onto the host, as the generated deploy script
- * hands it to vortos:deploy:compose:sync (RC-3): "<path>@<mode>@<uid>:<gid>@<service>[,<service>…]".
+ * hands it to vortos:deploy:compose:sync (RC-3): "<path>@<mode>@<uid>:<gid>@<service>[,<service>…]", or
+ * "@-" for a file only the deploy one-shots read, which no service mounts and none is recreated for.
  *
  * Parsed and validated here rather than trusted, because this runs as root on the host: a path that
  * escaped the image root or the deploy dir, or a mode that granted group or world write, must never
@@ -14,7 +15,7 @@ namespace Vortos\Deploy\Topology;
  */
 final readonly class SyncedPathSpec
 {
-    /** @param non-empty-list<string> $services */
+    /** @param list<string> $services empty for a deploy-only file */
     private function __construct(
         public string $path,
         public int $mode,
@@ -46,7 +47,7 @@ final readonly class SyncedPathSpec
             throw new \InvalidArgumentException(sprintf('Synced path "%s" owner must be numeric <uid>:<gid>, got "%s".', $path, $owner));
         }
 
-        $names = explode(',', $services);
+        $names = $services === '-' ? [] : explode(',', $services);
         foreach ($names as $name) {
             if (preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/', $name) !== 1) {
                 throw new \InvalidArgumentException(sprintf('Synced path "%s" names an invalid compose service "%s".', $path, $name));

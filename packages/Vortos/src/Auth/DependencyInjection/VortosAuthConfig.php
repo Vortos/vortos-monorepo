@@ -82,6 +82,15 @@ final class VortosAuthConfig
     }
 
     /**
+     * Add the public half of an RS256 key only: this node verifies tokens and cannot issue them.
+     * See {@see SigningKey::rs256VerifyOnly()}.
+     */
+    public function rs256VerifyOnly(string $kid, string $publicKeyPem, KeyStatus $status = KeyStatus::Active): static
+    {
+        return $this->signingKey(SigningKey::rs256VerifyOnly($kid, $publicKeyPem, $status));
+    }
+
+    /**
      * Add an RS256 key pair, loading the PEMs from files (kept outside the project root).
      */
     public function rs256FromPaths(string $kid, string $privateKeyPath, string $publicKeyPath, KeyStatus $status = KeyStatus::Active): static
@@ -140,13 +149,17 @@ final class VortosAuthConfig
 
         $keyArgs = [];
         foreach ($this->signingKeys as $key) {
-            $keyArgs[] = $key->isRsa()
-                ? (new Definition(SigningKey::class))
+            $keyArgs[] = match (true) {
+                $key->isRsa() && !$key->canSign() => (new Definition(SigningKey::class))
+                    ->setFactory([SigningKey::class, 'rs256VerifyOnly'])
+                    ->setArguments([$key->kid, $key->publicKey, $key->status]),
+                $key->isRsa() => (new Definition(SigningKey::class))
                     ->setFactory([SigningKey::class, 'rs256'])
-                    ->setArguments([$key->kid, $key->privateKey, $key->publicKey, $key->status])
-                : (new Definition(SigningKey::class))
+                    ->setArguments([$key->kid, $key->privateKey, $key->publicKey, $key->status]),
+                default => (new Definition(SigningKey::class))
                     ->setFactory([SigningKey::class, 'hs256'])
-                    ->setArguments([$key->kid, $key->secret, $key->status]);
+                    ->setArguments([$key->kid, $key->secret, $key->status]),
+            };
         }
 
         return (new Definition(Keyring::class))->setArguments($keyArgs);

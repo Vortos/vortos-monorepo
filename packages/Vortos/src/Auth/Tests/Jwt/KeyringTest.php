@@ -88,6 +88,46 @@ final class KeyringTest extends TestCase
         $this->assertFalse($ring->isRsa());
     }
 
+    /**
+     * RC-7: a node that only verifies holds the public half. It must verify what the signer issued,
+     * and refuse to sign rather than produce anything.
+     */
+    public function test_a_verify_only_key_verifies_the_signers_tokens_and_cannot_sign(): void
+    {
+        [$priv, $pub] = self::rsaKeyPair();
+        $signer = SigningKey::rs256('2026-10', $priv, $pub);
+        $verifier = new Keyring(SigningKey::rs256VerifyOnly('2026-10', $pub));
+
+        $token = \Firebase\JWT\JWT::encode(['sub' => 'u1'], $signer->signingMaterial(), 'RS256', '2026-10');
+        $claims = \Firebase\JWT\JWT::decode($token, $verifier->verificationKeys());
+
+        $this->assertSame('u1', $claims->sub);
+        $this->assertTrue($signer->canSign());
+        $this->assertFalse($verifier->activeSigningKey()->canSign());
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage("'2026-10' is verify-only");
+        $verifier->activeSigningKey()->signingMaterial();
+    }
+
+    public function test_a_verify_only_key_needs_its_public_key(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        SigningKey::rs256VerifyOnly('k', '');
+    }
+
+    /** The prod HTTP container is dumped, so a verify-only key must survive the dumpable definition. */
+    public function test_a_verify_only_key_survives_the_dumped_keyring_definition(): void
+    {
+        [, $pub] = self::rsaKeyPair();
+        $config = (new \Vortos\Auth\DependencyInjection\VortosAuthConfig())->rs256VerifyOnly('k', $pub);
+
+        $definition = $config->keyringDefinition()->getArgument(0);
+
+        $this->assertSame([SigningKey::class, 'rs256VerifyOnly'], $definition->getFactory());
+        $this->assertSame(['k', $pub, KeyStatus::Active], $definition->getArguments());
+    }
+
     public function test_short_secret_is_rejected(): void
     {
         $this->expectException(\InvalidArgumentException::class);

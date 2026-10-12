@@ -22,6 +22,8 @@ use Vortos\Pipeline\Model\ComposeServiceSet;
  *    only by its named services, all of which must actually mount it, as a required file, listed after
  *    every runtime env file (compose applies env files in order, so a later app-wide file would silently
  *    replace the scoped credential — isolation lost with no symptom);
+ *  - a {@see \Vortos\Pipeline\Model\DerivedServiceEnv} likewise, and a service that mounts one must
+ *    mount no runtime env file at all — the derived file exists to withhold names the runtime env carries;
  *  - anything else, or anything that cannot be resolved without the host, is refused.
  */
 final class EnvFileScopeRule implements TopologyRuleInterface
@@ -34,12 +36,16 @@ final class EnvFileScopeRule implements TopologyRuleInterface
     /** @var array<string, true> */
     private readonly array $runtime;
 
+    /** @var array<string, true> absolute host paths of derived envs */
+    private readonly array $derived;
+
     /**
      * @param list<string>                          $runtimeEnvFiles absolute host paths any service may read
      * @param array<string, ComposeServiceSet|null> $scopedFiles     bare file name in $deployDir => allowed services,
      *                                                                or null for a tooling-only file no service may mount
+     * @param list<string>                          $derivedFiles    bare file names (already in $scopedFiles) that are derived envs
      */
-    public function __construct(string $deployDir, array $runtimeEnvFiles, array $scopedFiles)
+    public function __construct(string $deployDir, array $runtimeEnvFiles, array $scopedFiles, array $derivedFiles = [])
     {
         $runtime = [];
         foreach ($runtimeEnvFiles as $file) {
@@ -59,8 +65,18 @@ final class EnvFileScopeRule implements TopologyRuleInterface
             $scoped[$resolved] = $services;
         }
 
+        $derived = [];
+        foreach ($derivedFiles as $name) {
+            $resolved = HostPath::resolve($name, $deployDir);
+            if ($resolved === null || !\array_key_exists($resolved, $scoped) || $scoped[$resolved] === null) {
+                throw new \InvalidArgumentException(sprintf('Derived env file "%s" must also be a scoped service env file.', $name));
+            }
+            $derived[$resolved] = true;
+        }
+
         $this->runtime = $runtime;
         $this->scoped = $scoped;
+        $this->derived = $derived;
     }
 
     public static function forDefinition(PipelineDefinition $definition): self
@@ -75,8 +91,13 @@ final class EnvFileScopeRule implements TopologyRuleInterface
         foreach ($definition->sealedToolingEnvs as $tooling) {
             $scoped[$tooling->target->value] = null;
         }
+        $derived = [];
+        foreach ($definition->derivedServiceEnvs as $env) {
+            $scoped[$env->target->value] = $env->services;
+            $derived[] = $env->target->value;
+        }
 
-        return new self($definition->remoteDeployDir, $definition->runtimeEnvFiles, $scoped);
+        return new self($definition->remoteDeployDir, $definition->runtimeEnvFiles, $scoped, $derived);
     }
 
     public function name(): string
@@ -109,6 +130,8 @@ final class EnvFileScopeRule implements TopologyRuleInterface
             $lastRuntimePosition = -1;
             /** @var array<string, array{int, string}> $scopedPositions */
             $scopedPositions = [];
+            $runtimeMounted = null;
+            $derivedMounted = null;
 
             foreach ($entries as $position => [$raw, $required]) {
                 $path = $topology->resolveHostPath($raw);
@@ -125,6 +148,7 @@ final class EnvFileScopeRule implements TopologyRuleInterface
 
                 if (isset($this->runtime[$path])) {
                     $lastRuntimePosition = $position;
+                    $runtimeMounted ??= $raw;
                     continue;
                 }
 
@@ -161,6 +185,9 @@ final class EnvFileScopeRule implements TopologyRuleInterface
 
                 $consumers[$path][] = $service;
                 $scopedPositions[$path] = [$position, $raw];
+                if (isset($this->derived[$path])) {
+                    $derivedMounted ??= $raw;
+                }
 
                 if (!$required) {
                     $violations[] = $this->violation(
@@ -170,6 +197,15 @@ final class EnvFileScopeRule implements TopologyRuleInterface
                         'required: false would boot the service without its credential if the file were missing; a declared secret is required',
                     );
                 }
+            }
+
+            if ($runtimeMounted !== null && $derivedMounted !== null) {
+                $violations[] = $this->violation(
+                    EnvFileScopeViolationKind::RuntimeEnvBesideDerived,
+                    $service,
+                    $runtimeMounted,
+                    sprintf('this service receives the derived env %s, which exists to withhold most of this file; mount the derived env alone', $derivedMounted),
+                );
             }
 
             foreach ($scopedPositions as [$position, $raw]) {

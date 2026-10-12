@@ -24,6 +24,12 @@ enum EnvFileScopeViolationKind: string implements TopologyViolationKind
     /** A service mounts a tooling-only secret (e.g. the database owner credential) that only deploy one-shots may read. */
     case ToolingOnly = 'tooling_only';
 
+    /**
+     * A service mounts a derived env AND an app-wide runtime env: the runtime env hands it every
+     * variable the derivation exists to withhold.
+     */
+    case RuntimeEnvBesideDerived = 'runtime_env_beside_derived';
+
     /** The entry cannot be resolved statically, so which file the service receives cannot be proven. */
     case Unverifiable = 'unverifiable';
 }

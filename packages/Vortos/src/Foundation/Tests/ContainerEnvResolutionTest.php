@@ -126,12 +126,60 @@ final class ContainerEnvResolutionTest extends TestCase
         }
     }
 
-    /** Non-http contexts have no dump, so they must resolve in-process. */
+    /** prod console takes the dump path in memory, and is just as resolved. */
     public function test_cli_boot_resolves_env_references(): void
     {
         $container = $this->boot(new ProbeRunner('prod', false, $this->makeProjectRoot(), 'cli'));
 
         $this->assertSame(self::PROBE_VALUE, $container->getParameter('probe'));
+        $this->assertNotInstanceOf(ContainerBuilder::class, $container, 'prod console served the unresolved builder');
+    }
+
+    /**
+     * RC-7: a prod console process must boot without a secret it never uses. Eager resolution made
+     * every node need every variable just to compile, so the backup node was handed the payout key
+     * and the gateway credentials. The service that needs the variable still fails — at that
+     * service, naming it.
+     */
+    public function test_prod_cli_boots_without_a_variable_only_an_unused_service_needs(): void
+    {
+        $container = $this->boot(new SecretConsumerRunner('prod', false, $this->makeProjectRoot(), 'cli'));
+
+        $this->assertSame(self::PROBE_VALUE, $container->getParameter('probe'));
+
+        $this->expectException(\Symfony\Component\DependencyInjection\Exception\EnvNotFoundException::class);
+        $this->expectExceptionMessage(SecretConsumerRunner::ABSENT_ENV);
+        $container->get('secret_consumer');
+    }
+
+    /** The console dump never touches disk: var/ may be a persistent volume. */
+    public function test_prod_cli_writes_no_dump(): void
+    {
+        $root = $this->makeProjectRoot();
+
+        $this->boot(new ProbeRunner('prod', false, $root, 'cli'));
+
+        $this->assertSame([], glob($root . '/var/cache/container_*') ?: [], 'a console boot wrote a container dump');
+    }
+
+    /** dev keeps eager resolution: a missing variable fails the boot, the faster signal while developing. */
+    public function test_dev_cli_still_fails_at_boot_on_a_missing_variable(): void
+    {
+        $this->expectException(\Symfony\Component\DependencyInjection\Exception\EnvNotFoundException::class);
+
+        $this->boot(new SecretConsumerRunner('dev', true, $this->makeProjectRoot(), 'cli'));
+    }
+
+    /** Two prod console boots of one project in one process reuse the class rather than redeclare it. */
+    public function test_two_prod_cli_boots_of_one_project_share_the_class(): void
+    {
+        $root = $this->makeProjectRoot();
+
+        $first  = $this->boot(new ProbeRunner('prod', false, $root, 'cli'));
+        $second = $this->boot(new ProbeRunner('prod', false, $root, 'cli'));
+
+        $this->assertSame($first::class, $second::class);
+        $this->assertNotSame($first, $second);
     }
 
     /**
@@ -256,6 +304,23 @@ final class ProbeRunner extends Runner
     protected function buildContainer(bool $resolveEnvPlaceholders): ContainerBuilder
     {
         $container = self::probeContainer();
+        $container->compile($resolveEnvPlaceholders);
+
+        return $container;
+    }
+}
+
+/** A probe container plus a service whose argument is a variable no process here sets. */
+final class SecretConsumerRunner extends Runner
+{
+    public const ABSENT_ENV = 'VORTOS_RC7_NEVER_SET';
+
+    protected function buildContainer(bool $resolveEnvPlaceholders): ContainerBuilder
+    {
+        $container = ProbeRunner::probeContainer();
+        $container->register('secret_consumer', \ArrayObject::class)
+            ->setArguments([['secret' => '%env(' . self::ABSENT_ENV . ')%']])
+            ->setPublic(true);
         $container->compile($resolveEnvPlaceholders);
 
         return $container;

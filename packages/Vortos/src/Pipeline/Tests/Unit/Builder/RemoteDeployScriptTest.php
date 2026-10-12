@@ -114,6 +114,59 @@ final class RemoteDeployScriptTest extends TestCase
         self::assertTrue($envProd < $identity && $identity < $r2 && $r2 < $sync);
     }
 
+    /**
+     * RC-7: a derived env is opened from the same sealed source as the app-wide env, keeps only its
+     * declared names, and lands before the topology sync like every other env file a service mounts.
+     */
+    public function test_materializes_each_derived_env_from_the_sealed_source_before_the_topology_sync(): void
+    {
+        $script = $this->script(new PipelineDefinition(
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            syncComposeTopology: true,
+            syncComposeTopologyApply: true,
+            sealedEnvFile: 'deploy/secrets/env.prod.sealed',
+            derivedServiceEnvs: [new \Vortos\Pipeline\Model\DerivedServiceEnv(
+                new \Vortos\Pipeline\Model\HostEnvFileName('backup-scheduler.env'),
+                ['REDIS_DSN', 'APP_ENV'],
+                \Vortos\Pipeline\Model\SecretFileMode::OwnerReadWrite,
+                \Vortos\Pipeline\Model\FileOwner::root(),
+                new \Vortos\Pipeline\Model\ComposeServiceSet(['backup-scheduler']),
+            )],
+        ));
+
+        $line = 'deploy/secrets/open-env.php deploy/secrets/env.prod.sealed /opt/vortos/backup-scheduler.env 0600 0:0 --only=APP_ENV,REDIS_DSN';
+        self::assertStringContainsString($line, $script);
+
+        $envProd = strpos($script, 'env.prod.sealed /opt/vortos/.env.prod');
+        $derived = strpos($script, $line);
+        $sync = strpos($script, 'vortos:deploy:compose:sync');
+        self::assertIsInt($envProd);
+        self::assertIsInt($derived);
+        self::assertIsInt($sync);
+        self::assertTrue($envProd < $derived && $derived < $sync);
+    }
+
+    /** A deploy-only synced path reaches the sync as "@-": delivered, mounted by no service, recreating none. */
+    public function test_a_deploy_only_synced_path_reaches_the_sync_with_no_service(): void
+    {
+        $script = $this->script(new PipelineDefinition(
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            syncComposeTopology: true,
+            syncComposeTopologyApply: true,
+            syncedHostPaths: [\Vortos\Pipeline\Model\SyncedHostPath::forDeployOneShots(
+                new \Vortos\Pipeline\Model\ProjectPath('vortos-secrets.age'),
+                \Vortos\Pipeline\Model\SyncedFileMode::GroupReadable,
+                new \Vortos\Pipeline\Model\FileOwner(1001, 1000),
+            )],
+        ));
+
+        self::assertStringContainsString('--synced-path=vortos-secrets.age@0640@1001:1000@-', $script);
+    }
+
     public function test_no_sealed_service_env_materialization_when_none_declared(): void
     {
         $script = $this->script($this->definition(false, sealedEnvFile: 'deploy/secrets/env.prod.sealed'));

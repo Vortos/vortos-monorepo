@@ -22,10 +22,25 @@ namespace Vortos\Pipeline\Model;
  */
 final readonly class SyncedHostPath
 {
+    /**
+     * @param ComposeServiceSet|null $services the services that mount it, or null for a file only the deploy
+     *                                         one-shots read (see {@see self::forDeployOneShots()})
+     */
     public function __construct(
         public ProjectPath $path,
         public SyncedFileMode $mode,
         public FileOwner $owner,
-        public ComposeServiceSet $services,
+        public ?ComposeServiceSet $services,
     ) {}
+
+    /**
+     * A file the deploy one-shots read from the host and no running service may mount — the framework
+     * secret store, say. It still has to be delivered from the signed image like every other host path,
+     * but naming a service as its audience would put it in a container that has no use for it, which is
+     * how the backup node came to mount the store beside the identity that opens it.
+     */
+    public static function forDeployOneShots(ProjectPath $path, SyncedFileMode $mode, FileOwner $owner): self
+    {
+        return new self($path, $mode, $owner, null);
+    }
 }

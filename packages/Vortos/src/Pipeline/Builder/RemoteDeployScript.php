@@ -255,6 +255,28 @@ final class RemoteDeployScript
             );
         }
 
+        // RC-7: per-service envs derived from the app-wide sealed env. Opened from the same sealed source
+        // (never from the plaintext .env.prod, so there is no ordering to get wrong and no second copy to
+        // drift), keeping only the declared names; the reveal script fails closed on a declared name the
+        // source lacks. Names are not secret, so passing them as an argument exposes nothing.
+        if ($definition->sealedEnvFile !== null) {
+            foreach ($definition->derivedServiceEnvs as $derived) {
+                $lines[] = sprintf(
+                    'docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/%s %s %s --only=%s',
+                    $deployDir,
+                    $deployDir,
+                    $toolingRef,
+                    $definition->sealedEnvRevealScript,
+                    $definition->sealedEnvFile,
+                    $deployDir,
+                    $derived->target->value,
+                    $derived->mode->octal(),
+                    $derived->owner->toString(),
+                    implode(',', $derived->names),
+                );
+            }
+        }
+
         // Tooling-only sealed secrets: opened the same way, owned by the deploy user whose docker CLI reads them.
         foreach ($definition->sealedToolingEnvs as $tooling) {
             $lines[] = sprintf(
@@ -320,7 +342,8 @@ final class RemoteDeployScript
                     $synced->path->value,
                     $synced->mode->octal(),
                     $synced->owner->toString(),
-                    implode(',', $synced->services->names),
+                    // '-' = no service: the deploy one-shots alone read it.
+                    $synced->services === null ? '-' : implode(',', $synced->services->names),
                 );
             }
 

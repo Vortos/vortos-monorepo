@@ -12,7 +12,7 @@ final readonly class SyncedPathResult
     /**
      * @param list<string>           $changedFiles project-relative files whose content, mode or owner differed
      * @param list<string>           $removedFiles project-relative host files a synced directory no longer ships
-     * @param non-empty-list<string> $services     the services that mount this path
+     * @param list<string>           $services     the services that mount this path (empty: deploy one-shots only)
      */
     public function __construct(
         public string $path,
@@ -35,7 +35,7 @@ final readonly class SyncedPathResult
      */
     public function needsRecreate(): bool
     {
-        return $this->applied && $this->isFile && $this->status === SyncedPathStatus::Updated && $this->changedFiles !== [];
+        return $this->services !== [] && $this->applied && $this->isFile && $this->status === SyncedPathStatus::Updated && $this->changedFiles !== [];
     }
 
     /** @return array<string, mixed> */

@@ -33,7 +33,7 @@ final class BindMountScopeRule implements TopologyRuleInterface
 {
     public const NAME = 'bind_mount_scope';
 
-    /** @var array<string, ComposeServiceSet> absolute host path => allowed services */
+    /** @var array<string, ComposeServiceSet|null> absolute host path => allowed services (null: deploy one-shots only) */
     private readonly array $synced;
 
     /** @var array<string, array{ComposeServiceSet, BindAccess}> absolute host path => [allowed services, access] */
@@ -42,7 +42,7 @@ final class BindMountScopeRule implements TopologyRuleInterface
     private readonly string $deployDir;
 
     /**
-     * @param array<string, ComposeServiceSet>                      $syncedPaths project-relative path => allowed services
+     * @param array<string, ComposeServiceSet|null>                 $syncedPaths project-relative path => allowed services (null: deploy one-shots only)
      * @param array<string, array{ComposeServiceSet, BindAccess}>   $systemBinds absolute host path => [allowed services, access]
      */
     public function __construct(string $deployDir, array $syncedPaths, array $systemBinds)
@@ -148,7 +148,14 @@ final class BindMountScopeRule implements TopologyRuleInterface
                 } else {
                     [$key, $allowed, $access] = $declared;
 
-                    if (!$allowed->contains($service)) {
+                    if ($allowed === null) {
+                        $violations[] = $this->violation(
+                            BindMountScopeViolationKind::ServiceNotAllowed,
+                            $service,
+                            $mount['subject'],
+                            'this path is delivered for the deploy one-shots only (SyncedHostPath::forDeployOneShots); no running service may mount it',
+                        );
+                    } elseif (!$allowed->contains($service)) {
                         $violations[] = $this->violation(
                             BindMountScopeViolationKind::ServiceNotAllowed,
                             $service,
@@ -187,8 +194,8 @@ final class BindMountScopeRule implements TopologyRuleInterface
         }
 
         foreach ([...array_keys($this->synced), ...array_keys($this->system)] as $path) {
-            $allowed = $this->synced[$path] ?? $this->system[$path][0];
-            foreach ($allowed->names as $service) {
+            $allowed = \array_key_exists($path, $this->synced) ? $this->synced[$path] : $this->system[$path][0];
+            foreach ($allowed === null ? [] : $allowed->names as $service) {
                 if (!\in_array($service, $consumers[$path] ?? [], true)) {
                     $violations[] = $this->violation(
                         BindMountScopeViolationKind::Unconsumed,
@@ -207,7 +214,7 @@ final class BindMountScopeRule implements TopologyRuleInterface
      * The declaration covering an absolute source: an exact synced path, a path inside a synced
      * directory, or an exact host system bind.
      *
-     * @return array{string, ComposeServiceSet, BindAccess}|null [declared key, allowed services, maximum access]
+     * @return array{string, ComposeServiceSet|null, BindAccess}|null [declared key, allowed services (null: deploy one-shots only), maximum access]
      */
     private function declaredFor(string $source): ?array
     {

@@ -26,6 +26,7 @@ final readonly class PipelineDefinition
      * @param list<SealedServiceEnv>   $sealedServiceEnvs
      * @param list<RootOfTrustEnvFile> $rootOfTrustEnvFiles
      * @param list<\Vortos\Pipeline\Model\SealedToolingEnv> $sealedToolingEnvs
+     * @param list<\Vortos\Pipeline\Model\DerivedServiceEnv> $derivedServiceEnvs
      * @param list<SyncedHostPath>     $syncedHostPaths
      * @param list<HostSystemBind>     $hostSystemBinds
      * @param list<AuxiliaryImage>     $auxiliaryImages
@@ -218,6 +219,10 @@ final readonly class PipelineDefinition
         // Secret env files only the deploy one-shots read (the database owner credential), opened like the
         // service envs and passed as an --env-file after the runtime env; no compose service may mount them.
         public array $sealedToolingEnvs = [],
+        // A service's runtime env derived from the app-wide sealed env by an allowlist of names (RC-7),
+        // so a node that needs the database but not the payment gateway is never handed the gateway's
+        // credentials. Requires sealedEnvFile (the source) and the age-KEK posture, like the above.
+        public array $derivedServiceEnvs = [],
         // Project-relative compose topology whose env_file audiences are held to the declarations
         // above. Checked in the gating tests job whenever the topology is synced to the host.
         public string $composeTopologyPath = 'docker-compose.prod.yaml',
@@ -428,9 +433,23 @@ final readonly class PipelineDefinition
             $hostEnvTargets[] = $tooling->target->value;
         }
 
+        foreach ($derivedServiceEnvs as $derived) {
+            // @phpstan-ignore instanceof.alwaysTrue
+            if (!$derived instanceof \Vortos\Pipeline\Model\DerivedServiceEnv) {
+                throw new \InvalidArgumentException(sprintf('derivedServiceEnvs entries must be DerivedServiceEnv instances, got %s.', get_debug_type($derived)));
+            }
+            $hostEnvTargets[] = $derived->target->value;
+        }
+
+        if ($derivedServiceEnvs !== [] && $sealedEnvFile === null) {
+            throw new \InvalidArgumentException(
+                'derivedServiceEnvs are built from the app-wide sealed env; declare sealedEnvFile, the source they are derived from.',
+            );
+        }
+
         if (\count(array_unique($hostEnvTargets)) !== \count($hostEnvTargets)) {
             throw new \InvalidArgumentException(sprintf(
-                'Each host env file may be declared once across sealedServiceEnvs, rootOfTrustEnvFiles and sealedToolingEnvs, got [%s].',
+                'Each host env file may be declared once across sealedServiceEnvs, rootOfTrustEnvFiles, sealedToolingEnvs and derivedServiceEnvs, got [%s].',
                 implode(', ', $hostEnvTargets),
             ));
         }
@@ -444,7 +463,7 @@ final readonly class PipelineDefinition
             }
         }
 
-        if (($sealedServiceEnvs !== [] || $sealedToolingEnvs !== []) && $this->oidc) {
+        if (($sealedServiceEnvs !== [] || $sealedToolingEnvs !== [] || $derivedServiceEnvs !== []) && $this->oidc) {
             throw new \InvalidArgumentException(
                 'Sealed service env files need the age-KEK deploy posture to be opened; under OIDC they would '
                 . 'be skipped and their services would boot without the credential.',
@@ -686,6 +705,16 @@ final readonly class PipelineDefinition
             ], $this->sealedToolingEnvs);
         }
 
+        if ($this->derivedServiceEnvs !== []) {
+            $data['derived_service_envs'] = array_map(static fn (\Vortos\Pipeline\Model\DerivedServiceEnv $d): array => [
+                'target' => $d->target->value,
+                'names' => $d->names,
+                'mode' => $d->mode->octal(),
+                'owner' => $d->owner->toString(),
+                'services' => $d->services->names,
+            ], $this->derivedServiceEnvs);
+        }
+
         if ($this->syncComposeTopology) {
             $data['compose_topology_path'] = $this->composeTopologyPath;
         }
@@ -695,7 +724,7 @@ final readonly class PipelineDefinition
                 'path' => $p->path->value,
                 'mode' => $p->mode->octal(),
                 'owner' => $p->owner->toString(),
-                'services' => $p->services->names,
+                'services' => $p->services === null ? [] : $p->services->names,
             ], $this->syncedHostPaths);
         }
 

@@ -13,7 +13,8 @@ use Firebase\JWT\Key;
  * stable `kid` so tokens it signs carry that id in their header and verifiers
  * can resolve the right key from a {@see Keyring} during rotation.
  *
- * Construct via the named factories — {@see self::hs256()} / {@see self::rs256()} —
+ * Construct via the named factories — {@see self::hs256()} / {@see self::rs256()} /
+ * {@see self::rs256VerifyOnly()} —
  * never the constructor directly; they enforce the per-algorithm material rules.
  */
 final readonly class SigningKey
@@ -69,6 +70,30 @@ final readonly class SigningKey
         return new self($kid, 'RS256', $status, privateKey: $privateKey, publicKey: $publicKey);
     }
 
+    /**
+     * The public half of an RS256 key only: verifies tokens, cannot issue them.
+     *
+     * For a process that authenticates nothing itself — a queue worker, the scheduler and backup
+     * node — but boots the same configuration as the one that does. Without it every such node had
+     * to be handed the private signing key, and anyone who took one of them could mint a token for
+     * any user. {@see self::signingMaterial()} refuses on such a key, naming the kid, so a node that
+     * unexpectedly tries to issue fails loudly instead of signing with something else.
+     */
+    public static function rs256VerifyOnly(string $kid, string $publicKey, KeyStatus $status = KeyStatus::Active): self
+    {
+        if ($publicKey === '') {
+            throw new \InvalidArgumentException("RS256 verify-only key '{$kid}' requires a public key PEM.");
+        }
+
+        return new self($kid, 'RS256', $status, publicKey: $publicKey);
+    }
+
+    /** False for a verify-only key: this process holds no signing material for it. */
+    public function canSign(): bool
+    {
+        return $this->isRsa() ? $this->privateKey !== '' : $this->secret !== '';
+    }
+
     public function isRsa(): bool
     {
         return $this->algorithm === 'RS256';
@@ -79,6 +104,14 @@ final readonly class SigningKey
      */
     public function signingMaterial(): string
     {
+        if (!$this->canSign()) {
+            throw new \LogicException(sprintf(
+                "Signing key '%s' is verify-only on this node: it was given the public key alone, so it cannot issue tokens. "
+                . 'Only a node configured with the private key may sign.',
+                $this->kid,
+            ));
+        }
+
         return $this->isRsa() ? $this->privateKey : $this->secret;
     }
 

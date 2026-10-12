@@ -83,7 +83,27 @@ final class RuntimeServiceSpecTest extends TestCase
             'resource_limits' => ['nofile' => ['soft' => 65535, 'hard' => 65535]],
             // Single-container default: no sibling supervisor configs to consider.
             'sibling_supervisor_configs' => [],
+            // Docker's defaults unless declared, and everything on the one network.
+            'hardening' => ['locked' => false, 'writable_paths' => []],
+            'edge_topology' => [
+                'serving_network' => 'vortos-net',
+                'init_network' => 'vortos-net',
+                'admin_network' => null,
+                'admin_alias' => 'edge-admin',
+            ],
         ], $spec->toArray());
+    }
+
+    public function test_the_edge_must_serve_on_a_network_the_colors_join(): void
+    {
+        // Otherwise the edge could not dial app-<color> at all, and the first cutover would 502.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('could not reach them');
+
+        new RuntimeServiceSpec(
+            networks: ['vortos-net'],
+            edgeTopology: new \Vortos\Deploy\Cutover\Edge\EdgeNetworkTopology('vortos-edge', 'vortos-net', 'vortos-edge-admin'),
+        );
     }
 
     public function test_resource_limits_default_to_a_raised_descriptor_ceiling(): void

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Pipeline\Definition;
 
+use Vortos\Pipeline\Model\DockerNetwork;
 use Vortos\Pipeline\Model\ReleaseTrigger;
 
 use Vortos\Foundation\Deploy\DeployPosture;
@@ -64,6 +65,8 @@ final class PipelineDefinitionBuilder
     private ReleaseTrigger $releaseTrigger = ReleaseTrigger::Branch;
     private string $remoteDeployDir = '/opt/vortos';
     private string $appNetwork = 'vortos-net';
+    /** @var list<DockerNetwork> */
+    private array $networks = [];
     /** @var list<string> */
     private array $runtimeEnvFiles = ['/opt/vortos/.env.prod'];
     /** @var list<string> */
@@ -463,6 +466,15 @@ final class PipelineDefinitionBuilder
         return $clone;
     }
 
+    /** Networks the deploy ensures and joins; see {@see PipelineDefinition::$networks}. */
+    public function networks(DockerNetwork ...$networks): self
+    {
+        $clone = clone $this;
+        $clone->networks = array_values($networks);
+
+        return $clone;
+    }
+
     /**
      * Absolute env-file paths (on the target host) the blue/green color reads; each is bind-mounted
      * read-only into the deploy one-shot so the nested cutover compose can resolve its `env_file:`
@@ -718,6 +730,7 @@ final class PipelineDefinitionBuilder
             releaseTrigger: $this->releaseTrigger,
             remoteDeployDir: $this->remoteDeployDir,
             appNetwork: $this->appNetwork,
+            networks: $this->networks,
             runtimeEnvFiles: $this->runtimeEnvFiles,
             runtimeFileSecretDirs: $this->runtimeFileSecretDirs,
             sealedEnvFile: $this->sealedEnvFile,

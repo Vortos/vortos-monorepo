@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Runtime;
 
+use Vortos\Deploy\Cutover\Edge\EdgeNetworkTopology;
+
 /**
  * The application's real runtime shape — what the blue/green app (and worker) containers actually
  * run. This is the single source of truth threaded into the cutover compose generation
@@ -52,6 +54,11 @@ final readonly class RuntimeServiceSpec
      *                    registration gate would demand every registered worker on the worker color and
      *                    fail a correct deployment. Purely a statement about the image's layout: it is
      *                    committed config, never a secret, and never an env var.
+     * @param ?ContainerHardening $hardening capabilities, privilege escalation and filesystem writability
+     *                    for both colors; null ⇒ {@see ContainerHardening::none()} (Docker's defaults).
+     * @param ?EdgeNetworkTopology $edgeTopology which networks the edge and its admin API use; null ⇒
+     *                    everything on the first color network. The serving network must be one the
+     *                    colors join, or the edge cannot reach them.
      */
     public function __construct(
         public array $command = self::DEFAULT_COMMAND,
@@ -65,6 +72,8 @@ final readonly class RuntimeServiceSpec
         public ?AppHealthcheck $appHealthcheck = null,
         public ?ResourceLimits $resourceLimits = null,
         public array $siblingSupervisorConfigs = [],
+        public ?ContainerHardening $hardening = null,
+        public ?EdgeNetworkTopology $edgeTopology = null,
     ) {
         $this->assertStringList('command', $command, allowEmpty: false);
         $this->assertStringList('workerCommand', $workerCommand, allowEmpty: false);
@@ -80,6 +89,14 @@ final readonly class RuntimeServiceSpec
                     $config,
                 ));
             }
+        }
+
+        if ($edgeTopology !== null && !in_array($edgeTopology->servingNetwork, $networks, true)) {
+            throw new \InvalidArgumentException(sprintf(
+                'RuntimeServiceSpec.edgeTopology serving network "%s" is not one the colors join (%s): the edge could not reach them.',
+                $edgeTopology->servingNetwork,
+                implode(', ', $networks),
+            ));
         }
 
         if ($containerPort < 1 || $containerPort > 65535) {
@@ -124,6 +141,16 @@ final readonly class RuntimeServiceSpec
             }
             $seenContainerPaths[$fileSecret->containerPath] = true;
         }
+    }
+
+    public function resolvedHardening(): ContainerHardening
+    {
+        return $this->hardening ?? ContainerHardening::none();
+    }
+
+    public function resolvedEdgeTopology(): EdgeNetworkTopology
+    {
+        return $this->edgeTopology ?? EdgeNetworkTopology::shared($this->networks[0]);
     }
 
     /**
@@ -188,6 +215,8 @@ final readonly class RuntimeServiceSpec
             'app_healthcheck' => $this->resolvedAppHealthcheck()->toArray(),
             'resource_limits' => $this->resolvedResourceLimits()->toArray(),
             'sibling_supervisor_configs' => $this->siblingSupervisorConfigs,
+            'hardening' => $this->resolvedHardening()->toArray(),
+            'edge_topology' => $this->resolvedEdgeTopology()->toArray(),
         ];
     }
 

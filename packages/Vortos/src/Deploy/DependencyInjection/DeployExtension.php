@@ -1019,6 +1019,7 @@ final class DeployExtension extends Extension
                 ->setArgument('$edgeDir', (string) ($_ENV['EDGE_DIR'] ?? '/opt/vortos/edge'))
                 ->setArgument('$adaptImage', $edgeAdaptImage)
                 ->setArgument('$baseConfigPath', $edgeBaseConfig)
+                ->setArgument('$adminListen', $caddyAdminListen)
                 ->setPublic(false);
 
             $container->getDefinition(StepExecutor::class)

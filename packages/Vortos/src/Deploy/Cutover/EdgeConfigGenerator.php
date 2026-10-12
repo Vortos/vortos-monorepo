@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\Deploy\Cutover;
 
+use Vortos\Deploy\Cutover\Edge\EdgeNetworkTopology;
 use Vortos\Deploy\Runtime\ResourceLimits;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 
@@ -33,12 +34,13 @@ final class EdgeConfigGenerator
         private readonly string $proxyTryInterval = '250ms',
         private readonly string $activeHealthInterval = '10s',
         private readonly string $activeHealthTimeout = '5s',
+        private readonly ?EdgeNetworkTopology $topology = null,
     ) {}
 
-    /** Build from the app's runtime spec so the edge dial port is the single source of truth. */
+    /** Build from the app's runtime spec so the edge dial port and networks have one source of truth. */
     public static function fromSpec(RuntimeServiceSpec $spec): self
     {
-        return new self($spec->containerPort);
+        return new self($spec->containerPort, topology: $spec->resolvedEdgeTopology());
     }
 
     private function dial(string $color): string
@@ -294,6 +296,27 @@ final class EdgeConfigGenerator
         // edge-init is deliberately left alone: it is a short-lived one-shot that opens no sockets.
         $nofile = ResourceLimits::DEFAULT_NOFILE;
 
+        $topology = $this->topology ?? EdgeNetworkTopology::shared('vortos-net');
+        $initNetwork = $topology->initNetwork;
+        $servingNetwork = $topology->servingNetwork;
+
+        // The edge's own networks: the one it serves the colors on, and — when isolated — the admin
+        // network under an alias the admin API binds to (see EdgeNetworkTopology). A plain list when
+        // there is no admin network, so the shared topology renders exactly as before.
+        if ($topology->adminNetwork === null) {
+            $edgeNetworks = "      - {$servingNetwork}";
+        } else {
+            $edgeNetworks = "      {$servingNetwork}: {}\n"
+                . "      {$topology->adminNetwork}:\n"
+                . "        aliases:\n"
+                . "          - {$topology->adminAlias}";
+        }
+
+        $declared = '';
+        foreach ($topology->networks() as $network) {
+            $declared .= "  {$network}:\n    external: true\n";
+        }
+
         return <<<YAML
         services:
           edge-init:
@@ -310,7 +333,7 @@ final class EdgeConfigGenerator
               - \${EDGE_CONFIG_DIR:-/opt/vortos/edge/config}:/config
               - ./caddy-config.json:/bootstrap/caddy-config.json:ro
             networks:
-              - vortos-net
+              - {$initNetwork}
             restart: "no"
           edge:
             # Overridable, and pinnable to a digest, via EDGE_IMAGE in the deploy env file.
@@ -346,15 +369,32 @@ final class EdgeConfigGenerator
               nofile:
                 soft: {$nofile}
                 hard: {$nofile}
+            # The internet-facing container holds nothing it does not need. Caddy runs as root in
+            # its image, so every capability is dropped except binding 80/443; it cannot raise its
+            # privileges, and its root filesystem is read-only (it writes only certificates to
+            # /data, its last-loaded config to /config, and scratch to /tmp). It reads the boot config —
+            # written by edge-init as the app user, mode 0640 — through that file's group, passed
+            # in as EDGE_CONFIG_GID by the reconciler, rather than through DAC_OVERRIDE, which
+            # would let root read every file it can see.
+            cap_drop:
+              - ALL
+            cap_add:
+              - NET_BIND_SERVICE
+            security_opt:
+              - no-new-privileges:true
+            read_only: true
+            tmpfs:
+              - /tmp
+            group_add:
+              - "\${EDGE_CONFIG_GID:-0}"
             networks:
-              - vortos-net
+        {$edgeNetworks}
 
         volumes:
           caddy_data:
 
         networks:
-          vortos-net:
-            external: true
+        {$declared}
         YAML;
     }
 }

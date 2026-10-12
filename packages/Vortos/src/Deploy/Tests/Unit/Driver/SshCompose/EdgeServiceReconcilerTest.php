@@ -68,6 +68,8 @@ final class EdgeServiceReconcilerTest extends TestCase
         self::assertNotEmpty($up);
         self::assertSame('env', $up[0]->argv[0]);
         self::assertContains('VORTOS_APP_IMAGE=repo/app@sha256:abc', $up[0]->argv);
+        // The hardened edge reads its config through the config directory's group.
+        self::assertContains('EDGE_CONFIG_GID=1000', $up[0]->argv);
 
         // Must NOT pass --remove-orphans: the edge compose project can be shared with unrelated
         // services (db/redis/kafka on a single box); --remove-orphans would tear them down.
@@ -97,6 +99,33 @@ final class EdgeServiceReconcilerTest extends TestCase
         self::assertEmpty(array_filter($ran, static fn (string $c): bool => str_contains($c, 'up')), 'must not recreate when unchanged');
     }
 
+    public function testPassesTheDeclaredAdminBindAndReconvergesWhenItChanges(): void
+    {
+        $reconciler = fn (?string $listen, RecordingTransport $t): EdgeServiceReconciler => new EdgeServiceReconciler(
+            $t, new EdgeConfigGenerator(), new EdgeBaseConfigResolver($this->root), adminListen: $listen,
+        );
+
+        $first = new RecordingTransport(catStdout: '', catExit: 1);
+        $hash = $reconciler('edge-admin:2019', $first)->reconcile('api.example.com', 'repo/app@sha256:abc')->hash;
+        $up = array_values(array_filter($first->ran, static fn (RemoteCommand $c): bool => in_array('up', $c->argv, true)));
+        self::assertContains('CADDY_ADMIN_LISTEN=edge-admin:2019', $up[0]->argv);
+
+        // Same compose, different admin bind: must not be skipped as converged.
+        $second = new RecordingTransport(catStdout: $hash, catExit: 0);
+        self::assertTrue($reconciler('0.0.0.0:2019', $second)->reconcile('api.example.com', 'repo/app@sha256:abc')->converged);
+    }
+
+    public function testRefusesWhenTheConfigGroupCannotBeRead(): void
+    {
+        // Without the group the hardened edge cannot read its boot config and would crash-loop
+        // after the deploy reported success; refusing here keeps the old edge serving.
+        $transport = new RecordingTransport(catStdout: '', catExit: 1, configGid: '');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('group');
+        $this->reconciler($transport)->reconcile('api.example.com', 'repo/app@sha256:abc');
+    }
+
     public function testAbortsWhenComposeUpFails(): void
     {
         $transport = new RecordingTransport(catStdout: '', catExit: 1, failUp: true);
@@ -115,6 +144,7 @@ final class RecordingTransport implements SshTransportInterface
         private readonly string $catStdout,
         private readonly int $catExit,
         private readonly bool $failUp = false,
+        private readonly string $configGid = '1000',
     ) {}
 
     public function run(RemoteCommand $command): CommandResult
@@ -124,6 +154,10 @@ final class RecordingTransport implements SshTransportInterface
 
         if (str_starts_with($joined, 'cat ')) {
             return new CommandResult($this->catExit, $this->catStdout, '', 0.0);
+        }
+
+        if (str_starts_with($joined, 'stat ')) {
+            return new CommandResult(0, $this->configGid . "\n", '', 0.0);
         }
 
         if (str_contains($joined, 'compose') && str_contains($joined, 'up')) {

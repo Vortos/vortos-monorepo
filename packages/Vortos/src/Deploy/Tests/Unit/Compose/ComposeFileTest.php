@@ -301,4 +301,30 @@ final class ComposeFileTest extends TestCase
         $array = $compose->toArray();
         $this->assertArrayNotHasKey('env_file', $array['services']['app-blue']);
     }
+
+    public function test_a_locked_spec_hardens_both_colors_and_joins_every_network(): void
+    {
+        $spec = new RuntimeServiceSpec(
+            networks: ['vortos-net', 'vortos-edge'],
+            hardening: \Vortos\Deploy\Runtime\ContainerHardening::locked(['/tmp', '/var/www/html/var']),
+        );
+        $compose = (new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), $spec))->toArray();
+
+        foreach (['app-blue', 'worker-blue'] as $service) {
+            $this->assertSame(['ALL'], $compose['services'][$service]['cap_drop'], $service);
+            $this->assertTrue($compose['services'][$service]['read_only'], $service);
+            $this->assertSame(['/tmp', '/var/www/html/var'], $compose['services'][$service]['tmpfs'], $service);
+            $this->assertSame(['vortos-net', 'vortos-edge'], $compose['services'][$service]['networks'], $service);
+        }
+
+        $this->assertSame(['vortos-net', 'vortos-edge'], array_keys($compose['networks']));
+    }
+
+    public function test_an_unhardened_spec_renders_as_before(): void
+    {
+        $compose = (new ComposeFile('vortos-app-blue', ActiveColor::Blue, self::digestPinnedImage(), self::spec()))->toArray();
+
+        $this->assertArrayNotHasKey('cap_drop', $compose['services']['app-blue']);
+        $this->assertArrayNotHasKey('read_only', $compose['services']['worker-blue']);
+    }
 }

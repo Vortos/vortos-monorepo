@@ -8,6 +8,8 @@ use Vortos\Deploy\Runtime\FileSecret;
 use Vortos\Deploy\Runtime\RuntimeServiceSpec;
 use Vortos\Deploy\Runtime\AppHealthcheck;
 use Vortos\Deploy\Runtime\ResourceLimits;
+use Vortos\Deploy\Cutover\Edge\EdgeNetworkTopology;
+use Vortos\Deploy\Runtime\ContainerHardening;
 use Vortos\Deploy\Runtime\WorkerHealthcheck;
 use Vortos\Deploy\Strategy\DeployStrategy;
 use Vortos\Release\Manifest\Arch;
@@ -57,6 +59,13 @@ final class DeploymentDefinitionBuilder
     private ?AppHealthcheck $appHealthcheck = null;
 
     private ?ResourceLimits $resourceLimits = null;
+
+    /** @var list<string> */
+    private array $networks = ['vortos-net'];
+
+    private ?ContainerHardening $hardening = null;
+
+    private ?EdgeNetworkTopology $edgeTopology = null;
 
     /** @var array<string, \Closure(self): self> */
     private array $envOverrides = [];
@@ -374,6 +383,37 @@ final class DeploymentDefinitionBuilder
     }
 
     /**
+     * The networks both colors join (external). The first is the app network the datastores are on.
+     *
+     * @param list<string> $networks
+     */
+    public function networks(array $networks): self
+    {
+        $clone = clone $this;
+        $clone->networks = $networks;
+
+        return $clone;
+    }
+
+    /** Capabilities, privilege escalation and filesystem writability for both colors. */
+    public function hardening(ContainerHardening $hardening): self
+    {
+        $clone = clone $this;
+        $clone->hardening = $hardening;
+
+        return $clone;
+    }
+
+    /** Which networks the edge and its admin API use; see {@see EdgeNetworkTopology}. */
+    public function edgeTopology(EdgeNetworkTopology $topology): self
+    {
+        $clone = clone $this;
+        $clone->edgeTopology = $topology;
+
+        return $clone;
+    }
+
+    /**
      * The resolved runtime service shape. Consumed by the DI container to drive the cutover compose
      * generation ({@see \Vortos\Deploy\Compose\ComposeProjectFactory}). Env-agnostic: command/port
      * are image-level facts, so per-environment overrides don't change them.
@@ -391,6 +431,9 @@ final class DeploymentDefinitionBuilder
             appHealthcheck: $this->appHealthcheck,
             resourceLimits: $this->resourceLimits,
             siblingSupervisorConfigs: $this->siblingSupervisorConfigs,
+            networks: $this->networks,
+            hardening: $this->hardening,
+            edgeTopology: $this->edgeTopology,
         );
     }
 

@@ -35,6 +35,7 @@ final class EdgeServiceReconciler
         private readonly string $projectName = 'vortos',
         private readonly string $adaptImage = 'caddy:2-alpine',
         private readonly ?string $baseConfigPath = null,
+        private readonly ?string $adminListen = null,
     ) {}
 
     /**
@@ -59,6 +60,9 @@ final class EdgeServiceReconciler
             $composeYaml,
             $this->adaptImage,
             $base->sha256 ?? '',
+            // The admin bind is rendered into the boot config by edge-init, not into the compose
+            // file, so a changed bind must re-converge the edge on its own.
+            $this->adminListen ?? '',
         ]));
 
         $markerPath = $this->edgeDir . '/.reconcile-hash';
@@ -87,8 +91,22 @@ final class EdgeServiceReconciler
         // same Compose project). --remove-orphans would tear those "orphans" (everything not in the edge
         // file) down. The reconciler only owns the edge services it declares; it must never remove
         // containers it did not create.
+        // The edge reads its boot config through the config directory's group (it holds no
+        // DAC_OVERRIDE), so compose is told which group that is on this box.
+        $gid = trim((string) $this->readRemoteCommand(['stat', '-c', '%g', $this->edgeDir . '/config']));
+        if (preg_match('/^\d+$/', $gid) !== 1) {
+            throw new \RuntimeException(sprintf(
+                'Edge reconcile could not read the group of %s/config, which the hardened edge reads its config through.',
+                $this->edgeDir,
+            ));
+        }
+
         $this->transport->run(new RemoteCommand([
-            'env', 'VORTOS_APP_IMAGE=' . $appImage,
+            'env', 'VORTOS_APP_IMAGE=' . $appImage, 'EDGE_CONFIG_GID=' . $gid,
+            // The admin bind edge-init writes into the boot config. Passed from the deploy's own
+            // setting so a stale CADDY_ADMIN_LISTEN in the edge directory's .env (which compose would
+            // otherwise interpolate) cannot rebind the admin API somewhere wider than declared.
+            ...($this->adminListen !== null ? ['CADDY_ADMIN_LISTEN=' . $this->adminListen] : []),
             'docker', 'compose', '-f', $composePath, '-p', $this->projectName, 'up', '-d',
         ]))->throwOnFailure('edge compose up');
 
@@ -114,6 +132,18 @@ final class EdgeServiceReconciler
         } finally {
             @unlink($tmpLocal);
         }
+    }
+
+    /** @param list<string> $argv */
+    private function readRemoteCommand(array $argv): ?string
+    {
+        try {
+            $result = $this->transport->run(new RemoteCommand($argv));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $result->exitCode === 0 ? $result->stdout : null;
     }
 
     private function readRemote(string $path): ?string

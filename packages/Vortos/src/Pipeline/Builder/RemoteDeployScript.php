@@ -44,7 +44,15 @@ final class RemoteDeployScript
         $toolingRef = $opsImageRef ?? $imageRef;
         $arch = $definition->targetArch->value;
         $deployDir = $definition->remoteDeployDir;
+        // The app network (datastores, migrations) plus every declared network the one-shots must
+        // reach — the Docker API proxy's, the edge admin's. A container joins every network named on
+        // `docker run` (Docker 25+).
         $network = $definition->appNetwork;
+        foreach ($definition->networks as $declared) {
+            if ($declared->joinedByDeploy) {
+                $network .= ' --network ' . $declared->name;
+            }
+        }
 
         // ssh-key posture: the age KEK is exported into the VPS deploy session (over the encrypted
         // SSH channel) and forwarded into the container, which opens the delivered, age-encrypted
@@ -164,6 +172,28 @@ final class RemoteDeployScript
         $loginLine = $this->remoteLoginLine($definition->registryProvider);
         if ($loginLine !== null) {
             $lines[] = $loginLine;
+        }
+
+        // Every network the colors, the edge and the one-shots name as external exists before any of
+        // them starts. Created when missing and never altered when present: an existing network keeps
+        // whatever it was created with, so a changed declaration is a migration, not a side effect.
+        $lines[] = sprintf(
+            'docker network inspect %1$s >/dev/null 2>&1 || docker network create %1$s >/dev/null',
+            $definition->appNetwork,
+        );
+        foreach ($definition->networks as $declared) {
+            $lines[] = sprintf(
+                'docker network inspect %1$s >/dev/null 2>&1 || docker network create %2$s%1$s >/dev/null',
+                $declared->name,
+                $declared->internal ? '--internal ' : '',
+            );
+            if ($declared->internal) {
+                // An internal network created by hand without --internal would route off the host.
+                $lines[] = sprintf(
+                    '[ "$(docker network inspect -f \'{{.Internal}}\' %1$s)" = true ] || { echo "network %1$s exists but is not internal" >&2; exit 1; }',
+                    $declared->name,
+                );
+            }
         }
 
         $lines[] = sprintf('docker pull %s', $imageRef);

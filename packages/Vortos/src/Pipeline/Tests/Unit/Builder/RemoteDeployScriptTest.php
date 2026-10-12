@@ -620,4 +620,49 @@ final class RemoteDeployScriptTest extends TestCase
             preCutoverCommands: ['php bin/console vortos:search:pg:install'],
         );
     }
+
+    public function test_declared_networks_are_created_first_and_joined_where_declared(): void
+    {
+        $definition = new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            registryProvider: 'ghcr',
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            networks: [
+                \Vortos\Pipeline\Model\DockerNetwork::control('vortos-control'),
+                \Vortos\Pipeline\Model\DockerNetwork::control('vortos-edge-admin'),
+                \Vortos\Pipeline\Model\DockerNetwork::serving('vortos-edge'),
+            ],
+        );
+        $script = $this->script($definition);
+
+        self::assertStringContainsString('docker network inspect vortos-control >/dev/null 2>&1 || docker network create --internal vortos-control', $script);
+        self::assertStringContainsString('docker network inspect vortos-edge >/dev/null 2>&1 || docker network create vortos-edge', $script);
+        // A control network made by hand without --internal would route off the host: refused.
+        self::assertStringContainsString("network vortos-control exists but is not internal", $script);
+        self::assertStringNotContainsString("network vortos-edge exists but is not internal", $script);
+
+        // Created before anything could need them.
+        self::assertLessThan(strpos($script, 'docker pull'), strpos($script, 'docker network create --internal vortos-control'));
+
+        // One-shots reach the proxy and the edge admin; never the serving network, which they need not reach.
+        self::assertStringContainsString('docker run --rm --network vortos-net --network vortos-control --network vortos-edge-admin ', $script);
+        self::assertStringNotContainsString('--network vortos-edge ', $script);
+    }
+
+    public function test_a_network_is_declared_once(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            appNetwork: 'vortos-net',
+            networks: [\Vortos\Pipeline\Model\DockerNetwork::control('vortos-net')],
+        );
+    }
 }

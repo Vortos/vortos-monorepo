@@ -61,6 +61,11 @@ final readonly class ComposeFile
             'ulimits' => $ulimits,
         ];
 
+        // Same lock-down on both colors: they run the same image and the worker is no less exposed —
+        // it executes every consumer's code on input that arrived over the network.
+        $hardening = $this->spec->resolvedHardening()->composeKeys();
+        $appService += $hardening;
+
         if ($limits->appMemoryBytes !== null) {
             $appService['mem_limit'] = $limits->appMemoryBytes;
         }
@@ -76,6 +81,8 @@ final readonly class ComposeFile
             'healthcheck' => $this->spec->resolvedWorkerHealthcheck()->toArray(),
             'ulimits' => $ulimits,
         ];
+
+        $workerService += $hardening;
 
         if ($limits->workerMemoryBytes !== null) {
             $workerService['mem_limit'] = $limits->workerMemoryBytes;

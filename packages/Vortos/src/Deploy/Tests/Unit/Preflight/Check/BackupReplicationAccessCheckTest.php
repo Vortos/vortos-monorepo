@@ -140,4 +140,21 @@ final class BackupReplicationAccessCheckTest extends TestCase
 
         $this->assertSame(PreflightStatus::Pass, $finding->status);
     }
+
+    /** pgBackRest's schedules carry physical_base but it never opens a replication connection. */
+    public function test_pgbackrest_backups_are_not_gated_on_replication(): void
+    {
+        $check = new BackupReplicationAccessCheck(
+            new ReplicationAccessInspector($this->refuses()),
+            new BackupScheduleRegistry([
+                new BackupSchedule('pgbackrest-full', DatabaseEngine::Postgres, BackupKind::PhysicalBase, 'production', '30 2 * * 0', BackupScheduleType::PgBackRestFull),
+                new BackupSchedule('pgbackrest-drill', DatabaseEngine::Postgres, BackupKind::PhysicalBase, 'production', '30 1 * * *', BackupScheduleType::PgBackRestDrill),
+            ]),
+            'postgres',
+            self::DSN,
+            false,
+        );
+
+        $this->assertSame(PreflightStatus::Pass, $check->check($this->context())->status);
+    }
 }

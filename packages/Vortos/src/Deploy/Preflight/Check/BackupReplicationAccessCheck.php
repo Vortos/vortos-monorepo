@@ -7,6 +7,7 @@ namespace Vortos\Deploy\Preflight\Check;
 use Vortos\Backup\Doctor\ReplicationAccessInspector;
 use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Schedule\BackupScheduleRegistry;
+use Vortos\Backup\Schedule\BackupScheduleType;
 use Vortos\Deploy\Preflight\PreflightCategory;
 use Vortos\Deploy\Preflight\PreflightCheckInterface;
 use Vortos\Deploy\Preflight\PreflightContext;
@@ -111,9 +112,13 @@ final class BackupReplicationAccessCheck implements PreflightCheckInterface
             );
         }
 
+        // The framework's own backups only: pgBackRest's schedules carry physical_base too, but it reads the
+        // data directory inside the database container and never opens a replication connection.
         $kinds = [];
         foreach ($this->schedules as $schedule) {
-            $kinds[] = $schedule->kind;
+            if ($schedule->type === BackupScheduleType::Backup) {
+                $kinds[] = $schedule->kind;
+            }
         }
 
         $finding = $this->inspector->inspect($engine, $this->dsn, array_values(array_unique($kinds, SORT_REGULAR)));

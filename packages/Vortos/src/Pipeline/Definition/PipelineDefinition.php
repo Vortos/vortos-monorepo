@@ -249,6 +249,13 @@ final readonly class PipelineDefinition
         // baked in. Unlike auxiliary images they never change bytes as a side effect of a release; the
         // deploy verifies the signature of every application-repository image the topology references.
         public array $pinnedImages = [],
+        // ── Host declaration ──
+        // A script in the release image that checks the host beneath Docker (packages, swap, users, SSH,
+        // firewall, logging) against its declaration: `<script> check --root <dir>` reads only files, exits
+        // non-zero on drift and lists it. Every deploy runs it against the host mounted read-only and posts
+        // a warning on drift — never a failure: the host is not this release's to change, and a gate on it
+        // would only teach people to skip it. Applying the declaration is an operator's reviewed step.
+        public ?\Vortos\Pipeline\Model\ProjectPath $hostDeclarationCheck = null,
     ) {
         if ($emitter === '') {
             throw new \InvalidArgumentException('Pipeline emitter must be non-empty.');
@@ -746,6 +753,10 @@ final readonly class PipelineDefinition
                 'services' => $p->services->names,
                 'scan_ignore_file' => $p->scanIgnoreFile,
             ], $this->pinnedImages);
+        }
+
+        if ($this->hostDeclarationCheck !== null) {
+            $data['host_declaration_check'] = $this->hostDeclarationCheck->value;
         }
 
         if ($this->hostSystemBinds !== []) {

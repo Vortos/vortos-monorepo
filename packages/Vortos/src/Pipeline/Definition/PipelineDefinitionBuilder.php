@@ -100,6 +100,8 @@ final class PipelineDefinitionBuilder
     /** @var list<\Vortos\Pipeline\Model\PinnedImage> */
     private array $pinnedImages = [];
 
+    private ?\Vortos\Pipeline\Model\ProjectPath $hostDeclarationCheck = null;
+
     public static function create(): self
     {
         return new self();
@@ -686,6 +688,18 @@ final class PipelineDefinitionBuilder
      * Images built on demand into the application repository and run by a committed digest (RC-5).
      * See {@see \Vortos\Pipeline\Model\PinnedImage}.
      */
+    /**
+     * The host-declaration check script every deploy runs against the host, read-only, warning on drift.
+     * See {@see PipelineDefinition::$hostDeclarationCheck}.
+     */
+    public function hostDeclarationCheck(\Vortos\Pipeline\Model\ProjectPath $script): self
+    {
+        $clone = clone $this;
+        $clone->hostDeclarationCheck = $script;
+
+        return $clone;
+    }
+
     public function pinnedImages(\Vortos\Pipeline\Model\PinnedImage ...$images): self
     {
         $clone = clone $this;
@@ -765,6 +779,7 @@ final class PipelineDefinitionBuilder
             hostSystemBinds: $this->hostSystemBinds,
             auxiliaryImages: $this->auxiliaryImages,
             pinnedImages: $this->pinnedImages,
+            hostDeclarationCheck: $this->hostDeclarationCheck,
         );
     }
 }

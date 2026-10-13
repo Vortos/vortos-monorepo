@@ -39,6 +39,36 @@ final class RemoteDeployScriptTest extends TestCase
         );
     }
 
+    public function test_the_host_declaration_is_checked_read_only_and_only_warns(): void
+    {
+        $definition = new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            registryProvider: 'ghcr',
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            hostDeclarationCheck: new \Vortos\Pipeline\Model\ProjectPath('deploy/host/host.sh'),
+        );
+        $script = $this->script($definition);
+
+        self::assertStringContainsString(
+            'if ! docker run --rm --network none --user 0:0 -v /:/host:ro --entrypoint bash ghcr.io/acme/app@${{ needs.build.outputs.image }} deploy/host/host.sh check --root /host; then',
+            $script,
+        );
+        self::assertStringContainsString('::warning title=Host drift::', $script);
+        self::assertStringNotContainsString('host.sh check --root /host || exit', $script);
+        self::assertLessThan(strpos($script, 'vortos:migrate:analyze'), strpos($script, 'host.sh check'));
+        self::assertSame('deploy/host/host.sh', $definition->toArray()['host_declaration_check']);
+    }
+
+    public function test_no_host_check_unless_declared(): void
+    {
+        self::assertStringNotContainsString('host.sh', $this->script($this->definition(false)));
+        self::assertArrayNotHasKey('host_declaration_check', $this->definition(false)->toArray());
+    }
+
     public function test_no_sealed_env_materialization_by_default(): void
     {
         $script = $this->script($this->definition(false));

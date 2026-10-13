@@ -375,6 +375,24 @@ final class RemoteDeployScript
             $lines[] = 'fi';
         }
 
+        // The host beneath Docker, checked against its declaration from the signed image. The host is mounted
+        // read-only into a container with no network, so the check can see every file and change none. A
+        // warning, never a failure (see PipelineDefinition::$hostDeclarationCheck).
+        if ($definition->hostDeclarationCheck !== null) {
+            $script = $definition->hostDeclarationCheck->value;
+            $lines[] = sprintf(
+                'if ! docker run --rm --network none --user 0:0 -v /:/host:ro --entrypoint bash %s %s check --root /host; then',
+                $toolingRef,
+                $script,
+            );
+            $lines[] = sprintf(
+                '  echo "::warning title=Host drift::The host departs from %s (lines above). Review, then run on the host as root: %s apply"',
+                $script,
+                $script,
+            );
+            $lines[] = 'fi';
+        }
+
         // The group reads deferred above: the env reveal and the topology sync have now put every file
         // they stat onto the host, including on a host that had none.
         foreach ($gidLines as $gidLine) {

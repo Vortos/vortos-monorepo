@@ -16,7 +16,7 @@ final class RoleModelFixture
     public const DML = ['DELETE', 'INSERT', 'SELECT', 'UPDATE'];
     public const SEQ = ['SELECT', 'UPDATE', 'USAGE'];
 
-    public static function model(?string $backup = 'app_backup', string $bootstrap = 'boot'): DatabaseRoleModel
+    public static function model(?string $backup = 'app_backup', string $bootstrap = 'boot', bool $backupReplication = true): DatabaseRoleModel
     {
         return new DatabaseRoleModel(
             database: 'app',
@@ -26,6 +26,7 @@ final class RoleModelFixture
             runtime: new DatabaseRoleName('app_runtime'),
             backup: $backup === null ? null : new DatabaseRoleName($backup),
             backupWritableModules: $backup === null ? [] : ['Backup'],
+            backupReplication: $backupReplication,
         );
     }
 

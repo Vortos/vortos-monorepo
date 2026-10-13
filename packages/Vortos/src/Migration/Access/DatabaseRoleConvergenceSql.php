@@ -49,7 +49,7 @@ final class DatabaseRoleConvergenceSql
             );
 
             $attributes = [];
-            foreach ($kind->attributes() as $attribute => $on) {
+            foreach ($kind->attributes($model) as $attribute => $on) {
                 $attributes[] = DatabaseRoleKind::keywords()[$attribute][$on ? 0 : 1];
             }
             $sql[] = sprintf('ALTER ROLE %s WITH %s INHERIT', self::ident($role->value), implode(' ', $attributes));

@@ -23,6 +23,15 @@ final class DatabaseRoleConvergenceSqlTest extends TestCase
         return (new DatabaseRoleConvergenceSql())->superuserStatements(RoleModelFixture::model(), $verifiers, $clearBootstrap);
     }
 
+    /** pgBackRest copies files inside the server: a backup node that never runs pg_basebackup loses REPLICATION. */
+    public function test_a_backup_role_without_network_copies_is_converged_to_noreplication(): void
+    {
+        $statements = (new DatabaseRoleConvergenceSql())->superuserStatements(RoleModelFixture::model(backupReplication: false), [], false);
+
+        self::assertContains('ALTER ROLE "app_backup" WITH NOSUPERUSER NOREPLICATION NOCREATEROLE NOCREATEDB BYPASSRLS LOGIN INHERIT', $statements);
+        self::assertNotContains('ALTER ROLE "app_backup" WITH NOSUPERUSER REPLICATION NOCREATEROLE NOCREATEDB BYPASSRLS LOGIN INHERIT', $statements);
+    }
+
     public function test_the_superuser_tier_sets_exact_attributes_for_every_audience(): void
     {
         $statements = self::superuser();

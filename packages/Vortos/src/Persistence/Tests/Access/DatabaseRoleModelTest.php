@@ -35,6 +35,18 @@ final class DatabaseRoleModelTest extends TestCase
         self::assertNull((new DeclaredDatabaseRoles(null))->model());
     }
 
+    public function test_backup_replication_is_a_declared_decision_that_round_trips(): void
+    {
+        $model = new DatabaseRoleModel('app', ['public'], new DatabaseRoleName('boot'), new DatabaseRoleName('o'), new DatabaseRoleName('r'), new DatabaseRoleName('b'), [], backupReplication: false);
+
+        self::assertFalse(DatabaseRoleModel::fromArray($model->toArray())->backupReplication);
+        self::assertTrue(self::model()->backupReplication, 'the default keeps pg_basebackup working for applications that never declared it');
+
+        $legacy = self::model()->toArray();
+        unset($legacy['backup_replication']);
+        self::assertTrue(DatabaseRoleModel::fromArray($legacy)->backupReplication);
+    }
+
     public function test_the_config_carries_the_declaration_and_none_by_default(): void
     {
         $config = new VortosPersistenceConfig();

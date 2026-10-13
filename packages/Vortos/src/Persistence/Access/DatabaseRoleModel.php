@@ -19,7 +19,7 @@ namespace Vortos\Persistence\Access;
  *                      tooling (migrations, schema installers). NOSUPERUSER, NOBYPASSRLS, no replication.
  *  - {@see $runtime}   the application: SELECT/INSERT/UPDATE/DELETE on tables and USAGE on sequences, owns nothing,
  *                      cannot create objects, and is subject to row-level security.
- *  - {@see $backup}    the backup node: REPLICATION (base backups), BYPASSRLS + pg_read_all_data (a logical dump
+ *  - {@see $backup}    the backup node: REPLICATION only if {@see $backupReplication} (pg_basebackup), BYPASSRLS + pg_read_all_data (a logical dump
  *                      must see every row), the monitoring and CHECKPOINT roles its probes and waker use, and write
  *                      access ONLY to the tables of {@see $backupWritableModules}.
  *  - {@see $bootstrapSuperuser} the initdb role. It stays SUPERUSER as the break-glass account reached through the
@@ -33,6 +33,9 @@ final readonly class DatabaseRoleModel
     /**
      * @param list<string> $schemas               schemas whose objects the owner owns and the runtime reads and writes
      * @param list<string> $backupWritableModules framework modules (e.g. "Backup", "Scheduler") whose tables the backup node writes
+     * @param bool         $backupReplication     the backup role holds REPLICATION: true while the framework's own physical
+     *                                            base backups (pg_basebackup over the network) are declared; false when
+     *                                            physical backups run inside the server (pgBackRest) or there are none
      */
     public function __construct(
         public string $database,
@@ -42,6 +45,7 @@ final readonly class DatabaseRoleModel
         public DatabaseRoleName $runtime,
         public ?DatabaseRoleName $backup,
         public array $backupWritableModules,
+        public bool $backupReplication = true,
     ) {
         if (preg_match('/^[a-z_][a-z0-9_]{0,62}$/', $database) !== 1) {
             throw new \InvalidArgumentException(sprintf('The database name must match ^[a-z_][a-z0-9_]{0,62}$, got "%s".', $database));
@@ -86,7 +90,7 @@ final readonly class DatabaseRoleModel
         }
     }
 
-    /** @return array{database: string, schemas: list<string>, bootstrap_superuser: string, owner: string, runtime: string, backup: string|null, backup_writable_modules: list<string>} */
+    /** @return array{database: string, schemas: list<string>, bootstrap_superuser: string, owner: string, runtime: string, backup: string|null, backup_writable_modules: list<string>, backup_replication: bool} */
     public function toArray(): array
     {
         return [
@@ -97,6 +101,7 @@ final readonly class DatabaseRoleModel
             'runtime' => $this->runtime->value,
             'backup' => $this->backup?->value,
             'backup_writable_modules' => $this->backupWritableModules,
+            'backup_replication' => $this->backupReplication,
         ];
     }
 
@@ -120,6 +125,7 @@ final readonly class DatabaseRoleModel
             runtime: new DatabaseRoleName((string) $data['runtime']),
             backup: $data['backup'] === null ? null : new DatabaseRoleName((string) $data['backup']),
             backupWritableModules: array_values((array) $data['backup_writable_modules']),
+            backupReplication: (bool) ($data['backup_replication'] ?? true),
         );
     }
 }

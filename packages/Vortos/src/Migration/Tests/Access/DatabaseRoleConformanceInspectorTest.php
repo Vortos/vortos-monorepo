@@ -47,6 +47,13 @@ final class DatabaseRoleConformanceInspectorTest extends TestCase
         self::assertTrue($report->connectionsChecked);
     }
 
+    public function test_a_backup_role_still_holding_replication_it_no_longer_needs_is_a_violation(): void
+    {
+        $report = self::inspect(RoleModelFixture::conforming(), RoleModelFixture::model(backupReplication: false));
+
+        self::assertSame(['role_attribute app_backup backup role: is REPLICATION, must be NOREPLICATION'], self::lines($report));
+    }
+
     /** Production before the roles existed: one SUPERUSER + BYPASSRLS role owning everything, every client on it. */
     public function test_the_single_superuser_production_database_violates_on_every_count(): void
     {

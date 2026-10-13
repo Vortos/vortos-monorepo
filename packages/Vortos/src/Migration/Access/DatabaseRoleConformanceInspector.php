@@ -97,7 +97,7 @@ final class DatabaseRoleConformanceInspector
                 continue;
             }
 
-            foreach ($kind->attributes() as $attribute => $expected) {
+            foreach ($kind->attributes($model) as $attribute => $expected) {
                 if ($actual[$attribute] !== $expected) {
                     [$on, $off] = DatabaseRoleKind::keywords()[$attribute];
                     $violations[] = new DatabaseRoleViolation(DatabaseRoleViolationKind::RoleAttribute, $role->value, $kind->value . ' role', sprintf('is %s, must be %s', $actual[$attribute] ? $on : $off, $expected ? $on : $off));

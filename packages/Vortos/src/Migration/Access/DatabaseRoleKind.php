@@ -31,15 +31,16 @@ enum DatabaseRoleKind: string
      *
      * @return array<string, bool>
      */
-    public function attributes(): array
+    public function attributes(DatabaseRoleModel $model): array
     {
         return match ($this) {
             self::Bootstrap => ['superuser' => true],
             self::Owner, self::Runtime => ['superuser' => false, 'replication' => false, 'createrole' => false, 'createdb' => false, 'bypassrls' => false, 'login' => true],
             // BYPASSRLS because pg_dump refuses a table whose policies would filter its rows (measured on 18:
             // "query would be affected by row-level security policy") — a dump that silently omitted another
-            // tenant's rows would be worse. REPLICATION for pg_basebackup.
-            self::Backup => ['superuser' => false, 'replication' => true, 'createrole' => false, 'createdb' => false, 'bypassrls' => true, 'login' => true],
+            // tenant's rows would be worse. REPLICATION only while the backup node takes pg_basebackup copies: an
+            // application whose physical backups run inside the database server (pgBackRest) declares it off.
+            self::Backup => ['superuser' => false, 'replication' => $model->backupReplication, 'createrole' => false, 'createdb' => false, 'bypassrls' => true, 'login' => true],
         };
     }
 

@@ -7,6 +7,8 @@ namespace Vortos\Backup\Health;
 use Psr\Clock\ClockInterface;
 use Vortos\Backup\Catalog\WalVolumeReadModelInterface;
 use Vortos\Backup\Config\BackupConfigLoader;
+use Vortos\Backup\Domain\BackupKind;
+use Vortos\Backup\Schedule\BackupScheduleType;
 
 /**
  * Builds {@see WalEfficiencyProbe} with the environment the catalog is actually written under.
@@ -41,6 +43,19 @@ final class WalEfficiencyProbeFactory
             $minCompressionRatio,
             $maxDailyBytes,
             segmentSize: $segmentSize,
+            archiving: $this->archiving(),
         );
+    }
+
+    /** The framework ships WAL only for its own physical_base backups; pgBackRest archives on its own. */
+    private function archiving(): bool
+    {
+        foreach ($this->loader->schedules() as $schedule) {
+            if ($schedule->type === BackupScheduleType::Backup && $schedule->kind === BackupKind::PhysicalBase) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

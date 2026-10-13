@@ -90,3 +90,8 @@ retention, compression) is pgBackRest's own configuration, baked into the databa
   archived that the repository never stored (`archive-push-queue-max` overflow).
 - The recovery-time projection anchors on the newest pgBackRest backup when pgBackRest is declared.
 - Operator: `backup:pgbackrest status|info|check|backup --type=full|diff|verify|drill`.
+- **Cutover.** Remove the framework `physical_base` backup and drill from the schedule, ship the image with
+  pgBackRest as the only `archive_command`, then `backup:pitr:retire` (dry run) and `--apply`: it deletes
+  every framework base backup and WAL segment, store and catalog, and refuses while either is still
+  scheduled, while the repository is not healthy, or when the newest point-in-time drill did not restore.
+  Logical dumps are untouched. The `wal-efficiency` probe passes as not-in-use once no base is scheduled.

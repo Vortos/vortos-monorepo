@@ -19,7 +19,7 @@ use Vortos\Health\Probe\ProbeStatus;
  */
 final class WalEfficiencyProbeTest extends TestCase
 {
-    private function probe(int $segments, int $bytes, float $minRatio = 4.0, int $budget = 5 * 1024 * 1024 * 1024): WalEfficiencyProbe
+    private function probe(int $segments, int $bytes, float $minRatio = 4.0, int $budget = 5 * 1024 * 1024 * 1024, bool $archiving = true): WalEfficiencyProbe
     {
         $catalog = new class ($segments, $bytes) implements WalVolumeReadModelInterface {
             public function __construct(private readonly int $segments, private readonly int $bytes) {}
@@ -42,7 +42,17 @@ final class WalEfficiencyProbeTest extends TestCase
             'production',
             $minRatio,
             $budget,
+            archiving: $archiving,
         );
+    }
+
+    /** pgBackRest archives instead: nothing to judge, and a permanent "too few segments" warning would be noise. */
+    public function test_passes_when_the_framework_wal_archive_is_not_in_use(): void
+    {
+        $result = $this->probe(0, 0, archiving: false)->check();
+
+        $this->assertSame(ProbeStatus::Pass, $result->status);
+        $this->assertStringContainsString('not in use', (string) $result->detail['reason']);
     }
 
     /** 1,440 segments/day at a full 16 MiB each — the exact production state that went unnoticed. */

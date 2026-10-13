@@ -975,6 +975,14 @@ final class BackupExtension extends Extension
             ->setArgument('$defaultPolicy', new Reference(RetentionPolicy::class))
             ->setArgument('$storeKey', $storeKey)
             ->addTag('console.command')->setPublic(false);
+        $container->register(\Vortos\Backup\Console\BackupPitrRetireCommand::class, \Vortos\Backup\Console\BackupPitrRetireCommand::class)
+            ->setArgument('$enforcer', new Reference(RetentionEnforcer::class))
+            ->setArgument('$stores', new Reference(BackupStoreRegistry::class))
+            ->setArgument('$storeKey', $storeKey)
+            ->setArgument('$schedules', new Reference(BackupScheduleRegistry::class))
+            ->setArgument('$repository', new Reference(\Vortos\Backup\PgBackRest\PgBackRestRepositoryInspector::class))
+            ->setArgument('$drills', new Reference(DrillReportStoreInterface::class))
+            ->addTag('console.command')->setPublic(false);
         $container->register(BackupVerifyCommand::class, BackupVerifyCommand::class)
             ->setArgument('$catalog', new Reference(BackupCatalogReadModelInterface::class))
             ->setArgument('$stores', new Reference(BackupStoreRegistry::class))

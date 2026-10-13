@@ -59,6 +59,12 @@ final class WalEfficiencyProbe implements HealthProbeInterface
          * hosts that cannot say, and the result records that it was assumed.
          */
         private readonly ?WalFileSizeResolverInterface $segmentSize = null,
+        /**
+         * False when nothing declares the framework's WAL archive (no physical_base backup schedule) — for
+         * example once pgBackRest archives instead. There is then no volume to judge, and a probe warning
+         * "too few segments" for ever would teach everyone to ignore it.
+         */
+        private readonly bool $archiving = true,
     ) {}
 
     public function name(): string
@@ -79,6 +85,13 @@ final class WalEfficiencyProbe implements HealthProbeInterface
     public function check(): ProbeResult
     {
         $start = microtime(true);
+
+        if (!$this->archiving) {
+            return ProbeResult::pass($this->name(), $this->kind(), $this->elapsedMs($start), [
+                'environment' => $this->environment,
+                'reason'      => 'the framework WAL archive is not in use (no physical_base backup is scheduled)',
+            ]);
+        }
 
         try {
             $since = $this->clock->now()->modify("-{$this->windowHours} hours");

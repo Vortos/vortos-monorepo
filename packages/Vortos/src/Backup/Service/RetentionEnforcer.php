@@ -143,6 +143,75 @@ final class RetentionEnforcer
         return new RetentionPlan($plan->keep, $deleted, $refused, $plan->keptWalCount, $plan->walPruneAnchor, $walDeleted);
     }
 
+    /**
+     * Removes the framework's physical point-in-time recovery: every physical_base restore point and every
+     * archived WAL segment, from the store each lives in and from the catalog.
+     *
+     * For the cutover to an external tool that archives on its own (pgBackRest). Retention cannot do this:
+     * it anchors WAL on the retained bases, so once no new base is taken the last bases age out over the
+     * restore-point window and the WAL behind them is then never pruned at all. The caller proves the
+     * replacement works before calling; this only deletes, and only what the catalog knows.
+     */
+    public function retirePhysicalRecovery(
+        BackupStoreInterface $store,
+        DatabaseEngine $engine,
+        string $environment,
+        bool $apply,
+    ): PhysicalRecoveryRetirement {
+        $bases = 0;
+        $baseBytes = 0;
+        $segments = 0;
+        $segmentBytes = 0;
+        $locked = 0;
+
+        foreach ($this->readModel->listRestorePoints($engine, $environment) as $artifact) {
+            if ($artifact->kind !== BackupKind::PhysicalBase) {
+                continue;
+            }
+            if ($apply && !$this->retire($artifact, $store)) {
+                $locked++;
+
+                continue;
+            }
+            $bases++;
+            $baseBytes += $artifact->sizeBytes;
+        }
+
+        // Streamed, never hydrated: the WAL slice is the unbounded set (see enforce()). Every segment is
+        // older than a moment from now, so this is all of them.
+        foreach ($this->readModel->iterateWalOlderThan($engine, $environment, $this->now()->modify('+1 day')) as $artifact) {
+            if ($apply && !$this->retire($artifact, $store)) {
+                $locked++;
+
+                continue;
+            }
+            $segments++;
+            $segmentBytes += $artifact->sizeBytes;
+        }
+
+        if ($apply) {
+            $this->events->emit(BackupEvent::retentionApplied($engine, $environment, $bases + $segments, $this->now()));
+        }
+
+        return new PhysicalRecoveryRetirement($apply, $bases, $baseBytes, $segments, $segmentBytes, $locked);
+    }
+
+    /** Deletes one artifact; false when the store refused because it is immutable. */
+    private function retire(BackupArtifact $artifact, BackupStoreInterface $fallback): bool
+    {
+        try {
+            $this->storeFor($artifact, $fallback)->delete($artifact->storeKey);
+        } catch (Throwable $e) {
+            if ($this->isLockRejection($e)) {
+                return false;
+            }
+            throw $e;
+        }
+        $this->repository->forget($artifact->id->value());
+
+        return true;
+    }
+
     private function applyLockExclusions(RetentionPlan $plan): RetentionPlan
     {
         $now = $this->clock->now();

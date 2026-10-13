@@ -760,6 +760,7 @@ return [
             'backup:dr-runbook'  => 'Generate a DR runbook from live config + the latest drill data.',
             'backup:replicate'   => '3-2-1 reconciliation — copy any artifact missing its secondary location.',
             'backup:retention'   => 'Plan (dry-run) or apply retention.',
+            'backup:pitr:retire' => 'After the pgBackRest cutover: delete every framework physical_base backup and WAL segment (store + catalog). Dry-run unless --apply; refuses while a framework base/PITR drill is scheduled, the pgBackRest repository is unhealthy, or the newest PITR drill failed. Flags: --env, --apply.',
             'backup:schedule'    => 'Generate the host cron fragment for declared backup schedules — emits the correct verb per schedule type (backup:run / backup:retention --apply / backup:drill), no longer only backup:run. (Containerized deploys should prefer vortos:backup:worker over host cron.)',
             'backup:wal-archive' => 'Archive one Postgres WAL segment — wired into archive_command (host) or invoked by the wal-shipper worker (containerized).',
             'vortos:backup:pitr:recipe' => 'Generate the containerized WAL-shipping PITR recipe (postgresql.conf + shipper/base-backup workers + compose fragment). Flags: --wal-volume, --backend-service, --postgres-service, --env, --dry-run, --force',

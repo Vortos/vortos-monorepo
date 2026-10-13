@@ -19,6 +19,7 @@ use Vortos\Backup\Doctor\ReplicationAccessInspector;
 use Vortos\Backup\Doctor\ToolchainReport;
 use Vortos\Backup\Environment\DefaultEnvironment;
 use Vortos\Backup\Port\BackupStoreRegistry;
+use Vortos\Backup\Schedule\BackupScheduleType;
 
 /**
  * Fail-closed backup preflight (STAGE-F-1). Asserts, before the first real backup, that:
@@ -102,9 +103,13 @@ final class BackupDoctorCommand extends Command
             return ReplicationAccessFinding::notApplicable('Replication check not configured.');
         }
 
+        // The framework's own backups only. pgBackRest's schedules also carry physical_base, but it reads
+        // the data directory inside the database container and never opens a replication connection.
         $kinds = [];
         foreach ($this->schedules as $schedule) {
-            $kinds[] = $schedule->kind;
+            if ($schedule->type === BackupScheduleType::Backup) {
+                $kinds[] = $schedule->kind;
+            }
         }
 
         return $this->replication->inspect($engine, $this->dsn, array_values(array_unique($kinds, SORT_REGULAR)));

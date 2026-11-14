@@ -6,9 +6,13 @@ FROM dunglas/frankenphp:builder AS builder
 
 COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
 
+# The build tags match the official FrankenPHP binaries. `deprecated_topic` and `deprecated_claim`
+# keep Mercure 0.x tokens and subscriptions working under `protocol_version_compatibility 8` (see the
+# Caddyfile's mercure block): FrankenPHP >= 1.13 bundles Mercure 1.0, whose hub refuses the 0.x
+# directives otherwise, and a custom xcaddy build carries no tags unless they are passed here.
 RUN CGO_ENABLED=1 \
     XCADDY_SETCAP=1 \
-    XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s'" \
+    XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,deprecated_topic,deprecated_claim" \
     CGO_CFLAGS=$(php-config --includes) \
     CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
     xcaddy build \

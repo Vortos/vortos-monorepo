@@ -148,6 +148,29 @@ final class CaddyMercureSectionTest extends TestCase
     }
 
     /**
+     * FrankenPHP >= 1.13 bundles Mercure 1.0, which refuses to boot on `publisher_jwt`/`subscriber_jwt`
+     * unless the hub runs in 0.x compatibility mode — and honours that mode only in a binary built with
+     * the deprecated tags. The stub Dockerfile floats on the FrankenPHP builder, so the Caddyfile and the
+     * build must carry both halves together or every app published with Mercure fails to start.
+     */
+    public function test_mercure_runs_in_compatibility_mode_with_a_binary_built_for_it(): void
+    {
+        $dir = self::tempDir();
+
+        try {
+            self::publishTo($dir, withMercure: true);
+
+            $this->assertStringContainsString('protocol_version_compatibility 8', self::caddyfile($dir));
+            $this->assertStringContainsString(
+                'deprecated_topic,deprecated_claim',
+                (string) file_get_contents($dir . '/docker/php/Dockerfile'),
+            );
+        } finally {
+            self::remove($dir);
+        }
+    }
+
+    /**
      * The secret must never carry a default. A hub signed with a value readable in the framework's
      * source would accept tokens anyone could forge, which is strictly worse than shipping no hub.
      */

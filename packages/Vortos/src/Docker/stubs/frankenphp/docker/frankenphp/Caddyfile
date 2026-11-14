@@ -192,6 +192,12 @@
     mercure {
         transport local
 
+        # Mercure 1.0 (FrankenPHP >= 1.13) refuses `publisher_jwt`/`subscriber_jwt` outside 0.x
+        # compatibility mode, and the framework's tokens (MercureTokenMinter: legacy `mercure` claim)
+        # and cookie are still 0.x. Requires the `deprecated_topic`/`deprecated_claim` build tags,
+        # which docker/php/Dockerfile passes. Remove together with the move to Mercure 1.0 tokens.
+        protocol_version_compatibility 8
+
         publisher_jwt {$VORTOS_MERCURE_JWT_SECRET}
         subscriber_jwt {$VORTOS_MERCURE_JWT_SECRET}
 

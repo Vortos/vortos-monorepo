@@ -451,6 +451,16 @@ final class RemoteDeployScript
                 array_push($services, ...$auxiliary->services->names);
             }
 
+            // Pulled again, on the host, right before they start. The pull before the cutover proved
+            // each image exists before the app moved; but the cutover's image reclaim runs in between,
+            // and an image no container uses yet is exactly what it removes. The compose one-shot below
+            // has no registry login, so an image missing by then cannot be fetched there ("pull access
+            // denied"), and the release's new auxiliary image never runs. A pull of an image already
+            // present is a manifest check, nothing more.
+            foreach ($definition->auxiliaryImages as $auxiliary) {
+                $lines[] = sprintf('docker pull %s', $this->auxiliaryImageRef($repo, $auxiliary));
+            }
+
             $lines[] = sprintf(
                 'docker run --rm --user 0:0 --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 -v %s:%s -w %s --entrypoint docker %s compose -f %s up -d --no-deps %s',
                 $network,

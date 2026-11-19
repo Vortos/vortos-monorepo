@@ -111,6 +111,28 @@ final class PipelineBuilderAuxiliaryImageTest extends TestCase
         self::assertStringContainsString('healthy|no-healthcheck-running', $script);
     }
 
+    /**
+     * The cutover's image reclaim removes images no container uses yet — a new auxiliary image among
+     * them — and the compose one-shot that starts the service has no registry login. Production hit it
+     * the first time an auxiliary image changed between releases: "pull access denied". So the image is
+     * pulled again on the host, after the cutover and right before the converge.
+     */
+    public function test_it_is_pulled_again_on_the_host_after_the_cutover_right_before_it_starts(): void
+    {
+        $script = $this->deployScript($this->stage(StageKind::Deploy));
+        $ref = self::REPO . '@${{ needs.build.outputs.auxbackup }}';
+
+        $cutover  = strpos($script, 'deploy --env=');
+        $converge = strpos($script, 'compose -f /opt/vortos/docker-compose.prod.yaml up -d --no-deps backup-scheduler');
+        $repull   = strrpos(substr($script, 0, (int) $converge), 'docker pull ' . $ref);
+
+        self::assertIsInt($cutover);
+        self::assertIsInt($converge);
+        self::assertIsInt($repull);
+        self::assertTrue($cutover < $repull && $repull < $converge, 'pulled between the cutover and the converge');
+        self::assertStringNotContainsString('docker-socket-proxy:2375 docker pull', $script, 'pulled by the host, which holds the login');
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private function stage(StageKind $kind, ?string $ignore = null, bool $cache = false): Stage

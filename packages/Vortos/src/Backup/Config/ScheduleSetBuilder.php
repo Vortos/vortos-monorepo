@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Backup\Config;
 
 use Vortos\Backup\Domain\BackupKind;
+use Vortos\Backup\PgBackRest\PgBackRestRepositoryRole;
 use Vortos\Backup\Schedule\BackupScheduleType;
 
 /**
@@ -14,7 +15,7 @@ use Vortos\Backup\Schedule\BackupScheduleType;
  */
 final class ScheduleSetBuilder
 {
-    /** @var list<array{name: string, cron: string, type: BackupScheduleType, kind: BackupKind}> */
+    /** @var list<array{name: string, cron: string, type: BackupScheduleType, kind: BackupKind, repository: PgBackRestRepositoryRole}> */
     private array $entries = [];
 
     private int $anon = 0;
@@ -58,31 +59,40 @@ final class ScheduleSetBuilder
      * differential refers to, so a full is due weekly at least; differentials carry only the blocks
      * changed since that full, so they are cheap enough to take daily. The kind is PhysicalBase for
      * all four: each is, or proves, a point-in-time recovery anchor.
+     *
+     * `offsite: true` runs it against the off-site repository (BackupConfig::pgBackRest(offsite: ...)).
+     * pgBackRest backs up one repository per run, so each copy needs its own schedules; the archive is
+     * pushed to both continuously.
      */
-    public function pgBackRestFull(string $cron, ?string $name = null): self
+    public function pgBackRestFull(string $cron, ?string $name = null, bool $offsite = false): self
     {
-        return $this->add($cron, BackupScheduleType::PgBackRestFull, BackupKind::PhysicalBase, $name);
+        return $this->add($cron, BackupScheduleType::PgBackRestFull, BackupKind::PhysicalBase, $name, self::role($offsite));
     }
 
-    public function pgBackRestDifferential(string $cron, ?string $name = null): self
+    public function pgBackRestDifferential(string $cron, ?string $name = null, bool $offsite = false): self
     {
-        return $this->add($cron, BackupScheduleType::PgBackRestDifferential, BackupKind::PhysicalBase, $name);
+        return $this->add($cron, BackupScheduleType::PgBackRestDifferential, BackupKind::PhysicalBase, $name, self::role($offsite));
     }
 
     /** Re-reads the whole repository against its checksums; finds rot a restore would only meet later. */
-    public function pgBackRestVerify(string $cron, ?string $name = null): self
+    public function pgBackRestVerify(string $cron, ?string $name = null, bool $offsite = false): self
     {
-        return $this->add($cron, BackupScheduleType::PgBackRestVerify, BackupKind::PhysicalBase, $name);
+        return $this->add($cron, BackupScheduleType::PgBackRestVerify, BackupKind::PhysicalBase, $name, self::role($offsite));
     }
 
     /** Restores the newest backup into a disposable server and replays the archive to its end. */
-    public function pgBackRestDrill(string $cron, ?string $name = null): self
+    public function pgBackRestDrill(string $cron, ?string $name = null, bool $offsite = false): self
     {
-        return $this->add($cron, BackupScheduleType::PgBackRestDrill, BackupKind::PhysicalBase, $name);
+        return $this->add($cron, BackupScheduleType::PgBackRestDrill, BackupKind::PhysicalBase, $name, self::role($offsite));
+    }
+
+    private static function role(bool $offsite): PgBackRestRepositoryRole
+    {
+        return $offsite ? PgBackRestRepositoryRole::Offsite : PgBackRestRepositoryRole::Primary;
     }
 
     /**
-     * @return list<array{name: string, cron: string, type: BackupScheduleType, kind: BackupKind}>
+     * @return list<array{name: string, cron: string, type: BackupScheduleType, kind: BackupKind, repository: PgBackRestRepositoryRole}>
      */
     public function entries(): array
     {
@@ -103,13 +113,19 @@ final class ScheduleSetBuilder
         return null;
     }
 
-    private function add(string $cron, BackupScheduleType $type, BackupKind $kind, ?string $name): self
-    {
+    private function add(
+        string $cron,
+        BackupScheduleType $type,
+        BackupKind $kind,
+        ?string $name,
+        PgBackRestRepositoryRole $repository = PgBackRestRepositoryRole::Primary,
+    ): self {
         $this->entries[] = [
             'name' => $name ?? $this->defaultName($type),
             'cron' => $cron,
             'type' => $type,
             'kind' => $kind,
+            'repository' => $repository,
         ];
 
         return $this;

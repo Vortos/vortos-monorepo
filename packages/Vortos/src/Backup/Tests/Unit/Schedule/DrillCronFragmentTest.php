@@ -7,6 +7,7 @@ namespace Vortos\Backup\Tests\Unit\Schedule;
 use PHPUnit\Framework\TestCase;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Backup\PgBackRest\PgBackRestRepositoryRole;
 use Vortos\Backup\Schedule\BackupSchedule;
 use Vortos\Backup\Schedule\BackupScheduleType;
 use Vortos\Backup\Schedule\CronFragmentGenerator;
@@ -84,5 +85,17 @@ final class DrillCronFragmentTest extends TestCase
         self::assertTrue(
             $command->getDefinition()->hasOption(\Vortos\Backup\Console\BackupDrillCommand::OPTION_KIND),
         );
+    }
+
+    /** The off-site copy's lines must name it: unnamed, the generated cron would back up and drill the primary twice. */
+    public function testOffsiteScheduleLinesNameTheOffsiteRepository(): void
+    {
+        $fragment = (new CronFragmentGenerator())->generate([
+            new BackupSchedule('pgbackrest-full', DatabaseEngine::Postgres, BackupKind::PhysicalBase, 'production', '0 2 * * 0', BackupScheduleType::PgBackRestFull),
+            new BackupSchedule('pgbackrest-offsite-drill', DatabaseEngine::Postgres, BackupKind::PhysicalBase, 'production', '0 5 * * 0', BackupScheduleType::PgBackRestDrill, PgBackRestRepositoryRole::Offsite),
+        ]);
+
+        self::assertMatchesRegularExpression('#backup:pgbackrest backup --type=full(?! --repository)#', $fragment);
+        self::assertStringContainsString('backup:pgbackrest drill --repository=offsite', $fragment);
     }
 }

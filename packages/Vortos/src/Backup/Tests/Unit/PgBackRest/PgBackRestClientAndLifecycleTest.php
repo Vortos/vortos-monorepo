@@ -16,7 +16,9 @@ use Vortos\Backup\PgBackRest\PgBackRestClient;
 use Vortos\Backup\PgBackRest\PgBackRestCommandFailedException;
 use Vortos\Backup\PgBackRest\PgBackRestDrill;
 use Vortos\Backup\PgBackRest\PgBackRestLifecycle;
+use Vortos\Backup\PgBackRest\PgBackRestOffsite;
 use Vortos\Backup\PgBackRest\PgBackRestRepository;
+use Vortos\Backup\PgBackRest\PgBackRestRepositoryRole;
 use Vortos\Backup\PgBackRest\PromotedServerProbeInterface;
 use Vortos\Backup\Schedule\BackupSchedule;
 use Vortos\Backup\Schedule\BackupScheduleType;
@@ -102,9 +104,37 @@ final class PgBackRestClientAndLifecycleTest extends TestCase
         }
     }
 
-    private function lifecycle(): PgBackRestLifecycle
+    public function testAnOffsiteScheduleBacksUpVerifiesAndReadsTheOffsiteRepositoryOnly(): void
     {
-        $repository = new PgBackRestRepository('sqoura', 'write_db', '/opt/vortos/pgbackrest.env');
+        $offsite = new PgBackRestOffsite(2, 'acme-pgbackrest-offsite', 'https://s3.us-west-004.backblazeb2.com', 'us-west-004', 21);
+        $this->executor->answerInfo(PgBackRestInfoFixture::production()->json());
+
+        $outcome = $this->lifecycle($offsite)->execute($this->schedule(BackupScheduleType::PgBackRestFull, PgBackRestRepositoryRole::Offsite));
+        $this->lifecycle($offsite)->execute($this->schedule(BackupScheduleType::PgBackRestVerify, PgBackRestRepositoryRole::Offsite));
+
+        self::assertSame([['backup', '--repo=2', '--type=full'], ['info', '--repo=2', '--output=json'], ['verify', '--repo=2']], $this->executor->calls);
+        self::assertStringContainsString('pgBackRest off-site full', $outcome->summary);
+    }
+
+    public function testWithAnOffsiteCopyDeclaredPrimarySchedulesNameThePrimary(): void
+    {
+        $offsite = new PgBackRestOffsite(2, 'acme-pgbackrest-offsite', 'https://s3.us-west-004.backblazeb2.com', 'us-west-004', 21);
+
+        $this->lifecycle($offsite)->execute($this->schedule(BackupScheduleType::PgBackRestDifferential));
+
+        // Unnamed, `info` would report both copies as one and `backup` would pick repo1 implicitly.
+        self::assertSame([['backup', '--repo=1', '--type=diff'], ['info', '--repo=1', '--output=json']], $this->executor->calls);
+    }
+
+    public function testOnlyAPgBackRestScheduleCanTargetTheOffsiteRepository(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new BackupSchedule('dump', DatabaseEngine::Postgres, BackupKind::LogicalFull, 'production', '0 2 * * *', BackupScheduleType::Backup, PgBackRestRepositoryRole::Offsite);
+    }
+
+    private function lifecycle(?PgBackRestOffsite $offsite = null): PgBackRestLifecycle
+    {
+        $repository = new PgBackRestRepository('sqoura', 'write_db', '/opt/vortos/pgbackrest.env', offsite: $offsite);
         $client = new PgBackRestClient($this->executor, $repository);
 
         return new PgBackRestLifecycle($client, new PgBackRestDrill(
@@ -126,8 +156,8 @@ final class PgBackRestClientAndLifecycleTest extends TestCase
         ));
     }
 
-    private function schedule(BackupScheduleType $type): BackupSchedule
+    private function schedule(BackupScheduleType $type, PgBackRestRepositoryRole $role = PgBackRestRepositoryRole::Primary): BackupSchedule
     {
-        return new BackupSchedule('s', DatabaseEngine::Postgres, BackupKind::PhysicalBase, 'production', '0 2 * * *', $type);
+        return new BackupSchedule('s', DatabaseEngine::Postgres, BackupKind::PhysicalBase, 'production', '0 2 * * *', $type, $role);
     }
 }

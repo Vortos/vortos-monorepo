@@ -7,6 +7,7 @@ namespace Vortos\Backup\Schedule;
 use InvalidArgumentException;
 use Vortos\Backup\Domain\BackupKind;
 use Vortos\Backup\Domain\DatabaseEngine;
+use Vortos\Backup\PgBackRest\PgBackRestRepositoryRole;
 
 /**
  * A declarative backup schedule: "take this engine+kind backup, for this environment,
@@ -25,6 +26,8 @@ final readonly class BackupSchedule
         // R8-6 (A6): which lifecycle verb this schedule drives. Defaults to Backup so pre-R8-6
         // call sites (which only ever meant `backup:run`) keep their exact meaning.
         public BackupScheduleType $type = BackupScheduleType::Backup,
+        // Which pgBackRest repository a pgBackRest schedule acts on. Primary for everything else.
+        public PgBackRestRepositoryRole $repository = PgBackRestRepositoryRole::Primary,
     ) {
         if ($name === '' || preg_match('/^[a-z][a-z0-9_-]*$/', $name) !== 1) {
             throw new InvalidArgumentException("Backup schedule name must be lower-kebab/snake: '{$name}'.");
@@ -33,6 +36,9 @@ final readonly class BackupSchedule
             throw new InvalidArgumentException('Backup schedule environment must be non-empty.');
         }
         $this->assertCron($cron);
+        if ($repository !== PgBackRestRepositoryRole::Primary && !$type->isPgBackRest()) {
+            throw new InvalidArgumentException("Only a pgBackRest schedule can target the off-site repository: '{$name}'.");
+        }
     }
 
     private function assertCron(string $cron): void

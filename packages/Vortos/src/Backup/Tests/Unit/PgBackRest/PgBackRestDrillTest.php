@@ -18,7 +18,9 @@ use Vortos\Backup\Drill\InvariantResult;
 use Vortos\Backup\Health\WalFileSizeResolverInterface;
 use Vortos\Backup\PgBackRest\PgBackRestClient;
 use Vortos\Backup\PgBackRest\PgBackRestDrill;
+use Vortos\Backup\PgBackRest\PgBackRestOffsite;
 use Vortos\Backup\PgBackRest\PgBackRestRepository;
+use Vortos\Backup\PgBackRest\PgBackRestRepositoryRole;
 use Vortos\Backup\PgBackRest\PromotedServerProbeInterface;
 use Vortos\Backup\Pitr\PitrRecoveryOutcome;
 use Vortos\Backup\Tests\Support\CollectingEventSink;
@@ -85,6 +87,27 @@ final class PgBackRestDrillTest extends TestCase
         self::assertSame(['cid'], $this->runtime->removed);
         self::assertSame(1, $this->runtime->sweeps);
         self::assertSame($report, $this->reports->latestOfKind('postgres', 'production', BackupKind::PhysicalBase));
+    }
+
+    public function testTheOffsiteDrillRestoresFromTheOffsiteRepositoryAlone(): void
+    {
+        $offsite = new PgBackRestOffsite(2, 'acme-pgbackrest-offsite', 'https://s3.us-west-004.backblazeb2.com', 'us-west-004', 21);
+        $report = $this->drill(endLsn: '15/79601330', offsite: $offsite)->run('production', PgBackRestRepositoryRole::Offsite);
+
+        self::assertSame(DrillOutcome::Passed, $report->outcome, (string) $report->error);
+        self::assertSame('pgbackrest:offsite:20261012-151549F', $report->artifactId);
+        self::assertSame(['info', '--repo=2', '--output=json'], $this->executor->calls[0], 'the backup drilled is the off-site copy\'s own');
+        // --repo on restore is carried into the restore_command pgBackRest writes, so WAL comes from there too.
+        self::assertStringContainsString('pgbackrest --stanza=sqoura --repo=2 --process-max=4 --archive-mode=off restore --type=default', $this->runtime->specs[0]->command[0]);
+    }
+
+    public function testWithAnOffsiteCopyDeclaredThePrimaryDrillNamesThePrimary(): void
+    {
+        $offsite = new PgBackRestOffsite(2, 'acme-pgbackrest-offsite', 'https://s3.us-west-004.backblazeb2.com', 'us-west-004', 21);
+        $this->drill(endLsn: '15/79601330', offsite: $offsite)->run('production');
+
+        self::assertSame(['info', '--repo=1', '--output=json'], $this->executor->calls[0]);
+        self::assertStringContainsString('--stanza=sqoura --repo=1 --process-max=4', $this->runtime->specs[0]->command[0]);
     }
 
     public function testTheReplayMeasurementFeedsTheRecoveryTimeProjection(): void
@@ -157,13 +180,13 @@ final class PgBackRestDrillTest extends TestCase
     /**
      * @param list<InvariantCheck> $checks
      */
-    private function drill(?string $endLsn, int $pollsBeforePromotion = 0, array $checks = []): PgBackRestDrill
+    private function drill(?string $endLsn, int $pollsBeforePromotion = 0, array $checks = [], ?PgBackRestOffsite $offsite = null): PgBackRestDrill
     {
         $probe = new class ($endLsn, $pollsBeforePromotion) implements PromotedServerProbeInterface {
             public function __construct(private ?string $lsn, private int $wait) {}
             public function promotedReplayLsn(array $connection): ?string { return $this->wait-- > 0 ? null : $this->lsn; }
         };
-        $repository = new PgBackRestRepository('sqoura', 'write_db', '/opt/vortos/pgbackrest.env');
+        $repository = new PgBackRestRepository('sqoura', 'write_db', '/opt/vortos/pgbackrest.env', offsite: $offsite);
 
         return new PgBackRestDrill(
             new PgBackRestClient($this->executor, $repository),

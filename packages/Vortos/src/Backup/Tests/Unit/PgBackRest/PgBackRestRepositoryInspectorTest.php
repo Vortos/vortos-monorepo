@@ -11,10 +11,15 @@ use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\DR\ArchiverStatus;
 use Vortos\Backup\DR\ArchiverStatusReaderInterface;
 use Vortos\Backup\Drill\Container\ExecResult;
+use Vortos\Backup\Health\PgBackRestOffsiteRepositoryProbe;
 use Vortos\Backup\Health\PgBackRestRepositoryProbe;
+use Vortos\Backup\Immutability\ImmutabilityAudit;
+use Vortos\Backup\Immutability\OffsiteImmutabilityAuditorInterface;
 use Vortos\Backup\Health\WalFileSizeResolverInterface;
 use Vortos\Backup\PgBackRest\PgBackRestClient;
+use Vortos\Backup\PgBackRest\PgBackRestOffsite;
 use Vortos\Backup\PgBackRest\PgBackRestRepository;
+use Vortos\Backup\PgBackRest\PgBackRestRepositoryRole;
 use Vortos\Backup\PgBackRest\PgBackRestRepositoryInspector;
 use Vortos\Backup\PgBackRest\PgBackRestRepositoryStatus;
 use Vortos\Backup\Schedule\BackupSchedule;
@@ -102,17 +107,76 @@ final class PgBackRestRepositoryInspectorTest extends TestCase
         self::assertSame(ProbeStatus::Fail, (new PgBackRestRepositoryProbe($this->inspector('2026-10-13 01:00:00')))->check()->status);
     }
 
-    private function inspector(string $now): PgBackRestRepositoryInspector
+    public function testTheOffsiteCopyIsJudgedOnItsOwnSchedulesAndArchive(): void
     {
-        return new PgBackRestRepositoryInspector(
+        // The off-site copy is backed up weekly only: a 2-day-old full is fresh for it, though the
+        // primary's daily differential cadence would call it stale.
+        $assessment = $this->inspector('2026-10-14 12:00:00', PgBackRestRepositoryRole::Offsite, new ImmutabilityAudit([], ['offsite_lock_mode' => 'COMPLIANCE']))->assess();
+
+        self::assertSame(PgBackRestRepositoryStatus::Healthy, $assessment->status, implode('; ', $assessment->problems));
+        self::assertSame(['info', '--repo=2', '--output=json'], $this->executor->calls[0]);
+        self::assertSame('offsite', $assessment->facts['repository']);
+        self::assertSame('COMPLIANCE', $assessment->facts['offsite_lock_mode']);
+
+        $stale = $this->inspector('2026-10-20 06:00:00', PgBackRestRepositoryRole::Offsite, new ImmutabilityAudit([], []))->assess();
+        self::assertSame(PgBackRestRepositoryStatus::Failing, $stale->status);
+        self::assertStringContainsString('the newest backup (20261012-151549F) is 7.6 d old; its schedule allows 7.1 d', $stale->problems[0]);
+    }
+
+    public function testAnOffsiteCopyWithoutItsLockPagesThoughEveryBackupIsFresh(): void
+    {
+        $assessment = $this->inspector('2026-10-13 01:00:00', PgBackRestRepositoryRole::Offsite, new ImmutabilityAudit(['the off-site lock is GOVERNANCE, which a key with the bypass permission can remove; it must be COMPLIANCE'], []))->assess();
+
+        self::assertSame(PgBackRestRepositoryStatus::Failing, $assessment->status);
+        self::assertSame(['the off-site lock is GOVERNANCE, which a key with the bypass permission can remove; it must be COMPLIANCE'], $assessment->problems);
+    }
+
+    public function testTheLockIsStillAuditedWhenTheRepositoryCannotBeRead(): void
+    {
+        $this->executor->answers['info'] = new ExecResult(41, '', "P00  ERROR: [041]: unable to open file\n");
+        $assessment = $this->inspector('2026-10-13 01:00:00', PgBackRestRepositoryRole::Offsite, new ImmutabilityAudit(['Object Lock is not enabled on the off-site bucket'], []))->assess();
+
+        self::assertSame('Object Lock is not enabled on the off-site bucket', $assessment->problems[0]);
+        self::assertStringContainsString('cannot read the repository', $assessment->problems[1]);
+    }
+
+    public function testTheOffsiteProbeWarnsWhereNoOffsiteCopyIsDeclared(): void
+    {
+        $inspector = new PgBackRestRepositoryInspector(
             new PgBackRestClient($this->executor, new PgBackRestRepository('sqoura', 'write_db', '/opt/vortos/pgbackrest.env')),
+            new BackupScheduleRegistry([]),
+            $this->archiver(),
+            $this->segments(),
+            new FixedClock(new DateTimeImmutable()),
+            role: PgBackRestRepositoryRole::Offsite,
+        );
+
+        self::assertSame(ProbeStatus::Warn, (new PgBackRestOffsiteRepositoryProbe($inspector))->check()->status);
+        self::assertSame([], $this->executor->calls);
+    }
+
+    private function inspector(string $now, PgBackRestRepositoryRole $role = PgBackRestRepositoryRole::Primary, ?ImmutabilityAudit $audit = null): PgBackRestRepositoryInspector
+    {
+        $offsite = $role === PgBackRestRepositoryRole::Offsite
+            ? new PgBackRestOffsite(2, 'acme-pgbackrest-offsite', 'https://s3.us-west-004.backblazeb2.com', 'us-west-004', 21)
+            : null;
+        $auditor = $audit === null ? null : new class ($audit) implements OffsiteImmutabilityAuditorInterface {
+            public function __construct(private ImmutabilityAudit $audit) {}
+            public function audit(PgBackRestOffsite $offsite): ImmutabilityAudit { return $this->audit; }
+        };
+
+        return new PgBackRestRepositoryInspector(
+            new PgBackRestClient($this->executor, new PgBackRestRepository('sqoura', 'write_db', '/opt/vortos/pgbackrest.env', offsite: $offsite)),
             new BackupScheduleRegistry([
                 new BackupSchedule('pgbackrest-full', DatabaseEngine::Postgres, BackupKind::PhysicalBase, 'production', self::FULL, BackupScheduleType::PgBackRestFull),
                 new BackupSchedule('pgbackrest-diff', DatabaseEngine::Postgres, BackupKind::PhysicalBase, 'production', self::DIFF, BackupScheduleType::PgBackRestDifferential),
+                new BackupSchedule('pgbackrest-offsite-full', DatabaseEngine::Postgres, BackupKind::PhysicalBase, 'production', '0 3 * * 0', BackupScheduleType::PgBackRestFull, PgBackRestRepositoryRole::Offsite),
             ]),
             $this->archiver(),
             $this->segments(),
             new FixedClock(new DateTimeImmutable($now)),
+            role: $role,
+            immutability: $auditor,
         );
     }
 

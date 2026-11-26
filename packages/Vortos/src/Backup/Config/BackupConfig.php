@@ -13,7 +13,9 @@ use Vortos\Backup\Domain\DatabaseEngine;
 use Vortos\Backup\Domain\RetentionPolicy;
 use Vortos\Backup\Environment\DefaultEnvironment;
 use Vortos\Backup\Pitr\WalCompression;
+use Vortos\Backup\PgBackRest\PgBackRestOffsite;
 use Vortos\Backup\PgBackRest\PgBackRestRepository;
+use Vortos\Backup\PgBackRest\PgBackRestRepositoryRole;
 use Vortos\Backup\Schedule\BackupSchedule;
 use Vortos\Backup\Schedule\BackupScheduleType;
 
@@ -228,10 +230,19 @@ final class BackupConfig
      * service's container. The repository (bucket, cipher, retention) is pgBackRest's own configuration,
      * baked into the database image; this declares only how to reach it. Its schedules are the
      * pgBackRest* entries of ->schedule(); declaring either without the other is refused at load.
+     *
+     * `offsite` declares the immutable second copy ({@see PgBackRestOffsite}); it needs its own full and
+     * drill schedules (->pgBackRestFull(..., offsite: true)), because pgBackRest backs up one repository
+     * per run and a copy that is never restored is not known to restore.
      */
-    public function pgBackRest(string $stanza, string $databaseService, string $repositoryEnvFile, int $commandTimeoutSeconds = 21_600): self
-    {
-        $this->pgBackRest = new PgBackRestRepository($stanza, $databaseService, $repositoryEnvFile, $commandTimeoutSeconds);
+    public function pgBackRest(
+        string $stanza,
+        string $databaseService,
+        string $repositoryEnvFile,
+        int $commandTimeoutSeconds = 21_600,
+        ?PgBackRestOffsite $offsite = null,
+    ): self {
+        $this->pgBackRest = new PgBackRestRepository($stanza, $databaseService, $repositoryEnvFile, $commandTimeoutSeconds, $offsite);
 
         return $this;
     }
@@ -334,6 +345,21 @@ final class BackupConfig
             // repository holds one full for ever and every restore point depends on it.
             throw new InvalidArgumentException('config/backup.php declares ->pgBackRest(...) without a ->pgBackRestFull(...) schedule.');
         }
+        $offsiteTypes = array_values(array_map(
+            static fn (array $entry): BackupScheduleType => $entry['type'],
+            array_filter($this->schedules->entries(), static fn (array $entry): bool => $entry['repository'] === PgBackRestRepositoryRole::Offsite),
+        ));
+        if ($offsiteTypes !== [] && $this->pgBackRest?->offsite === null) {
+            throw new InvalidArgumentException('config/backup.php schedules the off-site pgBackRest repository but does not declare it: add ->pgBackRest(offsite: new PgBackRestOffsite(...)).');
+        }
+        if ($this->pgBackRest?->offsite !== null) {
+            // A copy with no full of its own holds nothing to restore, and one never drilled is a promise.
+            foreach (['pgBackRestFull' => BackupScheduleType::PgBackRestFull, 'pgBackRestDrill' => BackupScheduleType::PgBackRestDrill] as $method => $required) {
+                if (!\in_array($required, $offsiteTypes, true)) {
+                    throw new InvalidArgumentException(sprintf('config/backup.php declares an off-site pgBackRest repository without a ->%s(..., offsite: true) schedule.', $method));
+                }
+            }
+        }
 
         foreach ($this->schedules->entries() as $entry) {
             $schedules[] = new BackupSchedule(
@@ -343,6 +369,7 @@ final class BackupConfig
                 environment: $this->environment,
                 cron: $entry['cron'],
                 type: $entry['type'],
+                repository: $entry['repository'],
             );
         }
 

@@ -27,6 +27,8 @@ final readonly class PgBackRestRepository
         public string $repositoryEnvFile,
         /** Upper bound for one backup or verify; a run past it is reported failed, never assumed done. */
         public int $commandTimeoutSeconds = 21_600,
+        /** The immutable second copy at another provider, or null for a single repository. */
+        public ?PgBackRestOffsite $offsite = null,
     ) {
         if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', $stanza) !== 1) {
             throw new InvalidArgumentException(sprintf('pgBackRest stanza must be a plain name, got "%s".', $stanza));
@@ -40,5 +42,27 @@ final readonly class PgBackRestRepository
         if ($commandTimeoutSeconds < 60) {
             throw new InvalidArgumentException('pgBackRest command timeout must be at least 60 seconds.');
         }
+    }
+
+    /**
+     * The `--repo` argument a command needs to act on one repository. None for a single repository:
+     * pgBackRest refuses nothing there and the commands stay exactly what they always were. With an
+     * off-site copy declared every command names its repository, because unnamed ones mean "all" for
+     * some commands (info, check) and "repo1" for others (backup) — and a probe reading both copies as
+     * one would let a healthy primary hide a stale off-site copy.
+     *
+     * @return list<string>
+     */
+    public function repoArgument(PgBackRestRepositoryRole $role): array
+    {
+        if ($role === PgBackRestRepositoryRole::Offsite) {
+            if ($this->offsite === null) {
+                throw new \LogicException('No off-site pgBackRest repository is declared (->pgBackRest(offsite: ...)).');
+            }
+
+            return ['--repo=' . $this->offsite->repo];
+        }
+
+        return $this->offsite === null ? [] : ['--repo=1'];
     }
 }

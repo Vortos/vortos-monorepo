@@ -95,3 +95,33 @@ retention, compression) is pgBackRest's own configuration, baked into the databa
   every framework base backup and WAL segment, store and catalog, and refuses while either is still
   scheduled, while the repository is not healthy, or when the newest point-in-time drill did not restore.
   Logical dumps are untouched. The `wal-efficiency` probe passes as not-in-use once no base is scheduled.
+
+### Off-site immutable copy
+
+Encryption protects a leaked bucket, not a compromised server: the server holds a key that writes, and
+expiry needs it to delete. A second pgBackRest repository at another provider, on a **versioned bucket with
+a COMPLIANCE-mode Object Lock**, is the copy that key cannot destroy — its deletes only hide, the locked
+versions stay, and pgBackRest's `--repo-target-time` reads the repository as it stood before.
+
+```php
+->pgBackRest(stanza: 'main', databaseService: 'write_db', repositoryEnvFile: '/opt/app/pgbackrest.env',
+    offsite: new PgBackRestOffsite(repo: 2, bucket: 'acme-pgbackrest-offsite',
+        endpoint: 'https://s3.us-west-004.backblazeb2.com', region: 'us-west-004', minimumLockDays: 21))
+->schedule(fn ($s) => $s
+    // ... primary schedules as above ...
+    ->pgBackRestFull('0 3 * * 0', name: 'pgbackrest-offsite-full', offsite: true)
+    ->pgBackRestDifferential('0 3 * * 1-6', name: 'pgbackrest-offsite-diff', offsite: true)
+    ->pgBackRestDrill('0 5 * * 0', name: 'pgbackrest-offsite-drill', offsite: true))
+```
+
+- pgBackRest pushes WAL to every repository; backups are per repository, so the copy has its own schedules.
+  A full and a drill are required at load.
+- With a copy declared, every command names its repository (`--repo=N`): unnamed, `info` merges both and a
+  healthy primary would hide a stale copy.
+- The **`pgbackrest-offsite-repository` probe** judges the copy on its own schedules and archive, and reads
+  the bucket's lock back from the provider with a read-only key (`VORTOS_BACKUP_OFFSITE_AUDIT_ACCESS_KEY_ID`
+  / `_SECRET_ACCESS_KEY` on the backup node): versioning on, default retention COMPLIANCE, at least
+  `minimumLockDays`. GOVERNANCE fails — a key with the bypass permission removes it.
+- `minimumLockDays` must outlast the oldest backup a restore inside the retention window needs: retention
+  plus one full cycle.
+- Operator: `backup:pgbackrest status|info|backup|verify|drill --repository=offsite`.

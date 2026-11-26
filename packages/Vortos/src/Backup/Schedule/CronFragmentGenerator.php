@@ -6,6 +6,7 @@ namespace Vortos\Backup\Schedule;
 
 use Vortos\Backup\Console\BackupDrillCommand;
 use Vortos\Backup\Domain\BackupKind;
+use Vortos\Backup\PgBackRest\PgBackRestRepositoryRole;
 
 /**
  * Renders declared {@see BackupSchedule}s into a managed crontab fragment that invokes
@@ -94,7 +95,8 @@ final class CronFragmentGenerator
             BackupScheduleType::PgBackRestFull,
             BackupScheduleType::PgBackRestDifferential,
             BackupScheduleType::PgBackRestVerify,
-            BackupScheduleType::PgBackRestDrill => $schedule->type->consoleVerb(),
+            BackupScheduleType::PgBackRestDrill => $schedule->type->consoleVerb()
+                . ($schedule->repository === PgBackRestRepositoryRole::Offsite ? ' --repository=offsite' : ''),
         };
     }
 }

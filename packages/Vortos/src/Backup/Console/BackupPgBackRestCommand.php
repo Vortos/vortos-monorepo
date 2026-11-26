@@ -16,6 +16,7 @@ use Vortos\Backup\PgBackRest\PgBackRestBackupType;
 use Vortos\Backup\PgBackRest\PgBackRestClient;
 use Vortos\Backup\PgBackRest\PgBackRestDrill;
 use Vortos\Backup\PgBackRest\PgBackRestRepositoryInspector;
+use Vortos\Backup\PgBackRest\PgBackRestRepositoryRole;
 use Vortos\Backup\PgBackRest\PgBackRestRepositoryStatus;
 
 /**
@@ -33,6 +34,7 @@ final class BackupPgBackRestCommand extends Command
         private readonly ?PgBackRestDrill $drill,
         private readonly PgBackRestRepositoryInspector $inspector,
         private readonly BackupConfigLoader $loader,
+        private readonly ?PgBackRestRepositoryInspector $offsiteInspector = null,
     ) {
         parent::__construct();
     }
@@ -41,6 +43,7 @@ final class BackupPgBackRestCommand extends Command
     {
         $this->addArgument('action', InputArgument::REQUIRED, 'status, info, check, backup, verify or drill');
         $this->addOption('type', null, InputOption::VALUE_REQUIRED, 'backup type: full or diff', 'diff');
+        $this->addOption('repository', null, InputOption::VALUE_REQUIRED, 'primary or offsite (status, info, backup, verify, drill)', 'primary');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -54,13 +57,16 @@ final class BackupPgBackRestCommand extends Command
         }
 
         try {
+            $role = PgBackRestRepositoryRole::tryFrom((string) $input->getOption('repository'))
+                ?? throw new \InvalidArgumentException('--repository must be primary or offsite.');
+
             return match ($action) {
-                'status' => $this->status($output),
-                'info' => $this->info($output),
-                'check' => $this->done($output, 'check passed: the server archives into the stanza', fn () => $this->client->check()),
-                'backup' => $this->backup($input, $output),
-                'verify' => $this->done($output, 'verify passed: every repository file matches its checksum', fn () => $this->client->verify()),
-                'drill' => $this->runDrill($output),
+                'status' => $this->status($output, $role),
+                'info' => $this->info($output, $role),
+                'check' => $this->done($output, 'check passed: the server archives into the stanza, in every repository', fn () => $this->client->check()),
+                'backup' => $this->backup($input, $output, $role),
+                'verify' => $this->done($output, sprintf('verify passed: every %s repository file matches its checksum', $role->value), fn () => $this->client->verify($role)),
+                'drill' => $this->runDrill($output, $role),
                 default => throw new \InvalidArgumentException(sprintf('Unknown action "%s".', $action)),
             };
         } catch (Throwable $e) {
@@ -70,19 +76,22 @@ final class BackupPgBackRestCommand extends Command
         }
     }
 
-    private function status(OutputInterface $output): int
+    private function status(OutputInterface $output, PgBackRestRepositoryRole $role): int
     {
-        $assessment = $this->inspector->assess();
+        $inspector = $role === PgBackRestRepositoryRole::Offsite
+            ? ($this->offsiteInspector ?? throw new \InvalidArgumentException('No off-site inspector is wired here.'))
+            : $this->inspector;
+        $assessment = $inspector->assess();
         $output->writeln((string) json_encode($assessment->toDetail(), JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         return $assessment->status === PgBackRestRepositoryStatus::Healthy ? Command::SUCCESS : Command::FAILURE;
     }
 
-    private function info(OutputInterface $output): int
+    private function info(OutputInterface $output, PgBackRestRepositoryRole $role): int
     {
         \assert($this->client !== null);
-        $info = $this->client->info();
-        $output->writeln(sprintf('stanza %s: %s (code %d), cipher %s, archive %s .. %s', $info->stanza, $info->statusMessage, $info->statusCode, $info->cipher ?? 'none', $info->archiveMin ?? '-', $info->archiveMax ?? '-'));
+        $info = $this->client->info($role);
+        $output->writeln(sprintf('[%s] stanza %s: %s (code %d), cipher %s, archive %s .. %s', $role->value, $info->stanza, $info->statusMessage, $info->statusCode, $info->cipher ?? 'none', $info->archiveMin ?? '-', $info->archiveMax ?? '-'));
         foreach ($info->backups as $backup) {
             $output->writeln(sprintf(
                 '  %-4s %s  %s  %d MiB data, %d MiB added%s',
@@ -98,7 +107,7 @@ final class BackupPgBackRestCommand extends Command
         return $info->isOk() ? Command::SUCCESS : Command::FAILURE;
     }
 
-    private function backup(InputInterface $input, OutputInterface $output): int
+    private function backup(InputInterface $input, OutputInterface $output, PgBackRestRepositoryRole $role): int
     {
         \assert($this->client !== null);
         $type = PgBackRestBackupType::tryFrom((string) $input->getOption('type'));
@@ -106,15 +115,15 @@ final class BackupPgBackRestCommand extends Command
             throw new \InvalidArgumentException('--type must be full or diff.');
         }
 
-        $this->client->backup($type);
+        $this->client->backup($type, $role);
 
-        return $this->info($output);
+        return $this->info($output, $role);
     }
 
-    private function runDrill(OutputInterface $output): int
+    private function runDrill(OutputInterface $output, PgBackRestRepositoryRole $role): int
     {
         \assert($this->drill !== null);
-        $report = $this->drill->run($this->loader->environment());
+        $report = $this->drill->run($this->loader->environment(), $role);
         $output->writeln((string) json_encode($report->toArray(), JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         return $report->restored() ? Command::SUCCESS : Command::FAILURE;

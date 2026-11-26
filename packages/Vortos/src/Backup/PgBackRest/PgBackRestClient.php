@@ -22,9 +22,9 @@ final class PgBackRestClient
         return $this->repository;
     }
 
-    public function info(): PgBackRestInfo
+    public function info(PgBackRestRepositoryRole $role = PgBackRestRepositoryRole::Primary): PgBackRestInfo
     {
-        $arguments = ['info', '--output=json'];
+        $arguments = ['info', ...$this->repository->repoArgument($role), '--output=json'];
         $result = $this->executor->run($arguments, self::SHORT_TIMEOUT_SECONDS);
 
         if (!$result->succeeded()) {
@@ -38,18 +38,18 @@ final class PgBackRestClient
      * Take a backup. pgBackRest expires what its retention no longer needs as the last step of every
      * backup, so there is no separate retention schedule to forget.
      */
-    public function backup(PgBackRestBackupType $type): void
+    public function backup(PgBackRestBackupType $type, PgBackRestRepositoryRole $role = PgBackRestRepositoryRole::Primary): void
     {
-        $this->run(['backup', '--type=' . $type->value], $this->repository->commandTimeoutSeconds);
+        $this->run(['backup', ...$this->repository->repoArgument($role), '--type=' . $type->value], $this->repository->commandTimeoutSeconds);
     }
 
     /** Re-read every file in the repository and check it against the checksum recorded when it was written. */
-    public function verify(): void
+    public function verify(PgBackRestRepositoryRole $role = PgBackRestRepositoryRole::Primary): void
     {
-        $this->run(['verify'], $this->repository->commandTimeoutSeconds);
+        $this->run(['verify', ...$this->repository->repoArgument($role)], $this->repository->commandTimeoutSeconds);
     }
 
-    /** Prove the server archives into this stanza: forces a WAL switch and waits for that segment. */
+    /** Prove the server archives into this stanza, in every repository: forces a WAL switch and waits for that segment. */
     public function check(): void
     {
         $this->run(['check'], self::SHORT_TIMEOUT_SECONDS);

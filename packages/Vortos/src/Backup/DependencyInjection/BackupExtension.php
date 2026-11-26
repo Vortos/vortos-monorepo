@@ -687,12 +687,27 @@ final class BackupExtension extends Extension
             ->setArgument('$clock', new Reference(SystemClock::class))
             ->setArgument('$evaluator', new Reference(\Vortos\Backup\Runtime\CronDueEvaluator::class))
             ->setPublic(false);
+        // The off-site copy, judged on its own schedules and archive, plus its bucket's lock read back
+        // from the provider (->pgBackRest(offsite: ...)). Undeclared where there is no off-site copy.
+        $container->register(\Vortos\Backup\Immutability\OffsiteImmutabilityAuditorInterface::class, \Vortos\Backup\Immutability\S3ObjectLockAuditor::class)
+            ->setPublic(false);
+        $container->register('vortos.backup.pgbackrest.offsite_inspector', \Vortos\Backup\PgBackRest\PgBackRestRepositoryInspector::class)
+            ->setArgument('$client', new Reference(\Vortos\Backup\PgBackRest\PgBackRestClient::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            ->setArgument('$schedules', new Reference(BackupScheduleRegistry::class))
+            ->setArgument('$archiver', new Reference(\Vortos\Backup\DR\ArchiverStatusReaderInterface::class))
+            ->setArgument('$segmentSize', new Reference(\Vortos\Backup\Health\PgSettingsWalFileSizeResolver::class))
+            ->setArgument('$clock', new Reference(SystemClock::class))
+            ->setArgument('$evaluator', new Reference(\Vortos\Backup\Runtime\CronDueEvaluator::class))
+            ->setArgument('$role', \Vortos\Backup\PgBackRest\PgBackRestRepositoryRole::Offsite)
+            ->setArgument('$immutability', new Reference(\Vortos\Backup\Immutability\OffsiteImmutabilityAuditorInterface::class))
+            ->setPublic(false);
 
         $container->register(\Vortos\Backup\Console\BackupPgBackRestCommand::class, \Vortos\Backup\Console\BackupPgBackRestCommand::class)
             ->setArgument('$client', new Reference(\Vortos\Backup\PgBackRest\PgBackRestClient::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setArgument('$drill', new Reference(\Vortos\Backup\PgBackRest\PgBackRestDrill::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setArgument('$inspector', new Reference(\Vortos\Backup\PgBackRest\PgBackRestRepositoryInspector::class))
             ->setArgument('$loader', new Reference(\Vortos\Backup\Config\BackupConfigLoader::class))
+            ->setArgument('$offsiteInspector', new Reference('vortos.backup.pgbackrest.offsite_inspector'))
             ->addTag('console.command')->setPublic(false);
 
         $container->register(\Vortos\Backup\DR\RecoveryObjectivesInspectorFactory::class, \Vortos\Backup\DR\RecoveryObjectivesInspectorFactory::class)
@@ -862,6 +877,10 @@ final class BackupExtension extends Extension
             // reports Warn (never Fail) where pgBackRest is not declared.
             $container->register(\Vortos\Backup\Health\PgBackRestRepositoryProbe::class, \Vortos\Backup\Health\PgBackRestRepositoryProbe::class)
                 ->setArgument('$inspector', new Reference(\Vortos\Backup\PgBackRest\PgBackRestRepositoryInspector::class))
+                ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
+                ->setPublic(false);
+            $container->register(\Vortos\Backup\Health\PgBackRestOffsiteRepositoryProbe::class, \Vortos\Backup\Health\PgBackRestOffsiteRepositoryProbe::class)
+                ->setArgument('$inspector', new Reference('vortos.backup.pgbackrest.offsite_inspector'))
                 ->addTag(\Vortos\Health\DependencyInjection\Compiler\CollectHealthProbesPass::TAG)
                 ->setPublic(false);
 

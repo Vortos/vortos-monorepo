@@ -9,6 +9,7 @@ use Psr\Clock\ClockInterface;
 use Throwable;
 use Vortos\Backup\DR\ArchiverStatusReaderInterface;
 use Vortos\Backup\Health\WalFileSizeResolverInterface;
+use Vortos\Backup\Immutability\OffsiteImmutabilityAuditorInterface;
 use Vortos\Backup\Runtime\CronDueEvaluator;
 use Vortos\Backup\Schedule\BackupScheduleRegistry;
 use Vortos\Backup\Schedule\BackupScheduleType;
@@ -28,6 +29,11 @@ use Vortos\Backup\Schedule\BackupScheduleType;
  *
  * Cadences come from the declared schedules, never from constants: the allowance is the longest gap
  * between two consecutive due times of the relevant crons, plus a grace for the backup itself to run.
+ *
+ * ONE REPOSITORY PER INSPECTOR ({@see $role}). The off-site copy is judged on its own schedules and its
+ * own archive, so a healthy primary can never hide a stale copy — and, for the off-site one, a fifth way:
+ * its bucket no longer carries the lock that makes it the copy a compromised server cannot destroy
+ * ({@see OffsiteImmutabilityAuditorInterface}).
  */
 final class PgBackRestRepositoryInspector
 {
@@ -43,23 +49,38 @@ final class PgBackRestRepositoryInspector
         private readonly ClockInterface $clock,
         private readonly CronDueEvaluator $evaluator = new CronDueEvaluator(),
         private readonly int $graceSeconds = 7200,
+        private readonly PgBackRestRepositoryRole $role = PgBackRestRepositoryRole::Primary,
+        private readonly ?OffsiteImmutabilityAuditorInterface $immutability = null,
     ) {}
 
     public function assess(): PgBackRestRepositoryAssessment
     {
-        if ($this->client === null) {
-            return new PgBackRestRepositoryAssessment(PgBackRestRepositoryStatus::Undeclared, [], []);
+        $offsite = $this->client?->repository()->offsite;
+        if ($this->client === null || ($this->role === PgBackRestRepositoryRole::Offsite && $offsite === null)) {
+            return new PgBackRestRepositoryAssessment(PgBackRestRepositoryStatus::Undeclared, [], ['repository' => $this->role->value]);
+        }
+
+        $immutability = [];
+        $facts = ['repository' => $this->role->value];
+        if ($offsite !== null && $this->role === PgBackRestRepositoryRole::Offsite) {
+            if ($this->immutability === null) {
+                $immutability[] = 'nothing audits the off-site bucket\'s lock';
+            } else {
+                $audit = $this->immutability->audit($offsite);
+                $immutability = $audit->problems;
+                $facts += $audit->facts;
+            }
         }
 
         try {
-            $info = $this->client->info();
+            $info = $this->client->info($this->role);
         } catch (Throwable $e) {
-            return $this->failing(['cannot read the repository: ' . $e->getMessage()], []);
+            return $this->failing([...$immutability, 'cannot read the repository: ' . $e->getMessage()], $facts);
         }
 
         $now = $this->clock->now();
-        $problems = [];
-        $facts = ['stanza' => $info->stanza, 'repository_status' => $info->statusMessage, 'cipher' => $info->cipher, 'archive_max' => $info->archiveMax];
+        $problems = $immutability;
+        $facts += ['stanza' => $info->stanza, 'repository_status' => $info->statusMessage, 'cipher' => $info->cipher, 'archive_max' => $info->archiveMax];
 
         if (!$info->isOk()) {
             $problems[] = sprintf('the repository reports status %d: %s', $info->statusCode, $info->statusMessage);
@@ -96,7 +117,7 @@ final class PgBackRestRepositoryInspector
     {
         $crons = [];
         foreach ($this->schedules->all() as $schedule) {
-            if ($relevant($schedule->type)) {
+            if ($schedule->repository === $this->role && $relevant($schedule->type)) {
                 $crons[] = $schedule->cron;
             }
         }

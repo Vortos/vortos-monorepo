@@ -71,20 +71,26 @@ final class PgBackRestDrill
         private readonly int $pollMicroseconds = 2_000_000,
     ) {}
 
-    public function run(string $environment): DrillReport
+    /**
+     * The off-site drill restores from the off-site repository alone: its backup, its WAL (the restore's
+     * --repo carries into the restore_command pgBackRest writes) and its passphrase — the proof that the
+     * copy kept for the day the primary is gone can actually be restored.
+     */
+    public function run(string $environment, PgBackRestRepositoryRole $role = PgBackRestRepositoryRole::Primary): DrillReport
     {
         $start = $this->clock->now();
         $handle = null;
-        $artifact = 'pgbackrest:unknown';
+        $prefix = $role === PgBackRestRepositoryRole::Offsite ? 'pgbackrest:offsite:' : 'pgbackrest:';
+        $artifact = $prefix . 'unknown';
 
         try {
-            $info = $this->client->info();
+            $info = $this->client->info($role);
             if (!$info->isOk()) {
                 throw new RuntimeException(sprintf('the repository reports status %d: %s', $info->statusCode, $info->statusMessage));
             }
             $backup = $info->newest() ?? throw new RuntimeException('the repository holds no valid backup to restore');
             $archiveMax = $info->archiveMax ?? throw new RuntimeException('the repository holds no archived WAL');
-            $artifact = 'pgbackrest:' . $backup->label;
+            $artifact = $prefix . $backup->label;
             $segmentBytes = $this->segmentSize->segmentBytes();
 
             $this->runtime->removeOrphans(self::ORPHAN_LABEL);
@@ -93,7 +99,7 @@ final class PgBackRestDrill
                 name: 'vortos-pgbackrest-drill-' . bin2hex(random_bytes(6)),
                 labels: [self::ORPHAN_LABEL => '1'],
                 network: $this->network,
-                command: [$this->bootScript()],
+                command: [$this->bootScript($role)],
                 entrypoint: ['/bin/sh', '-c'],
                 user: '0:0',
                 readOnlyBinds: [$this->client->repository()->repositoryEnvFile => self::CREDENTIAL_PATH],
@@ -165,13 +171,14 @@ final class PgBackRestDrill
      * --type=default` replays to the end of the archive; `--archive-mode=off` and the command-line
      * setting both keep the drill from archiving into production's repository.
      */
-    private function bootScript(): string
+    private function bootScript(PgBackRestRepositoryRole $role): string
     {
         $stanza = $this->client->repository()->stanza;
+        $repo = implode('', array_map(static fn (string $a): string => ' ' . $a, $this->client->repository()->repoArgument($role)));
 
         return 'set -eu; set -a; . ' . self::CREDENTIAL_PATH . '; set +a; '
             . "exec su postgres -s /bin/sh -c '"
-            . 'pgbackrest --stanza=' . $stanza . ' --process-max=4 --archive-mode=off restore --type=default'
+            . 'pgbackrest --stanza=' . $stanza . $repo . ' --process-max=4 --archive-mode=off restore --type=default'
             . ' && exec postgres -c config_file=/etc/postgresql/postgresql.conf -c archive_mode=off'
             . "'";
     }

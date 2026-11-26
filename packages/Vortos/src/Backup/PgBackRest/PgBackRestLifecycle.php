@@ -23,27 +23,28 @@ final class PgBackRestLifecycle
     public function execute(BackupSchedule $schedule): LifecycleOutcome
     {
         return match ($schedule->type) {
-            BackupScheduleType::PgBackRestFull => $this->backup(PgBackRestBackupType::Full),
-            BackupScheduleType::PgBackRestDifferential => $this->backup(PgBackRestBackupType::Differential),
-            BackupScheduleType::PgBackRestVerify => $this->verify(),
-            BackupScheduleType::PgBackRestDrill => $this->drill($schedule->environment),
+            BackupScheduleType::PgBackRestFull => $this->backup(PgBackRestBackupType::Full, $schedule->repository),
+            BackupScheduleType::PgBackRestDifferential => $this->backup(PgBackRestBackupType::Differential, $schedule->repository),
+            BackupScheduleType::PgBackRestVerify => $this->verify($schedule->repository),
+            BackupScheduleType::PgBackRestDrill => $this->drill($schedule->environment, $schedule->repository),
             default => throw new RuntimeException(sprintf('Schedule "%s" is not a pgBackRest schedule.', $schedule->name)),
         };
     }
 
-    private function backup(PgBackRestBackupType $type): LifecycleOutcome
+    private function backup(PgBackRestBackupType $type, PgBackRestRepositoryRole $role): LifecycleOutcome
     {
-        $this->client->backup($type);
-        $newest = $this->client->info()->newest();
+        $this->client->backup($type, $role);
+        $newest = $this->client->info($role)->newest();
 
         // pgBackRest promotes a differential to a full when no full exists yet — still the backup asked for.
         // Anything else means the repository does not list what was just taken.
         if ($newest === null || ($newest->type !== $type && $newest->type !== PgBackRestBackupType::Full)) {
-            throw new RuntimeException(sprintf('pgbackrest backup --type=%s exited 0 but the repository lists no such backup.', $type->value));
+            throw new RuntimeException(sprintf('pgbackrest backup --type=%s exited 0 but the %s repository lists no such backup.', $type->value, $role->value));
         }
 
         return LifecycleOutcome::completed(sprintf(
-            'pgBackRest %s %s stored (%s of data, %s added to the repository)',
+            'pgBackRest %s%s %s stored (%s of data, %s added to the repository)',
+            $role === PgBackRestRepositoryRole::Offsite ? 'off-site ' : '',
             $newest->type->value,
             $newest->label,
             self::bytes($newest->databaseBytes),
@@ -51,16 +52,16 @@ final class PgBackRestLifecycle
         ));
     }
 
-    private function verify(): LifecycleOutcome
+    private function verify(PgBackRestRepositoryRole $role): LifecycleOutcome
     {
-        $this->client->verify();
+        $this->client->verify($role);
 
-        return LifecycleOutcome::completed('pgBackRest repository verified against its checksums');
+        return LifecycleOutcome::completed(sprintf('pgBackRest %s repository verified against its checksums', $role->value));
     }
 
-    private function drill(string $environment): LifecycleOutcome
+    private function drill(string $environment, PgBackRestRepositoryRole $role): LifecycleOutcome
     {
-        $report = $this->drill->run($environment);
+        $report = $this->drill->run($environment, $role);
 
         if (!$report->restored()) {
             throw new RuntimeException(sprintf(

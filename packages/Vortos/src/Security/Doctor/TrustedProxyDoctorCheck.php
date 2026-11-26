@@ -29,8 +29,7 @@ final class TrustedProxyDoctorCheck implements DoctorCheckInterface
                 $this->name(),
                 'IP-scoped rate limits are configured but trusted_proxies is empty — behind a reverse proxy, '
                 . 'all clients share one rate-limit bucket (the proxy IP), enabling login DoS',
-                'Set trusted_proxies in config/security.php to your reverse proxy IPs (e.g. ["127.0.0.1"]). '
-                . 'For Caddy on the same host, use ["127.0.0.1", "::1"].',
+                'Set vortos.trusted_proxies (VORTOS_TRUSTED_PROXIES) to your reverse proxy\'s address or network.',
             );
         }
 
@@ -39,7 +38,7 @@ final class TrustedProxyDoctorCheck implements DoctorCheckInterface
                 $this->name(),
                 'trusted_proxies is empty — getClientIp() returns REMOTE_ADDR, which behind a reverse proxy '
                 . 'is the proxy IP, not the real client',
-                'Set trusted_proxies in config/security.php to your reverse proxy IPs.',
+                'Set vortos.trusted_proxies (VORTOS_TRUSTED_PROXIES) to your reverse proxy\'s address or network.',
             );
         }
 

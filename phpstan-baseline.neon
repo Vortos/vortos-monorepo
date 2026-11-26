@@ -4723,12 +4723,6 @@ parameters:
 			path: packages/Vortos/src/Security/DependencyInjection/VortosSecurityConfig.php
 
 		-
-			message: '#^Property Vortos\\Security\\DependencyInjection\\IpFilterConfig\:\:\$trustedProxies type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: packages/Vortos/src/Security/DependencyInjection/VortosSecurityConfig.php
-
-		-
 			message: '#^Method Vortos\\Security\\Event\\CsrfViolationEvent\:\:context\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1

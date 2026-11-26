@@ -159,8 +159,14 @@ final class SecurityExtension extends Extension
 
     private function registerIpFilterMiddleware(ContainerBuilder $container, array $resolved): void
     {
+        // One list of trusted proxies for the whole application: vortos.trusted_proxies, the same one
+        // Symfony's Request::getClientIp() honours (Foundation\Runner). This module used to keep its
+        // own (ip_filter.trusted_proxies, defaulting to loopback), and the IP-scoped rate limits read
+        // that one — so an app that configured its proxy correctly still keyed every rate limit on the
+        // proxy's address, while lockouts and session records saw the real client. Two lists drift;
+        // the one nobody remembered was the one enforcing the limits.
         $container->register(IpResolver::class, IpResolver::class)
-            ->setArgument('$trustedProxies', $resolved['trusted_proxies'])
+            ->setArgument('$trustedProxies', '%vortos.trusted_proxies%')
             ->setShared(true)
             ->setPublic(false);
 
@@ -181,7 +187,7 @@ final class SecurityExtension extends Extension
 
         $container->register(TrustedProxyDoctorCheck::class, TrustedProxyDoctorCheck::class)
             ->setArguments([
-                $resolved['trusted_proxies'],
+                '%vortos.trusted_proxies%',
                 '%vortos.has_ip_rate_limits%',
             ])
             ->setShared(true)

@@ -368,7 +368,6 @@ final class IpFilterConfig
     private bool   $enabled        = false;
     private array  $allowlist      = [];
     private array  $denylist       = [];
-    private array  $trustedProxies = ['127.0.0.1', '::1'];
 
     public function enabled(bool $enabled = true): static { $this->enabled = $enabled; return $this; }
 
@@ -378,16 +377,12 @@ final class IpFilterConfig
     /** @param list<string> $cidrs CIDR ranges or exact IPs to block. */
     public function deny(array $cidrs): static { $this->denylist = $cidrs; return $this; }
 
-    /** @param list<string> $ips Proxy IPs whose X-Forwarded-For header is trusted. */
-    public function trustedProxies(array $ips): static { $this->trustedProxies = $ips; return $this; }
-
     public function toArray(): array
     {
         return [
             'enabled'         => $this->enabled,
             'allowlist'       => $this->allowlist,
             'denylist'        => $this->denylist,
-            'trusted_proxies' => $this->trustedProxies,
         ];
     }
 }

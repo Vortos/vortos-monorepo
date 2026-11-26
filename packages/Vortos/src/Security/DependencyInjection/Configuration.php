@@ -105,7 +105,6 @@ final class Configuration implements ConfigurationInterface
                     ->booleanNode('enabled')->defaultFalse()->end()
                     ->arrayNode('allowlist')->scalarPrototype()->end()->defaultValue([])->end()
                     ->arrayNode('denylist')->scalarPrototype()->end()->defaultValue([])->end()
-                    ->arrayNode('trusted_proxies')->scalarPrototype()->end()->defaultValue(['127.0.0.1', '::1'])->end()
                     ->arrayNode('skip_controllers')->scalarPrototype()->end()->defaultValue([])->end()
                 ->end()
             ->end()

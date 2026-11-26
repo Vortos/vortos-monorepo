@@ -100,7 +100,8 @@ return static function (VortosSecurityConfig $config): void {
         ->enabled(false)             // set true in prod if you have known IP ranges
         // ->allow(['203.0.113.0/24'])  // allowlist — all other IPs denied
         // ->deny(['10.0.0.0/8'])       // denylist — specific ranges blocked
-        ->trustedProxies(['127.0.0.1', '::1'])
+        // Trusted proxies are not set here: there is one list for the whole app, vortos.trusted_proxies
+        // (VORTOS_TRUSTED_PROXIES), which getClientIp(), the rate limits and the IP filter all read.
     ;
 
     // =========================================================================

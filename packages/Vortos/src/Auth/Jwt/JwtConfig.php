@@ -61,7 +61,26 @@ final readonly class JwtConfig
          * @var list<string>
          */
         public array $additionalAudiences = [],
-    ) {}
+
+        /**
+         * The identity attribute every session is bound to, or null for no binding.
+         *
+         * When set, {@see JwtService::issue()} copies the identity's value of this attribute into
+         * the refresh token (and keeps it out of the access token), and {@see JwtService::refresh()}
+         * refuses a refresh token whose recorded value differs from the value the freshly loaded
+         * identity carries now. The application points it at something that changes whenever the
+         * account's way of signing in changes (a credential stamp rotated on every password or
+         * second-factor change), so such a change ends every session opened before it, at that
+         * session's next refresh, whatever happened or failed to happen in the token store.
+         *
+         * Industry precedent: ASP.NET Core Identity's security stamp, Django's session auth hash.
+         */
+        public ?string $sessionBindingAttribute = null,
+    ) {
+        if ($sessionBindingAttribute !== null && trim($sessionBindingAttribute) === '') {
+            throw new \InvalidArgumentException('The session binding attribute must be a non-empty attribute name, or null.');
+        }
+    }
 
     /**
      * Every audience this service accepts on validation: the default plus any additional ones,
@@ -94,6 +113,7 @@ final readonly class JwtConfig
         string $issuer = 'vortos',
         string $audience = 'vortos',
         array $additionalAudiences = [],
+        ?string $sessionBindingAttribute = null,
     ): self {
         return new self(
             Keyring::fromSecret($secret),
@@ -102,6 +122,7 @@ final readonly class JwtConfig
             $issuer,
             $audience,
             $additionalAudiences,
+            $sessionBindingAttribute,
         );
     }
 }

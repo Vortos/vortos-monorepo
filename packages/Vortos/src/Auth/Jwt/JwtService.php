@@ -66,6 +66,13 @@ use Vortos\Observability\Telemetry\MetricLabelValue;
  */
 final class JwtService
 {
+    /**
+     * Refresh-token claim carrying the session's binding value (see
+     * {@see JwtConfig::$sessionBindingAttribute}). Only ever in the refresh token, which the
+     * browser holds as an httpOnly cookie; never in the access token, which script can read.
+     */
+    private const BINDING_CLAIM = 'bnd';
+
     public function __construct(
         private JwtConfig $config,
         private TokenStorageInterface $tokenStorage,
@@ -107,7 +114,11 @@ final class JwtService
             ));
         }
 
-        $claims = $identity->getClaims();
+        $claims  = $identity->getClaims();
+        $binding = $this->bindingOf($identity);
+        if ($this->config->sessionBindingAttribute !== null) {
+            unset($claims[$this->config->sessionBindingAttribute]);
+        }
 
         $accessPayload = [
             'iss'           => $this->config->issuer,
@@ -137,6 +148,10 @@ final class JwtService
             'jti'  => $jti,
             'type' => 'refresh',
         ];
+
+        if ($binding !== null) {
+            $refreshPayload[self::BINDING_CLAIM] = $binding;
+        }
 
         $signingKey   = $this->config->keyring->activeSigningKey();
         $accessToken  = JWT::encode($accessPayload, $signingKey->signingMaterial(), $signingKey->algorithm, $signingKey->kid);
@@ -245,6 +260,22 @@ final class JwtService
             throw new TokenInvalidException('Refresh token missing jti claim.');
         }
 
+        // Session binding, checked before the token is consumed so a refused token is revoked
+        // (tombstoned) rather than rotated. A token minted before binding was configured carries
+        // no value and is refused too: it was opened under credentials nobody can vouch for now.
+        $expectedBinding = $this->bindingOf($identity);
+        if ($expectedBinding !== null) {
+            $presented = $payload[self::BINDING_CLAIM] ?? null;
+            if (!is_string($presented) || !hash_equals($expectedBinding, $presented)) {
+                $this->tokenStorage->revoke($jti);
+                $this->sessionEnforcer?->removeSession($sub, $jti);
+                $this->emitSecurityEvent('auth.session.binding_changed');
+                throw new TokenRevokedException(
+                    'This session was signed out because the account\'s sign-in details changed. Please log in again.'
+                );
+            }
+        }
+
         $result = $this->tokenStorage->consume($jti);
 
         if ($result->isRevoked()) {
@@ -324,6 +355,33 @@ final class JwtService
         }
 
         return $payload['sub'];
+    }
+
+    /**
+     * The identity's session binding value, or null when binding is not configured.
+     *
+     * Configured binding with an identity that lacks the attribute is a programming error at the
+     * mint site, and fails there: a session issued without a binding could never be refreshed,
+     * and finding that out fifteen minutes later, on the user's device, is the wrong place.
+     */
+    private function bindingOf(UserIdentityInterface $identity): ?string
+    {
+        $attribute = $this->config->sessionBindingAttribute;
+        if ($attribute === null) {
+            return null;
+        }
+
+        $value = $identity->getClaims()[$attribute] ?? null;
+        if (!is_string($value) || $value === '') {
+            throw new \LogicException(sprintf(
+                'Sessions are bound to the identity attribute "%s", but the identity for "%s" does not carry it. '
+                . 'Build every identity that mints or refreshes a session through the factory that sets it.',
+                $attribute,
+                $identity->id(),
+            ));
+        }
+
+        return $value;
     }
 
     private function emitSecurityEvent(string $event): void

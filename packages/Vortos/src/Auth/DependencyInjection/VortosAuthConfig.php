@@ -23,6 +23,7 @@ final class VortosAuthConfig
     private int $accessTokenTtl = 900;
     private int $refreshTokenTtl = 604800;
     private int $refreshRotationGraceSeconds = 0;
+    private ?string $sessionBindingAttribute = null;
     private bool $enforceSessionLiveness = false;
     private int $sessionLivenessCacheTtlSeconds = 5;
     private int $sessionLivenessCircuitBreakerThreshold = 5;
@@ -201,6 +202,23 @@ final class VortosAuthConfig
     public function refreshRotationGraceSeconds(int $seconds): static
     {
         $this->refreshRotationGraceSeconds = max(0, $seconds);
+        return $this;
+    }
+
+    /**
+     * Bind every session to an identity attribute that changes when the account's way of signing
+     * in changes (for example a credential stamp the database rotates on every password or
+     * second-factor change). A refresh token opened under another value is refused as revoked, so
+     * such a change ends every earlier session at its next refresh. Every identity that mints or
+     * refreshes a session must then carry the attribute; one that does not fails at issuance.
+     * See {@see \Vortos\Auth\Jwt\JwtConfig::$sessionBindingAttribute}.
+     */
+    public function bindSessionsToAttribute(string $attribute): static
+    {
+        if (trim($attribute) === '') {
+            throw new \InvalidArgumentException('bindSessionsToAttribute() needs a non-empty attribute name.');
+        }
+        $this->sessionBindingAttribute = $attribute;
         return $this;
     }
 
@@ -417,6 +435,7 @@ final class VortosAuthConfig
             'access_token_ttl'            => $this->accessTokenTtl,
             'refresh_token_ttl'           => $this->refreshTokenTtl,
             'refresh_rotation_grace_seconds' => $this->refreshRotationGraceSeconds,
+            'session_binding_attribute'   => $this->sessionBindingAttribute,
             'enforce_session_liveness'    => $this->enforceSessionLiveness,
             'session_liveness_cache_ttl_seconds' => $this->sessionLivenessCacheTtlSeconds,
             'session_liveness_circuit_breaker_threshold' => $this->sessionLivenessCircuitBreakerThreshold,

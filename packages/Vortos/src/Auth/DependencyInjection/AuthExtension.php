@@ -158,6 +158,7 @@ final class AuthExtension extends Extension
                 $resolved['issuer'],
                 $resolved['audience'],
                 $resolved['additional_audiences'] ?? [],
+                $resolved['session_binding_attribute'] ?? null,
             ])
             ->setShared(true)->setPublic(false);
 

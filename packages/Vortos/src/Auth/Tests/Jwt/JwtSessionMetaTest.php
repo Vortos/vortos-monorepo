@@ -196,6 +196,69 @@ final class JwtSessionMetaTest extends TestCase
         $service->refresh($old->refreshToken, $identity);
     }
 
+    public function test_the_session_family_survives_rotation_replay_and_re_mint_and_starts_at_sign_in(): void
+    {
+        [$service] = $this->service(graceSeconds: 30);
+        $identity  = new UserIdentity('user-1', ['ROLE_USER']);
+
+        $signIn  = $service->issue($identity, 0, ['logged_in_at' => 1_700_000_000]);
+        $family  = $this->claims($signIn->refreshToken)['fam'] ?? null;
+        $this->assertIsString($family);
+        $this->assertSame($family, $this->claims($signIn->accessToken)['fam'] ?? null);
+        $this->assertSame($family, $service->validate($signIn->accessToken)->sessionFamily);
+
+        $rotated = $service->refresh($signIn->refreshToken, $identity);
+        $this->assertSame($family, $this->claims($rotated->refreshToken)['fam']);
+        $this->assertNotSame($this->jti($signIn->refreshToken), $this->jti($rotated->refreshToken), 'the session id still changes');
+
+        $replayed = $service->refresh($signIn->refreshToken, $identity);
+        $this->assertSame($family, $this->claims($replayed->refreshToken)['fam']);
+
+        // A re-mint of the current session passes that session's meta and continues it.
+        $remint = $service->issue($identity, 0, ['session_family' => $family]);
+        $this->assertSame($family, $this->claims($remint->refreshToken)['fam']);
+
+        // Another sign-in is another family.
+        $other = $service->issue($identity);
+        $this->assertNotSame($family, $this->claims($other->refreshToken)['fam']);
+    }
+
+    public function test_a_session_family_is_live_until_its_sessions_end_however_they_end(): void
+    {
+        [$service, $store] = $this->service();
+        $identity = new UserIdentity('user-1', ['ROLE_USER']);
+
+        $signIn = $service->issue($identity);
+        $family = (string) $this->claims($signIn->refreshToken)['fam'];
+        $this->assertTrue($service->isSessionFamilyLive('user-1', $family));
+
+        $rotated = $service->refresh($signIn->refreshToken, $identity);
+        $this->assertTrue($service->isSessionFamilyLive('user-1', $family), 'a refresh does not end the family');
+
+        // One device revoked from the session list.
+        $store->removeSession('user-1', $this->jti($rotated->refreshToken));
+        $this->assertFalse($service->isSessionFamilyLive('user-1', $family));
+
+        $again = $service->issue($identity);
+        $againFamily = (string) $this->claims($again->refreshToken)['fam'];
+        $service->revokeAll('user-1');
+        $this->assertFalse($service->isSessionFamilyLive('user-1', $againFamily), 'signed out everywhere');
+
+        $this->assertFalse($service->isSessionFamilyLive('user-1', ''));
+        $this->assertFalse($service->isSessionFamilyLive('someone-else', $againFamily));
+    }
+
+    public function test_without_session_tracking_no_family_is_ever_live(): void
+    {
+        $service = new JwtService(
+            new JwtConfig(new Keyring(SigningKey::hs256('key-1', self::SECRET, KeyStatus::Active)), issuer: 'test', audience: 'test'),
+            new InMemoryTokenStorage(),
+        );
+        $token = $service->issue(new UserIdentity('user-1', ['ROLE_USER']));
+
+        $this->assertFalse($service->isSessionFamilyLive('user-1', (string) $this->claims($token->refreshToken)['fam']));
+    }
+
     /** @return array<string, mixed> */
     private function claims(string $jwt): array
     {

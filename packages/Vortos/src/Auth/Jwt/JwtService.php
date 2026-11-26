@@ -109,8 +109,14 @@ final class JwtService
      *                           Falls back to the meta's `logged_in_at`, then to now. Never later
      *                           than now.
      */
-    private function mint(UserIdentityInterface $identity, int $authzVersion, array $sessionMeta, ?string $audience, ?int $authTime, string $jti): JwtToken
+    private function mint(UserIdentityInterface $identity, int $authzVersion, array $sessionMeta, ?string $audience, ?int $authTime, string $jti, ?string $family = null): JwtToken
     {
+        // The session family continues when the caller continues a session (a rotation passes the
+        // presented token's; a re-mint passes the current session's meta) and starts at sign-in.
+        $metaFamily = $sessionMeta[JwtSessionFamily::META_KEY] ?? null;
+        $family   ??= is_string($metaFamily) && $metaFamily !== '' ? $metaFamily : (string) new \Symfony\Component\Uid\UuidV7();
+        $sessionMeta[JwtSessionFamily::META_KEY] = $family;
+
         $now = time();
         $accessExpiresAt = $now + $this->config->accessTokenTtl;
         $refreshExpiresAt = $now + $this->config->refreshTokenTtl;
@@ -145,6 +151,7 @@ final class JwtService
             'iat'           => $now,
             'exp'           => $accessExpiresAt,
             'auth_time'     => $authTime,
+            JwtSessionFamily::CLAIM => $family,
             'roles'         => $identity->roles(),
             'authz_version' => $authzVersion,
             // Session id (OIDC `sid`): the same JTI carried by the refresh token and tracked
@@ -165,6 +172,7 @@ final class JwtService
             'iat'  => $now,
             'exp'  => $refreshExpiresAt,
             'auth_time' => $authTime,
+            JwtSessionFamily::CLAIM => $family,
             'jti'  => $jti,
             'type' => 'refresh',
         ];
@@ -230,6 +238,7 @@ final class JwtService
             sessionId: isset($payload['sid']) ? (string) $payload['sid'] : null,
             audience: isset($payload['aud']) ? (string) $payload['aud'] : null,
             authTime: isset($payload['auth_time']) ? (int) $payload['auth_time'] : null,
+            sessionFamily: isset($payload[JwtSessionFamily::CLAIM]) ? (string) $payload[JwtSessionFamily::CLAIM] : null,
         );
     }
 
@@ -360,7 +369,21 @@ final class JwtService
         // Rotate within the SAME audience the presented token carried, so a refresh never
         // launders a token from one client (customer SPA) into another (admin console). The
         // claim was just checked against the accept-set above, so it is safe to carry through.
-        return $this->mint($identity, $authzVersion, $carriedMeta, $payload['aud'] ?? null, $authTime, $successorJti);
+        $presentedFamily = isset($payload[JwtSessionFamily::CLAIM]) && is_string($payload[JwtSessionFamily::CLAIM]) && $payload[JwtSessionFamily::CLAIM] !== ''
+            ? $payload[JwtSessionFamily::CLAIM]
+            : null;
+
+        return $this->mint($identity, $authzVersion, $carriedMeta, $payload['aud'] ?? null, $authTime, $successorJti, $presentedFamily);
+    }
+
+    /**
+     * Whether a session family (see {@see JwtSessionFamily}) still has a live session: the person
+     * who signed in has not signed out, been revoked, expired, been evicted or been caught by
+     * reuse detection. False, failing closed, when sessions are not tracked (no session policy).
+     */
+    public function isSessionFamilyLive(string $userId, string $family): bool
+    {
+        return $this->sessionEnforcer?->hasLiveSessionInFamily($userId, $family) ?? false;
     }
 
     /**

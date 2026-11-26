@@ -79,6 +79,9 @@ final class AuthMiddleware implements MiddlewareInterface
         // re-mints the current session (switching organisation, renewing after a credential
         // change) continues its age instead of restarting it.
         $this->arrayAdapter->set('auth:auth_time', $validated?->authTime);
+        // The session family: the id that survives rotation, for anything bound to "this session"
+        // that must still match after a refresh (see JwtSessionFamily).
+        $this->arrayAdapter->set('auth:session_family', $validated?->sessionFamily);
 
         if ($this->routeRequiresAuth($request) && !$identity->isAuthenticated()) {
             return new JsonResponse(

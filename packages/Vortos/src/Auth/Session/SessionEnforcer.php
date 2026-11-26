@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Vortos\Auth\Session;
 
+use Vortos\Auth\Jwt\JwtSessionFamily;
+
 use Vortos\Auth\Contract\TokenStorageInterface;
 use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Session\Contract\SessionPolicyInterface;
@@ -69,6 +71,26 @@ final class SessionEnforcer
     public function getSessionMeta(string $userId, string $jti): array
     {
         return $this->store->getSessionMeta($userId, $jti);
+    }
+
+    /**
+     * Whether any live session of this user belongs to the session family: the sessions descended,
+     * by rotation or a re-mint of the current session, from one sign-in (see JwtService). False
+     * when the family has ended: signed out, revoked, expired, evicted, or ended by reuse detection.
+     */
+    public function hasLiveSessionInFamily(string $userId, string $family): bool
+    {
+        if ($family === '') {
+            return false;
+        }
+
+        foreach ($this->store->listSessionsWithMeta($userId) as $session) {
+            if (($session['meta'][JwtSessionFamily::META_KEY] ?? null) === $family) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function clearAllSessions(string $userId): void

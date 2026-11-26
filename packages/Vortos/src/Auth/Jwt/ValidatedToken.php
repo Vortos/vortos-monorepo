@@ -33,5 +33,7 @@ final readonly class ValidatedToken
         public ?string $audience = null,
         /** OIDC `auth_time`: when the person behind this session signed in. Null on older tokens. */
         public ?int $authTime = null,
+        /** The session family (see JwtSessionFamily): stable across rotations. Null on older tokens. */
+        public ?string $sessionFamily = null,
     ) {}
 }

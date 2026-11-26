@@ -75,6 +75,10 @@ final class AuthMiddleware implements MiddlewareInterface
         // supersedes the current session — switching organisation re-mints one — can revoke the one
         // it replaces instead of leaving it live in the store until it expires. Null when absent.
         $this->arrayAdapter->set('auth:session_id', $validated?->sessionId);
+        // When the person behind this session signed in (OIDC auth_time), so a controller that
+        // re-mints the current session (switching organisation, renewing after a credential
+        // change) continues its age instead of restarting it.
+        $this->arrayAdapter->set('auth:auth_time', $validated?->authTime);
 
         if ($this->routeRequiresAuth($request) && !$identity->isAuthenticated()) {
             return new JsonResponse(

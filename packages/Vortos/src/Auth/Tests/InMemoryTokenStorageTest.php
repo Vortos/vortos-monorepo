@@ -96,23 +96,54 @@ final class InMemoryTokenStorageTest extends TestCase
         $this->assertTrue($this->storage->consume('jti-1')->isReused());
     }
 
-    public function test_grace_window_allows_immediate_re_consume(): void
+    public function test_grace_window_allows_one_replay_while_the_successor_is_live(): void
     {
         $storage = new InMemoryTokenStorage(rotationGraceSeconds: 30);
         $storage->store('jti-1', 'user-1', time() + 3600);
 
-        // First consume rotates the token; a racing re-presentation within the window is benign.
-        $this->assertTrue($storage->consume('jti-1')->isRotated());
+        // First consume rotates the token into jti-2; a racing re-presentation within the window
+        // continues jti-2's session.
+        $this->assertTrue($storage->consume('jti-1', 'jti-2')->isRotated());
+        $storage->store('jti-2', 'user-1', time() + 3600);
+
         $second = $storage->consume('jti-1');
         $this->assertTrue($second->isRotated());
+        $this->assertTrue($second->isGraceReplay());
         $this->assertSame('user-1', $second->userId);
+        $this->assertSame('jti-2', $second->successorJti);
+
+        // Once only: a third presentation is an ended session, not a second fork and not theft.
+        $this->assertTrue($storage->consume('jti-1')->isRevoked());
+    }
+
+    public function test_grace_replay_is_refused_once_the_successor_has_gone(): void
+    {
+        $storage = new InMemoryTokenStorage(rotationGraceSeconds: 30);
+        $storage->store('jti-1', 'user-1', time() + 3600);
+        $storage->consume('jti-1', 'jti-2');
+        $storage->store('jti-2', 'user-1', time() + 3600);
+
+        // Signed out everywhere inside the window: the replay must not resurrect the session.
+        $storage->revokeAllForUser('user-1');
+
+        $this->assertTrue($storage->consume('jti-1')->isRevoked());
+    }
+
+    public function test_a_rotation_without_a_named_successor_leaves_no_grace(): void
+    {
+        $storage = new InMemoryTokenStorage(rotationGraceSeconds: 30);
+        $storage->store('jti-1', 'user-1', time() + 3600);
+        $storage->consume('jti-1');
+
+        $this->assertTrue($storage->consume('jti-1')->isReused());
     }
 
     public function test_grace_expiry_rejects_reuse_after_window(): void
     {
         $storage = new InMemoryTokenStorage(rotationGraceSeconds: 30);
         $storage->store('jti-1', 'user-1', time() + 3600);
-        $this->assertTrue($storage->consume('jti-1')->isRotated());
+        $this->assertTrue($storage->consume('jti-1', 'jti-2')->isRotated());
+        $storage->store('jti-2', 'user-1', time() + 3600);
 
         // Force the marker to appear expired.
         $ref = new \ReflectionProperty($storage, 'grace');
@@ -135,7 +166,8 @@ final class InMemoryTokenStorageTest extends TestCase
     {
         $storage = new InMemoryTokenStorage(rotationGraceSeconds: 30);
         $storage->store('jti-1', 'user-1', time() + 3600);
-        $this->assertTrue($storage->consume('jti-1')->isRotated());
+        $this->assertTrue($storage->consume('jti-1', 'jti-2')->isRotated());
+        $storage->store('jti-2', 'user-1', time() + 3600);
 
         // Explicit revocation must not leave a usable grace marker behind, and must
         // classify a subsequent presentation as a deliberate Revoked.
@@ -143,17 +175,17 @@ final class InMemoryTokenStorageTest extends TestCase
         $this->assertTrue($storage->consume('jti-1')->isRevoked());
     }
 
-    public function test_revoke_all_for_user_clears_grace_markers(): void
+    public function test_revoke_all_for_user_leaves_no_usable_grace(): void
     {
         $storage = new InMemoryTokenStorage(rotationGraceSeconds: 30);
         $storage->store('jti-a', 'user-1', time() + 3600);
-        $this->assertTrue($storage->consume('jti-a')->isRotated());
+        $this->assertTrue($storage->consume('jti-a', 'jti-b')->isRotated());
+        $storage->store('jti-b', 'user-1', time() + 3600);
 
-        // jti-a was already rotated away (only a grace marker remained, not an active token).
-        // A mass-revoke clears that grace marker, so re-presenting the ancient consumed token
-        // is reuse — it must not slip through on grace after a logout-all.
+        // jti-a was rotated into jti-b moments ago. A logout-all ends jti-b, so re-presenting
+        // jti-a inside the window finds its lineage ended: Revoked, never a fresh session.
         $storage->revokeAllForUser('user-1');
-        $this->assertTrue($storage->consume('jti-a')->isReused());
+        $this->assertTrue($storage->consume('jti-a')->isRevoked());
     }
 
     public function test_expired_revocation_tombstone_falls_through_to_reused(): void

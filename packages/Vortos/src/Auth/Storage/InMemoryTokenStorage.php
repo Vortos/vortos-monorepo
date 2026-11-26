@@ -21,7 +21,7 @@ final class InMemoryTokenStorage implements TokenStorageInterface
     /** @var array<string, array{userId: string, expiresAt: int}> */
     private array $tokens = [];
 
-    /** @var array<string, array{userId: string, expiresAt: int}> jti → recently-consumed grace marker */
+    /** @var array<string, array{userId: string, successor: string, expiresAt: int}> jti → recently-consumed grace marker */
     private array $grace = [];
 
     /** @var array<string, int> jti → revocation tombstone expiry (unix seconds) */
@@ -43,7 +43,7 @@ final class InMemoryTokenStorage implements TokenStorageInterface
         $this->tokens[$jti] = ['userId' => $userId, 'expiresAt' => $expiresAt];
     }
 
-    public function consume(string $jti): TokenConsumeResult
+    public function consume(string $jti, ?string $successorJti = null): TokenConsumeResult
     {
         if (isset($this->tokens[$jti])) {
             if ($this->tokens[$jti]['expiresAt'] < time()) {
@@ -54,8 +54,8 @@ final class InMemoryTokenStorage implements TokenStorageInterface
             $userId = $this->tokens[$jti]['userId'];
             unset($this->tokens[$jti]);
 
-            if ($this->rotationGraceSeconds > 0) {
-                $this->grace[$jti] = ['userId' => $userId, 'expiresAt' => time() + $this->rotationGraceSeconds];
+            if ($this->rotationGraceSeconds > 0 && $successorJti !== null && $successorJti !== '') {
+                $this->grace[$jti] = ['userId' => $userId, 'successor' => $successorJti, 'expiresAt' => time() + $this->rotationGraceSeconds];
             }
 
             return TokenConsumeResult::rotated($userId);
@@ -72,11 +72,20 @@ final class InMemoryTokenStorage implements TokenStorageInterface
 
         // Primary miss — a just-rotated token re-presented within the grace window is benign.
         if ($this->rotationGraceSeconds > 0 && isset($this->grace[$jti])) {
-            if ($this->grace[$jti]['expiresAt'] < time()) {
-                unset($this->grace[$jti]);
+            $marker = $this->grace[$jti];
+            unset($this->grace[$jti]);
+            if ($marker['expiresAt'] < time()) {
                 return TokenConsumeResult::reused();
             }
-            return TokenConsumeResult::rotated($this->grace[$jti]['userId']);
+
+            // One replay per rotation, and the presented jti is ended either way.
+            $this->revoked[$jti] = time() + $this->revocationTombstoneTtl;
+            $successor = $this->tokens[$marker['successor']] ?? null;
+            if ($successor !== null && $successor['expiresAt'] >= time()) {
+                return TokenConsumeResult::graceReplay($marker['userId'], $marker['successor']);
+            }
+
+            return TokenConsumeResult::revoked();
         }
 
         return TokenConsumeResult::reused();
@@ -104,11 +113,7 @@ final class InMemoryTokenStorage implements TokenStorageInterface
                 unset($this->tokens[$jti]);
             }
         }
-        foreach ($this->grace as $jti => $data) {
-            if ($data['userId'] === $userId) {
-                unset($this->grace[$jti]);
-            }
-        }
+        // Grace markers stay, as in Redis: their successors are gone, so a replay is Revoked.
     }
 
     public function clear(): void

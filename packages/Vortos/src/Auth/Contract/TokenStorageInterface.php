@@ -55,8 +55,19 @@ interface TokenStorageInterface
      *
      * Distinguishing Revoked from Reused is what prevents a deliberate single-device
      * sign-out from being misread as theft and logging the user out everywhere.
+     *
+     * ## Rotation grace
+     *
+     * When a grace window is configured and the caller names the jti it is about to issue
+     * ($successorJti), a rotation leaves a short-lived marker linking this jti to its successor.
+     * Re-presenting this jti inside the window is then a grace replay, accepted ONCE and only
+     * while the successor is still live; the result names the successor so the caller continues
+     * that session rather than opening an unrelated one. After that one use, or if the successor
+     * has been revoked, signed out everywhere, or rotated on, the jti is reported Revoked: the
+     * lineage has ended, and a replay can no longer open a session nothing else knows about. A
+     * rotation without a named successor leaves no grace at all.
      */
-    public function consume(string $jti): TokenConsumeResult;
+    public function consume(string $jti, ?string $successorJti = null): TokenConsumeResult;
 
     /**
      * Revoke a specific JTI — used on single-device logout, admin session revoke,

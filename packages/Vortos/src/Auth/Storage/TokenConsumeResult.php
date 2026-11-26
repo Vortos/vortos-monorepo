@@ -26,14 +26,35 @@ namespace Vortos\Auth\Storage;
  */
 final class TokenConsumeResult
 {
+    /**
+     * @param string|null $successorJti Set only on a grace replay: the session the presented token
+     *                                  was already rotated into. The replay continues that session
+     *                                  (its device, address and sign-in time), it does not open a
+     *                                  new one from nothing.
+     */
     private function __construct(
         public readonly TokenConsumeStatus $status,
         public readonly ?string $userId,
+        public readonly ?string $successorJti = null,
     ) {}
 
     public static function rotated(string $userId): self
     {
         return new self(TokenConsumeStatus::Rotated, $userId);
+    }
+
+    /**
+     * A just-rotated token re-presented within the grace window while the session it was
+     * rotated into is still live: a racing tab, or a retry whose first response was lost.
+     */
+    public static function graceReplay(string $userId, string $successorJti): self
+    {
+        return new self(TokenConsumeStatus::Rotated, $userId, $successorJti);
+    }
+
+    public function isGraceReplay(): bool
+    {
+        return $this->successorJti !== null;
     }
 
     public static function revoked(): self

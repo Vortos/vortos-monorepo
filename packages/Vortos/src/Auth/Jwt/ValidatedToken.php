@@ -31,5 +31,7 @@ final readonly class ValidatedToken
         public int $issuedAt = 0,
         public ?string $sessionId = null,
         public ?string $audience = null,
+        /** OIDC `auth_time`: when the person behind this session signed in. Null on older tokens. */
+        public ?int $authTime = null,
     ) {}
 }

@@ -10,6 +10,7 @@ use Vortos\Auth\Contract\UserIdentityInterface;
 use Vortos\Auth\Exception\TokenExpiredException;
 use Vortos\Auth\Exception\TokenInvalidException;
 use Vortos\Auth\Exception\TokenReusedException;
+use Vortos\Auth\Exception\SessionAgeExceededException;
 use Vortos\Auth\Exception\TokenRevokedException;
 use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Auth\Session\SessionEnforcer;
@@ -93,12 +94,29 @@ final class JwtService
      *
      * @throws \Vortos\Auth\Session\Exception\SessionLimitExceededException If session limit is exceeded with RejectNew policy.
      */
-    public function issue(UserIdentityInterface $identity, int $authzVersion = 0, array $sessionMeta = [], ?string $audience = null): JwtToken
+    public function issue(UserIdentityInterface $identity, int $authzVersion = 0, array $sessionMeta = [], ?string $audience = null, ?int $authTime = null): JwtToken
+    {
+        return $this->mint($identity, $authzVersion, $sessionMeta, $audience, $authTime, (string) new \Symfony\Component\Uid\UuidV7());
+    }
+
+    /**
+     * @param array<string, mixed> $sessionMeta
+     * @param int|null $authTime When the person behind this session last signed in (OIDC
+     *                           `auth_time`). A new sign-in passes nothing and gets now; a session
+     *                           that continues an earlier one (a rotation, an organisation switch,
+     *                           a renewal after a credential change) passes the earlier session's
+     *                           value, so an absolute session timeout counts from the real sign-in.
+     *                           Falls back to the meta's `logged_in_at`, then to now. Never later
+     *                           than now.
+     */
+    private function mint(UserIdentityInterface $identity, int $authzVersion, array $sessionMeta, ?string $audience, ?int $authTime, string $jti): JwtToken
     {
         $now = time();
         $accessExpiresAt = $now + $this->config->accessTokenTtl;
         $refreshExpiresAt = $now + $this->config->refreshTokenTtl;
-        $jti = (string) new \Symfony\Component\Uid\UuidV7();
+        $metaLoggedInAt = $sessionMeta['logged_in_at'] ?? null;
+        $authTime ??= is_int($metaLoggedInAt) && $metaLoggedInAt > 0 ? $metaLoggedInAt : $now;
+        $authTime = min($authTime, $now);
 
         // A per-client audience binds the token to the client it was minted for (customer SPA
         // vs admin console). It must be one the service also accepts, or the token it issues
@@ -126,6 +144,7 @@ final class JwtService
             'sub'           => $identity->id(),
             'iat'           => $now,
             'exp'           => $accessExpiresAt,
+            'auth_time'     => $authTime,
             'roles'         => $identity->roles(),
             'authz_version' => $authzVersion,
             // Session id (OIDC `sid`): the same JTI carried by the refresh token and tracked
@@ -145,6 +164,7 @@ final class JwtService
             'sub'  => $identity->id(),
             'iat'  => $now,
             'exp'  => $refreshExpiresAt,
+            'auth_time' => $authTime,
             'jti'  => $jti,
             'type' => 'refresh',
         ];
@@ -209,6 +229,7 @@ final class JwtService
             issuedAt: (int) ($payload['iat'] ?? 0),
             sessionId: isset($payload['sid']) ? (string) $payload['sid'] : null,
             audience: isset($payload['aud']) ? (string) $payload['aud'] : null,
+            authTime: isset($payload['auth_time']) ? (int) $payload['auth_time'] : null,
         );
     }
 
@@ -224,14 +245,23 @@ final class JwtService
      *   - already consumed and never revoked → credential theft: all tokens for the user
      *     are revoked and TokenReusedException is thrown (RFC 6819 §5.2.2.3).
      *
-     * @param int $authzVersion Current authorization cache version for the user.
+     * A token just rotated and re-presented within the grace window (a racing tab, a retry whose
+     * response was lost) continues the session it was rotated into, once, and only while that
+     * session is live: it carries that session's device, address and sign-in time. It never
+     * opens a session of its own from nothing (see {@see TokenStorageInterface::consume()}).
      *
-     * @throws TokenInvalidException  If refresh token is malformed
-     * @throws TokenExpiredException  If refresh token has expired
-     * @throws TokenRevokedException  If refresh token was deliberately revoked (single session)
-     * @throws TokenReusedException   If refresh token was reused after consumption (breach detection)
+     * @param int      $authzVersion          Current authorization cache version for the user.
+     * @param int|null $maxSessionAgeSeconds  Absolute session timeout: refuse, as a revoked session,
+     *                                        a session whose original sign-in (`auth_time`) is
+     *                                        older than this, or that carries no sign-in time.
+     *
+     * @throws TokenInvalidException       If refresh token is malformed
+     * @throws TokenExpiredException       If refresh token has expired
+     * @throws SessionAgeExceededException If the session is older than $maxSessionAgeSeconds
+     * @throws TokenRevokedException       If refresh token was deliberately revoked (single session)
+     * @throws TokenReusedException        If refresh token was reused after consumption (breach detection)
      */
-    public function refresh(string $refreshToken, UserIdentityInterface $identity, int $authzVersion = 0): JwtToken
+    public function refresh(string $refreshToken, UserIdentityInterface $identity, int $authzVersion = 0, ?int $maxSessionAgeSeconds = null): JwtToken
     {
         try {
             $payload = $this->decode($refreshToken);
@@ -276,7 +306,20 @@ final class JwtService
             }
         }
 
-        $result = $this->tokenStorage->consume($jti);
+        // When the person behind this session signed in. Signed into the token, so a session's
+        // age does not depend on what the session store still remembers about it.
+        $authTime = isset($payload['auth_time']) && is_numeric($payload['auth_time']) ? (int) $payload['auth_time'] : null;
+        if ($maxSessionAgeSeconds !== null && ($authTime === null || time() - $authTime > $maxSessionAgeSeconds)) {
+            $this->tokenStorage->revoke($jti);
+            $this->sessionEnforcer?->removeSession($sub, $jti);
+            $this->emitSecurityEvent('auth.session.max_age_exceeded');
+            throw new SessionAgeExceededException('This session has reached its maximum age. Please log in again.');
+        }
+
+        // The jti the successor will carry, named before consuming so a grace replay of this
+        // token can be traced to the session it was rotated into.
+        $successorJti = (string) new \Symfony\Component\Uid\UuidV7();
+        $result = $this->tokenStorage->consume($jti, $successorJti);
 
         if ($result->isRevoked()) {
             // The token was deliberately revoked (single-device sign-out, admin revoke, or
@@ -304,14 +347,20 @@ final class JwtService
         // Carry the session's device metadata across rotation, preserving the ORIGINAL
         // logged-in-at, so the device keeps its name/IP and its true sign-in time in session
         // listings instead of resetting to "Unknown device" at the moment the token rotates.
-        $carriedMeta = $this->sessionEnforcer?->getSessionMeta($sub, $jti) ?? [];
-
-        $this->sessionEnforcer?->removeSession($sub, $jti);
+        if ($result->successorJti !== null) {
+            // A grace replay continues the live session the token was rotated into; that
+            // session stays, this one is already gone.
+            $carriedMeta = $this->sessionEnforcer?->getSessionMeta($sub, $result->successorJti) ?? [];
+            $this->emitSecurityEvent('auth.token.grace_replay');
+        } else {
+            $carriedMeta = $this->sessionEnforcer?->getSessionMeta($sub, $jti) ?? [];
+            $this->sessionEnforcer?->removeSession($sub, $jti);
+        }
 
         // Rotate within the SAME audience the presented token carried, so a refresh never
         // launders a token from one client (customer SPA) into another (admin console). The
         // claim was just checked against the accept-set above, so it is safe to carry through.
-        return $this->issue($identity, $authzVersion, $carriedMeta, $payload['aud'] ?? null);
+        return $this->mint($identity, $authzVersion, $carriedMeta, $payload['aud'] ?? null, $authTime, $successorJti);
     }
 
     /**

@@ -14,7 +14,7 @@ use Vortos\Auth\Storage\TokenConsumeResult;
  *
  *   {prefix}auth:token:{jti}          — value: userId, TTL: token expiry
  *   {prefix}auth:user_tokens:{userId} — Redis SET of active JTIs for this user
- *   {prefix}auth:token_grace:{jti}    — short-lived rotation-grace marker (benign re-use window)
+ *   {prefix}auth:token_grace:{jti}    — short-lived rotation-grace marker "userId|successorJti"; one replay
  *   {prefix}auth:token_revoked:{jti}  — revocation tombstone: this JTI was deliberately revoked
  *
  * ## Revoked vs. reused
@@ -54,19 +54,20 @@ final class RedisTokenStorage implements TokenStorageInterface
     /**
      * Atomic rotation-with-grace, classifying every outcome.
      *
-     * Primary hit (token still live): delete it, drop it from the user's active set, and —
-     * when a grace window is configured — leave a short-lived grace marker so an immediate
-     * re-presentation of THIS jti (a racing tab, a retried request) is recognised as benign
-     * rather than reuse. The grace marker is only ever written on the primary path, so a
-     * grace hit never re-arms grace (no unbounded chaining). → status 'rotated'.
+     * Primary hit (token still live): delete it and drop it from the user's active set. When a
+     * grace window is configured and the caller named the successor it is about to issue, leave
+     * a short-lived marker "userId|successorJti". → 'rotated'.
      *
-     * Primary miss: classify why the token is gone —
-     *   - a revocation tombstone exists → the session was deliberately signed out → 'revoked'.
-     *   - a grace marker exists (and grace enabled) → benign just-rotated race → 'rotated'.
-     *   - neither → the token was consumed and never revoked → genuine reuse → 'reused'.
+     * Primary miss, classified —
+     *   - a revocation tombstone exists → deliberately signed out → 'revoked'.
+     *   - a grace marker exists → it is spent (deleted) and this jti is tombstoned, so a grace
+     *     replay happens at most once. If the successor is still live, the replay continues that
+     *     session → 'rotated' with the successor. If the successor is gone (revoked, signed out
+     *     everywhere, rotated on), the lineage has ended → 'revoked'.
+     *   - neither → consumed and never revoked → genuine reuse → 'reused'.
      *
-     * Revoked is checked before grace so a deliberate revoke always wins over a lingering
-     * grace marker. Returns a cjson-encoded {status, userId}.
+     * Revoked is checked before grace so a deliberate revoke always wins. Returns cjson
+     * {status, userId, successor}.
      */
     private const LUA_CONSUME = <<<'LUA'
 local key = KEYS[1]
@@ -75,12 +76,15 @@ local revokedKey = KEYS[3]
 local jti = ARGV[1]
 local userPrefix = ARGV[2]
 local graceSeconds = tonumber(ARGV[3])
+local successorJti = ARGV[4]
+local tokenPrefix = ARGV[5]
+local tombstoneTtl = tonumber(ARGV[6])
 local userId = redis.call('GET', key)
 if userId then
     redis.call('DEL', key)
     redis.call('SREM', userPrefix .. userId, jti)
-    if graceSeconds > 0 then
-        redis.call('SET', graceKey, userId, 'EX', graceSeconds)
+    if graceSeconds > 0 and successorJti ~= '' then
+        redis.call('SET', graceKey, userId .. '|' .. successorJti, 'EX', graceSeconds)
     end
     return cjson.encode({status='rotated', userId=userId})
 end
@@ -88,9 +92,21 @@ if redis.call('EXISTS', revokedKey) == 1 then
     return cjson.encode({status='revoked'})
 end
 if graceSeconds > 0 then
-    local graceUser = redis.call('GET', graceKey)
-    if graceUser then
-        return cjson.encode({status='rotated', userId=graceUser})
+    local marker = redis.call('GET', graceKey)
+    if marker then
+        redis.call('DEL', graceKey)
+        if tombstoneTtl > 0 then
+            redis.call('SET', revokedKey, '1', 'EX', tombstoneTtl)
+        end
+        local sep = string.find(marker, '|', 1, true)
+        if sep then
+            local graceUser = string.sub(marker, 1, sep - 1)
+            local successor = string.sub(marker, sep + 1)
+            if successor ~= '' and redis.call('EXISTS', tokenPrefix .. successor) == 1 then
+                return cjson.encode({status='rotated', userId=graceUser, successor=successor})
+            end
+        end
+        return cjson.encode({status='revoked'})
     end
 end
 return cjson.encode({status='reused'})
@@ -183,7 +199,7 @@ LUA;
         }
     }
 
-    public function consume(string $jti): TokenConsumeResult
+    public function consume(string $jti, ?string $successorJti = null): TokenConsumeResult
     {
         /** @var string $raw */
         $raw = $this->redis->eval(
@@ -195,11 +211,18 @@ LUA;
                 $jti,
                 self::USER_TOKENS_PREFIX,
                 (string) $this->rotationGraceSeconds,
+                $successorJti ?? '',
+                self::TOKEN_PREFIX,
+                (string) $this->revocationTombstoneTtl,
             ],
             3,
         );
 
         $decoded = json_decode($raw, true);
+
+        if (($decoded['status'] ?? null) === 'rotated' && is_string($decoded['successor'] ?? null) && $decoded['successor'] !== '') {
+            return TokenConsumeResult::graceReplay((string) $decoded['userId'], $decoded['successor']);
+        }
 
         return match ($decoded['status'] ?? 'reused') {
             'rotated' => TokenConsumeResult::rotated((string) $decoded['userId']),

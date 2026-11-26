@@ -6,6 +6,8 @@ namespace Vortos\Auth\Tests\Jwt;
 
 use PHPUnit\Framework\TestCase;
 use Vortos\Auth\Contract\UserIdentityInterface;
+use Vortos\Auth\Exception\SessionAgeExceededException;
+use Vortos\Auth\Exception\TokenRevokedException;
 use Vortos\Auth\Identity\UserIdentity;
 use Vortos\Auth\Jwt\JwtConfig;
 use Vortos\Auth\Jwt\JwtService;
@@ -94,14 +96,122 @@ final class JwtSessionMetaTest extends TestCase
     /**
      * @return array{0: JwtService, 1: SessionStoreInterface}
      */
-    private function service(): array
+    public function test_a_grace_replay_continues_the_session_it_was_rotated_into(): void
+    {
+        [$service, $store] = $this->service(graceSeconds: 30);
+        $identity = new UserIdentity('user-1', ['ROLE_USER']);
+
+        $original = $service->issue($identity, 0, ['user_agent' => 'Safari on iPad', 'ip_address' => '203.0.113.9', 'logged_in_at' => 1_700_000_000]);
+        $tabA     = $service->refresh($original->refreshToken, $identity);
+        $tabB     = $service->refresh($original->refreshToken, $identity);
+
+        // The replay is not a session from nothing: it has the device, address and sign-in time.
+        $meta = $store->getSessionMeta('user-1', $this->jti($tabB->refreshToken));
+        $this->assertSame('Safari on iPad', $meta['user_agent'] ?? null);
+        $this->assertSame('203.0.113.9', $meta['ip_address'] ?? null);
+        $this->assertSame(1_700_000_000, $meta['logged_in_at'] ?? null);
+        $this->assertSame(1_700_000_000, $this->claims($tabB->refreshToken)['auth_time'] ?? null);
+
+        // The session it continued is untouched.
+        $service->refresh($tabA->refreshToken, $identity);
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_a_second_grace_replay_is_an_ended_session_not_another_fork(): void
+    {
+        [$service] = $this->service(graceSeconds: 30);
+        $identity  = new UserIdentity('user-1', ['ROLE_USER']);
+
+        $original = $service->issue($identity, 0, ['logged_in_at' => 1_700_000_000]);
+        $tabA     = $service->refresh($original->refreshToken, $identity);
+        $service->refresh($original->refreshToken, $identity);
+
+        try {
+            $service->refresh($original->refreshToken, $identity);
+            $this->fail('A just-rotated token opened a second extra session.');
+        } catch (TokenRevokedException) {
+        }
+
+        // Ended as revoked, not as theft: the real session carries on.
+        $service->refresh($tabA->refreshToken, $identity);
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_signing_out_everywhere_inside_the_window_leaves_nothing_to_replay(): void
+    {
+        [$service] = $this->service(graceSeconds: 30);
+        $identity  = new UserIdentity('user-1', ['ROLE_USER']);
+
+        $original = $service->issue($identity, 0, ['logged_in_at' => 1_700_000_000]);
+        $service->refresh($original->refreshToken, $identity);
+        $service->revokeAll('user-1');
+
+        $this->expectException(TokenRevokedException::class);
+        $service->refresh($original->refreshToken, $identity);
+    }
+
+    public function test_auth_time_is_the_sign_in_and_survives_rotation(): void
+    {
+        [$service] = $this->service();
+        $identity  = new UserIdentity('user-1', ['ROLE_USER']);
+
+        $before = time();
+        $fresh  = $service->issue($identity);
+        $this->assertGreaterThanOrEqual($before, $this->claims($fresh->refreshToken)['auth_time']);
+
+        $signedIn = $service->issue($identity, 0, ['logged_in_at' => 1_700_000_000]);
+        $rotated  = $service->refresh($signedIn->refreshToken, $identity);
+        $this->assertSame(1_700_000_000, $this->claims($rotated->refreshToken)['auth_time']);
+        $this->assertSame(1_700_000_000, $this->claims($rotated->accessToken)['auth_time']);
+        $this->assertSame(1_700_000_000, $service->validate($rotated->accessToken)->authTime);
+
+        // An explicit auth_time (a re-mint of the current session) wins over the meta.
+        $remint = $service->issue($identity, 0, ['logged_in_at' => 1_800_000_000], null, 1_700_000_500);
+        $this->assertSame(1_700_000_500, $this->claims($remint->refreshToken)['auth_time']);
+
+        // Never in the future.
+        $future = $service->issue($identity, 0, [], null, time() + 3600);
+        $this->assertLessThanOrEqual(time(), $this->claims($future->refreshToken)['auth_time']);
+    }
+
+    public function test_a_session_older_than_the_maximum_age_is_refused_and_removed(): void
+    {
+        [$service, $store] = $this->service();
+        $identity = new UserIdentity('user-1', ['ROLE_USER']);
+
+        $young = $service->issue($identity, 0, ['logged_in_at' => time() - 60]);
+        $service->refresh($young->refreshToken, $identity, 0, 4 * 3600);
+
+        $old    = $service->issue($identity, 0, ['logged_in_at' => time() - 5 * 3600]);
+        $oldJti = $this->jti($old->refreshToken);
+        try {
+            $service->refresh($old->refreshToken, $identity, 0, 4 * 3600);
+            $this->fail('A five-hour-old session refreshed under a four-hour limit.');
+        } catch (SessionAgeExceededException) {
+        }
+        $this->assertSame([], $store->getSessionMeta('user-1', $oldJti));
+
+        // Refused for good, as an ended session, never rotated.
+        $this->expectException(TokenRevokedException::class);
+        $service->refresh($old->refreshToken, $identity);
+    }
+
+    /** @return array<string, mixed> */
+    private function claims(string $jwt): array
+    {
+        $part = explode('.', $jwt)[1];
+
+        return (array) json_decode((string) base64_decode(strtr($part, '-_', '+/') . str_repeat('=', (4 - strlen($part) % 4) % 4)), true);
+    }
+
+    private function service(int $graceSeconds = 0): array
     {
         $store  = $this->arrayStore();
         $policy = new class implements SessionPolicyInterface {
             public function getMaxSessions(UserIdentityInterface $identity): int { return 10; }
             public function onLimitExceeded(UserIdentityInterface $identity): SessionLimitAction { return SessionLimitAction::InvalidateOldest; }
         };
-        $tokenStorage = new InMemoryTokenStorage();
+        $tokenStorage = new InMemoryTokenStorage(rotationGraceSeconds: $graceSeconds);
         $enforcer = new SessionEnforcer($store, $tokenStorage, $policy);
 
         $service = new JwtService(

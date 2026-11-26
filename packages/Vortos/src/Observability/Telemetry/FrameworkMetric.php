@@ -9,6 +9,7 @@ enum FrameworkMetric: string
     case HttpRequestsTotal = 'http_requests_total';
     case HttpRequestDurationMs = 'http_request_duration_ms';
     case HttpBlockedTotal = 'http_blocked_total';
+    case HttpClientAddressTotal = 'http_client_address_total';
     case CqrsCommandsTotal = 'cqrs_commands_total';
     case CqrsCommandFailuresTotal = 'cqrs_command_failures_total';
     case CqrsCommandDurationMs = 'cqrs_command_duration_ms';

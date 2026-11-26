@@ -183,10 +183,25 @@ final class RemoteDeployScript
         );
         foreach ($definition->networks as $declared) {
             $lines[] = sprintf(
-                'docker network inspect %1$s >/dev/null 2>&1 || docker network create %2$s%1$s >/dev/null',
+                'docker network inspect %1$s >/dev/null 2>&1 || docker network create %2$s%3$s%1$s >/dev/null',
                 $declared->name,
                 $declared->internal ? '--internal ' : '',
+                $declared->subnet !== null ? '--subnet ' . $declared->subnet . ' ' : '',
             );
+            if ($declared->subnet !== null) {
+                // The declared range is what the app trusts by address (its reverse proxy's network).
+                // A network that already exists on another range — made by hand, or before the range
+                // was declared — would leave the app trusting the wrong peers, so the release stops
+                // here. Moving a live network is a migration (recreate it, then reattach), not
+                // something a deploy does on the side.
+                $lines[] = sprintf(
+                    // A here-string, not a pipe: under pipefail, grep -q closing early can fail the inspect.
+                    'grep -qxF %2$s <<<"$(docker network inspect -f \'{{range .IPAM.Config}}{{println .Subnet}}{{end}}\' %1$s)"'
+                    . ' || { echo "network %1$s is not on its declared subnet %2$s (found: $(docker network inspect -f \'{{range .IPAM.Config}}{{.Subnet}} {{end}}\' %1$s))" >&2; exit 1; }',
+                    $declared->name,
+                    $declared->subnet,
+                );
+            }
             if ($declared->internal) {
                 // An internal network created by hand without --internal would route off the host.
                 $lines[] = sprintf(

@@ -36,6 +36,36 @@ final class RedisLockoutStoreTest extends TestCase
         $this->store->incrementAttempts('email', 'user@example.com', 900);
     }
 
+    public function test_a_namespaced_store_keeps_its_own_counters_and_locks(): void
+    {
+        $redis = $this->createMock(\Redis::class);
+        $store = new RedisLockoutStore($redis, namespace: 'lockout:auth_ip');
+
+        $redis->expects($this->once())->method('eval')
+            ->with($this->anything(), ['lockout:auth_ip:attempts:ip:203.0.113.9', '900'], 1)
+            ->willReturn(1);
+        $redis->expects($this->once())->method('setEx')
+            ->with('lockout:auth_ip:locked:ip:203.0.113.9', 900, '1');
+        $deleted = [];
+        $redis->method('del')->willReturnCallback(static function (string $key) use (&$deleted): int {
+            $deleted[] = $key;
+            return 1;
+        });
+
+        $store->incrementAttempts('ip', '203.0.113.9', 900);
+        $store->lock('ip', '203.0.113.9', 900);
+        $store->clearAttempts('ip', '203.0.113.9');
+
+        // Clearing touches only this namespace: the default store's keys are never named.
+        $this->assertSame(['lockout:auth_ip:attempts:ip:203.0.113.9', 'lockout:auth_ip:locked:ip:203.0.113.9'], $deleted);
+    }
+
+    public function test_a_namespace_that_could_collide_or_inject_is_refused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new RedisLockoutStore($this->redis, namespace: 'Lockout:*');
+    }
+
     public function test_lock_sets_redis_key_with_ttl(): void
     {
         $this->redis->expects($this->once())->method('setEx')

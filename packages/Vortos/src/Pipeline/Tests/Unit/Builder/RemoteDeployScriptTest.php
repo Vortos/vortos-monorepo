@@ -736,6 +736,50 @@ final class RemoteDeployScriptTest extends TestCase
         self::assertStringNotContainsString('--network vortos-edge ', $script);
     }
 
+    public function test_a_declared_subnet_is_created_with_and_verified_on_every_deploy(): void
+    {
+        $definition = new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            oidc: false,
+            registryProvider: 'ghcr',
+            remoteDeployDir: '/opt/vortos',
+            appNetwork: 'vortos-net',
+            networks: [
+                \Vortos\Pipeline\Model\DockerNetwork::serving('vortos-edge', '172.22.0.0/16'),
+                \Vortos\Pipeline\Model\DockerNetwork::control('vortos-control'),
+            ],
+        );
+        $script = $this->script($definition);
+
+        self::assertStringContainsString('docker network inspect vortos-edge >/dev/null 2>&1 || docker network create --subnet 172.22.0.0/16 vortos-edge', $script);
+        // An existing network on another range stops the release before anything is pulled or started.
+        self::assertStringContainsString('grep -qxF 172.22.0.0/16 <<<"$(docker network inspect', $script);
+        self::assertStringContainsString('network vortos-edge is not on its declared subnet 172.22.0.0/16', $script);
+        self::assertLessThan(strpos($script, 'docker pull'), strpos($script, 'is not on its declared subnet'));
+        // A network without a declared range is created exactly as before.
+        self::assertStringContainsString('|| docker network create --internal vortos-control >/dev/null', $script);
+        self::assertStringNotContainsString('network vortos-control is not on its declared subnet', $script);
+    }
+
+    public function test_declared_subnets_may_not_overlap(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('overlapping subnets');
+
+        new PipelineDefinition(
+            environments: ['production'],
+            imageRepository: 'ghcr.io/acme/app',
+            nativeRunnerLabel: 'ubuntu-24.04-arm',
+            appNetwork: 'vortos-net',
+            networks: [
+                \Vortos\Pipeline\Model\DockerNetwork::serving('vortos-edge', '172.22.0.0/16'),
+                \Vortos\Pipeline\Model\DockerNetwork::serving('vortos-pdf-egress', '172.22.128.0/17'),
+            ],
+        );
+    }
+
     public function test_a_network_is_declared_once(): void
     {
         $this->expectException(\InvalidArgumentException::class);

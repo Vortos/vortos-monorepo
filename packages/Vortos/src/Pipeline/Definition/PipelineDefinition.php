@@ -296,6 +296,19 @@ final readonly class PipelineDefinition
             }
             $seenNetworks[$network->name] = true;
         }
+        foreach ($networks as $i => $network) {
+            foreach (array_slice($networks, $i + 1) as $other) {
+                if ($network->overlaps($other)) {
+                    throw new \InvalidArgumentException(sprintf(
+                        'Networks "%s" (%s) and "%s" (%s) declare overlapping subnets; Docker would refuse the second.',
+                        $network->name,
+                        (string) $network->subnet,
+                        $other->name,
+                        (string) $other->subnet,
+                    ));
+                }
+            }
+        }
 
         foreach ($runtimeEnvFiles as $file) {
             // config/pipeline.php is untyped PHP. These paths are interpolated into a shell command

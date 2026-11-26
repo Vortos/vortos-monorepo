@@ -61,6 +61,11 @@ final class HttpMetricsListener implements MiddlewareInterface
         );
 
         $this->telemetry->increment(ObservabilityModule::Http, FrameworkMetric::HttpRequestsTotal, $requestLabels);
+        $this->telemetry->increment(
+            ObservabilityModule::Http,
+            FrameworkMetric::HttpClientAddressTotal,
+            FrameworkMetricLabels::of(MetricLabelValue::of(MetricLabel::Result, self::clientAddressResolution($request))),
+        );
 
         if (is_string($blockedReason) || $status === '404') {
             $this->telemetry->increment(
@@ -77,5 +82,26 @@ final class HttpMetricsListener implements MiddlewareInterface
         $this->telemetry->observe(ObservabilityModule::Http, FrameworkMetric::HttpRequestDurationMs, $durationLabels, $durationMs);
 
         return $response;
+    }
+
+    /**
+     * How getClientIp() arrived at its answer for this request.
+     *
+     * Behind a reverse proxy every request carries X-Forwarded-For. When the proxy is not among the
+     * trusted proxies, Symfony ignores the header and getClientIp() is the proxy's own address — for
+     * every client at once: per-address rate limits become one platform-wide bucket, and sessions and
+     * audit records all name the proxy. Nothing fails, so nothing else notices. Counting the outcome
+     * (the healthy results too, so an absent series is not mistaken for a clean one) turns that silent
+     * misconfiguration into a ratio an alert can watch.
+     *
+     * @return 'forwarded'|'direct'|'untrusted_forwarder'
+     */
+    private static function clientAddressResolution(Request $request): string
+    {
+        if (!$request->headers->has('X-Forwarded-For')) {
+            return 'direct';
+        }
+
+        return $request->isFromTrustedProxy() ? 'forwarded' : 'untrusted_forwarder';
     }
 }

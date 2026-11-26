@@ -27,16 +27,22 @@
     # for all of them. Until Caddy is told which peers may speak for a client,
     # {http.request.client_ip} falls back to that peer and every rate-limit zone below
     # collapses into a single bucket for the entire platform — "10 auth requests per minute"
-    # becomes a platform-wide ceiling rather than a per-client one, and /api/auth/* includes
-    # token refresh.
+    # becomes a platform-wide ceiling rather than a per-client one.
     #
-    # Defaults to the shared Docker bridge subnet rather than a fixed address: container IPs
-    # are reassigned on recreate, and only the edge can reach this port. Overridable per
-    # environment so an app never has to hand-edit this file — a hand-edit here is silently
-    # reverted by `vortos:docker:publish`, which is exactly how this protection was lost once
-    # already.
+    # TRUSTED_PROXIES names the reverse proxy's network, and nothing else: the deploy sets it from
+    # the same declaration that creates that network with a fixed subnet (DockerNetwork::serving(
+    # name, subnet)), and the deploy refuses to release onto a network that has drifted off it. Trust
+    # the proxy's network, never the data network: every container there could otherwise claim to be
+    # any client. Unset, nobody is trusted: client_ip is the direct peer, which behind a proxy is
+    # wrong but never forgeable — the opposite default (a guessed bridge subnet) is how this
+    # protection was silently lost once already, when the edge moved networks and the guess did not.
+    #
+    # trusted_proxies_strict reads X-Forwarded-For right to left and stops at the first address that
+    # is not a trusted proxy — the client as the proxy saw it. The default (leftmost entry) is
+    # whatever the client chose to send if a proxy ever appends instead of replacing.
     servers {
-        trusted_proxies static {$TRUSTED_PROXIES:172.18.0.0/16}
+        trusted_proxies static {$TRUSTED_PROXIES:127.0.0.1/32}
+        trusted_proxies_strict
         client_ip_headers X-Forwarded-For
     }
 

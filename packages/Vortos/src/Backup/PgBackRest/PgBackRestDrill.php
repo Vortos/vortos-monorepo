@@ -157,11 +157,11 @@ final class PgBackRestDrill
 
         $this->reports->save($report);
         $now = $this->clock->now();
-        $this->events->emit(match ($report->outcome) {
+        $this->events->emit((match ($report->outcome) {
             DrillOutcome::Passed => BackupEvent::drillSucceeded(DatabaseEngine::Postgres, $environment, $report->rtoMs, $now),
             DrillOutcome::OverObjective => BackupEvent::drillOverObjective(DatabaseEngine::Postgres, $environment, $report->rtoMs, $this->objectives->rtoSeconds, $now),
             DrillOutcome::Failed => BackupEvent::drillFailed(DatabaseEngine::Postgres, $environment, $report->error ?? 'invariant failure', $now),
-        });
+        })->withScope($role === PgBackRestRepositoryRole::Offsite ? 'pgbackrest:offsite' : 'pgbackrest'));
 
         return $report;
     }

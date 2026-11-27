@@ -212,7 +212,7 @@ final class DrillRunner
 
         $this->reportStore->save($report);
 
-        $this->events->emit(match ($report->outcome) {
+        $this->events->emit((match ($report->outcome) {
             DrillOutcome::Passed => BackupEvent::drillSucceeded($engine, $environment, $report->rtoMs, $this->clock->now()),
             DrillOutcome::OverObjective => BackupEvent::drillOverObjective(
                 $engine,
@@ -222,7 +222,7 @@ final class DrillRunner
                 $this->clock->now(),
             ),
             DrillOutcome::Failed => BackupEvent::drillFailed($engine, $environment, $report->error ?? 'invariant failure', $this->clock->now()),
-        });
+        })->withScope($report->kind->value));
 
         return $report;
     }

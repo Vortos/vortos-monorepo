@@ -509,6 +509,10 @@ final class AlertsExtension extends Extension
             ->setArgument('$store', new Reference(AlertStateStoreInterface::class))
             ->setArgument('$silenceSeconds', '%env(int:ALERTS_RESOLVE_AFTER_SECONDS)%')
             ->setArgument('$logger', new Reference(LoggerInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
+            // Drill failures close on the next passing drill of the same path, never on silence.
+            ->setArgument('$latchedRuleIds', interface_exists(\Vortos\Backup\Event\BackupEventSinkInterface::class)
+                ? \Vortos\Alerts\Integration\Backup\BackupEventAlertSink::LATCHED_RULE_IDS
+                : [])
             ->setPublic(false);
 
         $container->register(EvaluateAlertSourcesHandler::class, EvaluateAlertSourcesHandler::class)
@@ -567,6 +571,8 @@ final class AlertsExtension extends Extension
             ->setArgument('$minimumSeverity', \Vortos\Alerts\Severity::tryFrom(
                 strtolower((string) ($_ENV['VORTOS_ALERTS_BACKUP_MIN_SEVERITY'] ?? '')),
             ) ?? \Vortos\Alerts\Severity::Warning)
+            // A passing drill closes that path's open failure (drill failures are latched).
+            ->setArgument('$states', new Reference(AlertStateStoreInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE))
             ->setPublic(false);
     }
 

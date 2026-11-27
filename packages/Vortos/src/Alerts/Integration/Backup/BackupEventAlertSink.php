@@ -6,6 +6,9 @@ namespace Vortos\Alerts\Integration\Backup;
 
 use Throwable;
 use Vortos\Alerts\AlertDispatcherInterface;
+use Vortos\Alerts\Dedupe\AlertStateStatus;
+use Vortos\Alerts\Dedupe\AlertStateStoreInterface;
+use Vortos\Alerts\Dedupe\Fingerprint;
 use Vortos\Alerts\Event\AlertEvent;
 use Vortos\Alerts\Event\AlertSource;
 use Vortos\Alerts\Severity;
@@ -24,6 +27,14 @@ use Vortos\Backup\Event\BackupEventSinkInterface;
  */
 final class BackupEventAlertSink implements BackupEventSinkInterface
 {
+    /**
+     * Drill failures are LATCHED: they stay open until a drill of the same path passes, instead of
+     * closing after an hour of silence (StaleAlertResolver skips these rule ids). A daily drill that
+     * fails is silent for 23 hours between runs; closing on silence showed a broken restore path as
+     * "resolved" most of the day, which is how the logical path stayed broken from 19 to 27 Nov 2026.
+     */
+    public const LATCHED_RULE_IDS = [BackupEvent::TYPE_DRILL_FAILED, BackupEvent::TYPE_DRILL_OVER_OBJECTIVE];
+
     public function __construct(
         private readonly AlertDispatcherInterface $dispatcher,
         /**
@@ -44,10 +55,15 @@ final class BackupEventAlertSink implements BackupEventSinkInterface
          * chatter as its only evidence of life.
          */
         private readonly Severity $minimumSeverity = Severity::Warning,
+        private readonly ?AlertStateStoreInterface $states = null,
     ) {}
 
     public function emit(BackupEvent $event): void
     {
+        if ($event->type === BackupEvent::TYPE_DRILL_SUCCEEDED) {
+            $this->resolveLatched($event);
+        }
+
         $severity = $this->mapSeverity($event->severity);
 
         if ($severity->rank() < $this->minimumSeverity->rank()) {
@@ -63,7 +79,7 @@ final class BackupEventAlertSink implements BackupEventSinkInterface
                 source: AlertSource::Backup,
                 env: $event->environment,
                 tenantId: null,
-                labels: ['engine' => $event->engine->value, 'type' => $event->type],
+                labels: $this->labels($event, $event->type),
                 annotations: [],
                 links: [],
                 occurredAt: $event->occurredAt,
@@ -71,6 +87,40 @@ final class BackupEventAlertSink implements BackupEventSinkInterface
         } catch (Throwable) {
             // Never fail (or mask) a backup because the alerter broke.
         }
+    }
+
+    /**
+     * A pass closes the open failure of the same path (same rule, env, engine and scope), and only
+     * that one: the logical drill passing says nothing about pgBackRest's.
+     */
+    private function resolveLatched(BackupEvent $success): void
+    {
+        if ($this->states === null) {
+            return;
+        }
+
+        foreach (self::LATCHED_RULE_IDS as $ruleId) {
+            try {
+                $fingerprint = Fingerprint::compute($ruleId, $success->environment, null, $this->labels($success, $ruleId));
+                $state = $this->states->get($fingerprint);
+                if ($state !== null && $state->status === AlertStateStatus::Open) {
+                    $this->states->save($state->withStatus(AlertStateStatus::Resolved, $success->occurredAt));
+                }
+            } catch (Throwable) {
+                // Never fail (or mask) a drill because the alert store broke.
+            }
+        }
+    }
+
+    /** @return array<string, string> */
+    private function labels(BackupEvent $event, string $type): array
+    {
+        $labels = ['engine' => $event->engine->value, 'type' => $type];
+        if ($event->scope !== null) {
+            $labels['scope'] = $event->scope;
+        }
+
+        return $labels;
     }
 
     private function mapSeverity(BackupEventSeverity $severity): Severity

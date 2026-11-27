@@ -50,7 +50,19 @@ final readonly class BackupEvent
         public DateTimeImmutable $occurredAt,
         public ?BackupArtifact $artifact = null,
         public ?string $error = null,
+        /**
+         * Which restore path a drill event is about (`logical_full`, `pgbackrest`, `pgbackrest:offsite`).
+         * Two paths drill the same engine daily, so without it a pass on one would close the other's
+         * failure. Null for events that are not about one path.
+         */
+        public ?string $scope = null,
     ) {}
+
+    public function withScope(string $scope): self
+    {
+        return new self($this->type, $this->severity, $this->engine, $this->environment, $this->message,
+            $this->occurredAt, $this->artifact, $this->error, $scope);
+    }
 
     public static function succeeded(BackupArtifact $artifact, DateTimeImmutable $at): self
     {

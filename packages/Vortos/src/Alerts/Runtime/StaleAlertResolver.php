@@ -39,6 +39,13 @@ final class StaleAlertResolver
          */
         private readonly int $silenceSeconds = 3_600,
         private readonly ?LoggerInterface $logger = null,
+        /**
+         * Rules closed by an explicit recovery event, never by silence (e.g. a drill failure, closed by
+         * the next passing drill of the same path). See BackupEventAlertSink::LATCHED_RULE_IDS.
+         *
+         * @var list<string>
+         */
+        private readonly array $latchedRuleIds = [],
     ) {}
 
     /**
@@ -59,6 +66,10 @@ final class StaleAlertResolver
         }
 
         foreach ($stale as $state) {
+            if ($state->ruleId !== null && in_array($state->ruleId, $this->latchedRuleIds, true)) {
+                continue;
+            }
+
             try {
                 $this->store->save($state->withStatus(AlertStateStatus::Resolved, $now));
                 $closed++;

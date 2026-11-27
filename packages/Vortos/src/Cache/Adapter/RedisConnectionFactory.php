@@ -42,7 +42,7 @@ final class RedisConnectionFactory
     /**
      * Build and return a connected \Redis instance.
      *
-     * @param string $dsn            DSN string — redis://[:password@]host[:port][/database]
+     * @param string $dsn            DSN string — redis://[[user]:password@]host[:port][/database]
      * @param float  $connectTimeout TCP connection timeout in seconds (default 2.0)
      *
      * @throws \InvalidArgumentException If the DSN is malformed
@@ -54,14 +54,17 @@ final class RedisConnectionFactory
 
         if ($parsed === false || empty($parsed['host'])) {
             throw new \InvalidArgumentException(sprintf(
-                'Invalid Redis DSN "%s". Expected format: redis://[:password@]host[:port][/database]',
-                $dsn,
+                'Invalid Redis DSN "%s". Expected format: redis://[[user]:password@]host[:port][/database]',
+                self::redact($dsn),
             ));
         }
 
         $host     = $parsed['host'];
         $port     = $parsed['port'] ?? 6379;
-        $password = isset($parsed['pass']) && $parsed['pass'] !== '' ? $parsed['pass'] : null;
+        // An ACL user (Redis 6+) signs in as user + password; a bare password signs in as `default`.
+        // Both are URL-decoded, so a generated password may contain any character.
+        $user     = isset($parsed['user']) && $parsed['user'] !== '' ? rawurldecode($parsed['user']) : null;
+        $password = isset($parsed['pass']) && $parsed['pass'] !== '' ? rawurldecode($parsed['pass']) : null;
         $database = isset($parsed['path']) && $parsed['path'] !== '/'
             ? (int) ltrim($parsed['path'], '/')
             : 0;
@@ -79,12 +82,21 @@ final class RedisConnectionFactory
             ), 0, $e);
         }
 
+        if ($user !== null && $password === null) {
+            throw new \InvalidArgumentException(sprintf(
+                'Redis DSN "%s" names user "%s" without a password; an ACL user always signs in with one.',
+                self::redact($dsn),
+                $user,
+            ));
+        }
+
         if ($password !== null) {
             try {
-                $authed = $redis->auth($password);
+                $authed = $redis->auth($user !== null ? [$user, $password] : $password);
             } catch (\Throwable $e) {
                 throw new \RuntimeException(sprintf(
-                    'Redis authentication failed for host "%s:%d": %s',
+                    'Redis authentication failed for %s at "%s:%d": %s',
+                    $user !== null ? 'user "' . $user . '"' : 'the default user',
                     $host,
                     $port,
                     $e->getMessage(),
@@ -93,7 +105,8 @@ final class RedisConnectionFactory
 
             if (!$authed) {
                 throw new \RuntimeException(sprintf(
-                    'Redis authentication failed for host "%s:%d".',
+                    'Redis authentication failed for %s at "%s:%d".',
+                    $user !== null ? 'user "' . $user . '"' : 'the default user',
                     $host,
                     $port,
                 ));
@@ -115,5 +128,11 @@ final class RedisConnectionFactory
         $redis->setOption(\Redis::OPT_SERIALIZER, \Redis::SERIALIZER_NONE);
 
         return $redis;
+    }
+
+    /** The DSN with its password masked, for messages that may reach a log. */
+    public static function redact(string $dsn): string
+    {
+        return (string) preg_replace('#^([a-z][a-z0-9+.-]*://[^:@/]*:)[^@/]*@#i', '$1***@', $dsn);
     }
 }

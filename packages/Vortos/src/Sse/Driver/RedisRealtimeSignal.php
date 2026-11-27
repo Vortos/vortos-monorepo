@@ -82,10 +82,19 @@ final class RedisRealtimeSignal implements RealtimeSignalInterface
             $host  = $parts['host'] ?? '127.0.0.1';
             $port  = isset($parts['port']) ? (int) $parts['port'] : 6379;
 
+            // An ACL user signs in as user + password; a bare password as `default`. Both URL-decoded.
+            $user     = isset($parts['user']) && $parts['user'] !== '' ? rawurldecode($parts['user']) : null;
+            $password = isset($parts['pass']) && $parts['pass'] !== '' ? rawurldecode($parts['pass']) : null;
+            $database = isset($parts['path']) && $parts['path'] !== '/' ? (int) ltrim($parts['path'], '/') : 0;
+
             $redis = new \Redis();
             $redis->connect($host, $port, 1.5);
-            if (isset($parts['pass']) && $parts['pass'] !== '') {
-                $redis->auth($parts['pass']);
+            if ($password !== null && $redis->auth($user !== null ? [$user, $password] : $password) !== true) {
+                // A refused sign-in would otherwise leave a connection on which every command fails.
+                throw new \RuntimeException(sprintf('Redis refused the credentials for %s.', $user !== null ? 'user "' . $user . '"' : 'the default user'));
+            }
+            if ($database !== 0 && $redis->select($database) !== true) {
+                throw new \RuntimeException(sprintf('Redis SELECT %d failed.', $database));
             }
 
             return $this->redis = $redis;

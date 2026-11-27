@@ -214,7 +214,7 @@ return [
             'CsrfMiddleware'              => 'CSRF token validation for state-changing web routes.',
             'IpFilterMiddleware'          => 'IP allowlist/denylist.',
             'RequestSignatureMiddleware'  => 'HMAC signature verification for webhooks.',
-            'EncryptionService'           => 'AES-256-GCM encryption/decryption.',
+            'EncryptionService'           => 'AES-256-GCM encryption/decryption under a rotatable keyring (EncryptionKeyring).',
             'SecretsProvider'             => 'EnvSecretsProvider | VaultSecretsProvider | AwsSsmSecretsProvider — simple app-config lookup. For envelope encryption / off-host key custody / rotation, use the separate vortos-secrets package instead.',
             'DataMaskingProcessor'        => 'Strips PII (email, phone, password fields) from log entries.',
             'PasswordPolicyService'       => 'Enforces min/max length, complexity rules, breach detection (HaveIBeenPwned).',

@@ -438,8 +438,9 @@ final class PasswordPolicyConfig
 final class EncryptionConfig
 {
     private bool   $enabled      = false;
-    private string $masterKeyEnv = 'ENCRYPTION_KEY';
-    private string $algorithm    = 'aes-256-gcm';
+    private string $masterKeyEnv   = 'ENCRYPTION_KEY';
+    private string $retiredKeysEnv = 'ENCRYPTION_RETIRED_KEYS';
+    private string $algorithm      = 'aes-256-gcm';
 
     /** Enable field-level encryption. Requires ENCRYPTION_KEY in environment (32 raw bytes, base64-encoded). */
     public function enabled(bool $enabled = true): static { $this->enabled = $enabled; return $this; }
@@ -447,11 +448,19 @@ final class EncryptionConfig
     /** Name of the environment variable holding the base64-encoded 32-byte master key. */
     public function masterKeyEnv(string $envVar): static { $this->masterKeyEnv = $envVar; return $this; }
 
+    /**
+     * Name of the environment variable listing retired keys (comma-separated, base64), which decrypt but
+     * never encrypt. Rotation: move the active key here, set a new active key, re-encrypt what
+     * needsReencryption() names, then drop the retired key. See EncryptionKeyring.
+     */
+    public function retiredKeysEnv(string $envVar): static { $this->retiredKeysEnv = $envVar; return $this; }
+
     public function toArray(): array
     {
         return [
             'enabled'       => $this->enabled,
             'master_key_env' => $this->masterKeyEnv,
+            'retired_keys_env' => $this->retiredKeysEnv,
             'algorithm'     => $this->algorithm,
         ];
     }

@@ -22,4 +22,12 @@ interface EncryptionInterface
      * @throws \RuntimeException When decryption fails (wrong key, tampered data, wrong context).
      */
     public function decrypt(string $ciphertext, string $context = ''): string;
+
+    /**
+     * Whether $ciphertext was made with a key other than the active one, or in an older format.
+     * A sweep that re-encrypts every such value is what lets a retired key finally be dropped.
+     *
+     * @throws \RuntimeException When $ciphertext is not a ciphertext this service produced.
+     */
+    public function needsReencryption(string $ciphertext): bool;
 }

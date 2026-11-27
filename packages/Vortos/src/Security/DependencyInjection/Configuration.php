@@ -134,7 +134,8 @@ final class Configuration implements ConfigurationInterface
                 ->children()
                     ->booleanNode('enabled')->defaultFalse()->end()
                     ->scalarNode('master_key_env')->defaultValue('ENCRYPTION_KEY')->end()
-                    ->scalarNode('algorithm')->defaultValue('aes-256-gcm')->end()
+                    ->scalarNode('retired_keys_env')->defaultValue('ENCRYPTION_RETIRED_KEYS')->end()
+                    ->enumNode('algorithm')->values(['aes-256-gcm'])->defaultValue('aes-256-gcm')->end()
                 ->end()
             ->end()
 

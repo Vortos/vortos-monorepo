@@ -18,7 +18,7 @@ use Vortos\Security\Cors\Middleware\CorsMiddleware;
 use Vortos\Security\Csrf\CsrfTokenService;
 use Vortos\Security\Csrf\Middleware\CsrfMiddleware;
 use Vortos\Security\Encryption\EncryptionService;
-use Vortos\Security\Encryption\KeyDerivationService;
+use Vortos\Security\Encryption\EncryptionKeyring;
 use Vortos\Security\Event\SecurityEventDispatcher;
 use Vortos\Security\Headers\ContentSecurityPolicyBuilder;
 use Vortos\Security\Headers\Middleware\SecurityHeadersMiddleware;
@@ -330,14 +330,15 @@ final class SecurityExtension extends Extension
             return;
         }
 
-        $container->register(KeyDerivationService::class, KeyDerivationService::class)
-            ->setArgument('$masterKeyEnv', $encConfig['master_key_env'])
+        $container->register(EncryptionKeyring::class, EncryptionKeyring::class)
+            ->setArgument('$activeKeyEnv', $encConfig['master_key_env'])
             ->setArgument('$secrets', new Reference(SecretsInterface::class))
+            ->setArgument('$retiredKeysEnv', $encConfig['retired_keys_env'])
             ->setShared(true)->setPublic(false);
 
         $container->register(EncryptionService::class, EncryptionService::class)
             ->setArguments([
-                new Reference(KeyDerivationService::class),
+                new Reference(EncryptionKeyring::class),
                 $encConfig['algorithm'],
             ])
             ->setShared(true)->setPublic(true);

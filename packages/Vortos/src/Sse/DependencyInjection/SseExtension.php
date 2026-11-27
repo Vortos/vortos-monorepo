@@ -83,6 +83,7 @@ final class SseExtension extends Extension
         $container->setParameter('env(VORTOS_MERCURE_JWT_SECRET)', '');
         $container->setParameter('env(VORTOS_MERCURE_INTERNAL_URL)', self::DEFAULT_INTERNAL_HUB_URL);
         $container->setParameter('env(VORTOS_MERCURE_PUBLIC_URL)', '');
+        $container->setParameter('env(VORTOS_MERCURE_SUBSCRIBER_TTL_SECONDS)', (string) MercureTransport::DEFAULT_SUBSCRIBER_TTL_SECONDS);
 
         $container->register(InProcessStreamTransport::class, InProcessStreamTransport::class)
             ->setArgument('$signal', new Reference(RealtimeSignalInterface::class))
@@ -115,6 +116,7 @@ final class SseExtension extends Extension
             ->setArgument('$minter', new Reference(MercureTokenMinter::class))
             ->setArgument('$logger', new Reference(LoggerInterface::class))
             ->setArgument('$publicHubUrl', '%env(VORTOS_MERCURE_PUBLIC_URL)%')
+            ->setArgument('$subscriberTtlSeconds', '%env(int:VORTOS_MERCURE_SUBSCRIBER_TTL_SECONDS)%')
             ->setPublic(false);
 
         $container->setAlias(RealtimeTransportInterface::class, MercureTransport::class)

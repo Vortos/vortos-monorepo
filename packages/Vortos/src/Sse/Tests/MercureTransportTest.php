@@ -115,6 +115,50 @@ final class MercureTransportTest extends TestCase
     }
 
     /**
+     * The hub cannot revoke a credential, so its life is how long a copy outlives the session that
+     * minted it. Short by default; the client renews it before expiry.
+     */
+    public function test_the_credential_is_short_lived_by_default(): void
+    {
+        $subscription = self::transport(self::recordingPublisher())->subscription('notif:user:alice');
+
+        $this->assertSame(300, $subscription->expiresInSeconds);
+        $this->assertEqualsWithDelta(time() + 300, $subscription->credential->getExpiresTime(), 2);
+
+        $payload = json_decode((string) base64_decode(strtr(explode('.', $subscription->credential->getValue())[1], '-_', '+/')), true);
+        $this->assertEqualsWithDelta(time() + 300, $payload['exp'], 2);
+    }
+
+    public function test_a_credential_life_too_short_to_renew_is_refused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new MercureTransport(
+            publisher: self::recordingPublisher(),
+            minter: new MercureTokenMinter(self::SECRET),
+            logger: new NullLogger(),
+            publicHubUrl: self::PUBLIC_HUB,
+            subscriberTtlSeconds: 30,
+        );
+    }
+
+    /** Sign-out deletes the browser's copy: same name, path and flags, already expired, empty. */
+    public function test_the_clearance_deletes_the_same_cookie(): void
+    {
+        $transport = self::transport(self::recordingPublisher());
+        $issued    = $transport->subscription('notif:user:alice')->credential;
+        $clearance = $transport->credentialClearance();
+
+        $this->assertSame($issued->getName(), $clearance->getName());
+        $this->assertSame($issued->getPath(), $clearance->getPath());
+        $this->assertSame($issued->getDomain(), $clearance->getDomain());
+        $this->assertSame($issued->isSecure(), $clearance->isSecure());
+        $this->assertSame($issued->getSameSite(), $clearance->getSameSite());
+        $this->assertTrue($clearance->isCleared());
+        $this->assertSame('', (string) $clearance->getValue());
+    }
+
+    /**
      * The credential must travel as a Set-Cookie and never in the body — serialising it would hand it
      * to page scripts and make HttpOnly pointless.
      */

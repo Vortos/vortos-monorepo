@@ -48,4 +48,10 @@ final class InProcessStreamTransport implements RealtimeTransportInterface
     {
         return null;
     }
+
+    /** No hub, so no credential was ever issued. */
+    public function credentialClearance(): ?\Symfony\Component\HttpFoundation\Cookie
+    {
+        return null;
+    }
 }

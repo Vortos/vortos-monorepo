@@ -59,4 +59,14 @@ interface RealtimeTransportInterface
      *                           minted; never silently returns an over-scoped or unsigned token
      */
     public function subscription(string $channel): ?HubSubscription;
+
+    /**
+     * A Set-Cookie that deletes the subscriber credential from this browser, for sign-out; null when
+     * this transport issues no credential.
+     *
+     * The hub validates a credential only by its signature and expiry, so it cannot be revoked
+     * server-side. Clearing it at sign-out removes it from the browser that signed out; its short
+     * lifetime bounds a copy taken elsewhere.
+     */
+    public function credentialClearance(): ?\Symfony\Component\HttpFoundation\Cookie;
 }

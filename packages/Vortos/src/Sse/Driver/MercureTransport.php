@@ -51,6 +51,10 @@ final class MercureTransport implements RealtimeTransportInterface
 {
     private const DEGRADED_LOG_INTERVAL_SECONDS = 60;
 
+    public const DEFAULT_SUBSCRIBER_TTL_SECONDS = 300;
+    /** Below this a client would spend more time renewing than listening. */
+    public const MIN_SUBSCRIBER_TTL_SECONDS = 120;
+
     public function __construct(
         private readonly HubPublisherInterface $publisher,
         private readonly MercureTokenMinter $minter,
@@ -59,10 +63,23 @@ final class MercureTransport implements RealtimeTransportInterface
         private readonly string $publicHubUrl,
         /** Cookie name the hub reads the subscriber credential from. */
         private readonly string $cookieName = 'mercureAuthorization',
-        private readonly int $subscriberTtlSeconds = 3600,
+        /**
+         * How long a subscriber credential lives. The hub cannot revoke one, so this is how long a copy
+         * outlives the session that minted it. Clients renew before expiry (HubSubscription::$expiresInSeconds),
+         * so a short life costs one cheap request per renewal. Five minutes by default.
+         */
+        private readonly int $subscriberTtlSeconds = self::DEFAULT_SUBSCRIBER_TTL_SECONDS,
         /** Emit the credential cookie as Secure. Disabled only for plain-HTTP local development. */
         private readonly bool $secureCookie = true,
-    ) {}
+    ) {
+        if ($subscriberTtlSeconds < self::MIN_SUBSCRIBER_TTL_SECONDS) {
+            throw new \InvalidArgumentException(sprintf(
+                'vortos-sse: the subscriber credential must live at least %d seconds; %d was configured.',
+                self::MIN_SUBSCRIBER_TTL_SECONDS,
+                $subscriberTtlSeconds,
+            ));
+        }
+    }
 
     public function publish(string $channel, array $payload): void
     {
@@ -86,9 +103,26 @@ final class MercureTransport implements RealtimeTransportInterface
         // the worker pool this whole transport exists to protect.
         $token = $this->minter->forSubscriber([$channel], $this->subscriberTtlSeconds);
 
-        $cookie = Cookie::create($this->cookieName)
+        $cookie = $this->credentialCookie()
             ->withValue($token)
-            ->withExpires(time() + $this->subscriberTtlSeconds)
+            ->withExpires(time() + $this->subscriberTtlSeconds);
+
+        return new HubSubscription(
+            url: $this->publicHubUrl . '?topic=' . rawurlencode($channel),
+            credential: $cookie,
+            expiresInSeconds: $this->subscriberTtlSeconds,
+        );
+    }
+
+    /** An expired credential cookie with the same name, path and flags: the browser deletes its copy. */
+    public function credentialClearance(): Cookie
+    {
+        return $this->credentialCookie()->withValue('')->withExpires(1);
+    }
+
+    private function credentialCookie(): Cookie
+    {
+        return Cookie::create($this->cookieName)
             // Scoped to the hub path: this credential has exactly one use, so there is no reason for it
             // to ride along on every other API request.
             ->withPath($this->hubPath())
@@ -98,12 +132,6 @@ final class MercureTransport implements RealtimeTransportInterface
             // Lax, not None: the SPA and the API are the same site, so Lax is sent on the subscription
             // request while still refusing genuinely cross-site use. See HubSubscription.
             ->withSameSite(Cookie::SAMESITE_LAX);
-
-        return new HubSubscription(
-            url: $this->publicHubUrl . '?topic=' . rawurlencode($channel),
-            credential: $cookie,
-            expiresInSeconds: $this->subscriberTtlSeconds,
-        );
     }
 
     /**

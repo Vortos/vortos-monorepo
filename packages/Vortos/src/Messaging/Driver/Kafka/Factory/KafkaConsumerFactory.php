@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Messaging\Driver\Kafka\Factory;
 
 use Vortos\Messaging\Driver\Kafka\Runtime\ConsumerInstanceId;
+use Vortos\Messaging\Driver\Kafka\Runtime\KafkaClientConfig;
 use Vortos\Messaging\Driver\Kafka\Runtime\KafkaConsumer;
 use Vortos\Messaging\Driver\Kafka\Runtime\RdKafkaWatermarkReader;
 use Vortos\Metrics\Contract\FlushableMetricsInterface;
@@ -63,67 +64,7 @@ final class KafkaConsumerFactory
         $consumerConfig = $this->consumerRegistry->get($consumerName);
         $transportConfig = $this->transportRegistry->get($consumerConfig['transport']);
 
-        $conf = new \RdKafka\Conf();
-        $conf->set('metadata.broker.list', str_replace('kafka://', '', $transportConfig['dsn']));
-        $conf->set('socket.timeout.ms', '60000');
-
-        $sasl = $transportConfig['security']['sasl'] ?? [];
-        if (!empty($sasl)) {
-            if (empty($sasl['username']) || empty($sasl['password'])) {
-                throw new \InvalidArgumentException(
-                    "SASL username and password must not be empty for consumer '{$consumerName}'."
-                );
-            }
-            $conf->set('sasl.mechanisms', $sasl['mechanism']);
-            $conf->set('sasl.username', $sasl['username']);
-            $conf->set('sasl.password', $sasl['password']);
-            $conf->set('security.protocol', 'SASL_PLAINTEXT');
-        }
-
-        $ssl = $transportConfig['security']['ssl'] ?? [];
-
-        if (!empty($sasl) && empty($ssl)) {
-            throw new \InvalidArgumentException(
-                "Transport '{$consumerConfig['transport']}' uses SASL without SSL — credentials would be sent in plaintext. Configure SSL alongside SASL."
-            );
-        }
-
-        if (!empty($ssl)) {
-
-            if (isset($ssl['ca_location'])) {
-                if (!is_readable($ssl['ca_location'])) {
-                    throw new \InvalidArgumentException("SSL CA file is not readable: {$ssl['ca_location']}");
-                }
-                $conf->set('ssl.ca.location', $ssl['ca_location']);
-            }
-
-            if (isset($ssl['certificate_location'])) {
-                if (!is_readable($ssl['certificate_location'])) {
-                    throw new \InvalidArgumentException("SSL certificate file is not readable: {$ssl['certificate_location']}");
-                }
-                $conf->set('ssl.certificate.location', $ssl['certificate_location']);
-            }
-
-            if (isset($ssl['key_location'])) {
-                if (!is_readable($ssl['key_location'])) {
-                    throw new \InvalidArgumentException("SSL key file is not readable: {$ssl['key_location']}");
-                }
-                $conf->set('ssl.key.location', $ssl['key_location']);
-            }
-
-            if (isset($ssl['key_password'])) {
-                $conf->set('ssl.key.password', $ssl['key_password']);
-            }
-
-            if (isset($ssl['verify_peer'])) {
-                $conf->set('enable.ssl.certificate.verification', $ssl['verify_peer'] ? 'true' : 'false');
-            }
-
-            $conf->set('security.protocol', 'SSL');
-            if (!empty($sasl)) {
-                $conf->set('security.protocol', 'SASL_SSL');
-            }
-        }
+        $conf = KafkaClientConfig::conf($transportConfig, $consumerConfig['transport'], ['socket.timeout.ms' => '60000']);
 
         $conf->set('group.id', $consumerConfig['groupId']);
         $conf->set('auto.offset.reset', $consumerConfig['kafka']['autoOffsetResetPolicy']);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\Messaging\Driver\Kafka\Command;
 
 use Vortos\Messaging\Contract\PayloadSanitizerInterface;
+use Vortos\Messaging\Driver\Kafka\Runtime\KafkaClientConfig;
 use Vortos\Messaging\Registry\TransportRegistry;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -59,21 +60,24 @@ final class KafkaTailCommand extends Command
         $groupId       = (string) $input->getOption('group-id');
         $verbose       = $output->isVerbose();
 
-        [$brokers, $topic, $transport] = $this->resolveTransport($input, $transportName);
+        [$topic, $transport] = $this->resolveTransport($input, $transportName);
 
-        if ($brokers === '') {
+        if (($transport['dsn'] ?? '') === '') {
             $output->writeln('<error>No broker address found. Register the transport or use --brokers.</error>');
             return Command::FAILURE;
         }
 
-        $conf = new \RdKafka\Conf();
-        $conf->set('metadata.broker.list', $brokers);
-        $conf->set('group.id', $groupId);
-        $conf->set('socket.timeout.ms', '3000');
-        $conf->set('enable.auto.commit', 'false');
-        $conf->set('auto.offset.reset', $fromBeginning ? 'earliest' : 'latest');
-
-        $this->applySecurity($conf, $transport);
+        try {
+            $conf = KafkaClientConfig::conf($transport, $transportName, [
+                'group.id' => $groupId,
+                'socket.timeout.ms' => '3000',
+                'enable.auto.commit' => 'false',
+                'auto.offset.reset' => $fromBeginning ? 'earliest' : 'latest',
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            $output->writeln('<error>' . $e->getMessage() . '</error>');
+            return Command::FAILURE;
+        }
 
         $consumer = new \RdKafka\KafkaConsumer($conf);
         $consumer->subscribe([$topic]);
@@ -174,53 +178,33 @@ final class KafkaTailCommand extends Command
         return Command::SUCCESS;
     }
 
-    /** @return array{string, string, array} [brokers, topic, transportConfig] */
+    /**
+     * The topic, and the transport whose connection (brokers and sign-in) the tail uses. --brokers replaces
+     * only the broker list: a registered transport keeps its sign-in.
+     *
+     * @return array{string, array<string, mixed>} [topic, transportConfig]
+     */
     private function resolveTransport(InputInterface $input, string $transportName): array
     {
         $explicit = (string) $input->getOption('brokers');
 
         try {
             $transport = $this->transports->get($transportName);
-            $dsn       = is_array($transport) ? ($transport['dsn'] ?? '') : '';
-            $topic     = is_array($transport) ? ($transport['subscription']['topic'] ?? $transportName) : $transportName;
-            $brokers   = $explicit !== '' ? $explicit : str_replace('kafka://', '', $dsn);
-            return [$brokers, $topic, is_array($transport) ? $transport : []];
         } catch (\Throwable) {
-            return [$explicit !== '' ? $explicit : (getenv('KAFKA_BROKERS') ?: ''), $transportName, []];
-        }
-    }
-
-    private function applySecurity(\RdKafka\Conf $conf, array $transport): void
-    {
-        $sasl = $transport['security']['sasl'] ?? [];
-        $ssl  = $transport['security']['ssl'] ?? [];
-
-        if (!empty($sasl) && !empty($sasl['username']) && !empty($sasl['password'])) {
-            $conf->set('sasl.mechanisms', $sasl['mechanism'] ?? 'PLAIN');
-            $conf->set('sasl.username', $sasl['username']);
-            $conf->set('sasl.password', $sasl['password']);
-            $conf->set('security.protocol', 'SASL_PLAINTEXT');
+            $brokers = $explicit !== '' ? $explicit : (getenv('KAFKA_BROKERS') ?: '');
+            return [$transportName, ['dsn' => $brokers === '' ? '' : 'kafka://' . $brokers]];
         }
 
-        if (!empty($ssl)) {
-            if (isset($ssl['ca_location']) && is_readable($ssl['ca_location'])) {
-                $conf->set('ssl.ca.location', $ssl['ca_location']);
-            }
-            if (isset($ssl['certificate_location']) && is_readable($ssl['certificate_location'])) {
-                $conf->set('ssl.certificate.location', $ssl['certificate_location']);
-            }
-            if (isset($ssl['key_location']) && is_readable($ssl['key_location'])) {
-                $conf->set('ssl.key.location', $ssl['key_location']);
-            }
-            if (isset($ssl['key_password'])) {
-                $conf->set('ssl.key.password', $ssl['key_password']);
-            }
-            if (isset($ssl['verify_peer'])) {
-                $conf->set('enable.ssl.certificate.verification', $ssl['verify_peer'] ? 'true' : 'false');
-            }
-
-            $conf->set('security.protocol', !empty($sasl) ? 'SASL_SSL' : 'SSL');
+        $transport = is_array($transport) ? $transport : [];
+        $topic = $transport['subscription']['topic'] ?? $transportName;
+        if ($explicit !== '') {
+            $dsn = (string) ($transport['dsn'] ?? '');
+            $userinfo = preg_match('#^kafka://([^@/?]*@)#', $dsn, $m) === 1 ? $m[1] : '';
+            $query = ($q = strpos($dsn, '?')) !== false ? substr($dsn, $q) : '';
+            $transport['dsn'] = 'kafka://' . $userinfo . $explicit . $query;
         }
+
+        return [$topic, $transport];
     }
 
     private function shortName(string $fqcn): string

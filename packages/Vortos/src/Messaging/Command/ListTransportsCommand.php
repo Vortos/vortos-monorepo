@@ -105,16 +105,9 @@ final class ListTransportsCommand extends Command
             return '<fg=gray>—</>';
         }
 
-        $parsed = parse_url($dsn);
-        if ($parsed === false) {
-            return $dsn;
-        }
-
-        $scheme = $parsed['scheme'] ?? '';
-        $host   = $parsed['host'] ?? '';
-        $port   = isset($parsed['port']) ? ':' . $parsed['port'] : '';
-
-        return sprintf('%s://%s%s', $scheme, $host, $port);
+        // Neither the password nor the user, whatever the DSN's shape: parse_url cannot read a multi-broker
+        // list, and used to hand such a DSN back whole, password included.
+        return (string) preg_replace('#^([a-z][a-z0-9+.-]*://)[^@/?]*@#i', '$1', $dsn);
     }
 
     /**

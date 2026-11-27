@@ -15,7 +15,8 @@ use Doctrine\DBAL\Tools\DsnParser;
  *
  * This is a pure static factory — it cannot be instantiated.
  * It has one responsibility: construct a configured Connection object.
- * Connection resilience (ping, reconnect) is the UnitOfWork's responsibility, not this class.
+ * Every connection it builds is a ResilientConnection (unless the params name another wrapperClass):
+ * a socket idle for a while is pinged before reuse and replaced if dead. See ResilientConnection.
  *
  * Connections are lazy — no TCP handshake occurs until the first query is executed.
  * This means constructing a Connection never fails due to the database being unreachable.
@@ -81,6 +82,7 @@ final class ConnectionFactory
         ]);
 
         $params = $parser->parse($dsn);
+        $params['wrapperClass'] ??= ResilientConnection::class;
 
         return DriverManager::getConnection($params, $configuration);
     }
@@ -116,6 +118,8 @@ final class ConnectionFactory
      */
     public static function fromParams(array $params): Connection
     {
+        $params['wrapperClass'] ??= ResilientConnection::class;
+
         return DriverManager::getConnection($params);
     }
 }

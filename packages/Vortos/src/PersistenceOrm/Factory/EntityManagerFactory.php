@@ -123,7 +123,12 @@ final class EntityManagerFactory
             'oci8'     => 'oci8',
         ]);
 
-        $params     = $parser->parse($dsn);
+        $params = $parser->parse($dsn);
+        // With vortos-persistence-dbal installed the ORM's connection is a ResilientConnection too: a
+        // socket idle for a while is pinged before reuse and replaced if the server restarted under it.
+        if (class_exists(\Vortos\PersistenceDbal\Connection\ResilientConnection::class)) {
+            $params['wrapperClass'] ??= \Vortos\PersistenceDbal\Connection\ResilientConnection::class;
+        }
         $connection = DriverManager::getConnection($params, $config);
 
         $eventManager = new EventManager();

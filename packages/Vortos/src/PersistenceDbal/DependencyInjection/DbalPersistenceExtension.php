@@ -12,6 +12,7 @@ use Symfony\Component\DependencyInjection\Reference;
 use Psr\Log\LoggerInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\PersistenceDbal\Connection\ConnectionFactory;
+use Vortos\PersistenceDbal\Connection\ResilientConnection;
 use Vortos\PersistenceDbal\Health\DatabaseHealthCheck;
 use Vortos\PersistenceDbal\Logging\LoggingDbalMiddleware;
 use Vortos\PersistenceDbal\Schema\FrameworkPrefix;
@@ -102,7 +103,9 @@ final class DbalPersistenceExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        $container->register(Connection::class, Connection::class)
+        // ResilientConnection: pings a socket that sat idle before reusing it and retires it at a
+        // request/message boundary once old, so a database restart costs no request an error.
+        $container->register(Connection::class, ResilientConnection::class)
             ->setFactory([ConnectionFactory::class, 'fromDsn'])
             ->setArguments([$dsn, new Reference(Configuration::class)])
             ->setShared(true)

@@ -72,6 +72,12 @@ final class ResettableEntityManager implements EntityManagerInterface, ResetInte
         }
 
         $this->inner->clear();
+
+        // Retire an old connection at this boundary (ResilientConnection); never mid-request.
+        $connection = $this->inner->getConnection();
+        if ($connection instanceof ResetInterface) {
+            $connection->reset();
+        }
     }
 
     // -------------------------------------------------------------------------

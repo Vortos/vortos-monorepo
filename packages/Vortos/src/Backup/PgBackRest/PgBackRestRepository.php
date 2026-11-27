@@ -29,7 +29,24 @@ final readonly class PgBackRestRepository
         public int $commandTimeoutSeconds = 21_600,
         /** The immutable second copy at another provider, or null for a single repository. */
         public ?PgBackRestOffsite $offsite = null,
+        /**
+         * Server settings the restore drill starts its disposable server with, on top of the image's
+         * configuration file (`-c name=value`). For what production needs and a throwaway server
+         * must not: TLS whose key exists only in production's tmpfs, an hba file that includes it.
+         * Names and values are refused unless plain, because they reach a shell.
+         *
+         * @var array<string, string>
+         */
+        public array $drillServerSettings = [],
     ) {
+        foreach ($drillServerSettings as $name => $value) {
+            if (preg_match('/^[a-z_][a-z0-9_.]*$/', (string) $name) !== 1 || preg_match('#^[A-Za-z0-9_./:=-]*$#', (string) $value) !== 1) {
+                throw new InvalidArgumentException(sprintf('pgBackRest drill server setting "%s" must be a plain name and value.', (string) $name));
+            }
+            if ($name === 'archive_mode') {
+                throw new InvalidArgumentException('The drill always starts with archive_mode=off; it is not a setting to override.');
+            }
+        }
         if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', $stanza) !== 1) {
             throw new InvalidArgumentException(sprintf('pgBackRest stanza must be a plain name, got "%s".', $stanza));
         }

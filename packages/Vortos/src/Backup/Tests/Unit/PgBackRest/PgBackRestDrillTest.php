@@ -89,6 +89,27 @@ final class PgBackRestDrillTest extends TestCase
         self::assertSame($report, $this->reports->latestOfKind('postgres', 'production', BackupKind::PhysicalBase));
     }
 
+    public function testTheDrillServerStartsWithTheDeclaredSettingsAndArchivingStillOff(): void
+    {
+        $report = $this->drill(endLsn: '15/79601330', drillSettings: ['ssl' => 'off', 'hba_file' => '/etc/postgresql/pg_hba.restore.conf'])->run('production');
+
+        self::assertSame(DrillOutcome::Passed, $report->outcome, (string) $report->error);
+        $script = $this->runtime->specs[0]->command[0];
+        self::assertStringContainsString('-c config_file=/etc/postgresql/postgresql.conf -c ssl=off -c hba_file=/etc/postgresql/pg_hba.restore.conf -c archive_mode=off', $script);
+    }
+
+    public function testDrillSettingsThatCouldReachTheShellOrReenableArchivingAreRefused(): void
+    {
+        foreach ([["ssl' ; rm -rf /" => 'off'], ['ssl' => "off'; id; '"], ['ssl' => 'off on'], ['archive_mode' => 'on']] as $settings) {
+            try {
+                new PgBackRestRepository('sqoura', 'write_db', '/opt/vortos/pgbackrest.env', drillServerSettings: $settings);
+                self::fail('Accepted ' . json_encode($settings));
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
     public function testTheOffsiteDrillRestoresFromTheOffsiteRepositoryAlone(): void
     {
         $offsite = new PgBackRestOffsite(2, 'acme-pgbackrest-offsite', 'https://s3.us-west-004.backblazeb2.com', 'us-west-004', 21);
@@ -180,13 +201,14 @@ final class PgBackRestDrillTest extends TestCase
     /**
      * @param list<InvariantCheck> $checks
      */
-    private function drill(?string $endLsn, int $pollsBeforePromotion = 0, array $checks = [], ?PgBackRestOffsite $offsite = null): PgBackRestDrill
+    /** @param array<string, string> $drillSettings */
+    private function drill(?string $endLsn, int $pollsBeforePromotion = 0, array $checks = [], ?PgBackRestOffsite $offsite = null, array $drillSettings = []): PgBackRestDrill
     {
         $probe = new class ($endLsn, $pollsBeforePromotion) implements PromotedServerProbeInterface {
             public function __construct(private ?string $lsn, private int $wait) {}
             public function promotedReplayLsn(array $connection): ?string { return $this->wait-- > 0 ? null : $this->lsn; }
         };
-        $repository = new PgBackRestRepository('sqoura', 'write_db', '/opt/vortos/pgbackrest.env', offsite: $offsite);
+        $repository = new PgBackRestRepository('sqoura', 'write_db', '/opt/vortos/pgbackrest.env', offsite: $offsite, drillServerSettings: $drillSettings);
 
         return new PgBackRestDrill(
             new PgBackRestClient($this->executor, $repository),

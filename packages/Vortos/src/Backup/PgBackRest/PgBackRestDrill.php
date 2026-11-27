@@ -179,8 +179,21 @@ final class PgBackRestDrill
         return 'set -eu; set -a; . ' . self::CREDENTIAL_PATH . '; set +a; '
             . "exec su postgres -s /bin/sh -c '"
             . 'pgbackrest --stanza=' . $stanza . $repo . ' --process-max=4 --archive-mode=off restore --type=default'
-            . ' && exec postgres -c config_file=/etc/postgresql/postgresql.conf -c archive_mode=off'
+            . ' && exec postgres -c config_file=/etc/postgresql/postgresql.conf'
+            . self::serverSettings($this->client->repository()->drillServerSettings)
+            . ' -c archive_mode=off'
             . "'";
+    }
+
+    /** @param array<string, string> $settings validated plain by PgBackRestRepository */
+    private static function serverSettings(array $settings): string
+    {
+        $flags = '';
+        foreach ($settings as $name => $value) {
+            $flags .= ' -c ' . $name . '=' . $value;
+        }
+
+        return $flags;
     }
 
     /**

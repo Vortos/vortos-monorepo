@@ -234,6 +234,12 @@ final class BackupConfig
      * `offsite` declares the immutable second copy ({@see PgBackRestOffsite}); it needs its own full and
      * drill schedules (->pgBackRestFull(..., offsite: true)), because pgBackRest backs up one repository
      * per run and a copy that is never restored is not known to restore.
+     *
+     * `drillServerSettings` are `-c name=value` settings the restore drill's disposable server starts with,
+     * for what only production can have (TLS whose key lives in production's tmpfs, an hba that includes
+     * it). See PgBackRestRepository::$drillServerSettings.
+     *
+     * @param array<string, string> $drillServerSettings
      */
     public function pgBackRest(
         string $stanza,
@@ -241,8 +247,9 @@ final class BackupConfig
         string $repositoryEnvFile,
         int $commandTimeoutSeconds = 21_600,
         ?PgBackRestOffsite $offsite = null,
+        array $drillServerSettings = [],
     ): self {
-        $this->pgBackRest = new PgBackRestRepository($stanza, $databaseService, $repositoryEnvFile, $commandTimeoutSeconds, $offsite);
+        $this->pgBackRest = new PgBackRestRepository($stanza, $databaseService, $repositoryEnvFile, $commandTimeoutSeconds, $offsite, $drillServerSettings);
 
         return $this;
     }

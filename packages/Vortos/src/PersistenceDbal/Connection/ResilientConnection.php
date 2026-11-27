@@ -19,11 +19,17 @@ use Symfony\Contracts\Service\ResetInterface;
  * ConnectionLost errors until 06:22: UnitOfWork::ensureConnection() pinged only on the command path,
  * so reads, the tenant middleware and side connections each failed once per dead socket.
  *
- * HOW. Every DBAL operation goes through connect(). Here, before handing back a held socket that has
- * been idle for at least `vortos_idle_ping_seconds` (default 30), it runs `SELECT 1` on it; if that
- * fails the socket is dropped and DBAL opens a new one with the same params (so TLS settings in the
- * DSN apply again). A socket in use within the last few seconds is never pinged, so a busy request
- * pays nothing, and a request after a quiet spell pays one round trip.
+ * HOW. Every DBAL operation goes through connect(). Here, before handing back a held socket, it runs
+ * `SELECT 1` on it when either
+ *  - this is the first use since a unit-of-work boundary (reset(): the end of a request or message),
+ *    so every request starts on a socket proven alive, however busy the worker is; or
+ *  - the socket sat idle for `vortos_idle_ping_seconds` (default 30) within one unit (a long external
+ *    call, or a connection no resetter reaches, such as an app's side connection).
+ * If the ping fails the socket is dropped and DBAL opens a new one with the same params (so TLS settings
+ * in the DSN apply again). The cost is one local round trip per request per connection used, well
+ * under a millisecond on the internal network. (DBAL itself drops a socket once a query on it reports
+ * ConnectionLost, so without the boundary ping each held connection would still fail one request
+ * after a database restart.)
  *
  * NEVER INSIDE A TRANSACTION. A ping that fails inside an open transaction means the transaction is
  * already gone; reconnecting would silently run the rest of it in autocommit. So a held socket with
@@ -45,6 +51,7 @@ class ResilientConnection extends Connection implements ResetInterface
 
     private ?float $connectedAt = null;
     private ?float $lastUsedAt  = null;
+    private bool $verifyOnNextUse = false;
 
     /** @var (\Closure(): float)|null tests only */
     private ?\Closure $clock = null;
@@ -54,13 +61,14 @@ class ResilientConnection extends Connection implements ResetInterface
         $now = $this->now();
 
         if ($this->_conn !== null && !$this->isTransactionActive()
-            && $this->lastUsedAt !== null && ($now - $this->lastUsedAt) >= $this->idlePingSeconds()) {
+            && ($this->verifyOnNextUse || ($this->lastUsedAt !== null && ($now - $this->lastUsedAt) >= $this->idlePingSeconds()))) {
             try {
                 $this->_conn->query('SELECT 1');
             } catch (\Throwable) {
                 $this->close();
             }
         }
+        $this->verifyOnNextUse = false;
 
         $opening    = $this->_conn === null;
         $connection = parent::connect();
@@ -82,6 +90,9 @@ class ResilientConnection extends Connection implements ResetInterface
 
     public function reset(): void
     {
+        // The next unit of work starts by proving the socket alive (see HOW).
+        $this->verifyOnNextUse = $this->_conn !== null;
+
         $maxLifetime = $this->maxLifetimeSeconds();
 
         if ($this->_conn === null || $this->isTransactionActive() || $maxLifetime <= 0.0 || $this->connectedAt === null) {

@@ -57,6 +57,21 @@ final class ResilientConnectionTest extends TestCase
         self::assertSame(['SELECT 43'], $this->sockets[1]['queries']);
     }
 
+    public function test_the_first_use_after_a_request_boundary_is_pinged_however_busy(): void
+    {
+        $connection = $this->connection();
+
+        $connection->executeQuery('SELECT 42');
+        $connection->reset();                     // end of the request
+        $this->sockets[0]['dead'] = true;         // the server restarted between two busy requests
+        $this->now += 1;
+        $connection->executeQuery('SELECT 43');
+        $connection->executeQuery('SELECT 44');   // within the same request: not pinged again
+
+        self::assertCount(2, $this->sockets, 'replaced before the request used it');
+        self::assertSame(['SELECT 43', 'SELECT 44'], $this->sockets[1]['queries']);
+    }
+
     public function test_a_socket_inside_a_transaction_is_never_swapped(): void
     {
         $connection = $this->connection();

@@ -153,8 +153,12 @@ final class RemoteDeployScript
         // B16: the blue-green cutover shells `docker compose`/`docker pull` from inside the one-shot.
         // It reaches Docker ONLY through the least-privilege docker-socket-proxy (never the raw
         // socket), via DOCKER_HOST on the shared app network.
-        $dockerRun = sprintf(
-            'docker run --rm --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 --env-file %s/.env.prod %s%s%s%s%s%s%s php bin/console ',
+        //
+        // Defined once as a shell function and called by name: written out on every line, the image digest
+        // expression and this prefix made the deploy step too long for GitHub (see ExpressionLengthLimit).
+        // Its variables expand at each call, exactly as they did written inline.
+        $consoleFunction = sprintf(
+            'vortos_console() { docker run --rm --network %s -e DOCKER_HOST=tcp://docker-socket-proxy:2375 --env-file %s/.env.prod %s%s%s%s%s%s%s php bin/console "$@"; }',
             $network,
             $deployDir,
             $toolingEnvFlags,
@@ -165,6 +169,25 @@ final class RemoteDeployScript
             $edgeConfigMount,
             $toolingRef,
         );
+        $lines[] = $consoleFunction;
+        $dockerRun = 'vortos_console ';
+
+        // Every sealed file is opened by the same one-shot (the app's reveal script, run as root from the
+        // tooling image with the deploy dir mounted), named once for the same reason as vortos_console.
+        $openSealed = 'vortos_open_sealed ';
+        $opensSealed = ($useAgeKek && $definition->sealedEnvFile !== null)
+            || $definition->sealedServiceEnvs !== []
+            || ($definition->sealedEnvFile !== null && $definition->derivedServiceEnvs !== [])
+            || $definition->sealedToolingEnvs !== [];
+        if ($opensSealed) {
+            $lines[] = sprintf(
+                'vortos_open_sealed() { docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s "$@"; }',
+                $deployDir,
+                $deployDir,
+                $toolingRef,
+                $definition->sealedEnvRevealScript,
+            );
+        }
 
         // The VPS pulls the image, so it authenticates to the registry there. Provider-driven so any
         // supported registry (ghcr / docker-hub / gcp-artifact) gets a real remote login instead of an
@@ -238,12 +261,8 @@ final class RemoteDeployScript
             // Runs as root (--user 0:0): the target env lives in the deploy-owned deploy dir, which the
             // image's non-root uid cannot write. The reveal script preserves the existing env file's
             // owner:group after writing, so the deploy's group-based env readers are unaffected.
-            $lines[] = sprintf(
-                'docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/.env.prod',
-                $deployDir,
-                $deployDir,
-                $toolingRef,
-                $definition->sealedEnvRevealScript,
+            $lines[] = $openSealed . sprintf(
+                '%s %s/.env.prod',
                 $definition->sealedEnvFile,
                 $deployDir,
             );
@@ -256,12 +275,8 @@ final class RemoteDeployScript
         // `set -euo pipefail` then aborts the deploy. No posture check here: the definition refuses
         // these under OIDC, because skipping one would boot its service without the credential.
         foreach ($definition->sealedServiceEnvs as $sealed) {
-            $lines[] = sprintf(
-                'docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/%s %s %s',
-                $deployDir,
-                $deployDir,
-                $toolingRef,
-                $definition->sealedEnvRevealScript,
+            $lines[] = $openSealed . sprintf(
+                '%s %s/%s %s %s',
                 $sealed->sealedPath,
                 $deployDir,
                 $sealed->target->value,
@@ -276,12 +291,8 @@ final class RemoteDeployScript
         // source lacks. Names are not secret, so passing them as an argument exposes nothing.
         if ($definition->sealedEnvFile !== null) {
             foreach ($definition->derivedServiceEnvs as $derived) {
-                $lines[] = sprintf(
-                    'docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/%s %s %s --only=%s',
-                    $deployDir,
-                    $deployDir,
-                    $toolingRef,
-                    $definition->sealedEnvRevealScript,
+                $lines[] = $openSealed . sprintf(
+                    '%s %s/%s %s %s --only=%s',
                     $definition->sealedEnvFile,
                     $deployDir,
                     $derived->target->value,
@@ -294,12 +305,8 @@ final class RemoteDeployScript
 
         // Tooling-only sealed secrets: opened the same way, owned by the deploy user whose docker CLI reads them.
         foreach ($definition->sealedToolingEnvs as $tooling) {
-            $lines[] = sprintf(
-                'docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v %s:%s %s %s %s %s/%s %s %s',
-                $deployDir,
-                $deployDir,
-                $toolingRef,
-                $definition->sealedEnvRevealScript,
+            $lines[] = $openSealed . sprintf(
+                '%s %s/%s %s %s',
                 $tooling->sealedPath,
                 $deployDir,
                 $tooling->target->value,

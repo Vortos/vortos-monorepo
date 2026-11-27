@@ -129,7 +129,7 @@ final class PipelineBuilderDeployStageTest extends TestCase
         $run = $this->remoteStep($this->withBuild())->run;
 
         $recordIdx = strpos($run, 'vortos:release:record-manifest');
-        $deployIdx = strpos($run, 'php bin/console deploy --env=');
+        $deployIdx = strpos($run, "\nvortos_console deploy --env=");
 
         $this->assertIsInt($recordIdx, 'record-manifest must be emitted');
         $this->assertIsInt($deployIdx, 'deploy must be emitted');

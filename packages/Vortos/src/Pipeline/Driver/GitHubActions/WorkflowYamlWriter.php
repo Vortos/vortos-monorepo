@@ -12,6 +12,9 @@ final class WorkflowYamlWriter
     /** @param array<string, mixed> $data */
     public function dump(array $data): string
     {
+        // Every workflow is written here, so nothing GitHub would refuse as a whole can be written at all.
+        ExpressionLengthLimit::assertWithin($data);
+
         return $this->dumpMap($data, 0);
     }
 

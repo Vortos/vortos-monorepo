@@ -83,14 +83,15 @@ final class RemoteDeployScriptTest extends TestCase
         // Emits the decrypt one-shot: no kernel boot, identity forwarded, deploy dir mounted rw, runs the
         // app's reveal script over the sealed blob → .env.prod.
         self::assertStringContainsString(
-            '--user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v /opt/vortos:/opt/vortos ghcr.io/acme/app@${{ needs.build.outputs.image }} '
-            . 'deploy/secrets/open-env.php deploy/secrets/env.prod.sealed /opt/vortos/.env.prod',
+            "\nvortos_open_sealed() { docker run --rm --user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v /opt/vortos:/opt/vortos ghcr.io/acme/app@\${{ needs.build.outputs.image }} "
+            . 'deploy/secrets/open-env.php "$@"; }' . "\n",
             $script,
         );
+        self::assertStringContainsString("\nvortos_open_sealed deploy/secrets/env.prod.sealed /opt/vortos/.env.prod\n", $script);
 
         // ...and it runs BEFORE the first command that reads --env-file .env.prod (migrate:analyze).
-        $revealPos = strpos($script, 'open-env.php');
-        $analyzePos = strpos($script, 'vortos:migrate:analyze');
+        $revealPos = strpos($script, "\nvortos_open_sealed deploy/secrets/env.prod.sealed");
+        $analyzePos = strpos($script, "\nvortos_console vortos:migrate:analyze");
         self::assertIsInt($revealPos);
         self::assertIsInt($analyzePos);
         self::assertLessThan($analyzePos, $revealPos, 'sealed env must be materialized before any command reads it');
@@ -127,7 +128,7 @@ final class RemoteDeployScriptTest extends TestCase
             ],
         ));
 
-        $prefix = '--user 0:0 --entrypoint php -e VORTOS_AGE_IDENTITY -v /opt/vortos:/opt/vortos ghcr.io/acme/app@${{ needs.build.outputs.image }} deploy/secrets/open-env.php ';
+        $prefix = "\nvortos_open_sealed ";
         self::assertStringContainsString($prefix . 'deploy/secrets/backup-identity.env.sealed /opt/vortos/backup-identity.env 0400 0:0', $script);
         self::assertStringContainsString($prefix . 'deploy/secrets/backup-r2.env.sealed /opt/vortos/backup-r2.env 0600 1001:1000', $script);
 
@@ -166,7 +167,7 @@ final class RemoteDeployScriptTest extends TestCase
             )],
         ));
 
-        $line = 'deploy/secrets/open-env.php deploy/secrets/env.prod.sealed /opt/vortos/backup-scheduler.env 0600 0:0 --only=APP_ENV,REDIS_DSN';
+        $line = "\nvortos_open_sealed deploy/secrets/env.prod.sealed /opt/vortos/backup-scheduler.env 0600 0:0 --only=APP_ENV,REDIS_DSN\n";
         self::assertStringContainsString($line, $script);
 
         $envProd = strpos($script, 'env.prod.sealed /opt/vortos/.env.prod');
@@ -259,8 +260,11 @@ final class RemoteDeployScriptTest extends TestCase
     {
         $script = $this->script($this->definition(false));
 
+        // The group is added by vortos_console, whose variables expand when it is called: the read must
+        // precede the first call, not the definition.
+        self::assertStringContainsString('vortos_console() { docker run --rm --network vortos-net -e DOCKER_HOST=tcp://docker-socket-proxy:2375 --env-file /opt/vortos/.env.prod --group-add "$VORTOS_SECRETS_GID" ', $script);
         $storeGid = strpos($script, 'VORTOS_SECRETS_GID="$(stat');
-        $firstUse = strpos($script, '--group-add "$VORTOS_SECRETS_GID"');
+        $firstUse = strpos($script, "\nvortos_console ");
         self::assertIsInt($storeGid);
         self::assertIsInt($firstUse);
         self::assertLessThan($firstUse, $storeGid);
@@ -324,7 +328,7 @@ final class RemoteDeployScriptTest extends TestCase
         $provisionPos = strpos($script, 'vortos:deploy:provision');
         $recordPos = strpos($script, 'vortos:release:record-manifest');
         $doctorPos = strpos($script, 'deploy:doctor');
-        $deployPos = strpos($script, "php bin/console deploy --env=");
+        $deployPos = strpos($script, "\nvortos_console deploy --env=");
 
         self::assertIsInt($provisionPos);
         self::assertIsInt($recordPos);
@@ -430,9 +434,9 @@ final class RemoteDeployScriptTest extends TestCase
         self::assertStringContainsString("VORTOS_ENVFILE_GID_0=\"\$(stat -c '%g' /opt/vortos/.env.prod)\"", $script);
         self::assertStringContainsString('--group-add "$VORTOS_ENVFILE_GID_0"', $script);
 
-        // The gid must be read before the docker run that consumes $groupAdd.
+        // The gid must be read before the first call of the one-shot that consumes $groupAdd.
         $statPos = strpos($script, 'VORTOS_ENVFILE_GID_0=');
-        $runPos = strpos($script, '--group-add "$VORTOS_ENVFILE_GID_0"');
+        $runPos = strpos($script, "\nvortos_console ");
         self::assertIsInt($statPos);
         self::assertIsInt($runPos);
         self::assertLessThan($runPos, $statPos);
@@ -492,7 +496,7 @@ final class RemoteDeployScriptTest extends TestCase
         self::assertStringContainsString('vortos:deploy:materialize-file-secrets --env=', $script);
 
         $materializePos = strpos($script, 'vortos:deploy:materialize-file-secrets');
-        $deployPos = strpos($script, 'php bin/console deploy --env=');
+        $deployPos = strpos($script, "\nvortos_console deploy --env=");
         self::assertIsInt($materializePos);
         self::assertIsInt($deployPos);
         self::assertLessThan($deployPos, $materializePos, 'file secrets must be materialized before cutover');
@@ -564,7 +568,7 @@ final class RemoteDeployScriptTest extends TestCase
         $install = strpos($script, 'vortos:search:pg:install');
         $seed = strpos($script, 'vortos:auth:seed --prune');
         $provision = strpos($script, 'vortos:deploy:provision');
-        $cutover = strpos($script, 'php bin/console deploy --env=');
+        $cutover = strpos($script, "\nvortos_console deploy --env=");
 
         $this->assertNotFalse($install);
         $this->assertNotFalse($seed);

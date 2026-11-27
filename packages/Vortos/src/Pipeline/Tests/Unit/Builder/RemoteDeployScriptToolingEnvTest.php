@@ -42,8 +42,8 @@ final class RemoteDeployScriptToolingEnvTest extends TestCase
     {
         $script = self::script();
 
-        $reveal = strpos($script, 'deploy/secrets/open-env.php deploy/secrets/db-owner.env.sealed /opt/vortos/db-owner.env 0600 1001:1001');
-        $firstConsumer = strpos($script, 'php bin/console vortos:migrate:analyze');
+        $reveal = strpos($script, "\nvortos_open_sealed deploy/secrets/db-owner.env.sealed /opt/vortos/db-owner.env 0600 1001:1001\n");
+        $firstConsumer = strpos($script, "\nvortos_console vortos:migrate:analyze");
         self::assertIsInt($reveal);
         self::assertIsInt($firstConsumer);
         self::assertLessThan($firstConsumer, $reveal);
@@ -51,16 +51,20 @@ final class RemoteDeployScriptToolingEnvTest extends TestCase
 
     public function test_every_deploy_one_shot_reads_it_after_the_runtime_env(): void
     {
-        $oneShots = array_values(array_filter(
-            explode("\n", self::script()),
-            static fn (string $line): bool => str_contains($line, 'php bin/console ') && str_contains($line, 'docker-socket-proxy:2375 --env-file'),
-        ));
+        $lines = explode("\n", self::script());
 
-        self::assertNotEmpty($oneShots);
+        // Every deploy one-shot is a call of vortos_console, defined once: its definition reads the
+        // tooling env after the runtime env, so every call does.
+        $definitions = array_values(array_filter($lines, static fn (string $line): bool => str_starts_with($line, 'vortos_console() { ')));
+        self::assertCount(1, $definitions);
+        self::assertStringContainsString('--env-file /opt/vortos/.env.prod --env-file /opt/vortos/db-owner.env ', $definitions[0]);
+        self::assertSame(1, substr_count(self::script(), 'docker-socket-proxy:2375 --env-file'), 'no one-shot bypasses vortos_console');
+
         $commands = [];
-        foreach ($oneShots as $line) {
-            self::assertStringContainsString('--env-file /opt/vortos/.env.prod --env-file /opt/vortos/db-owner.env ', $line);
-            $commands[] = substr($line, (int) strpos($line, 'php bin/console ') + 16);
+        foreach ($lines as $line) {
+            if (str_starts_with($line, 'vortos_console ')) {
+                $commands[] = substr($line, strlen('vortos_console '));
+            }
         }
         self::assertContains('vortos:database:roles:grant', $commands);
         self::assertNotEmpty(array_filter($commands, static fn (string $c): bool => str_starts_with($c, 'vortos:deploy:provision')));
@@ -69,7 +73,7 @@ final class RemoteDeployScriptToolingEnvTest extends TestCase
     public function test_the_topology_sync_and_the_secret_reveals_do_not_read_it(): void
     {
         foreach (explode("\n", self::script()) as $line) {
-            if (str_contains($line, 'vortos:deploy:compose:sync') || str_contains($line, 'open-env.php')) {
+            if (str_contains($line, 'vortos:deploy:compose:sync') || str_contains($line, 'open-env.php') || str_starts_with($line, 'vortos_open_sealed ')) {
                 self::assertStringNotContainsString('--env-file /opt/vortos/db-owner.env', $line);
             }
         }

@@ -20,6 +20,11 @@ use Vortos\Foundation\Process\StreamMode;
  * Connection parameters come from the DBAL connection (primary or replica), never configured twice.
  * The password reaches the child as a 0600 `PGPASSFILE` — never argv, never the environment, never a
  * log — and the child gets a minimal environment rather than the application's.
+ *
+ * TLS settings travel with it. A DSN's `sslmode`, `sslrootcert`, `sslcert`, `sslkey` and `sslcrl` reach
+ * the child as libpq's PGSSL* variables, so a server that refuses unencrypted connections is dumped over
+ * the same verified TLS the application uses. Without them the child would connect in the clear and be
+ * refused, or, against a server that still allows it, send the database over the network unencrypted.
  */
 final class PostgresProcessFactory
 {
@@ -46,7 +51,7 @@ final class PostgresProcessFactory
             '--port=' . (string) $params['port'],
             '--username=' . $params['user'],
             '--dbname=' . $params['dbname'],
-        ], $params['password']);
+        ], $params['password'], $params['tls']);
     }
 
     /**
@@ -64,21 +69,31 @@ final class PostgresProcessFactory
             '--host=' . $params['host'],
             '--port=' . (string) $params['port'],
             '--username=' . $params['user'],
-        ], $params['password']);
+        ], $params['password'], $params['tls']);
     }
 
+    /** DSN parameter => the libpq environment variable that carries it to a child. */
+    private const TLS_ENV = [
+        'sslmode'     => 'PGSSLMODE',
+        'sslrootcert' => 'PGSSLROOTCERT',
+        'sslcert'     => 'PGSSLCERT',
+        'sslkey'      => 'PGSSLKEY',
+        'sslcrl'      => 'PGSSLCRL',
+    ];
+
     /**
-     * @param list<string> $arguments
+     * @param list<string>          $arguments
+     * @param array<string, string> $tls       PGSSL* variables for the child
      * @return array{0: resource, 1: ProcessGuard}
      */
-    private function spawn(string $binary, array $arguments, string $password): array
+    private function spawn(string $binary, array $arguments, string $password, array $tls = []): array
     {
         if ($this->launcher->which($binary) === null) {
             throw DumpFailedException::missingBinary('postgres', $binary);
         }
 
         $process = $this->launcher->start(
-            new ProcessSpec([$binary, ...$arguments], EnvironmentPolicy::Minimal, null, env: ['PGPASSFILE' => PgPassFile::for($password)]),
+            new ProcessSpec([$binary, ...$arguments], EnvironmentPolicy::Minimal, null, env: ['PGPASSFILE' => PgPassFile::for($password)] + $tls),
             StreamMode::Null,
             StreamMode::Pipe,
             StreamMode::Capture,
@@ -88,7 +103,7 @@ final class PostgresProcessFactory
     }
 
     /**
-     * @return array{host:string, port:int, user:string, password:string, dbname:string}
+     * @return array{host:string, port:int, user:string, password:string, dbname:string, tls:array<string, string>}
      */
     private function params(bool $fromReplica): array
     {
@@ -101,6 +116,23 @@ final class PostgresProcessFactory
             'user' => (string) ($p['user'] ?? 'postgres'),
             'password' => (string) ($p['password'] ?? ''),
             'dbname' => (string) ($p['dbname'] ?? ($p['path'] ?? 'postgres')),
+            'tls' => self::tlsEnvironment($p),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     * @return array<string, string>
+     */
+    private static function tlsEnvironment(array $params): array
+    {
+        $env = [];
+        foreach (self::TLS_ENV as $param => $variable) {
+            if (isset($params[$param]) && is_scalar($params[$param]) && (string) $params[$param] !== '') {
+                $env[$variable] = (string) $params[$param];
+            }
+        }
+
+        return $env;
     }
 }

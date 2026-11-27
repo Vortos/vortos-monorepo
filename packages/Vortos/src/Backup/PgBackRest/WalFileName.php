@@ -31,6 +31,25 @@ final readonly class WalFileName
         return new self($name, (int) hexdec($m[1]), (int) hexdec($m[2]), (int) hexdec($m[3]));
     }
 
+    /**
+     * The segment an archived file belongs to, as pg_stat_archiver.last_archived_wal names it: besides a segment,
+     * the archiver also archives a backup's history file (`<segment>.<offset>.backup`, right after every backup
+     * until the next segment), a segment cut short by a promotion (`<segment>.partial`) and a timeline history
+     * (`<timeline>.history`). The first three are positions in the WAL stream; a timeline history is not, and
+     * gives null. Anything else is refused as parse() refuses it.
+     */
+    public static function ofArchived(string $name): ?self
+    {
+        if (preg_match('/^[0-9A-F]{8}\.history$/', $name) === 1) {
+            return null;
+        }
+        if (preg_match('/^([0-9A-F]{24})(?:\.partial|\.[0-9A-F]{8}\.backup)$/', $name, $m) === 1) {
+            return self::parse($m[1]);
+        }
+
+        return self::parse($name);
+    }
+
     /** The file holding an LSN (`X/Y`), as pg_walfile_name() names it on the given timeline. */
     public static function containing(string $lsn, int $timeline, int $segmentBytes): self
     {

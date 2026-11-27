@@ -56,6 +56,31 @@ final class PgBackRestRepositoryInspectorTest extends TestCase
         self::assertSame(0, $assessment->facts['archive_lag_segments']);
     }
 
+    /**
+     * Right after a backup the server's last archived file is the backup's history file: on 2026-11-28 the
+     * status after the first off-site full threw "Not a WAL segment name" for both repositories until the next
+     * segment was archived.
+     */
+    public function testABackupHistoryFileIsMeasuredAsTheSegmentItBelongsTo(): void
+    {
+        $this->serverArchived = '0000000100000015000003CB.00000028.backup';
+
+        $assessment = $this->inspector('2026-10-13 01:00:00')->assess();
+
+        self::assertSame(PgBackRestRepositoryStatus::Healthy, $assessment->status, implode('; ', $assessment->problems));
+        self::assertSame(0, $assessment->facts['archive_lag_segments']);
+    }
+
+    public function testATimelineHistoryIsNotAPositionAndFailsNothing(): void
+    {
+        $this->serverArchived = '00000002.history';
+
+        $assessment = $this->inspector('2026-10-13 01:00:00')->assess();
+
+        self::assertSame(PgBackRestRepositoryStatus::Healthy, $assessment->status, implode('; ', $assessment->problems));
+        self::assertArrayNotHasKey('archive_lag_segments', $assessment->facts);
+    }
+
     public function testAMissedDifferentialPagesOnceTheCadenceAndGraceHavePassed(): void
     {
         // Daily cadence + 2 h grace = 26 h after the newest backup.

@@ -187,7 +187,14 @@ final class PgBackRestRepositoryInspector
             return [sprintf('the server reports %s archived but the repository holds no WAL', $server->lastArchivedWal)];
         }
 
-        $behind = WalFileName::parse($server->lastArchivedWal)->sequence($segmentBytes)
+        // Right after a backup the server's last archived file is that backup's history file, and after a
+        // promotion a timeline history: the lag is measured from the segment the file belongs to, and a timeline
+        // history (no position in the stream) is measured on the next segment instead of failing the probe.
+        $archived = WalFileName::ofArchived($server->lastArchivedWal);
+        if ($archived === null) {
+            return [];
+        }
+        $behind = $archived->sequence($segmentBytes)
             - WalFileName::parse($info->archiveMax)->sequence($segmentBytes);
         $facts['archive_lag_segments'] = $behind;
 

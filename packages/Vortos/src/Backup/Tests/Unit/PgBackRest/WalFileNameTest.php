@@ -28,6 +28,22 @@ final class WalFileNameTest extends TestCase
         self::assertSame(256 + 2, WalFileName::parse('000000010000001600000002')->sequence(16 << 20) - WalFileName::parse('000000010000001500000000')->sequence(16 << 20));
     }
 
+    public function testAnArchivedFileIsTheSegmentItBelongsTo(): void
+    {
+        self::assertSame('0000000100000015000003C4', WalFileName::ofArchived('0000000100000015000003C4')?->name);
+        self::assertSame('0000000100000015000003C4', WalFileName::ofArchived('0000000100000015000003C4.00000028.backup')?->name);
+        self::assertSame('0000000100000015000003C4', WalFileName::ofArchived('0000000100000015000003C4.partial')?->name);
+        self::assertNull(WalFileName::ofArchived('00000002.history'));
+
+        foreach (['0000000100000015000003C4.backup', '0000000100000015000003C4.0028.backup', 'zz.history', 'zz'] as $bad) {
+            try {
+                WalFileName::ofArchived($bad);
+                self::fail($bad . ' parsed');
+            } catch (\InvalidArgumentException) {
+            }
+        }
+    }
+
     public function testRefusesWhatIsNotAWalFileOrASegmentSize(): void
     {
         foreach (['00000002.history', '0000000100000015000003C4.partial', 'zz'] as $bad) {
